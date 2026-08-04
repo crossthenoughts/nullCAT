@@ -31,7 +31,11 @@ concurrency:
 env:
   SOEM_REV: b410bf6ef599d5c85302ea45cae5f55f8e9aa394
   GPIOD_VER: 2.2.1
-  NPCAP_SDK_VER: '1.13'
+  # 1.16+ required: SOEM's nicdrv.h includes both <pcap.h> and <Packet32.h>,
+  # and SDK <= 1.13 re-defines struct bpf_program / bpf_insn in Packet32.h
+  # behind an #ifndef BPF_MAJOR_VERSION guard that modern pcap.h no longer
+  # trips -> C2011 redefinition. 1.16's Packet32.h does not define them.
+  NPCAP_SDK_VER: '1.16'
 
 jobs:
   secrets:
