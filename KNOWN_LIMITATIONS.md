@@ -10,7 +10,7 @@ scheduling, which delivers a usable loop most of the time, but frame timing
 can and does wobble under load (WKC misses, jitter spikes, occasional DC
 re-syncs). The architecture absorbs this (hold-previous-PDO, time-based
 recovery), but the Pi + PREEMPT_RT build is the reference platform and
-behaves measurably better. Recommendations for Windows: dedicated NIC for
+behaves measurably better. Some recommendations for Windows: using a dedicated PCIE NIC for
 the EtherCAT segment, wired everything, no virtualization, administrator
 rights for Npcap.
 
@@ -18,7 +18,7 @@ rights for Npcap.
 
 Validated on the reference rig: 4 drives on one segment (3x CSP vertical
 actuators plus 1x CST belt tensioner), daily use on both platforms. Larger
-topologies (6 to 10 drives) are untested and are a stated goal of the beta
+topologies (5 to 10 drives) are untested and are a stated goal of the beta
 program; if you run a bigger chain, your results are exactly the data the
 project needs.
 
