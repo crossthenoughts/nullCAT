@@ -31,6 +31,7 @@ concurrency:
 env:
   SOEM_REV: b410bf6ef599d5c85302ea45cae5f55f8e9aa394
   GPIOD_VER: 2.2.1
+  NPCAP_SDK_VER: '1.13'
 
 jobs:
   secrets:
@@ -125,11 +126,48 @@ jobs:
         with:
           version: '6.7.*'
           cache: true
+      # npcap.com throttles/blocks automated downloads from CI IP ranges
+      # intermittently (observed: the same URL succeeding one run and failing
+      # the next). Cache the extracted SDK so a normal run never touches the
+      # site, and retry with backoff on the rare cache miss.
+      - name: Cache Npcap SDK
+        id: npcap-cache
+        uses: actions/cache@v4
+        with:
+          path: C:\npcap-sdk
+          key: npcap-sdk-${{ env.NPCAP_SDK_VER }}
       - name: Fetch Npcap SDK
+        if: steps.npcap-cache.outputs.cache-hit != 'true'
         run: |
-          curl -fsSL https://npcap.com/dist/npcap-sdk-1.13.zip -o npcap-sdk.zip
-          Expand-Archive npcap-sdk.zip -DestinationPath C:\npcap-sdk
+          $url = "https://npcap.com/dist/npcap-sdk-$env:NPCAP_SDK_VER.zip"
+          $ok = $false
+          for ($i = 1; $i -le 5; $i++) {
+            try {
+              Invoke-WebRequest -Uri $url -OutFile npcap-sdk.zip `
+                -UserAgent "Mozilla/5.0" -TimeoutSec 60
+              $ok = $true; break
+            } catch {
+              Write-Host "attempt $i/5 failed: $($_.Exception.Message)"
+              if ($i -lt 5) { Start-Sleep -Seconds (5 * $i) }
+            }
+          }
+          if (-not $ok) { throw "Npcap SDK download failed after 5 attempts ($url)" }
+          Expand-Archive npcap-sdk.zip -DestinationPath C:\npcap-sdk -Force
+      - name: Verify Npcap SDK layout
+        run: |
+          foreach ($f in @("C:\npcap-sdk\Include\pcap.h",
+                           "C:\npcap-sdk\Lib\x64\wpcap.lib")) {
+            if (-not (Test-Path $f)) { throw "Npcap SDK incomplete: missing $f" }
+          }
+          Write-Host "Npcap SDK OK (Include/pcap.h + Lib/x64/wpcap.lib present)"
+      - name: Cache SOEM (pinned build)
+        id: soem-cache
+        uses: actions/cache@v4
+        with:
+          path: C:\SOEM\install
+          key: soem-${{ env.SOEM_REV }}-windows-msvc
       - name: Build SOEM (pinned)
+        if: steps.soem-cache.outputs.cache-hit != 'true'
         run: |
           git clone https://github.com/OpenEtherCATsociety/SOEM.git C:\SOEM
           cd C:\SOEM
