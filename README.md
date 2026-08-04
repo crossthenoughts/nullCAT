@@ -31,7 +31,7 @@ actuators in CSP plus a belt tensioner in CST torque mode) on both
 platforms. **Looking for beta testers with A6-EC hardware.** See
 [Community](#community--supporting-the-project).
 
-<!-- TODO: CI badge here once Actions is green. -->
+[![CI](https://github.com/crossthenoughts/nullCAT/actions/workflows/ci.yml/badge.svg)](https://github.com/crossthenoughts/nullCAT/actions/workflows/ci.yml)
 
 ## What it does
 
