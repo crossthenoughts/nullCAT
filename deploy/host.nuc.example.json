@@ -1,0 +1,30 @@
+{
+    "_documentation": "Example host.json for a dedicated Windows NUC fed by a separate game PC. Copy to host.json next to nullCAT.exe and edit nicName + the IPs. See Docs/NUC_DEPLOYMENT.md and host.reference.json. rig.json (axes + tuning) is edited in the web UI -- copy it from a known-good rig.",
+    "configVersion": 2,
+
+    "_section_nuc": "The two NUC-defining choices: nicName = the EtherCAT NIC SOEM opens raw; telemetryBindAddr = 0.0.0.0 (or the link NIC IP) so telemetry from the GAME PC is received, not just loopback.",
+    "nicName": "CHANGE-ME: EtherCAT NIC name (e.g. Intel(R) I211 Gigabit Network Connection)",
+    "telemetryBindAddr": "0.0.0.0",
+    "telemetryPort": 4444,
+
+    "_section_web": "Operate/configure from the game PC's browser. webBindAddr 0.0.0.0 exposes the UI on the network; there is no login (trusted-LAN model, see KNOWN_LIMITATIONS security section), so keep the link point-to-point or on a trusted private network. The Host-header allowlist and the local-clients-only power gate are always enforced.",
+    "webUIEnabled": true,
+    "webBindAddr": "0.0.0.0",
+    "webPort": 8080,
+
+    "controlLoopHz": 500,
+    "_comment_dcSyncOffsetNs": "500000 (500us) is the WINDOWS setting -- Windows builds run this offset to ride out scheduler jitter. Pi builds run 0.",
+    "dcSyncOffsetNs": 500000,
+    "pdoWatchdogMs": 100,
+
+    "logFile": "logs/app.log",
+    "logToConsole": true,
+    "logMinLevel": "info",
+    "diagEnabled": true,
+    "simulationMode": false,
+
+    "foregroundKeeperEnabled": true,
+    "foregroundKeeperAlpha": 255,
+    "foregroundKeeperX": 0,
+    "foregroundKeeperY": 0
+}

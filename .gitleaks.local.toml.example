@@ -1,0 +1,20 @@
+# Template for .gitleaks.local.toml — copy to .gitleaks.local.toml (which is
+# git-ignored) and fill in YOUR machine's personal patterns. Do not commit
+# the filled-in file; do not put real values in this example.
+
+title = "nullCAT secret prevention (local personal patterns)"
+
+[[rules]]
+id = "personal-hostname"
+description = "This machine's hostnames must never appear in tracked files"
+regex = '''(?i)(my-hostname-1|my-hostname-2)'''
+
+[[rules]]
+id = "personal-ssid"
+description = "Home network SSIDs"
+regex = '''(?i)(my-wifi-ssid)'''
+
+[[rules]]
+id = "personal-email"
+description = "Personal email addresses"
+regex = '''someone@example\.com'''

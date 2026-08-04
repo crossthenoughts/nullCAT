@@ -1,0 +1,22 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+
+<!--
+  Avahi mDNS service advertisement for the nullCAT web UI.
+
+  Install on Raspberry Pi:
+    sudo cp nullcat.service /etc/avahi/services/nullcat.service
+    sudo systemctl restart avahi-daemon
+
+  After install, the web UI is reachable at:
+    http://nullcat.local:8080
+-->
+
+<service-group>
+  <name replace-wildcards="yes">nullCAT on %h</name>
+  <service>
+    <type>_http._tcp</type>
+    <port>8080</port> <!-- keep in sync with webPort in host.json -->
+    <txt-record>path=/</txt-record>
+  </service>
+</service-group>

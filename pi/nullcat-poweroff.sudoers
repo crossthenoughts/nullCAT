@@ -1,0 +1,11 @@
+# nullCAT-Pi — allow the (non-root) service user to power off / reboot the Pi
+# from the web UI, with no password. The web "Shutdown" button calls
+# `sudo -n systemctl poweroff`.
+#
+# Install (validate, then drop in with the required 0440 perms):
+#   sudo install -m 440 ~/nullcat/pi/nullcat-poweroff.sudoers \
+#        /etc/sudoers.d/nullcat-poweroff
+#   sudo visudo -c        # should report: parsed OK
+#
+# Scope is limited to exactly these commands — nothing else gains sudo.
+nullcat ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/sbin/poweroff, /sbin/poweroff, /usr/bin/systemctl reboot, /usr/sbin/reboot, /sbin/reboot

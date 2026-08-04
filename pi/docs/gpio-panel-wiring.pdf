@@ -1,0 +1,223 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 7 0 R /F2 8 0 R /F3 9 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 7 0 R /F2 8 0 R /F3 9 0 R >> >> /Contents 6 0 R >>
+endobj
+5 0 obj
+<< /Length 6212 >>
+stream
+0 0 0 rg BT /F2 19 Tf 1 0 0 1 42.0 800.0 Tm (nullCAT-Pi  -  GPIO Control Panel) Tj ET
+0.45 0.45 0.45 rg BT /F1 11 Tf 1 0 0 1 42.0 782.0 Tm (Wiring & pin reference) Tj ET
+0 0 0 rg BT /F1 10 Tf 1 0 0 1 42.0 756.0 Tm (One Cat5e/Cat6 cable carries every signal: 7 of 8 conductors used.) Tj ET
+0 0 0 rg BT /F1 10 Tf 1 0 0 1 42.0 742.0 Tm (RJ45 / keystone breakout at each end.  NOT a network link - do not plug into a NIC.) Tj ET
+0 0 0 rg BT /F1 10 Tf 1 0 0 1 42.0 728.0 Tm (3.3 V logic only.  Buttons use internal pull-ups; LEDs are sourced by the GPIO pins.) Tj ET
+0 0 0 rg BT /F2 13 Tf 1 0 0 1 42.0 702.0 Tm (Conductor map) Tj ET
+0 0 0 RG 0.8 w 42.0 680.0 m 553.0 680.0 l S
+0 0 0 rg BT /F2 9.5 Tf 1 0 0 1 42.0 666.0 Tm (Function) Tj ET
+0 0 0 rg BT /F2 9.5 Tf 1 0 0 1 147.0 666.0 Tm (BCM) Tj ET
+0 0 0 rg BT /F2 9.5 Tf 1 0 0 1 199.0 666.0 Tm (Phys) Tj ET
+0 0 0 rg BT /F2 9.5 Tf 1 0 0 1 235.0 666.0 Tm (Cat5e colour) Tj ET
+0 0 0 rg BT /F2 9.5 Tf 1 0 0 1 313.0 666.0 Tm (Notes) Tj ET
+0 0 0 RG 0.8 w 42.0 659.0 m 553.0 659.0 l S
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 42.0 644.0 Tm (E-STOP signal) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 147.0 644.0 Tm (GPIO17) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 199.0 644.0 Tm (11) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 235.0 644.0 Tm (white-orange) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 313.0 644.0 Tm (NC mushroom to GND; open=stop) Tj ET
+0.82 0.82 0.82 RG 0.3 w 42.0 640.0 m 553.0 640.0 l S
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 42.0 629.0 Tm (Common GND) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 147.0 629.0 Tm (GND) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 199.0 629.0 Tm (14) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 235.0 629.0 Tm (orange) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 313.0 629.0 Tm (shared return \(one common wire\)) Tj ET
+0.82 0.82 0.82 RG 0.3 w 42.0 625.0 m 553.0 625.0 l S
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 42.0 614.0 Tm (ENGAGE) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 147.0 614.0 Tm (GPIO27) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 199.0 614.0 Tm (13) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 235.0 614.0 Tm (white-green) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 313.0 614.0 Tm (momentary to GND) Tj ET
+0.82 0.82 0.82 RG 0.3 w 42.0 610.0 m 553.0 610.0 l S
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 42.0 599.0 Tm (PARK) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 147.0 599.0 Tm (GPIO22) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 199.0 599.0 Tm (15) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 235.0 599.0 Tm (green) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 313.0 599.0 Tm (momentary to GND) Tj ET
+0.82 0.82 0.82 RG 0.3 w 42.0 595.0 m 553.0 595.0 l S
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 42.0 584.0 Tm (LED Run \(grn\)) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 147.0 584.0 Tm (GPIO23) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 199.0 584.0 Tm (16) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 235.0 584.0 Tm (white-blue) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 313.0 584.0 Tm (pin -> 330R -> LED -> GND) Tj ET
+0.82 0.82 0.82 RG 0.3 w 42.0 580.0 m 553.0 580.0 l S
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 42.0 569.0 Tm (LED Ready\(amb\)) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 147.0 569.0 Tm (GPIO24) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 199.0 569.0 Tm (18) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 235.0 569.0 Tm (blue) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 313.0 569.0 Tm (pin -> 330R -> LED -> GND) Tj ET
+0.82 0.82 0.82 RG 0.3 w 42.0 565.0 m 553.0 565.0 l S
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 42.0 554.0 Tm (LED Fault\(red\)) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 147.0 554.0 Tm (GPIO25) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 199.0 554.0 Tm (22) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 235.0 554.0 Tm (white-brown) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 313.0 554.0 Tm (pin -> 330R -> LED -> GND) Tj ET
+0.82 0.82 0.82 RG 0.3 w 42.0 550.0 m 553.0 550.0 l S
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 42.0 539.0 Tm (spare) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 147.0 539.0 Tm (-) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 199.0 539.0 Tm (-) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 235.0 539.0 Tm (brown) Tj ET
+0 0 0 rg BT /F3 8.2 Tf 1 0 0 1 313.0 539.0 Tm (future 4th LED/button or 2nd GND) Tj ET
+0 0 0 RG 0.8 w 42.0 530.0 511.0 150.0 re S
+0 0 0 rg BT /F2 13 Tf 1 0 0 1 42.0 514.0 Tm (Panel behaviour) Tj ET
+0 0 0 rg BT /F2 9.5 Tf 1 0 0 1 42.0 498.0 Tm (ENGAGE) Tj ET
+0 0 0 rg BT /F1 9.5 Tf 1 0 0 1 104.0 498.0 Tm (two-stage:  offline -> Initialize EtherCAT ;  ready \(OP, stopped\) -> Start loop) Tj ET
+0 0 0 rg BT /F2 9.5 Tf 1 0 0 1 42.0 484.0 Tm (PARK) Tj ET
+0 0 0 rg BT /F1 9.5 Tf 1 0 0 1 104.0 484.0 Tm (running -> Park \(returns platform to neutral; loop keeps running\)) Tj ET
+0 0 0 rg BT /F2 9.5 Tf 1 0 0 1 42.0 470.0 Tm (E-STOP) Tj ET
+0 0 0 rg BT /F1 9.5 Tf 1 0 0 1 104.0 470.0 Tm (open \(or cable cut\) -> disable drives.  Release the mushroom) Tj ET
+0 0 0 rg BT /F1 9.5 Tf 1 0 0 1 104.0 456.0 Tm (to clear the e-stop and the UI \(auto-release\).) Tj ET
+0 0 0 rg BT /F2 13 Tf 1 0 0 1 42.0 434.0 Tm (Status LEDs) Tj ET
+0.12 0.55 0.18 rg 51.0 421.0 m 51.0 423.2 49.2 425.0 47.0 425.0 c 44.8 425.0 43.0 423.2 43.0 421.0 c 43.0 418.8 44.8 417.0 47.0 417.0 c 49.2 417.0 51.0 418.8 51.0 421.0 c f
+0 0 0 rg BT /F2 9.5 Tf 1 0 0 1 58.0 418.0 Tm (Green) Tj ET
+0 0 0 rg BT /F1 9.5 Tf 1 0 0 1 112.0 418.0 Tm (solid = control loop running) Tj ET
+0.85 0.55 0.05 rg 51.0 406.0 m 51.0 408.2 49.2 410.0 47.0 410.0 c 44.8 410.0 43.0 408.2 43.0 406.0 c 43.0 403.8 44.8 402.0 47.0 402.0 c 49.2 402.0 51.0 403.8 51.0 406.0 c f
+0 0 0 rg BT /F2 9.5 Tf 1 0 0 1 58.0 403.0 Tm (Amber) Tj ET
+0 0 0 rg BT /F1 9.5 Tf 1 0 0 1 112.0 403.0 Tm (solid = ready \(OP, stopped\) ;  blink = initializing) Tj ET
+0.8 0.12 0.12 rg 51.0 391.0 m 51.0 393.2 49.2 395.0 47.0 395.0 c 44.8 395.0 43.0 393.2 43.0 391.0 c 43.0 388.8 44.8 387.0 47.0 387.0 c 49.2 387.0 51.0 388.8 51.0 391.0 c f
+0 0 0 rg BT /F2 9.5 Tf 1 0 0 1 58.0 388.0 Tm (Red) Tj ET
+0 0 0 rg BT /F1 9.5 Tf 1 0 0 1 112.0 388.0 Tm (solid = E-STOP ;  blink = drive fault) Tj ET
+0.6 0.6 0.6 rg 51.0 376.0 m 51.0 378.2 49.2 380.0 47.0 380.0 c 44.8 380.0 43.0 378.2 43.0 376.0 c 43.0 373.8 44.8 372.0 47.0 372.0 c 49.2 372.0 51.0 373.8 51.0 376.0 c f
+0 0 0 rg BT /F2 9.5 Tf 1 0 0 1 58.0 373.0 Tm (All off) Tj ET
+0 0 0 rg BT /F1 9.5 Tf 1 0 0 1 112.0 373.0 Tm (offline \(EtherCAT not operational\)) Tj ET
+0.45 0.45 0.45 rg BT /F1 8 Tf 1 0 0 1 42.0 36.0 Tm (nullCAT-Pi GPIO panel  -  page 1/2) Tj ET
+endstream
+endobj
+6 0 obj
+<< /Length 7140 >>
+stream
+0 0 0 rg BT /F2 16 Tf 1 0 0 1 42.0 800.0 Tm (Pi 40-pin header  -  block used \(pins 11-22\)) Tj ET
+0.45 0.45 0.45 rg BT /F1 9.5 Tf 1 0 0 1 42.0 784.0 Tm (Odd pins on the top rail, even on the bottom \(Pi 4, gpiochip0\).) Tj ET
+1 0.9 0.9 rg 42.0 722.0 82.0 40.0 re f
+0.3 0.3 0.3 RG 0.7 w 42.0 722.0 82.0 40.0 re S
+0 0 0 rg BT /F2 8.5 Tf 1 0 0 1 46.0 750.0 Tm (pin 11) Tj ET
+0 0 0 rg BT /F3 8 Tf 1 0 0 1 46.0 739.0 Tm (GPIO17) Tj ET
+0 0 0 rg BT /F1 7.8 Tf 1 0 0 1 46.0 728.0 Tm (E-STOP) Tj ET
+0.9 1 0.9 rg 125.0 722.0 82.0 40.0 re f
+0.3 0.3 0.3 RG 0.7 w 125.0 722.0 82.0 40.0 re S
+0 0 0 rg BT /F2 8.5 Tf 1 0 0 1 129.0 750.0 Tm (pin 13) Tj ET
+0 0 0 rg BT /F3 8 Tf 1 0 0 1 129.0 739.0 Tm (GPIO27) Tj ET
+0 0 0 rg BT /F1 7.8 Tf 1 0 0 1 129.0 728.0 Tm (ENGAGE) Tj ET
+0.9 1 0.9 rg 208.0 722.0 82.0 40.0 re f
+0.3 0.3 0.3 RG 0.7 w 208.0 722.0 82.0 40.0 re S
+0 0 0 rg BT /F2 8.5 Tf 1 0 0 1 212.0 750.0 Tm (pin 15) Tj ET
+0 0 0 rg BT /F3 8 Tf 1 0 0 1 212.0 739.0 Tm (GPIO22) Tj ET
+0 0 0 rg BT /F1 7.8 Tf 1 0 0 1 212.0 728.0 Tm (PARK) Tj ET
+1 1 0.8 rg 291.0 722.0 82.0 40.0 re f
+0.3 0.3 0.3 RG 0.7 w 291.0 722.0 82.0 40.0 re S
+0 0 0 rg BT /F2 8.5 Tf 1 0 0 1 295.0 750.0 Tm (pin 17) Tj ET
+0 0 0 rg BT /F3 8 Tf 1 0 0 1 295.0 739.0 Tm (3V3) Tj ET
+0 0 0 rg BT /F1 7.8 Tf 1 0 0 1 295.0 728.0 Tm (do NOT use) Tj ET
+0.95 0.95 0.95 rg 374.0 722.0 82.0 40.0 re f
+0.3 0.3 0.3 RG 0.7 w 374.0 722.0 82.0 40.0 re S
+0 0 0 rg BT /F2 8.5 Tf 1 0 0 1 378.0 750.0 Tm (pin 19) Tj ET
+0 0 0 rg BT /F3 8 Tf 1 0 0 1 378.0 739.0 Tm (GPIO10) Tj ET
+0 0 0 rg BT /F1 7.8 Tf 1 0 0 1 378.0 728.0 Tm (unused) Tj ET
+0.95 0.95 0.95 rg 457.0 722.0 82.0 40.0 re f
+0.3 0.3 0.3 RG 0.7 w 457.0 722.0 82.0 40.0 re S
+0 0 0 rg BT /F2 8.5 Tf 1 0 0 1 461.0 750.0 Tm (pin 21) Tj ET
+0 0 0 rg BT /F3 8 Tf 1 0 0 1 461.0 739.0 Tm (GPIO9) Tj ET
+0 0 0 rg BT /F1 7.8 Tf 1 0 0 1 461.0 728.0 Tm (unused) Tj ET
+0.95 0.95 0.95 rg 42.0 676.0 82.0 40.0 re f
+0.3 0.3 0.3 RG 0.7 w 42.0 676.0 82.0 40.0 re S
+0 0 0 rg BT /F2 8.5 Tf 1 0 0 1 46.0 704.0 Tm (pin 12) Tj ET
+0 0 0 rg BT /F3 8 Tf 1 0 0 1 46.0 693.0 Tm (GPIO18) Tj ET
+0 0 0 rg BT /F1 7.8 Tf 1 0 0 1 46.0 682.0 Tm (unused) Tj ET
+0.88 0.93 1 rg 125.0 676.0 82.0 40.0 re f
+0.3 0.3 0.3 RG 0.7 w 125.0 676.0 82.0 40.0 re S
+0 0 0 rg BT /F2 8.5 Tf 1 0 0 1 129.0 704.0 Tm (pin 14) Tj ET
+0 0 0 rg BT /F3 8 Tf 1 0 0 1 129.0 693.0 Tm (GND) Tj ET
+0 0 0 rg BT /F1 7.8 Tf 1 0 0 1 129.0 682.0 Tm (COMMON) Tj ET
+0.9 1 0.9 rg 208.0 676.0 82.0 40.0 re f
+0.3 0.3 0.3 RG 0.7 w 208.0 676.0 82.0 40.0 re S
+0 0 0 rg BT /F2 8.5 Tf 1 0 0 1 212.0 704.0 Tm (pin 16) Tj ET
+0 0 0 rg BT /F3 8 Tf 1 0 0 1 212.0 693.0 Tm (GPIO23) Tj ET
+0 0 0 rg BT /F1 7.8 Tf 1 0 0 1 212.0 682.0 Tm (LED Run) Tj ET
+0.9 1 0.9 rg 291.0 676.0 82.0 40.0 re f
+0.3 0.3 0.3 RG 0.7 w 291.0 676.0 82.0 40.0 re S
+0 0 0 rg BT /F2 8.5 Tf 1 0 0 1 295.0 704.0 Tm (pin 18) Tj ET
+0 0 0 rg BT /F3 8 Tf 1 0 0 1 295.0 693.0 Tm (GPIO24) Tj ET
+0 0 0 rg BT /F1 7.8 Tf 1 0 0 1 295.0 682.0 Tm (LED Ready) Tj ET
+0.95 0.95 0.95 rg 374.0 676.0 82.0 40.0 re f
+0.3 0.3 0.3 RG 0.7 w 374.0 676.0 82.0 40.0 re S
+0 0 0 rg BT /F2 8.5 Tf 1 0 0 1 378.0 704.0 Tm (pin 20) Tj ET
+0 0 0 rg BT /F3 8 Tf 1 0 0 1 378.0 693.0 Tm (GND) Tj ET
+0 0 0 rg BT /F1 7.8 Tf 1 0 0 1 378.0 682.0 Tm (spare GND) Tj ET
+0.9 1 0.9 rg 457.0 676.0 82.0 40.0 re f
+0.3 0.3 0.3 RG 0.7 w 457.0 676.0 82.0 40.0 re S
+0 0 0 rg BT /F2 8.5 Tf 1 0 0 1 461.0 704.0 Tm (pin 22) Tj ET
+0 0 0 rg BT /F3 8 Tf 1 0 0 1 461.0 693.0 Tm (GPIO25) Tj ET
+0 0 0 rg BT /F1 7.8 Tf 1 0 0 1 461.0 682.0 Tm (LED Fault) Tj ET
+0.45 0.45 0.45 rg BT /F1 8.5 Tf 1 0 0 1 42.0 650.0 Tm (Tip: a 2x6 IDC/keyed block over pins 11-22 grabs all 7 conductors at once \(leave pin 17 = 3V3 unwired\).) Tj ET
+0 0 0 rg BT /F2 13 Tf 1 0 0 1 42.0 624.0 Tm (Panel face layout \(example\)) Tj ET
+0.2 0.2 0.2 RG 1.0 w 42.0 460.0 511.0 150.0 re S
+0.8 0.12 0.12 RG 2.0 w 138.0 555.0 m 138.0 569.4 126.4 581.0 112.0 581.0 c 97.6 581.0 86.0 569.4 86.0 555.0 c 86.0 540.6 97.6 529.0 112.0 529.0 c 126.4 529.0 138.0 540.6 138.0 555.0 c S
+0.8 0.12 0.12 rg 126.0 555.0 m 126.0 562.7 119.7 569.0 112.0 569.0 c 104.3 569.0 98.0 562.7 98.0 555.0 c 98.0 547.3 104.3 541.0 112.0 541.0 c 119.7 541.0 126.0 547.3 126.0 555.0 c f
+0 0 0 rg BT /F2 9 Tf 1 0 0 1 87.0 515.0 Tm (E-STOP) Tj ET
+0.2 0.2 0.2 RG 1.4 w 258.0 555.0 m 258.0 563.8 250.8 571.0 242.0 571.0 c 233.2 571.0 226.0 563.8 226.0 555.0 c 226.0 546.2 233.2 539.0 242.0 539.0 c 250.8 539.0 258.0 546.2 258.0 555.0 c S
+0 0 0 rg BT /F2 9 Tf 1 0 0 1 224.0 515.0 Tm (ENGAGE) Tj ET
+0.2 0.2 0.2 RG 1.4 w 358.0 555.0 m 358.0 563.8 350.8 571.0 342.0 571.0 c 333.2 571.0 326.0 563.8 326.0 555.0 c 326.0 546.2 333.2 539.0 342.0 539.0 c 350.8 539.0 358.0 546.2 358.0 555.0 c S
+0 0 0 rg BT /F2 9 Tf 1 0 0 1 330.0 515.0 Tm (PARK) Tj ET
+0.12 0.55 0.18 rg 449.0 560.0 m 449.0 563.9 445.9 567.0 442.0 567.0 c 438.1 567.0 435.0 563.9 435.0 560.0 c 435.0 556.1 438.1 553.0 442.0 553.0 c 445.9 553.0 449.0 556.1 449.0 560.0 c f
+0.2 0.2 0.2 RG 0.6 w 449.0 560.0 m 449.0 563.9 445.9 567.0 442.0 567.0 c 438.1 567.0 435.0 563.9 435.0 560.0 c 435.0 556.1 438.1 553.0 442.0 553.0 c 445.9 553.0 449.0 556.1 449.0 560.0 c S
+0 0 0 rg BT /F1 7.5 Tf 1 0 0 1 429.0 538.0 Tm (RUN) Tj ET
+0.85 0.55 0.05 rg 491.0 560.0 m 491.0 563.9 487.9 567.0 484.0 567.0 c 480.1 567.0 477.0 563.9 477.0 560.0 c 477.0 556.1 480.1 553.0 484.0 553.0 c 487.9 553.0 491.0 556.1 491.0 560.0 c f
+0.2 0.2 0.2 RG 0.6 w 491.0 560.0 m 491.0 563.9 487.9 567.0 484.0 567.0 c 480.1 567.0 477.0 563.9 477.0 560.0 c 477.0 556.1 480.1 553.0 484.0 553.0 c 487.9 553.0 491.0 556.1 491.0 560.0 c S
+0 0 0 rg BT /F1 7.5 Tf 1 0 0 1 471.0 538.0 Tm (READY) Tj ET
+0.8 0.12 0.12 rg 533.0 560.0 m 533.0 563.9 529.9 567.0 526.0 567.0 c 522.1 567.0 519.0 563.9 519.0 560.0 c 519.0 556.1 522.1 553.0 526.0 553.0 c 529.9 553.0 533.0 556.1 533.0 560.0 c f
+0.2 0.2 0.2 RG 0.6 w 533.0 560.0 m 533.0 563.9 529.9 567.0 526.0 567.0 c 522.1 567.0 519.0 563.9 519.0 560.0 c 519.0 556.1 522.1 553.0 526.0 553.0 c 529.9 553.0 533.0 556.1 533.0 560.0 c S
+0 0 0 rg BT /F1 7.5 Tf 1 0 0 1 513.0 538.0 Tm (FAULT) Tj ET
+0 0 0 rg BT /F2 13 Tf 1 0 0 1 42.0 442.0 Tm (Connectors & notes) Tj ET
+0 0 0 rg BT /F1 9 Tf 1 0 0 1 42.0 426.0 Tm (Firmer than loose Dupont jumpers \(in order\): \(1\) screw-terminal GPIO HAT - wire each) Tj ET
+0 0 0 rg BT /F1 9 Tf 1 0 0 1 42.0 412.5 Tm (    conductor into a labelled terminal, clamps the whole header; \(2\) 40-pin IDC ribbon +) Tj ET
+0 0 0 rg BT /F1 9 Tf 1 0 0 1 42.0 399.0 Tm (    cobbler breakout; \(3\) a single 2x6 keyed crimp housing over pins 11-22.) Tj ET
+0 0 0 rg BT /F1 9 Tf 1 0 0 1 42.0 385.5 Tm (E-STOP is NC + fail-safe: closed=OK \(low\), open OR a cut/unplugged cable = stop \(high\).) Tj ET
+0 0 0 rg BT /F1 9 Tf 1 0 0 1 42.0 372.0 Tm (No separate power rail: buttons pull to the common GND; LEDs are driven by the GPIO pins.) Tj ET
+0 0 0 rg BT /F1 9 Tf 1 0 0 1 42.0 358.5 Tm (Pins are config-driven \(gpio* keys in config.json\) - reassign freely and tell the firmware.) Tj ET
+0 0 0 rg BT /F1 9 Tf 1 0 0 1 42.0 345.0 Tm (Enable in config.json: "gpioEnabled": true   \(build needs libgpiod-dev; user in 'gpio' group\).) Tj ET
+0.45 0.45 0.45 rg BT /F1 8 Tf 1 0 0 1 42.0 36.0 Tm (nullCAT-Pi GPIO panel  -  page 2/2) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+8 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+9 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000127 00000 n 
+0000000273 00000 n 
+0000000419 00000 n 
+0000006683 00000 n 
+0000013875 00000 n 
+0000013945 00000 n 
+0000014020 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R >>
+startxref
+14088
+%%EOF

@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>nullCAT</title>
+  <link rel="stylesheet" href="app.css">
+  <link rel="icon" href="logo-online.png">
+</head>
+<body>
+
+  <!-- ===== sticky header (taller; status lives here, no duplicate strip) ===== -->
+  <header class="menubar">
+    <div class="brand">
+      <img id="logo" class="logo-badge is-offline" src="logo-offline.png" alt="nullCAT status">
+      <div class="brand-text">
+        <div class="wordmark">null<span class="brand-accent">CAT</span></div>
+        <div class="brand-sub">ØWERKS · ETHERCAT MOTION</div>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <div class="hstatus">
+      <div class="hstatus-top">
+        <span class="badge badge-off" id="conn-status">Disconnected</span>
+        <span class="clock" id="clock">--:--:--</span>
+      </div>
+      <div class="hstatus-cells">
+        <div class="hc"><span class="k">Loop</span><span class="v" id="v-loop">—</span></div>
+        <div class="hc"><span class="k">EtherCAT</span><span class="v" id="v-ec">—</span></div>
+        <div class="hc"><span class="k">Rate</span><span class="v" id="v-rate">—</span></div>
+        <div class="hc"><span class="k">Cycle</span><span class="v" id="v-cyc">—</span></div>
+        <div class="hc"><span class="k">WKC</span><span class="v" id="v-wkc">—</span></div>
+        <div class="hc"><span class="k">Slaves</span><span class="v" id="v-slv">—</span></div>
+        <div class="hc"><span class="k">Telemetry</span><span class="v" id="v-telemetry">—</span></div>
+        <div class="hc"><span class="k">UDP new/rx Hz</span><span class="v" id="v-udp">—</span></div>
+        <div class="hc jit"><span class="k">Jitter now/pk µs</span>
+          <span class="v"><span id="v-jit">—</span><span class="sep">/</span><span id="v-jpk">—</span></span>
+          <svg class="spark" viewBox="0 0 60 18" preserveAspectRatio="none"><polyline id="sparkLine" points=""></polyline></svg>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===== drives (hero) ===== -->
+  <div class="sec">
+    <span class="t">Drives</span><span class="c" id="driveCount">—</span>
+    <span class="rule"></span>
+    <span class="act" id="btn-reset-stats" title="Re-baseline peak accel, clip rate, binds and following-error on all cards — drives stay live">Reset peaks</span>
+  </div>
+  <section class="grid" id="drive-grid"></section>
+
+  <!-- ===== configuration (inline collapsible) ===== -->
+  <div class="sec sec-toggle" id="cfgHead">
+    <span class="arrow" id="cfgArrow">▸</span>
+    <span class="t">Configuration</span><span class="c">commissioning</span>
+    <span class="pill-pending" id="cfgPending" style="display:none"></span>
+    <span class="rule"></span>
+  </div>
+  <section class="panel collapsed" id="cfgPanel">
+    <div class="cbody">
+      <div class="cfg-note" id="cf-hostnote" style="display:none;grid-column:1/-1">
+        Host settings (NIC, ports, timing, GPIO) are managed by the desktop app on this machine — read-only here. Rig &amp; axis settings below are editable.
+      </div>
+      <div class="cfg-note" id="cf-rignote" style="grid-column:1/-1"></div>
+      <div class="cgrp">
+        <div class="gt">Appearance</div>
+        <label class="frow"><span>Theme</span>
+          <select id="cf-theme"><option value="light">Light (cream)</option><option value="dark">Dark (signal)</option></select></label>
+      </div>
+      <div class="cgrp">
+        <div class="gt">EtherCAT / Runtime</div>
+        <label class="frow"><span>Simulation mode</span><input id="cf-sim" type="checkbox"></label>
+        <label class="frow"><span>NIC</span><input id="cf-nic" value="eth0"></label>
+        <label class="frow"><span>Loop rate</span>
+          <select id="cf-hz">
+            <option value="250">250 Hz · 4000 µs</option>
+            <option value="500">500 Hz · 2000 µs</option>
+            <option value="1000">1000 Hz · 1000 µs</option>
+            <option value="2000" selected>2000 Hz · 500 µs</option>
+            <option value="4000">4000 Hz · 250 µs</option>
+          </select></label>
+        <label class="frow"><span>PDO watchdog</span><input id="cf-wd" value="100" type="number"><span class="u">ms</span></label>
+        <label class="frow"><span>DC sync offset</span><input id="cf-dc" value="0" type="number"><span class="u">ns</span></label>
+      </div>
+      <div class="cgrp">
+        <div class="gt">Network / telemetry</div>
+        <label class="frow"><span>Web bind</span><input id="cf-bind" value="0.0.0.0"></label>
+        <label class="frow"><span>Web port</span><input id="cf-wport" value="8080" type="number"></label>
+        <label class="frow"><span>Telemetry port</span><input id="cf-sport" value="4444" type="number"></label>
+        <label class="frow"><span>Telemetry bind</span><input id="cf-sbind" value="" placeholder="auto"></label>
+      </div>
+      <div class="cgrp">
+        <div class="gt">Logging</div>
+        <label class="frow"><span>Level</span>
+          <select id="cf-loglvl"><option>debug</option><option selected>info</option><option>warning</option><option>error</option><option>critical</option></select></label>
+        <label class="frow"><span>Log file</span><input id="cf-logfile" value="logs/app.log"></label>
+        <label class="frow"><span>To console</span><input id="cf-logcon" type="checkbox" checked></label>
+        <label class="frow"><span>Diagnostics</span><input id="cf-diag" type="checkbox" checked></label>
+        <label class="frow"><span>Drive temp polling</span><input id="cf-temppoll" type="checkbox" checked></label>
+      </div>
+      <div class="cgrp">
+        <div class="gt">Motion blend</div>
+        <label class="frow"><span>Blend time</span><input id="cf-blendt" type="number" step="0.01"><span class="u">s</span></label>
+        <label class="frow"><span>Blend max vel</span><input id="cf-blendv" type="number" step="0.01"><span class="u">mm/s</span></label>
+      </div>
+      <div class="cgrp">
+        <div class="gt">Command conditioning</div>
+        <label class="frow"><span>Mode</span>
+          <select id="cf-condmode"><option value="bypass">Bypass</option><option value="interpolate">Interpolate</option><option value="filter">Filter</option></select></label>
+        <div class="cfg-note" id="cf-condnote"></div>
+        <div class="cfg-note" id="cf-udphint">UDP rate: —</div>
+      </div>
+      <div class="cgrp">
+        <div class="gt">Advanced / EtherCAT tuning</div>
+        <label class="frow"><span>Command sync cycles</span><input id="cf-cmdsync" type="number"></label>
+        <label class="frow"><span>WKC valid. cycles</span><input id="cf-wkccyc" type="number"></label>
+        <label class="frow"><span>WKC valid. thresh</span><input id="cf-wkcthr" type="number" step="0.05"></label>
+        <label class="frow"><span>Capability scan</span><input id="cf-capscan" type="checkbox"></label>
+        <label class="frow"><span>Require fault reset</span><input id="cf-reqreset" type="checkbox"></label>
+      </div>
+      <div class="cgrp">
+        <div class="gt">GPIO control panel</div>
+        <label class="frow"><span>Mode</span>
+          <select id="cf-gpiomode">
+            <option value="off">Off</option>
+            <option value="estop">E-STOP only</option>
+            <option value="estop_led">E-STOP + LEDs</option>
+            <option value="full">E-STOP + buttons + LEDs</option>
+          </select></label>
+        <div class="frow"><span>LED test</span>
+          <button class="btn btn-sm btn-action" id="cf-ledtest" type="button">Run LED test</button></div>
+        <div class="cfg-note" style="grid-column:1/-1">Pins use defaults (see wiring PDF); edit config.json for custom pins. Mode change needs a restart; LED test runs immediately.</div>
+      </div>
+      <div class="cgrp" id="axisGrp" style="grid-column:1/-1">
+        <div class="gt">Per-axis configuration</div>
+        <div class="frow"><span>Axis</span>
+          <span style="display:flex;gap:6px;align-items:center">
+            <select id="axisSel"></select>
+            <button class="btn btn-sm btn-start" id="axisAdd" type="button">+ Add</button>
+            <button class="btn btn-sm btn-stop" id="axisDel" type="button">− Remove</button>
+            <button class="btn btn-sm btn-warn" id="axisApplyAll" type="button">Apply→all</button>
+          </span>
+        </div>
+        <div id="axisFields"></div>
+      </div>
+      <!-- Button bindings. One row
+           per bindable command; capture flow = click Bind, press the button.
+           Saves hot-apply (buttons.json) — no restart, no re-init. -->
+      <div class="cgrp" style="grid-column:1/-1">
+        <div class="gt">Button bindings <span class="c">HID box → rig commands · applies live on save</span></div>
+        <div class="cfg-note" id="btnBindNativeNote" style="display:none;border-left:2px solid var(--warn,#f5b340);padding-left:8px;margin-bottom:6px">
+          <b>PC:</b> keep the Web UI enabled for buttons to work. The button reader runs with the web server — bound presses only register while <code>webUIEnabled</code> is on. Turn the Web UI off and the box goes silent (bindings are kept, just not read).
+        </div>
+        <div id="btnBindRows" class="cfg-note">loading…</div>
+        <div style="margin-top:6px">
+          <span class="cfg-note" id="btnBindStatus"></span>
+          <button class="btn btn-sm btn-start" id="btnBindSave" type="button" disabled>Save bindings</button>
+        </div>
+      </div>
+    </div>
+    <div class="cfg-foot">
+      <span class="cfg-note">Theme applies live (saved in browser). All other fields (global +
+        per-axis) write to <code>config.json</code> — <strong>Restart to apply</strong>.</span>
+      <span class="spacer"></span>
+      <span class="cfg-note" id="cfgStatus"></span>
+      <button class="btn btn-start btn-sm" id="cfgSave">Save to config.json</button>
+    </div>
+  </section>
+
+  <!-- ===== drive provisioning reference (inline collapsible) ===== -->
+  <div class="sec sec-toggle" id="provHead">
+    <span class="arrow" id="provArrow">▸</span>
+    <span class="t">Drive Provisioning</span><span class="c">panel reference</span>
+    <span class="rule"></span>
+  </div>
+  <section class="panel collapsed" id="provPanel">
+    <div class="prov-body">
+
+      <!-- Step 1: unlock + carrier, every drive, panel-only -->
+      <div class="prov-callout">
+        <div class="pc-step">Step 1 · every drive · front panel</div>
+        <div class="pc-title">Unlock factory params, then double the carrier to 16&nbsp;kHz</div>
+        <ol class="pc-list">
+          <li><b>Unlock:</b> set <code>C00.31</code> = <b>1107</b> (super-user; drive disabled).</li>
+          <li><b>Carrier → 16 kHz:</b> navigate to <code>R22.38</code> and change <b>0 → 1</b> (×2 on the 8&nbsp;kHz base).</li>
+          <li><b>Save</b> the params, then <b>power-cycle</b> the drive.</li>
+        </ol>
+        <div class="pc-note">⚠ <b>Panel-only.</b> <code>R22.38</code> (<code>0x2022:39</code>) is not writable over EtherCAT/SDO even after the unlock, so the <code>provision</code> tool can't set it. Only <b>8 / 16 kHz</b> are valid — any other carrier faults (<code>Er31.0</code> / <code>Er50.1</code>). Skip the carrier if this drive must match others still on the 8&nbsp;kHz base.</div>
+      </div>
+
+      <!-- Step 2: config params via the standalone tool -->
+      <div class="prov-callout pc-soft">
+        <div class="pc-step">Step 2 · config params · provision tool</div>
+        <div class="pc-title">Write the nullCAT parameter set (service stopped — the tool owns the NIC)</div>
+        <pre class="pc-code">sudo systemctl stop nullcat-pi
+sudo ./provision eth0 &lt;slave&gt; --fresh    # write the params, verify, store to NVRAM
+# power-cycle the drive
+sudo ./provision eth0 &lt;slave&gt; --verify    # confirm everything persisted</pre>
+        <div class="pc-note">Writes the 18 deliberate params + both notch frequencies (7999) + baseline inertia, and stores to NVRAM <b>only if every readback verifies</b>. A before-state backup file is written first. Per-axis inertia (auto-ID) and notch frequency are tuned separately — they are not blind-cloned.</div>
+      </div>
+
+      <!-- The exact params the tool writes — all panel-doable, so this doubles as a manual sheet -->
+      <div class="pc-note" style="margin:-2px 0 2px">
+        The values below are <b>exactly what the <code>provision</code> tool writes</b> — every one has a front-panel code,
+        so you can key them in by hand if you'd rather not run the tool. <b>Save to NVRAM on the panel</b> when done.
+      </div>
+      <div class="prov-tables">
+        <table class="prov-table">
+          <caption>EtherCAT sync — required by this master</caption>
+          <thead><tr><th>Panel</th><th>Control</th><th>nullCAT</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>C13.05</td><td>Sync mode</td><td>2</td><td>DC sync (mandatory for this master)</td></tr>
+            <tr><td>C13.02</td><td>Sync lost window</td><td>20</td><td></td></tr>
+            <tr><td>C13.06</td><td>Sync error window</td><td>6000</td><td></td></tr>
+          </tbody>
+        </table>
+
+        <table class="prov-table">
+          <caption>Gains, stiffness &amp; inertia — cloned across drives</caption>
+          <thead><tr><th>Panel</th><th>Control</th><th>nullCAT</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>C00.04</td><td>Gain auto-tune mode</td><td>0</td><td>Manual — gains frozen, not auto-tuned</td></tr>
+            <tr><td>C00.05</td><td>Stiffness level</td><td>10</td><td></td></tr>
+            <tr><td>C00.06</td><td>Load inertia ratio</td><td>100</td><td>Baseline (factory) — auto-ID per axis later</td></tr>
+            <tr><td>C01.01</td><td>1st speed loop gain</td><td>150</td><td></td></tr>
+            <tr><td>C01.02</td><td>1st speed loop integral time</td><td>5685</td><td></td></tr>
+            <tr><td>C01.03</td><td>1st torque ref filter time</td><td>112</td><td></td></tr>
+            <tr><td>C01.08</td><td>2nd position loop gain</td><td>400</td><td></td></tr>
+            <tr><td>C01.09</td><td>2nd speed loop gain</td><td>250</td><td></td></tr>
+            <tr><td>C01.0A</td><td>2nd speed loop integral time</td><td>3184</td><td></td></tr>
+            <tr><td>C01.0B</td><td>2nd torque ref filter time</td><td>200</td><td></td></tr>
+            <tr><td>C01.10</td><td>Speed feedback filter</td><td>1</td><td></td></tr>
+            <tr><td>C01.22</td><td>1st-order low-pass filter time</td><td>50</td><td></td></tr>
+          </tbody>
+        </table>
+
+        <table class="prov-table">
+          <caption>Notch filters — sound profile (notches 1 &amp; 2)</caption>
+          <thead><tr><th>Panel</th><th>Control</th><th>nullCAT</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>C01.40</td><td>1st notch frequency</td><td>7999</td><td>8000 = parked/off; 7999 engages. Per-axis: set to measured resonance</td></tr>
+            <tr><td>C01.41</td><td>1st notch width</td><td>100</td><td>0 = filter does nothing</td></tr>
+            <tr><td>C01.42</td><td>1st notch depth</td><td>10</td><td>1000 = no attenuation, 10 = deepest</td></tr>
+            <tr><td>C01.43</td><td>2nd notch frequency</td><td>7999</td><td></td></tr>
+            <tr><td>C01.44</td><td>2nd notch width</td><td>100</td><td></td></tr>
+            <tr><td>C01.45</td><td>2nd notch depth</td><td>10</td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pc-note" style="padding-top:4px">
+        Full parameter table + factory-vs-configured diff in
+        <code>Docs/drive_provisioning_param_map.md</code>; drive manual in <code>Docs/A6-EC_series_servo_drive_manual.pdf</code>.
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== activity log (inline collapsible) ===== -->
+  <div class="sec">
+    <span class="arrow" id="logArrow">▾</span>
+    <span class="t sec-toggle" id="logHead">Activity Log</span>
+    <span class="rule"></span>
+    <label class="log-tail-label"><input type="checkbox" id="chk-tail" checked> Auto-scroll</label>
+    <span class="act" id="btn-clear-log">Clear</span>
+  </div>
+  <section class="panel" id="logPanelWrap"><div class="log-panel" id="log-panel"></div></section>
+
+  <!-- link-lost guard: shown by app.js when the status poll goes dead (>=5s / 10 missed
+       polls). All buttons grey with it, so a dead network path LOOKS dead instead of
+       silently eating clicks (see the eth1 carrier-drop incident). Clears itself. -->
+  <div id="linkBanner" class="link-banner" hidden>
+    ⚠ LINK LOST — no response from the controller. Controls disabled; readings are stale.
+    The rig keeps running and the <b>physical E-STOP still works</b>. Check the network path
+    (direct cable / WiFi) — this clears automatically when data returns.
+  </div>
+
+  <!-- Command-refusal line: server's reason for a click that did nothing. -->
+  <div id="cmdErr" class="cmd-err" hidden></div>
+
+  <!-- ===== sticky action bar ===== -->
+  <nav class="actionbar">
+    <button id="btn-init"    class="btn btn-start">Initialize EtherCAT</button>
+    <button id="btn-start"   class="btn btn-start"  disabled>Start Loop</button>
+    <button id="btn-stop"    class="btn btn-stop"   disabled>Stop Loop</button>
+    <button id="btn-home"    class="btn btn-action" disabled>Home All</button>
+    <button id="btn-park"    class="btn btn-action" disabled>Park All</button>
+    <!-- belt don/doff: only rendered when the config has torque axes (app.js) -->
+    <button id="btn-belts"   class="btn btn-action" disabled hidden>Slack Belts</button>
+    <button id="btn-fault"   class="btn btn-warn">Reset Fault</button>
+    <button id="btn-restart" class="btn btn-restart">Restart</button>
+    <button id="btn-shutdown" class="btn btn-warn">Shutdown</button>
+    <span class="spacer"></span>
+    <button id="btn-release" class="btn btn-release" disabled>Release</button>
+    <button id="btn-estop"   class="btn btn-estop">E-STOP</button>
+  </nav>
+
+  <script src="app.js"></script>
+</body>
+</html>

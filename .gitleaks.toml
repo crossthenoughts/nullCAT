@@ -1,0 +1,26 @@
+# Gitleaks config — GENERIC rules only. This file is tracked and ships in
+# the public repo, so it must never contain personal strings (SSIDs,
+# hostnames, emails, LAN details): a tracked deny-list would publish the
+# very values it protects. Personal patterns belong in .gitleaks.local.toml
+# (git-ignored); tools/git-hooks/pre-commit runs BOTH configs when the local
+# file exists.
+
+title = "nullCAT secret prevention (generic)"
+
+[extend]
+# Start from gitleaks' built-in default rules (AWS/GitHub/Slack tokens,
+# private keys, generic api-key/high-entropy detectors, etc.).
+useDefault = true
+
+[allowlist]
+description = "Repo-wide false-positive suppressions"
+paths = [
+    # Vendored third-party header — upstream content, scanned upstream.
+    '''src/httplib\.h''',
+    # Drive register dumps: hex object tables trip entropy detectors.
+    '''Docs/drive-reference/.*''',
+]
+regexes = [
+    # Documented LAN convention used in examples/tools (kept public on purpose).
+    '''192\.168\.50\.\d{1,3}''',
+]

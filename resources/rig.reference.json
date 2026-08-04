@@ -1,0 +1,50 @@
+{
+    "_documentation": "rig.json -- PORTABLE rig config. Safe to copy between a PC and a Pi: it carries the physical rig's mechanics, geometry, motion feel and per-axis tuning, and never a machine-specific NIC/IP. Owned by the web UI on both platforms. 'global' = per-rig values shared across all axes; 'axes' = one entry per actuator -- the per-unit overlay for the golden-image / provisioning model (clone a shared template, then override per axis). Keys prefixed with '_' are documentation-only.",
+    "configVersion": 2,
+    "numDrives": 1,
+    "_section_global": "Per-rig values shared across all axes: command conditioning + motion-blend feel, and fault-reset policy (safety policy travels with the rig). conditioningMode: bypass|interpolate|filter.",
+    "global": {
+        "conditioningMode": "bypass",
+        "blendTimeSec": 2.0,
+        "blendMaxVelocityMmS": 20.0,
+        "requireUserFaultReset": false
+    },
+    "_section_axes": "One object per axis. slaveIndex is the EtherCAT bus position (part of the rig's wiring). followingErrorWindowMm is PER-AXIS now (written to drive object 0x6065, counts = mm * countsPerMm). Future per-axis tuning -- inertia ratio (C00.06), notch freq/width/depth -- will live in each axis object too.",
+    "axes": [
+        {
+            "slaveIndex": 1,
+            "name": "Drive 1",
+            "mode": "csp",
+            "axisType": "linear_vertical",
+            "invertDir": false,
+            "strokeMm": 100.0,
+            "ballscrewPitch": 10.0,
+            "encoderCountsPerRev": 131072.0,
+            "reductionRatio": "1:1",
+            "homeDirection": "negative",
+            "homeMode": "endstop",
+            "homingBackoffMm": 1.5,
+            "homingSpeedMmS": 250.0,
+            "homingTorquePct": 25,
+            "maxVelocityMmS": 200.0,
+            "maxAccelerationMmS2": 10000.0,
+            "maxJerkMmS3": 60000.0,
+            "followingErrorWindowMm": 100.0,
+            "trackingWnHz": 30.0,
+            "unparkTimeSec": 3.0,
+            "parkTimeSec": 3.0,
+            "onlineHoldTimeoutSec": 15.0,
+            "spikeFilterEnabled": false,
+            "spikeMaxMm": 5.0,
+            "torqueMinPct": 5.0,
+            "torqueMaxPct": 50.0,
+            "beltSlewPctPerSec": 3000.0,
+            "beltOverspeedRpm": 600.0,
+            "beltOverspeedMs": 200.0,
+            "beltMaxTravelRevs": 3.0,
+            "beltMaxRpm": 800.0,
+            "beltRelaxerSec": 0.0,
+            "beltRelaxerPct": 80.0
+        }
+    ]
+}

@@ -1,0 +1,218 @@
+{
+  "name": "nullCAT A6-EC / AS715N standard",
+  "firmware": "V512",
+  "source": "configured drive dump (slave 1) vs fresh out-of-box (slave 4); see Docs/drive-reference/",
+  "_notes": "clone[] = the 18 verified deliberate changes, values from the known-good configured drive. torqueOnly[] = additional one-time writes applied ONLY when the target slave is a torque axis per the rig config (position axes keep factory values). unlock gates the hidden carrier object. store is CiA-301 'save' (0x65766173). carrier is freshFromFactory-gated until the base-carrier param address is known (24kHz-fault guard).",
+  "unlock": {
+    "coe": "0x2000:0x32",
+    "type": "u16",
+    "value": 1107,
+    "panel": "C00.31",
+    "name": "factory unlock"
+  },
+  "store": {
+    "coe": "0x1010:0x01",
+    "type": "u32",
+    "value": 1702257011,
+    "name": "save to NVRAM (CiA-301 'save')"
+  },
+  "carrier": {
+    "_warn": "ONLY valid effective carrier = 8 or 16 kHz. R22.38=1 doubles an 8 kHz base -> 16 kHz. If base is NOT factory 8 kHz this could create 24/32 kHz -> Er31.0/Er50.1. Gated on freshFromFactory until base-carrier param address is pinned.",
+    "doubler": {
+      "coe": "0x2022:0x39",
+      "type": "u16",
+      "value": 1,
+      "panel": "R22.38",
+      "name": "carrier doubler x2",
+      "needsUnlock": true,
+      "powerCycle": true
+    },
+    "base": {
+      "coe": "UNKNOWN",
+      "expectFactory8kHz": true,
+      "_note": "base-carrier object address unconfirmed by the vendor; the doubler stays gated on --fresh"
+    }
+  },
+  "perAxis": {
+    "inertia": {
+      "coe": "0x2000:0x07",
+      "type": "u16",
+      "baseline": 100,
+      "panel": "C00.06",
+      "autoId": "F30.10",
+      "_note": "writes the factory baseline 100; inertia stays at 100 on all axes (the drive's auto-ID F30.10 is a motion-producing function and is not used)"
+    },
+    "notch1": {
+      "freq": "0x2001:0x41",
+      "width": "0x2001:0x42",
+      "depth": "0x2001:0x43",
+      "default": [
+        7999,
+        500,
+        10
+      ],
+      "_note": "factory freq 8000 = parked/off; set <8000 to engage. Per-axis: measure each chirp."
+    },
+    "notch2": {
+      "freq": "0x2001:0x44",
+      "width": "0x2001:0x45",
+      "depth": "0x2001:0x46",
+      "default": [
+        7999,
+        500,
+        10
+      ]
+    }
+  },
+  "torqueOnly": [
+    {
+      "coe": "0x2006:0x21",
+      "type": "u16",
+      "value": 0,
+      "panel": "C06.20",
+      "name": "Runaway protection OFF (CST belt is back-driven by design; Er06.0 otherwise, manual p181)"
+    }
+  ],
+  "clone": [
+    {
+      "coe": "0x2000:0x05",
+      "type": "u16",
+      "value": 0,
+      "panel": "C00.04",
+      "name": "Gain auto-tuning mode"
+    },
+    {
+      "coe": "0x2000:0x06",
+      "type": "u16",
+      "value": 10,
+      "panel": "C00.05",
+      "name": "Stiffness level selection"
+    },
+    {
+      "coe": "0x2001:0x02",
+      "type": "u16",
+      "value": 150,
+      "panel": "C01.01",
+      "name": "1st Speed loop gain"
+    },
+    {
+      "coe": "0x2001:0x03",
+      "type": "u16",
+      "value": 5685,
+      "panel": "C01.02",
+      "name": "1st Speed loop integral time constant"
+    },
+    {
+      "coe": "0x2001:0x04",
+      "type": "u16",
+      "value": 112,
+      "panel": "C01.03",
+      "name": "1st Torque reference filter time constan"
+    },
+    {
+      "coe": "0x2001:0x09",
+      "type": "u16",
+      "value": 400,
+      "panel": "C01.08",
+      "name": "2nd Position loop gain"
+    },
+    {
+      "coe": "0x2001:0x0a",
+      "type": "u16",
+      "value": 250,
+      "panel": "C01.09",
+      "name": "2nd Speed loop gain"
+    },
+    {
+      "coe": "0x2001:0x0b",
+      "type": "u16",
+      "value": 3184,
+      "panel": "C01.0A",
+      "name": "2nd Speed loop integral time constant"
+    },
+    {
+      "coe": "0x2001:0x0c",
+      "type": "u16",
+      "value": 200,
+      "panel": "C01.0B",
+      "name": "2nd Torque reference filter time constan"
+    },
+    {
+      "coe": "0x2001:0x11",
+      "type": "u16",
+      "value": 1,
+      "panel": "C01.10",
+      "name": "Speed feedback filter selection"
+    },
+    {
+      "coe": "0x2001:0x23",
+      "type": "u16",
+      "value": 50,
+      "panel": "C01.22",
+      "name": "First-order low-pass filter time constan"
+    },
+    {
+      "coe": "0x2001:0x42",
+      "type": "u16",
+      "value": 100,
+      "panel": "C01.41",
+      "name": "Width level of the 1st notch"
+    },
+    {
+      "coe": "0x2001:0x43",
+      "type": "u16",
+      "value": 10,
+      "panel": "C01.42",
+      "name": "Depth level of the 1st notch"
+    },
+    {
+      "coe": "0x2001:0x45",
+      "type": "u16",
+      "value": 100,
+      "panel": "C01.44",
+      "name": "Width level of the 2nd notch"
+    },
+    {
+      "coe": "0x2001:0x46",
+      "type": "u16",
+      "value": 10,
+      "panel": "C01.45",
+      "name": "Depth level of the 2nd notch"
+    },
+    {
+      "coe": "0x2013:0x03",
+      "type": "u16",
+      "value": 20,
+      "panel": "C13.02",
+      "name": "Sync lost window"
+    },
+    {
+      "coe": "0x2013:0x06",
+      "type": "u16",
+      "value": 2,
+      "panel": "C13.05",
+      "name": "Sync mode set"
+    },
+    {
+      "coe": "0x2013:0x07",
+      "type": "u16",
+      "value": 6000,
+      "panel": "C13.06",
+      "name": "Sync error window"
+    },
+    {
+      "coe": "0x2001:0x41",
+      "type": "u16",
+      "value": 7999,
+      "panel": "C01.40",
+      "name": "Frequency of the 1st notch"
+    },
+    {
+      "coe": "0x2001:0x44",
+      "type": "u16",
+      "value": 7999,
+      "panel": "C01.43",
+      "name": "Frequency of the 2nd notch"
+    }
+  ]
+}

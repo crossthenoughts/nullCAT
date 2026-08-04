@@ -1,0 +1,32 @@
+#!/bin/sh
+# Shipped-platform test gate (zero-resident CI, decided Jul 20 2026):
+# no runner/daemon lives on the RT boxes -- instead every push must build
+# clean and pass ctest ON the pushing platform's shipped build:
+#   Pi/Linux : pi/build      (ARM64 + this toolchain, where the bit-identity/
+#              FP-determinism tests test the shipped codegen)
+#   Windows  : build-msvc    (MSVC Release, the Qt HMI + full suite)
+# The platform is inferred from which build tree exists; a clone with
+# neither configured cannot push (configure one first).
+#
+# Install (once per clone):  git config core.hooksPath tools/git-hooks
+# Bypass (emergencies only): git push --no-verify
+set -e
+REPO="$(git rev-parse --show-toplevel)"
+PI_BUILD="$REPO/pi/build"
+PC_BUILD="$REPO/build-msvc"
+
+if [ -d "$PI_BUILD" ]; then
+    echo "pre-push: building + testing on the shipped platform (Pi)..."
+    cmake --build "$PI_BUILD" -j2 >/dev/null
+    cd "$PI_BUILD" && ctest --output-on-failure
+elif [ -d "$PC_BUILD" ]; then
+    echo "pre-push: building + testing on the shipped platform (Windows/MSVC)..."
+    cmake --build "$PC_BUILD" --config Release >/dev/null
+    cd "$PC_BUILD" && ctest -C Release --output-on-failure
+else
+    echo "pre-push: no build tree found -- configure one first:" >&2
+    echo "  Pi:      cmake -S pi -B pi/build" >&2
+    echo "  Windows: cmake -S . -B build-msvc" >&2
+    exit 1
+fi
+echo "pre-push: OK -- pushing."

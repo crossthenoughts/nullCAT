@@ -1,0 +1,147 @@
+# nullCAT public CI.
+#
+# Jobs:
+#   secrets      gitleaks over the tree + history (generic rules; personal
+#                patterns never live in the repo -- see .gitleaks.toml)
+#   linux        x86-64 build + the full test suite (NULLCAT_FULL_TESTS=ON)
+#   linux-arm64  compile + test coverage for the shipped Pi platform, via
+#                QEMU in a Debian trixie arm64 container (matches the
+#                reference rig's toolchain: GCC/glibc/Qt6/libgpiod 2.x)
+#   windows      MSVC build. Marked non-blocking until proven green on the
+#                public runner (Qt + Npcap SDK provisioning is the moving
+#                part); flip continue-on-error to false once it is.
+#
+# No self-hosted runners, by policy: fork PRs execute workflow code, and a
+# runner attached to rig hardware must never run untrusted code. Hardware
+# testing stays manual on the reference rig.
+name: ci
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['Docs/**', '**.md']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SOEM_REV: b410bf6ef599d5c85302ea45cae5f55f8e9aa394
+  GPIOD_VER: 2.2.1
+
+jobs:
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qt6-base-dev
+
+      - name: Cache SOEM
+        id: soem-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/SOEM
+          key: soem-${{ env.SOEM_REV }}-${{ runner.os }}
+
+      - name: Build SOEM (pinned)
+        if: steps.soem-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/OpenEtherCATsociety/SOEM.git ~/SOEM
+          cd ~/SOEM && git checkout $SOEM_REV
+          cmake -S . -B build && cmake --build build -j
+
+      - name: Cache libgpiod v2
+        id: gpiod-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/libgpiod2
+          key: gpiod-${{ env.GPIOD_VER }}-${{ runner.os }}
+
+      - name: Build libgpiod v2 (pinned)
+        if: steps.gpiod-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL "https://mirrors.edge.kernel.org/pub/software/libs/libgpiod/libgpiod-${GPIOD_VER}.tar.gz" -o /tmp/libgpiod.tar.gz
+          tar -xzf /tmp/libgpiod.tar.gz -C /tmp
+          cd /tmp/libgpiod-${GPIOD_VER}
+          ./configure --prefix=$HOME/libgpiod2 --disable-tools
+          make -j && make install
+
+      - name: Configure
+        run: cmake -S pi -B build -DNULLCAT_FULL_TESTS=ON -DCMAKE_PREFIX_PATH=$HOME/libgpiod2
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Test
+        run: cd build && ctest --output-on-failure
+
+  linux-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        with: { platforms: arm64 }
+      - name: Build in Debian trixie arm64 (the shipped Pi platform)
+        run: |
+          docker run --rm --platform linux/arm64 -v "$PWD:/src" -w /src debian:trixie bash -ec '
+            apt-get update -qq
+            apt-get install -y -qq build-essential cmake git qt6-base-dev libgpiod-dev
+            git config --global --add safe.directory "*"
+            git clone -q https://github.com/OpenEtherCATsociety/SOEM.git /root/SOEM
+            cd /root/SOEM && git checkout -q '"$SOEM_REV"'
+            cmake -S . -B build >/dev/null && cmake --build build -j2 >/dev/null
+            cd /src
+            cmake -S pi -B build-arm64 -DSOEM_ROOT=/root/SOEM
+            cmake --build build-arm64 -j2
+            cd build-arm64 && ctest --output-on-failure
+          '
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    continue-on-error: true   # flip to false once proven green on the public runner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+          cache: true
+      - name: Fetch Npcap SDK
+        run: |
+          curl -fsSL https://npcap.com/dist/npcap-sdk-1.13.zip -o npcap-sdk.zip
+          Expand-Archive npcap-sdk.zip -DestinationPath C:\npcap-sdk
+      - name: Build SOEM (pinned)
+        run: |
+          git clone https://github.com/OpenEtherCATsociety/SOEM.git C:\SOEM
+          cd C:\SOEM
+          git checkout $env:SOEM_REV
+          cmake -S . -B build
+          cmake --build build --config Release
+          cmake --install build --prefix C:\SOEM\install --config Release
+      - name: Configure + build
+        run: |
+          cmake -S . -B build-msvc -DSOEM_ROOT=C:/SOEM/install -DNPCAP_SDK=C:/npcap-sdk
+          cmake --build build-msvc --config Release
+      - name: Test
+        run: |
+          cd build-msvc
+          ctest -C Release --output-on-failure

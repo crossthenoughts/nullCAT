@@ -1,0 +1,46 @@
+# ============================================================
+# nullCAT-Pi — systemd unit (headless EtherCAT motion controller)
+#
+# Install (on the Pi):
+#   sudo cp /opt/nullcat/current/pi/nullcat-pi.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now nullcat-pi.service
+#   systemctl status nullcat-pi
+#
+# Dev unit: ExecStart points at the build dir. At release this moves to the
+# nullcat-pi deploy repo with a fixed install path (e.g. /opt/nullcat-pi).
+# ============================================================
+[Unit]
+Description=nullCAT-Pi headless EtherCAT motion controller
+After=network.target
+
+[Service]
+Type=simple
+User=nullcat
+Group=nullcat
+WorkingDirectory=/opt/nullcat/current/pi/build
+ExecStart=/opt/nullcat/current/pi/build/nullcat-pi
+
+# RT scheduling: /etc/security/limits.d (pam_limits) does NOT apply to systemd
+# services, so the control thread's SCHED_FIFO + mlockall need these here.
+LimitRTPRIO=99
+LimitMEMLOCK=infinity
+
+# SOEM opens a PF_PACKET raw socket. Grant the capability to the (non-root)
+# process directly — no `setcap` on the binary, no running as root.
+# NOTE: do NOT set CapabilityBoundingSet to only these — it would mask
+# CAP_SETUID and stop `sudo` (the web Shutdown button) from escalating.
+# AmbientCapabilities alone gives the raw socket; the default bounding set
+# (full) leaves the sudo→poweroff path working.
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+
+# Appliance behaviour: relaunch on crash AND on the web "Restart" (exit 2).
+# `systemctl stop` is explicit and is NOT overridden by this.
+Restart=always
+RestartSec=1
+
+# Do NOT pin CPU affinity here — the RT thread pins itself to the isolated
+# core 3 (PlatformRT); a unit-level CPUAffinity would block that.
+
+[Install]
+WantedBy=multi-user.target

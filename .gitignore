@@ -1,0 +1,94 @@
+# ============================================================
+# Build directories
+# ============================================================
+build/
+build-*/
+out/
+cmake-build-*/
+*_autogen/
+x64/
+x86/
+Debug/
+Release/
+RelWithDebInfo/
+MinSizeRel/
+
+# ============================================================
+# CMake generated files
+# ============================================================
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CMakeUserPresets.json
+
+# ============================================================
+# Qt generated files
+# ============================================================
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+*.qm
+
+# ============================================================
+# Visual Studio 2022 leftovers
+# ============================================================
+*.sln
+*.vcxproj
+*.vcxproj.*
+*.user
+*.suo
+*.db
+*.opendb
+*.ipch
+.vs/
+
+# ============================================================
+# VS Code
+# ============================================================
+.vscode/
+
+# ============================================================
+# Compiled / binary files
+# ============================================================
+*.obj
+*.o
+*.exe
+*.dll
+*.lib
+*.pdb
+*.ilk
+*.exp
+*.iobj
+*.ipdb
+*.log
+
+# ============================================================
+# OS junk
+# ============================================================
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ============================================================
+# Runtime output + machine-local configs (never tracked; the
+# tracked examples live in resources/ and deploy/*.example.json)
+# ============================================================
+logs/
+**/config.json
+**/host.json
+**/rig.json
+**/buttons.json
+!resources/*.reference.json
+!deploy/*.example.json
+
+# Local gitleaks deny-patterns (personal SSIDs/hostnames/emails).
+# Deliberately untracked: a tracked deny-list would publish the
+# very strings it protects. See tools/git-hooks/pre-commit.
+.gitleaks.local.toml
+
+# ============================================================
+# Ingestion inbox — files dropped here for Claude analysis,
+# not durable repo artifacts.
+# ============================================================
+_ingest/
+dist/

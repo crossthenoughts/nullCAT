@@ -1,0 +1,32 @@
+#!/bin/sh
+# nullCAT pre-commit hook: secret scan of the STAGED changes with gitleaks.
+#
+# Two-config arrangement (deliberate):
+#   .gitleaks.toml        tracked, generic rules only (keys, tokens, entropy)
+#   .gitleaks.local.toml  git-ignored, per-machine personal deny-patterns
+#                         (SSIDs, hostnames, emails). Never track it: a
+#                         tracked deny-list would publish the very strings
+#                         it protects.
+# Both scans must pass when the local file exists.
+#
+# Install (per clone):  git config core.hooksPath tools/git-hooks
+# Zero-resident: this is a file, not a service.
+
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+    echo "pre-commit: gitleaks not installed -- secret scan SKIPPED." >&2
+    echo "pre-commit: install from https://github.com/gitleaks/gitleaks/releases" >&2
+    exit 0
+fi
+
+echo "pre-commit: gitleaks (generic rules)..."
+gitleaks protect --staged --redact -c .gitleaks.toml
+
+if [ -f .gitleaks.local.toml ]; then
+    echo "pre-commit: gitleaks (local personal patterns)..."
+    gitleaks protect --staged --redact -c .gitleaks.local.toml
+fi
+
+echo "pre-commit: secret scan OK."
