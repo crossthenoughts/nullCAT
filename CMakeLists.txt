@@ -66,6 +66,29 @@ if(NOT SOEM_INCLUDE_DIR OR NOT SOEM_LIBRARY)
     )
 endif()
 
+# ============================================================
+# Npcap SDK (Windows) — SOEM's raw-socket transport.
+# NPCAP_SDK: root of the extracted SDK (Include/pcap.h + Lib/x64/wpcap.lib).
+# Override on the command line (CI does: -DNPCAP_SDK=C:/npcap-sdk).
+#
+# The Include directory is required at COMPILE time, not just link time:
+# SOEM's nicdrv.h does #include <pcap.h> on Windows, so every target that
+# pulls in a SOEM header needs it. Declared here, before any target is
+# created, so include_directories() reaches all of them.
+# ============================================================
+if(WIN32)
+    set(NPCAP_SDK "C:/libs/npcap-sdk" CACHE PATH "Path to the Npcap SDK root")
+    if(NOT EXISTS "${NPCAP_SDK}/Lib/x64/wpcap.lib" OR NOT EXISTS "${NPCAP_SDK}/Include/pcap.h")
+        message(FATAL_ERROR
+            "Npcap SDK not found at ${NPCAP_SDK} "
+            "(expected Include/pcap.h and Lib/x64/wpcap.lib).\n"
+            "  cmake -DNPCAP_SDK=C:/path/to/npcap-sdk ..\n"
+            "Download: https://npcap.com/#download (SDK zip).")
+    endif()
+    include_directories("${NPCAP_SDK}/Include")
+    message(STATUS "Npcap SDK:    ${NPCAP_SDK}")
+endif()
+
 message(STATUS "SOEM include: ${SOEM_INCLUDE_DIR}")
 message(STATUS "SOEM library: ${SOEM_LIBRARY}")
 
@@ -151,16 +174,9 @@ else()
 endif()
 
 # Windows-specific system libraries required by SOEM.
-# NPCAP_SDK: root of the extracted Npcap SDK (Lib/x64/wpcap.lib + Packet.lib).
-# Override on the command line (CI does: -DNPCAP_SDK=C:/npcap-sdk).
+# (NPCAP_SDK is defined + validated above, before any target exists, because
+# its Include dir is needed at compile time by every SOEM-consuming target.)
 if(WIN32)
-    set(NPCAP_SDK "C:/libs/npcap-sdk" CACHE PATH "Path to the Npcap SDK root")
-    if(NOT EXISTS "${NPCAP_SDK}/Lib/x64/wpcap.lib")
-        message(FATAL_ERROR
-            "Npcap SDK not found at ${NPCAP_SDK} (expected Lib/x64/wpcap.lib).\n"
-            "  cmake -DNPCAP_SDK=C:/path/to/npcap-sdk ..\n"
-            "Download: https://npcap.com/#download (SDK zip).")
-    endif()
     target_link_libraries(nullCAT PRIVATE
         ws2_32      # Winsock
     winmm       # Multimedia timer

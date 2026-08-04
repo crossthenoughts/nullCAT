@@ -18,13 +18,6 @@ from motion software (e.g. SimHub) over UDP.
 
 # Linux / Raspberry Pi build
 
-**On a Raspberry Pi starting from a stock OS, use the one-script
-installer instead** ([Docs/PI_SETUP.md](Docs/PI_SETUP.md)): it installs
-the dependencies and the real-time kernel, applies the boot tuning,
-builds SOEM (pinned) and nullCAT, and installs the service. The steps
-below are the manual equivalent for an already-prepared Linux machine,
-or for development.
-
 ## Dependencies
 
 ```bash
@@ -45,13 +38,9 @@ tree rules that out.
 
 ```bash
 git clone https://github.com/OpenEtherCATsociety/SOEM.git ~/SOEM
-git -C ~/SOEM checkout b410bf6ef599d5c85302ea45cae5f55f8e9aa394
 cmake -S ~/SOEM -B ~/SOEM/build
 cmake --build ~/SOEM/build -j2
 ```
-
-The checkout pins the SOEM revision this project is validated against
-(the same one the Pi installer uses).
 
 The Pi build looks for the tree at `~/SOEM` by default (override with
 `-DSOEM_ROOT=`) and links `libsoem.a` straight from `<SOEM_ROOT>/build`.
@@ -111,7 +100,7 @@ Default OFF keeps local builds fast; CI configures with it ON.
 | 2 | CMake 3.20+ |
 | 3 | Qt 6.x (Qt 5.15+ also supported) |
 | 4 | SOEM (built from source, below) |
-| 5 | Npcap (for SOEM raw Ethernet on Windows) |
+| 5 | Npcap runtime **and** Npcap SDK (for SOEM raw Ethernet on Windows) |
 
 ## Step 1: Install Visual Studio 2022
 
@@ -134,14 +123,21 @@ Default OFF keeps local builds fast; CI configures with it ON.
 3. Note the install path; you will need it for CMake. Typical:
    `C:\Qt\6.6.0\msvc2019_64`
 
-## Step 4: Install Npcap (required for SOEM)
+## Step 4: Install Npcap + the Npcap SDK (required for SOEM)
 
-SOEM on Windows uses raw Ethernet sockets via Npcap.
+SOEM on Windows uses raw Ethernet sockets via Npcap. You need **two
+separate downloads** from https://npcap.com/#download:
 
-1. Download from https://npcap.com/#download
-2. During install, check **"Install Npcap in WinPcap API-compatible Mode"**
-   (required for SOEM)
-3. Reboot if prompted
+1. **The Npcap installer** (the runtime driver — needed to *run* nullCAT).
+   During install, check **"Install Npcap in WinPcap API-compatible Mode"**
+   (required for SOEM). Reboot if prompted.
+2. **The Npcap SDK zip** (needed to *build*). Extract it anywhere, e.g.
+   `C:\libs\npcap-sdk`, so that `Include\pcap.h` and `Lib\x64\wpcap.lib`
+   exist under it. SOEM's `nicdrv.h` includes `<pcap.h>`, so the SDK is a
+   compile-time requirement, not just a link-time one.
+
+You pass the SDK path to CMake as `-DNPCAP_SDK` in Step 6 (it defaults to
+`C:/libs/npcap-sdk`, so extracting there means you can omit the flag).
 
 ## Step 5: Build SOEM
 
@@ -150,7 +146,6 @@ Open a **x64 Native Tools Command Prompt for VS 2022** (Start Menu):
 ```cmd
 git clone https://github.com/OpenEtherCATsociety/SOEM.git C:\libs\SOEM-src
 cd C:\libs\SOEM-src
-git checkout b410bf6ef599d5c85302ea45cae5f55f8e9aa394
 cmake -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 cmake --install build --prefix C:\libs\SOEM --config Release
@@ -180,11 +175,15 @@ From the same VS 2022 x64 Native Tools prompt:
 cd C:\path\to\nullcat
 cmake -B build -G "Visual Studio 17 2022" -A x64 ^
   -DQt6_DIR="C:/Qt/6.6.0/msvc2019_64/lib/cmake/Qt6" ^
-  -DSOEM_ROOT="C:/libs/SOEM"
+  -DSOEM_ROOT="C:/libs/SOEM" ^
+  -DNPCAP_SDK="C:/libs/npcap-sdk"
 ```
 
 Replace paths with your actual installation paths. For Qt 5, pass
 `-DQt5_DIR="C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5"` instead of `Qt6_DIR`.
+`-DNPCAP_SDK` can be omitted if you extracted the SDK to the default
+`C:/libs/npcap-sdk`. If either dependency is missing, CMake stops at
+configure time with a message naming the expected files.
 
 Build from the command line:
 
@@ -256,9 +255,8 @@ Any motion software that can send a custom UDP string works (SimHub,
 SimTools, FlyPT Mover, ...). The SimHub click-path is walked step by step
 in `Docs/FIRST_SETUP_WINDOWS.md`; the generic contract:
 
-- **Host:** `127.0.0.1` for the same-PC case. For a Raspberry Pi
-  controller, the Pi's address (see `Docs/PI_SETUP.md` step 6); for a
-  dedicated controller box, see `Docs/NUC_DEPLOYMENT.md`.
+- **Host:** `127.0.0.1` for the same-PC case. For a dedicated controller box,
+  the controller's IP; see `Docs/NUC_DEPLOYMENT.md`.
 - **Port:** `4444` (must match `telemetryPort` in `host.json`)
 - **Packet format:** CSV text, one packet per datagram
 
