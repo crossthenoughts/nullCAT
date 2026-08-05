@@ -941,3 +941,39 @@ if(WIN32 AND TEST_PATH_ENV)
 else()
     set_tests_properties(TestB222O PROPERTIES TIMEOUT 60)
 endif()
+
+# ============================================================
+# Delay-load Npcap in the test binaries
+#
+# The SOEM-linking test targets import wpcap.dll / Packet.dll at LOAD time,
+# which requires the Npcap *runtime driver* to be installed -- not just the
+# SDK. A machine with only the SDK (any CI runner) cannot even start these
+# processes: the Windows loader raises a hard error, which in a
+# non-interactive session hangs instead of exiting, so the tests appear to
+# time out rather than fail.
+#
+# These tests all run in simulation mode and never call into pcap, so
+# delay-loading is sufficient: the DLLs are resolved on first use, which
+# never happens. That keeps the full suite runnable anywhere -- these are the
+# EtherCAT init / pump / lifecycle tests, and they are root-CMake only, so
+# excluding them from CI would leave them with no automated coverage at all.
+#
+# nullCAT.exe itself is deliberately NOT delay-loaded: for the end user a
+# missing Npcap should fail immediately and unmistakably at launch (the
+# documented "wpcap.dll was not found"), rather than starting and dying later
+# when the NIC is opened.
+# ============================================================
+if(MSVC)
+    set(_npcap_delayload_tests
+        TestInitSequence TestPumpLifecycle
+        TestB222E TestB222F TestB222G TestB222H TestB222I TestB222J TestB222K)
+    foreach(_t IN LISTS _npcap_delayload_tests)
+        if(TARGET ${_t})
+            target_link_options(${_t} PRIVATE
+                /DELAYLOAD:wpcap.dll /DELAYLOAD:Packet.dll)
+            target_link_libraries(${_t} PRIVATE delayimp)
+        else()
+            message(WARNING "delay-load list names a missing target: ${_t}")
+        endif()
+    endforeach()
+endif()
