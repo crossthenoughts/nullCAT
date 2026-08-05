@@ -106,8 +106,24 @@ foreach ($f in $mustHave) {
 }
 
 # ---- 6. Zip ----
+# NOT Compress-Archive: on Windows PowerShell it writes BACKSLASH path
+# separators, which the ZIP spec (APPNOTE 4.4.17) forbids -- forward slashes
+# are required. Windows Explorer and 7-Zip cope, but some non-Windows tools
+# create files with literal backslashes in the name instead of directories.
+# ZipFile::CreateFromDirectory writes conformant entries.
 if (Test-Path $zip) { Remove-Item -Force $zip }
-Compress-Archive -Path "$stage\*" -DestinationPath $zip
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[IO.Compression.ZipFile]::CreateFromDirectory(
+    $stage, $zip, [IO.Compression.CompressionLevel]::Optimal, $false)
+
+# Fail the build rather than ship a non-conformant archive.
+$zf = [IO.Compression.ZipFile]::OpenRead($zip)
+$bad = @($zf.Entries | Where-Object { $_.FullName -match '\\' }).Count
+$entries = $zf.Entries.Count
+$zf.Dispose()
+if ($bad -gt 0) { throw "$bad zip entries use backslash separators (ZIP spec requires '/')" }
+Write-Host "-- archive: $entries entries, all separators conformant"
+
 $size = [math]::Round((Get-Item $zip).Length / 1MB, 1)
 Write-Host "== DONE: $zip ($size MB) ==" -ForegroundColor Green
 Write-Host "Contents staged in $stage for inspection."
