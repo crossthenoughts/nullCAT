@@ -92,3 +92,6 @@ logs/
 # ============================================================
 _ingest/
 dist/
+
+# Rig session logs dropped here for analysis (never published)
+/rig-logs/
