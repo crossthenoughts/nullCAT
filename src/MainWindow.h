@@ -58,6 +58,7 @@ private slots:
     void onInitializeEtherCAT();
     void onStopEtherCAT();      // de-init (mirror web /api/deinit): seat + OP->INIT teardown
     void onToggleLoop();        // context-aware: Start when stopped, Stop when running
+    void onTogglePark();        // context-aware: Park All when running, Unpark All when parked
     void onToggleBelts();       // torque-axis don/doff: Slack <-> Tension (belt rigs only)
     void onStartControlLoop();
     void onStopControlLoop();
@@ -128,6 +129,8 @@ private:
     int m_startBtnStyle = -1;
     bool m_beltsSlack   = false;         // last-computed belt aggregate (all torque axes PARKED)
     int  m_beltsBtnStyle = -1;           // belt button style cache (-1/0/1)
+    bool m_parked       = false;         // last-computed rig aggregate (every axis PARKED)
+    int  m_parkBtnStyle = -1;            // park button style cache (-1/0/1)
 
     // Shared status model rendering
     QLabel* m_catLogo  = nullptr;   // the stateful cat (aggregate summary, web logos)
@@ -151,6 +154,7 @@ private:
     // Init<->Stop EtherCAT and Start<->Stop Loop, label/enable set in updateButtonStates.
     QPushButton* m_btnInitEC = nullptr;
     QPushButton* m_btnStart = nullptr;
+    QPushButton* m_btnPark = nullptr;          // Park All <-> Unpark All (context-aware)
     QPushButton* m_btnBelts = nullptr;         // belt don/doff toggle (torque rigs only; hidden otherwise)
     QPushButton* m_btnStartHoming = nullptr;   // sub-button (Home)
     QPushButton* m_btnResetFaults = nullptr;

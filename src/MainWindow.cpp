@@ -394,6 +394,18 @@ void MainWindow::buildUI()
     connect(m_btnStart, &QPushButton::clicked, this, &MainWindow::onToggleLoop);
     mainLayout->addWidget(m_btnStart);
 
+    // Park/Unpark — rig-level toggle. Park eases every axis to its rest position;
+    // Unpark returns them to standby without a rehome. Label/enable/style driven
+    // in updateButtonStates from the SHARED motion aggregates, so this button and
+    // the web's park-toggle can never disagree about what a click will do.
+    m_btnPark = new QPushButton("Park All");
+    m_btnPark->setMinimumHeight(36);
+    m_btnPark->setStyleSheet(kRunBtnStyle);
+    m_btnPark->setToolTip("Park all axes (ease to rest position).\n"
+                          "Once parked, the same button unparks — no rehome needed.");
+    connect(m_btnPark, &QPushButton::clicked, this, &MainWindow::onTogglePark);
+    mainLayout->addWidget(m_btnPark);
+
     // Belt don/doff — rig-level toggle for torque (belt-tension) axes only; hidden
     // on rigs without them. Slack eases tension to 0 (get in/out), Tension blends
     // back in. Visibility/label/enable/style all driven in updateButtonStates,
@@ -557,6 +569,18 @@ void MainWindow::onToggleLoop()
 {
     if (m_loopRunning) onStopControlLoop();
     else               onStartControlLoop();
+}
+
+void MainWindow::onTogglePark()
+{
+    if (!m_motion) return;
+    // Mirror the server's /api/park-toggle: parked -> unpark, else park.
+    // m_parked is refreshed in updateButtonStates from the shared aggregates,
+    // and the button is disabled mid-transition, so this can never reverse a
+    // park/unpark/home already in flight.
+    LOG_INFO(m_parked ? "GUI: Unpark All clicked." : "GUI: Park All clicked.");
+    m_motion->enqueueCommand({ m_parked ? MotionCommand::Type::StartUnpark
+                                        : MotionCommand::Type::StartPark, -1 });
 }
 
 void MainWindow::onToggleBelts()
@@ -1300,25 +1324,45 @@ void MainWindow::updateButtonStates()
     if (startStyle != m_startBtnStyle)
     { m_startBtnStyle = startStyle; m_btnStart->setStyleSheet(startStyle ? kPrimaryBtnStyle : kRunBtnStyle); }
 
-    // ---- Belt don/doff toggle (mirror web btn-belts). hasBelts = any torque axis
-    // in config; beltsSlack = all torque axes PARKED. Hidden on non-belt rigs;
-    // enabled only while running && !e-stop; green when the click will re-tension.
+    // ---- Rig-level toggles (Park/Unpark, Belt don/doff) ----
+    // Both read the SHARED StatusModel aggregates -- the same derivations the
+    // web UI and the /api/*-toggle endpoints use -- so no surface can disagree
+    // about what a click will do. (These replaced a local copy of the belt
+    // logic here, which was free to drift from the server's.)
     const bool estop = (m_motion && m_motion->isEmergencyStop());
-    bool hasBelts = false, beltsSlack = true;
+    const MotionStatus ms = m_motion ? m_motion->getMotionStatus() : MotionStatus{};
+
+    const status::MotionAggregates magg =
+        status::deriveMotionAggregates(ms.axisState, ms.numDrives);
+
+    bool isTorque[MAX_DRIVES] = {};
+    int  numConfigured = 0;
     if (m_config)
     {
-        const AppConfig& cfg = m_config->get();
-        MotionStatus bms = m_motion ? m_motion->getMotionStatus() : MotionStatus{};
-        for (int i = 0; i < static_cast<int>(cfg.drives.size()); ++i)
-            if (cfg.drives[i].mode == "torque")
-            {
-                hasBelts = true;
-                if (i < bms.numDrives && bms.axisState[i] != AxisMotionState::PARKED)
-                    beltsSlack = false;
-            }
+        const std::vector<DriveConfig>& drives = m_config->get().drives;
+        numConfigured = std::min(static_cast<int>(drives.size()), MAX_DRIVES);
+        for (int i = 0; i < numConfigured; ++i)
+            isTorque[i] = (drives[i].mode == "torque");
     }
-    beltsSlack = hasBelts && beltsSlack;
+    const status::BeltAggregates bagg = status::deriveBeltAggregates(
+        ms.axisState, ms.numDrives, isTorque, numConfigured);
+
+    const bool hasBelts   = bagg.hasBelts;
+    const bool beltsSlack = bagg.beltsSlack;
     m_beltsSlack = beltsSlack;
+
+    // Park/Unpark: label shows the ACTION the click takes. Disabled while any
+    // axis is mid-transition, matching the server's park-toggle refusal, so a
+    // park/unpark/home in flight can never be reversed by a stray click.
+    m_parked = magg.allParked;
+    if (m_btnPark)
+    {
+        m_btnPark->setText(m_parked ? "Unpark All" : "Park All");
+        m_btnPark->setEnabled(loopRun && !estop && !magg.transitional);
+        const int ps = (m_parked && loopRun && !estop && !magg.transitional) ? 1 : 0;
+        if (ps != m_parkBtnStyle)
+        { m_parkBtnStyle = ps; m_btnPark->setStyleSheet(ps ? kPrimaryBtnStyle : kRunBtnStyle); }
+    }
     if (m_btnBelts)
     {
         m_btnBelts->setVisible(hasBelts);
