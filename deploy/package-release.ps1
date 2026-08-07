@@ -112,9 +112,25 @@ foreach ($f in $mustHave) {
 # create files with literal backslashes in the name instead of directories.
 # ZipFile::CreateFromDirectory writes conformant entries.
 if (Test-Path $zip) { Remove-Item -Force $zip }
+Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-[IO.Compression.ZipFile]::CreateFromDirectory(
-    $stage, $zip, [IO.Compression.CompressionLevel]::Optimal, $false)
+# Entry names are written explicitly with '/'. Neither Compress-Archive nor
+# ZipFile::CreateFromDirectory can be trusted here: on .NET Framework (which
+# is what Windows PowerShell 5.1 runs) both use Path.DirectorySeparatorChar,
+# so both emit backslashes. Only .NET Core+ normalises them.
+$fs = [IO.File]::Open($zip, [IO.FileMode]::Create)
+try {
+    $archive = New-Object IO.Compression.ZipArchive($fs, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($f in (Get-ChildItem $stage -Recurse -File)) {
+            $rel = $f.FullName.Substring($stage.Length + 1).Replace('\', '/')
+            $entry  = $archive.CreateEntry($rel, [IO.Compression.CompressionLevel]::Optimal)
+            $out    = $entry.Open()
+            $in     = [IO.File]::OpenRead($f.FullName)
+            try { $in.CopyTo($out) } finally { $in.Dispose(); $out.Dispose() }
+        }
+    } finally { $archive.Dispose() }
+} finally { $fs.Dispose() }
 
 # Fail the build rather than ship a non-conformant archive.
 $zf = [IO.Compression.ZipFile]::OpenRead($zip)
