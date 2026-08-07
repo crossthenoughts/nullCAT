@@ -117,7 +117,24 @@ body{ font-family:'Space Grotesk',system-ui,sans-serif; color:var(--ink); backgr
 .frow input,.frow select{ font-family:var(--mono); font-size:.8rem; background:var(--raise); color:var(--ink); border:1.5px solid var(--hair); border-radius:6px; padding:.22rem .4rem; max-width:150px; }
 .frow input[type=checkbox]{ max-width:none; }
 #axisFields{ display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:0 16px; }
-.cfg-foot{ display:flex; align-items:center; gap:12px; padding:.8rem 0 0; }
+/* Save bar. Sticky to the bottom of the viewport: the config page is long
+   (a many-axis rig, plus the bindings panel) and the save button used to sit
+   below the fold, so people edited fields and never found it -- or clicked
+   the bindings panel's own "Save bindings" thinking that was the one. Keeping
+   it on screen also keeps the unsaved-change count permanently visible.
+   bottom:62px clears the fixed .actionbar (the same offset .link-banner and
+   .cmd-err use), so the save bar sits directly above the command deck
+   rather than behind it. */
+.cfg-foot{ display:flex; align-items:center; gap:12px;
+  position:sticky; bottom:62px; z-index:5;
+  background:var(--paper); border-top:1.5px solid var(--hair);
+  margin-top:10px; padding:.7rem 0; }
+
+/* Collapsible Button-bindings body (commissioning-time, collapsed by default). */
+.bind-head{ cursor:pointer; user-select:none; }
+.bind-head:hover{ color:var(--live); }
+.bind-head .arrow{ font-size:.8rem; color:var(--ink-soft); width:1em; display:inline-block; }
+.bind-body.collapsed{ display:none; }
 .cfg-note{ font-size:.74rem; color:var(--ink-soft); line-height:1.45; }
 .cfg-note code{ font-family:var(--mono); background:var(--raise); padding:0 .25rem; border-radius:3px; }
 

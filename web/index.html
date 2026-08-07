@@ -147,14 +147,17 @@
            per bindable command; capture flow = click Bind, press the button.
            Saves hot-apply (buttons.json) — no restart, no re-init. -->
       <div class="cgrp" style="grid-column:1/-1">
-        <div class="gt">Button bindings <span class="c">HID box → rig commands · applies live on save</span></div>
-        <div class="cfg-note" id="btnBindNativeNote" style="display:none;border-left:2px solid var(--warn,#f5b340);padding-left:8px;margin-bottom:6px">
-          <b>PC:</b> keep the Web UI enabled for buttons to work. The button reader runs with the web server — bound presses only register while <code>webUIEnabled</code> is on. Turn the Web UI off and the box goes silent (bindings are kept, just not read).
-        </div>
-        <div id="btnBindRows" class="cfg-note">loading…</div>
-        <div style="margin-top:6px">
-          <span class="cfg-note" id="btnBindStatus"></span>
-          <button class="btn btn-sm btn-start" id="btnBindSave" type="button" disabled>Save bindings</button>
+        <div class="gt bind-head" id="bindHead"><span class="arrow" id="bindArrow">▸</span>
+          Button bindings <span class="c">HID box → rig commands · saved separately, applies live</span></div>
+        <div class="bind-body collapsed" id="bindBody">
+          <div class="cfg-note" id="btnBindNativeNote" style="display:none;border-left:2px solid var(--warn,#f5b340);padding-left:8px;margin-bottom:6px">
+            <b>PC:</b> keep the Web UI enabled for buttons to work. The button reader runs with the web server — bound presses only register while <code>webUIEnabled</code> is on. Turn the Web UI off and the box goes silent (bindings are kept, just not read).
+          </div>
+          <div id="btnBindRows" class="cfg-note">loading…</div>
+          <div style="margin-top:6px">
+            <span class="cfg-note" id="btnBindStatus"></span>
+            <button class="btn btn-sm btn-start" id="btnBindSave" type="button" disabled>Save bindings</button>
+          </div>
         </div>
       </div>
     </div>

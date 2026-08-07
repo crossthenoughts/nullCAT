@@ -287,6 +287,9 @@ btn.shutdown.onclick=()=>{ if(confirm('Shut down the Pi?\n\nIt will power OFF �
 function toggle(panel, arrow){ const c=panel.classList.toggle('collapsed'); arrow.textContent=c?'▸':'▾'; }
 $('cfgHead').onclick=()=>{ const wasCollapsed=$('cfgPanel').classList.contains('collapsed'); toggle($('cfgPanel'),$('cfgArrow')); if(wasCollapsed) loadConfig(); };
 $('provHead').onclick=()=>toggle($('provPanel'),$('provArrow'));
+// Button bindings: collapsed by default. It is a commissioning-time task, and
+// left expanded its full-width panel pushed the config Save bar off screen.
+{ const h=$('bindHead'); if(h) h.onclick=()=>toggle($('bindBody'),$('bindArrow')); }
 $('logHead').onclick=()=>toggle($('logPanelWrap'),$('logArrow'));
 $('logArrow').onclick=()=>toggle($('logPanelWrap'),$('logArrow'));
 
