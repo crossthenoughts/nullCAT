@@ -375,6 +375,20 @@ void MotionController::startUnpark(A6Drive** drives, int numHwDrives)
         // parked here.
         if (m_axisConfig[i].torqueMode) continue;
 
+        // Never unpark an axis with no valid position reference. In the normal
+        // flow this cannot happen (loop stop re-arms needsRehome, loop start
+        // homes, and both park buttons require a running loop), but a homing
+        // FatalError leaves that axis PARKED+unhomed while its peers finish and
+        // also sit PARKED -- which reads as "all parked", so the toggle offers
+        // Unpark. Unparking ramps to centerPos, and for an unhomed axis that
+        // target is in a frame with no relation to the machine. Hold instead.
+        if (!m_runtime[i].homed)
+        {
+            RT_LOG_WARNING("MotionController: Axis %d not unparked -- never homed "
+                           "(no position reference). Re-home first.", i + 1);
+            continue;
+        }
+
         if (m_axisState[i] == AxisMotionState::PARKED)
         {
             AxisRuntime& rt = m_runtime[i];
@@ -1378,45 +1392,14 @@ void MotionController::processHomingAxis(int i, A6Drive* drive, MotionOutput& ou
         return;
     }
 
-    // Gravity homing: vertical axis assumed resting at bottom endstop by gravity.
-    // Home offset = current raw position + 1mm clearance.
-    // Effective stroke = configured stroke - 2mm (1mm each end).
-    if (ac.homeMode == "gravity")
-    {
-        // Force PDO read before using position -- gravity homing runs on cycle 1
-        // before the control loop's updateStatus() call, so m_lastActualCounts is
-        // stale (zero) without this.
-        drive->updateStatus();
-
-        double rawPos = drive->getActualPositionRaw();
-        double homeOffset = rawPos + 1.0;  // 1mm off the bottom endstop
-
-        drive->setHomeOffset(homeOffset);
-
-        double effectiveMin = 0.0;                  // 1mm above bottom (offset coords)
-        double effectiveMax = ac.strokeMm - 2.0;    // 1mm below top endstop
-        drive->setLimits(homeOffset + effectiveMin, homeOffset + effectiveMax);
-
-        rt.homed = true;
-        double actualPos = drive->getActualPosition();  // 0.0 relative to home offset
-        rt.currentPos = actualPos;
-        rt.filteredPos = actualPos;
-        rt.initialized = true;
-        rt.traj.pos = actualPos;
-        rt.traj.vel = 0.0;
-        rt.traj.accel = 0.0;
-        rt.traj.targetPos = actualPos;
-        rt.traj.active = true;
-
-        m_axisState[i] = AxisMotionState::PARKED;
-
-        RT_LOG_INFO("MotionController: Axis %d GRAVITY homing complete. "
-            "rawPos=%.3f homeOffset=%.3f effectiveStroke=%.1fmm",
-            i + 1, rawPos, homeOffset, effectiveMax);
-
-        output.positions[i] = rt.currentPos;
-        return;
-    }
+    // (A "gravity" homeMode used to short-circuit here: it declared the axis
+    // homed at wherever it happened to be resting, with no search, on the
+    // assumption that gravity had already parked a vertical actuator on its
+    // bottom stop. It was a leftover from the PP-mode era, never exposed in the
+    // UI or documented, and unused. Removed: any unrecognised homeMode now falls
+    // through to the real torque-based endstop search below, which is the safe
+    // direction -- an axis with no valid reference searches for one instead of
+    // inventing one.)
 
     if (m_homing[i].getState() == HomingSequence::State::Idle ||
         m_homing[i].getState() == HomingSequence::State::Complete ||

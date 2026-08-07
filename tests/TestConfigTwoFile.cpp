@@ -199,6 +199,80 @@ private slots:
         QCOMPARE(b.get().drives[1].followingErrorWindowMm, 7.5);
     }
 
+    // ---- Axis defaults: a MISSING key must fall back to the compiled-in
+    // DriveConfig default (Config.h), which is what CONFIG_REFERENCE promises.
+    // The reader used to spell a second default into every call site, and three
+    // of them disagreed with the struct -- homeMode "center" vs "endstop",
+    // homingSpeedMmS 5 vs 250, maxAccelerationMmS2 2000 vs 10000 -- so an axis
+    // omitting them silently got the stale value. ----
+    void axisDefaults_missingKeysUseStructDefaults()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        writeText(dir.path() + "/host.json", "{ \"controlLoopHz\": 500 }\n");
+        // Minimal axis: identity only, every tunable omitted.
+        writeText(dir.path() + "/rig.json",
+            "{ \"configVersion\": 2, \"numDrives\": 1, \"global\": {},"
+            "  \"axes\": [ { \"slaveIndex\": 1, \"name\": \"A1\" } ] }\n");
+
+        Config cfg; QVERIFY(cfg.load(anchor(dir).toStdString()));
+        QCOMPARE(static_cast<int>(cfg.get().drives.size()), 1);
+        const DriveConfig& d = cfg.get().drives[0];
+        const DriveConfig  def;   // compiled-in defaults
+
+        // The three that had diverged -- assert against the struct, not literals,
+        // so this test keeps holding if the defaults are retuned later.
+        QCOMPARE(QString::fromStdString(d.homeMode), QString::fromStdString(def.homeMode));
+        QCOMPARE(d.homingSpeedMmS,      def.homingSpeedMmS);
+        QCOMPARE(d.maxAccelerationMmS2, def.maxAccelerationMmS2);
+        // Spot-check the rest of the surface is untouched by the reader rewrite.
+        QCOMPARE(QString::fromStdString(d.axisType),     QString::fromStdString(def.axisType));
+        QCOMPARE(QString::fromStdString(d.homeDirection),QString::fromStdString(def.homeDirection));
+        QCOMPARE(d.strokeMm,          def.strokeMm);
+        QCOMPARE(d.homingBackoffMm,   def.homingBackoffMm);
+        QCOMPARE(d.homingTorquePct,   def.homingTorquePct);
+        QCOMPARE(d.maxVelocityMmS,    def.maxVelocityMmS);
+        QCOMPARE(d.maxJerkMmS3,       def.maxJerkMmS3);
+        QCOMPARE(d.unparkTimeSec,     def.unparkTimeSec);
+        QCOMPARE(d.parkTimeSec,       def.parkTimeSec);
+        QCOMPARE(d.torqueMinPct,      def.torqueMinPct);
+        QCOMPARE(d.torqueMaxPct,      def.torqueMaxPct);
+        QCOMPARE(d.spikeFilterEnabled,def.spikeFilterEnabled);
+        // Positional defaults are index-derived, not struct-derived.
+        QCOMPARE(d.slaveIndex, 1);
+        QCOMPARE(QString::fromStdString(d.name), QString("A1"));
+    }
+
+    // Explicit values must still win over the defaults (the rewrite must not
+    // have turned any read into a no-op).
+    void axisDefaults_explicitValuesStillWin()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        writeText(dir.path() + "/host.json", "{ \"controlLoopHz\": 500 }\n");
+        writeText(dir.path() + "/rig.json",
+            "{ \"configVersion\": 2, \"numDrives\": 1, \"global\": {},"
+            "  \"axes\": [ { \"slaveIndex\": 3, \"name\": \"Belt\","
+            "                \"mode\": \"cst\", \"axisType\": \"linear_horizontal\","
+            "                \"homeMode\": \"center\", \"homeDirection\": \"positive\","
+            "                \"strokeMm\": 175.5, \"homingSpeedMmS\": 12.0,"
+            "                \"maxAccelerationMmS2\": 4242.0, \"invertDir\": true,"
+            "                \"spikeFilterEnabled\": true, \"homingTorquePct\": 40 } ] }\n");
+
+        Config cfg; QVERIFY(cfg.load(anchor(dir).toStdString()));
+        const DriveConfig& d = cfg.get().drives[0];
+        QCOMPARE(d.slaveIndex, 3);
+        QCOMPARE(QString::fromStdString(d.name), QString("Belt"));
+        QCOMPARE(QString::fromStdString(d.mode), QString("torque"));   // "cst" normalised
+        QCOMPARE(QString::fromStdString(d.axisType), QString("linear_horizontal"));
+        QCOMPARE(QString::fromStdString(d.homeMode), QString("center"));
+        QCOMPARE(QString::fromStdString(d.homeDirection), QString("positive"));
+        QCOMPARE(d.strokeMm,            175.5);
+        QCOMPARE(d.homingSpeedMmS,      12.0);
+        QCOMPARE(d.maxAccelerationMmS2, 4242.0);
+        QCOMPARE(d.homingTorquePct,     40);
+        QCOMPARE(d.invertDir,           true);
+        QCOMPARE(d.spikeFilterEnabled,  true);
+    }
+
     // ---- Merge-on-save preservation (the silent-data-loss regression class:
     // a save writing only the modelled schema would drop hand-added keys). ----
 

@@ -128,7 +128,7 @@ Top level: `configVersion`, `numDrives` (1 to 10, must match `axes[]`),
 | `countsPerMm` | double | derived | `encoderCountsPerRev * reduction / ballscrewPitch`, recomputed at load and on edit. Single source of scaling truth. Do not set by hand. |
 | `reductionRatio` | string | `"1:1"` | Gear or belt reduction (rotational and belt types). |
 | `homeDirection` | string | `"negative"` | Direction of the homing search. Wrong direction trips the stroke guard, it does not crash the axis. |
-| `homeMode` | string | `"endstop"` | `endstop` or `center`. |
+| `homeMode` | string | `"endstop"` | `endstop` (park at the backoff point after homing — verticals, where gravity holds the axis at the bottom) or `center` (park at mid-stroke — the natural rest for a horizontal axis). Both run the same torque-based endstop search; this only sets where the axis parks. Any other value behaves as `endstop`. |
 | `homingBackoffMm` | double | `1.5` | Back-off from the hardstop after detection. |
 | `homingSpeedMmS` | double | `250.0` | Homing approach speed command. Too slow faults the search (torque never builds); values below about 10 are not usable on the reference hardware. |
 | `homingTorquePct` | int | `25` | Torque threshold for hardstop detection, percent of rated. |

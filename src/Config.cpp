@@ -198,45 +198,71 @@ static void writeDriveConfig(const DriveConfig& d, QJsonObject& obj)
     obj["beltRelaxerPct"]            = d.beltRelaxerPct;
 }
 
+// Present-only readers. A key that is ABSENT leaves the value the caller
+// supplied -- which is the compiled-in default from DriveConfig (Config.h),
+// since loadAxesArray default-constructs before every call.
+//
+// The previous form spelled a default into every call site
+// (obj.value(k).toDouble(2000.0)), creating a SECOND set of defaults that was
+// free to drift from the struct -- and had: homeMode "center" vs "endstop",
+// homingSpeedMmS 5 vs 250, maxAccelerationMmS2 2000 vs 10000. An axis missing
+// those keys silently got the stale value, defeating the configured default
+// and contradicting CONFIG_REFERENCE ("missing keys fall back to compiled-in
+// defaults"). Passing the current value as the fallback also means a null or
+// wrong-typed entry keeps the default instead of collapsing to 0/"".
+static void rdStr(const QJsonObject& o, const char* k, std::string& v, bool lower = false)
+{
+    if (!o.contains(k)) return;
+    std::string s = o.value(k).toString(QString::fromStdString(v)).toStdString();
+    v = lower ? toLower(s) : s;
+}
+static void rdDbl (const QJsonObject& o, const char* k, double& v) { if (o.contains(k)) v = o.value(k).toDouble(v); }
+static void rdInt (const QJsonObject& o, const char* k, int&    v) { if (o.contains(k)) v = o.value(k).toInt(v); }
+static void rdBool(const QJsonObject& o, const char* k, bool&   v) { if (o.contains(k)) v = o.value(k).toBool(v); }
+
 static void readDriveConfig(const QJsonObject& obj, int idx, DriveConfig& d)
 {
-    d.slaveIndex           = obj.value("slaveIndex").toInt(idx + 1);
-    d.name                 = obj.value("name").toString(QString("Drive %1").arg(idx + 1)).toStdString();
-    d.mode                 = toLower(obj.value("mode").toString("csp").toStdString());
+    // Positional defaults: these two depend on the axis index, not the struct.
+    d.slaveIndex = idx + 1;
+    d.name       = QString("Drive %1").arg(idx + 1).toStdString();
+    rdInt(obj, "slaveIndex", d.slaveIndex);
+    rdStr(obj, "name",       d.name);
+
+    rdStr(obj, "mode", d.mode, /*lower=*/true);
     // Canonical torque-mode string is "torque" (what the motion + EtherCAT
     // paths check). Older configs / the DS402 term used "cst" -- normalise it
     // so every downstream check sees one value.
     if (d.mode == "cst") d.mode = "torque";
-    d.axisType             = toLower(obj.value("axisType").toString("linear_vertical").toStdString());
-    d.invertDir            = obj.value("invertDir").toBool(false);
-    d.strokeMm             = obj.value("strokeMm").toDouble(100.0);
-    d.ballscrewPitch       = obj.value("ballscrewPitch").toDouble(10.0);
-    d.encoderCountsPerRev  = obj.value("encoderCountsPerRev").toDouble(131072.0);
-    d.reductionRatio       = obj.value("reductionRatio").toString("1:1").toStdString();
-    d.homeDirection        = toLower(obj.value("homeDirection").toString("negative").toStdString());
-    d.homeMode             = toLower(obj.value("homeMode").toString("center").toStdString());
-    d.homingBackoffMm      = obj.value("homingBackoffMm").toDouble(1.5);
-    d.homingSpeedMmS       = obj.value("homingSpeedMmS").toDouble(5.0);
-    d.homingTorquePct      = obj.value("homingTorquePct").toInt(25);
-    d.maxVelocityMmS       = obj.value("maxVelocityMmS").toDouble(200.0);
-    d.maxAccelerationMmS2  = obj.value("maxAccelerationMmS2").toDouble(2000.0);
-    d.maxJerkMmS3          = obj.value("maxJerkMmS3").toDouble(60000.0);
-    d.followingErrorWindowMm = obj.value("followingErrorWindowMm").toDouble(100.0);
-    d.trackingWnHz             = obj.value("trackingWnHz").toDouble(30.0);
-    d.unparkTimeSec        = obj.value("unparkTimeSec").toDouble(3.0);
-    d.onlineHoldTimeoutSec = obj.value("onlineHoldTimeoutSec").toDouble(15.0);
-    d.parkTimeSec          = obj.value("parkTimeSec").toDouble(3.0);
-    d.spikeFilterEnabled   = obj.value("spikeFilterEnabled").toBool(false);
-    d.spikeMaxMm           = obj.value("spikeMaxMm").toDouble(5.0);
-    d.torqueMinPct         = obj.value("torqueMinPct").toDouble(5.0);
-    d.torqueMaxPct         = obj.value("torqueMaxPct").toDouble(50.0);
-    d.beltSlewPctPerSec    = obj.value("beltSlewPctPerSec").toDouble(3000.0);
-    d.beltOverspeedRpm     = obj.value("beltOverspeedRpm").toDouble(600.0);
-    d.beltOverspeedMs      = obj.value("beltOverspeedMs").toDouble(200.0);
-    d.beltMaxTravelRevs    = obj.value("beltMaxTravelRevs").toDouble(3.0);
-    d.beltMaxRpm           = obj.value("beltMaxRpm").toDouble(800.0);
-    d.beltRelaxerSec       = obj.value("beltRelaxerSec").toDouble(0.0);
-    d.beltRelaxerPct       = obj.value("beltRelaxerPct").toDouble(80.0);
+    rdStr (obj, "axisType",               d.axisType, true);
+    rdBool(obj, "invertDir",              d.invertDir);
+    rdDbl (obj, "strokeMm",               d.strokeMm);
+    rdDbl (obj, "ballscrewPitch",         d.ballscrewPitch);
+    rdDbl (obj, "encoderCountsPerRev",    d.encoderCountsPerRev);
+    rdStr (obj, "reductionRatio",         d.reductionRatio);
+    rdStr (obj, "homeDirection",          d.homeDirection, true);
+    rdStr (obj, "homeMode",               d.homeMode, true);
+    rdDbl (obj, "homingBackoffMm",        d.homingBackoffMm);
+    rdDbl (obj, "homingSpeedMmS",         d.homingSpeedMmS);
+    rdInt (obj, "homingTorquePct",        d.homingTorquePct);
+    rdDbl (obj, "maxVelocityMmS",         d.maxVelocityMmS);
+    rdDbl (obj, "maxAccelerationMmS2",    d.maxAccelerationMmS2);
+    rdDbl (obj, "maxJerkMmS3",            d.maxJerkMmS3);
+    rdDbl (obj, "followingErrorWindowMm", d.followingErrorWindowMm);
+    rdDbl (obj, "trackingWnHz",           d.trackingWnHz);
+    rdDbl (obj, "unparkTimeSec",          d.unparkTimeSec);
+    rdDbl (obj, "onlineHoldTimeoutSec",   d.onlineHoldTimeoutSec);
+    rdDbl (obj, "parkTimeSec",            d.parkTimeSec);
+    rdBool(obj, "spikeFilterEnabled",     d.spikeFilterEnabled);
+    rdDbl (obj, "spikeMaxMm",             d.spikeMaxMm);
+    rdDbl (obj, "torqueMinPct",           d.torqueMinPct);
+    rdDbl (obj, "torqueMaxPct",           d.torqueMaxPct);
+    rdDbl (obj, "beltSlewPctPerSec",      d.beltSlewPctPerSec);
+    rdDbl (obj, "beltOverspeedRpm",       d.beltOverspeedRpm);
+    rdDbl (obj, "beltOverspeedMs",        d.beltOverspeedMs);
+    rdDbl (obj, "beltMaxTravelRevs",      d.beltMaxTravelRevs);
+    rdDbl (obj, "beltMaxRpm",             d.beltMaxRpm);
+    rdDbl (obj, "beltRelaxerSec",         d.beltRelaxerSec);
+    rdDbl (obj, "beltRelaxerPct",         d.beltRelaxerPct);
 
     // countsPerMm is derived from encoderCountsPerRev * reduction /
     // ballscrewPitch for linear axes. If the file explicitly stores countsPerMm

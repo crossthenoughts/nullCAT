@@ -268,26 +268,24 @@ private slots:
         }
     }
 
-    // ---- TF-5-1: Gravity homing completes in one cycle, axis reaches ONLINE ----
-    // homeMode="gravity" axes don't run HomingSequence -- they home instantly by
-    // reading the current raw position and applying a 1mm clearance offset.
-    // Drive must be connected (non-null) to avoid the sim-mode fast-path.
-    void gravityHoming_completesInstantly_reachesOnline()
+    // ---- An unrecognised homeMode must NOT instant-home ----
+    // The retired "gravity" mode declared an axis homed at wherever it was
+    // resting, with no search. It is gone; a leftover config carrying it (or any
+    // other unknown value) must fall through to the REAL torque endstop search,
+    // so the axis earns a reference instead of inventing one. Pinning the safe
+    // direction: after a cycle the axis is still searching, not homed.
+    void unknownHomeMode_doesNotInstantHome_runsRealSearch()
     {
         MockA6Drive mock;
-        // Raw position = -5mm (e.g. resting against bottom endstop).
-        // gravity homing sets homeOffset = -5 + 1 = -4mm.
-        // After offset: axis position = 0.0 (1mm above bottom).
-        mock.configure(1, -5.0, 0.0);  // frozen, won't move
+        mock.configure(1, -5.0, 0.0);   // frozen at a raw position, as before
 
-        // Build config with homeMode="gravity"
         DriveConfig dc;
         dc.slaveIndex          = 1;
         dc.axisType            = "linear_vertical";
         dc.strokeMm            = 100.0;
-        dc.homeMode            = "gravity";
+        dc.homeMode            = "gravity";   // retired mode = now just "unknown"
         dc.homeDirection       = "negative";
-        dc.homingSpeedMmS      = 400.0;  // harness speed: step = speed*REF_DT(0.0005); pre-redesign tests assumed speed*0.01
+        dc.homingSpeedMmS      = 400.0;
         dc.homingBackoffMm     = 1.5;
         dc.homingTorquePct     = 25;
         dc.maxVelocityMmS      = 200.0;
@@ -306,21 +304,66 @@ private slots:
         mc.configure(cfg);
         mc.startHoming();
 
-        // Process 1 cycle with the drive pointer -- gravity path executes immediately.
         TelemetryData empty{};
         MotionOutput out{};
         A6Drive* drives[1] = { &mock };
         mc.process(empty, out, drives, 1);
 
-        // Axis should be marked homed after one cycle
-        QVERIFY(mc.isAxisHomed(0));
+        // The old behaviour was homed==true after exactly this one cycle.
+        QVERIFY2(!mc.isAxisHomed(0),
+                 "Unknown homeMode instant-homed -- the retired gravity "
+                 "short-circuit is still present");
+        QCOMPARE(mc.getAxisState(0), AxisMotionState::HOMING);
+    }
 
-        // Home offset should have been applied to the mock drive
-        QVERIFY(mock.isHomeOffsetSet());
+    // ---- Unpark must refuse an axis that was never homed ----
+    // Normal flow cannot reach this (loop stop re-arms needsRehome, loop start
+    // homes, park/unpark need a running loop). A homing FatalError can: that axis
+    // stays PARKED+unhomed while its peers finish and also sit PARKED, so the
+    // rig reads "all parked" and the toggle offers Unpark. Unpark ramps to
+    // centerPos, which for an unhomed axis is a target in a frame with no
+    // relation to the machine -- i.e. straight at an endstop. It must hold.
+    void unpark_refusesUnhomedAxis()
+    {
+        MockA6Drive mock;
+        mock.configure(1, 0.0, 0.0);
 
-        // Axis progresses to ONLINE (PARKED → auto-unpark → UNPARKING → BLENDING → ONLINE)
-        bool reached = runUntilState(mc, &mock, AxisMotionState::ONLINE, 500);
-        QVERIFY2(reached, "Gravity-homed axis did not reach ONLINE within cycle limit");
+        DriveConfig dc;
+        dc.slaveIndex          = 1;
+        dc.axisType            = "linear_horizontal";
+        dc.strokeMm            = 100.0;
+        dc.homeMode            = "center";
+        dc.homeDirection       = "negative";
+        dc.homingSpeedMmS      = 400.0;
+        dc.homingBackoffMm     = 1.5;
+        dc.homingTorquePct     = 25;
+        dc.maxVelocityMmS      = 200.0;
+        dc.maxAccelerationMmS2 = 2000.0;
+        dc.maxJerkMmS3         = 20000.0;
+        dc.unparkTimeSec       = 0.1;
+        dc.parkTimeSec         = 0.1;
+        dc.countsPerMm         = 100.0;
+        dc.ballscrewPitch      = 5.0;
+        AppConfig cfg;
+        cfg.controlLoopHz = 100;
+        cfg.numDrives = 1;
+        cfg.drives.push_back(dc);
+
+        MotionController mc;
+        mc.configure(cfg);
+        // configure() leaves the axis PARKED and homed==false -- exactly the
+        // state a FatalError axis is left in. No homing is run here.
+        QVERIFY(!mc.isAxisHomed(0));
+        QCOMPARE(mc.getAxisState(0), AxisMotionState::PARKED);
+
+        mc.enqueueCommand({ MotionCommand::Type::StartUnpark, -1 });
+        TelemetryData empty{};
+        MotionOutput out{};
+        A6Drive* drives[1] = { &mock };
+        for (int c = 0; c < 20; ++c) mc.process(empty, out, drives, 1);
+
+        QVERIFY2(mc.getAxisState(0) == AxisMotionState::PARKED,
+                 "Unhomed axis left PARKED -- unpark must refuse it");
     }
 
     // ---- TF-5-2: Belt axis skipped by startHoming(), marked homed immediately ----
