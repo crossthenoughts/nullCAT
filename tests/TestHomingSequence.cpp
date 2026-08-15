@@ -7,7 +7,7 @@
 // Exercises every state and error path using MockA6Drive.
 //
 // Test cycle time: 10ms (cycleTimeSec=0.01).
-// Timeouts: enable=10s(1000c), homing=30s(3000c), backoff=10s(1000c).
+// Timeouts: enable=10s(1000c), homing=60s(6000c), backoff=10s(1000c).
 // Torque confirm: 50 consecutive cycles above threshold.
 // ============================================================
 
@@ -97,18 +97,18 @@ private slots:
     // ---- P2-2-2: Torque search timeout → FatalError ----
     // Drive can move freely, never hits a hardstop.
     // But stroke guard fires first (150mm / 0.5mm/cycle = 300 cycles < timeout).
-    // Use fast speed to separate from timeout, or no hardstop → timeout at 3000c.
+    // Use fast speed to separate from timeout, or no hardstop → timeout at 6000c.
     void torqueSearchTimeout()
     {
         MockA6Drive mock;
         mock.configure(1, 0.0, 0.001);  // very slow: 0.001mm/cycle → will never reach stroke limit
-        // No hardstop → torque stays zero → timeout after 3000 cycles (30s at 0.01s)
+        // No hardstop → torque stays zero → timeout after 6000 cycles (60s at 0.01s)
 
         HomingSequence hs;
         hs.configure(makeConfig("negative", 100.0, 0.001), 0.01);  // tiny speed matches mock
         hs.start(&mock);
 
-        HomingSequence::State s = runUntilDone(hs, &mock, 4000);
+        HomingSequence::State s = runUntilDone(hs, &mock, 7000);
 
         QCOMPARE((int)s, (int)HomingSequence::State::FatalError);
         QVERIFY(hs.isFatalError());
@@ -116,7 +116,9 @@ private slots:
 
     // ---- P2-2-3: Stroke guard fires before timeout ----
     // Speed 1000 → step = 1000*REF_DT(0.0005) = 0.5mm/cycle. No hardstop.
-    // strokeMm=100 → limit=150mm. 150/0.5 = 300 cycles. Timeout is 3000 cycles.
+    // strokeMm=100 → limit=150mm. 150/0.5 = 300 cycles. Timeout is 6000 cycles.
+    // The distance guard is checked BEFORE the timeout every cycle, so lengthening
+    // the timeout only widens the separation this test relies on.
     void strokeGuardTriggers()
     {
         MockA6Drive mock;

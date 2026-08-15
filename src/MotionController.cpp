@@ -147,12 +147,18 @@ void MotionController::configure(const AppConfig& config)
 
         m_homing[i].configure(dc, m_cycleTimeSec);
 
+        // homeMode and homingSpeed are logged because they are the two settings a
+        // homing/park post-mortem always needs and neither was previously in the
+        // log: homeMode selects parkPos (nothing else), and homingSpeed is a
+        // per-cycle step multiplier rather than true mm/s (see homingStepMm),
+        // so it is quoted as the raw setting.
         LOG_INFO(strf("MotionController: Axis %d '%s' type=%s "
-            "stroke=%.1fmm backoff=%.2fmm center=%.1fmm maxV=%.1fmm/s maxA=%.1fmm/s2 maxJ=%.1fmm/s3 homeDir=%s",
+            "stroke=%.1fmm backoff=%.2fmm center=%.1fmm maxV=%.1fmm/s maxA=%.1fmm/s2 maxJ=%.1fmm/s3 "
+            "homeDir=%s homeMode=%s homingSpeed=%.0f (setting, not mm/s)",
             i + 1, dc.name.c_str(), dc.axisType.c_str(),
             ac.strokeMm, ac.parkPos, ac.centerPos,
             ac.maxVelocityMmS, ac.maxAccelMmS2, ac.maxJerkMmS3,
-            ac.homeDirection.c_str()));
+            ac.homeDirection.c_str(), dc.homeMode.c_str(), ac.homingSpeedMmS));
 
         // Conditioning mode + (Filter only) the derived knee consequences -- read
         // the cost of the numbers, not just the numbers. (CSP axes only.)

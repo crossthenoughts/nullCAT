@@ -54,7 +54,10 @@ public:
         m_state = State::Idle;
         m_dirSign = (cfg.homeDirection == "negative") ? -1.0 : 1.0;
         m_seatMode = false;   // normal homing unless start(seatMode=true) is used
-        // Abort torque search if travel exceeds 1.5x configured stroke.
+        // Abort torque search if travel exceeds 1.5x configured stroke. The
+        // stroke itself is kept so a timeout can report how far the search got
+        // as a fraction of the axis, not just how long it ran.
+        m_strokeMm      = cfg.strokeMm;
         m_strokeLimitMm = cfg.strokeMm * 1.5;
     }
 
@@ -334,10 +337,18 @@ public:
             }
             else if (m_elapsed > HOMING_TIMEOUT_SEC)
             {
-                LOG_ERROR(strf("HomingSequence[%d]: CSP torque search TIMEOUT after %.0fs. "
-                    "Peak torque=%.1f%% (threshold=%d%%). "
-                    "Check motor connection, torque threshold, and homing direction.",
+                // Report the MEASURED rate, not one derived from the speed setting:
+                // that setting is a per-cycle step multiplier whose real-world speed
+                // depends on the loop rate, so only distance/elapsed is trustworthy.
+                // Travelled-vs-stroke separates the two failure modes at a glance --
+                // "still crawling toward the stop" vs "never moved".
+                const double measuredMmS = (m_elapsed > 0.0) ? (distTraveled / m_elapsed) : 0.0;
+                LOG_ERROR(strf("HomingSequence[%d]: CSP torque search TIMEOUT after %.0fs -- "
+                    "travelled %.1fmm of %.1fmm stroke (%.2fmm/s measured; homingSpeed setting=%.0f). "
+                    "Peak torque=%.1f%% (threshold=%d%%). If it was still moving, raise homingSpeed; "
+                    "if it barely moved, check motor connection, torque threshold, and homing direction.",
                     drive->getSlaveIndex(), HOMING_TIMEOUT_SEC,
+                    distTraveled, m_strokeMm, measuredMmS, m_speedMmS,
                     m_peakTorque, m_torquePct));
                 m_state = State::FatalError;
             }
@@ -441,7 +452,8 @@ private:
     State   m_state = State::Idle;
     double  m_cycleTimeSec = 0.001;
     double  m_backoffMm = 1.5;
-    double  m_speedMmS = 5.0;
+    double  m_speedMmS = 5.0;      // NOT true mm/s -- a per-cycle step multiplier (see homingStepMm)
+    double  m_strokeMm = 100.0;    // configured stroke, for timeout diagnostics
     int     m_torquePct = 25;
     std::string m_homeDir = "negative";
     double  m_dirSign = -1.0;
@@ -472,7 +484,13 @@ private:
 
     // Timeouts
     static constexpr double ENABLE_TIMEOUT_SEC = 10.0;
-    static constexpr double HOMING_TIMEOUT_SEC = 30.0;
+    // Wall-clock, and deliberately NOT derived from stroke or homingSpeed: the
+    // speed setting is a per-cycle step multiplier, not true mm/s (homingStepMm),
+    // so any "expected traverse time" computed from it would be fiction. 60s
+    // covers a long axis at a slow setting; the distance guard above is what
+    // bounds travel, and it is checked first, so raising this costs waiting
+    // time on a broken axis -- never extra movement.
+    static constexpr double HOMING_TIMEOUT_SEC = 60.0;
     static constexpr double BACKOFF_TIMEOUT_SEC = 10.0;
 
     // Backoff completion tolerance -- 50um is realistic for servo settling
