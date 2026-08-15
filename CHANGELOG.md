@@ -6,6 +6,13 @@ middle number carries breaking changes and the last carries fixes.
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-08-15
+
+Config changes now reach the engine without restarting the application, the
+desktop panel gains its missing Park control, and axis defaults come from one
+place. Verified on the rig across a two-hour session covering belt and axis
+configuration changes with no application restart.
+
 ### Added
 - **Qt UI: Park / Unpark button.** The desktop panel was the only control
   surface without one (the engine, the web UI and the HID `park-toggle`
@@ -31,6 +38,23 @@ middle number carries breaking changes and the last carries fixes.
   > `rig.json` is not: in particular, homing would approach the hardstop 50×
   > faster than before. Check your axes before the first run on this version.
 
+- **Homing search timeout raised 30s → 60s**, and the timeout now says what it
+  saw. A long axis at a slow `homingSpeed` could exhaust a fixed 30s of
+  wall-clock before ever reaching its hardstop, aborting to `FatalError` on a
+  perfectly good rig. The timeout is deliberately not derived from stroke and
+  speed: `homingSpeed` is a per-cycle step multiplier, not true mm/s, so any
+  "expected traverse time" computed from it would be fiction. The distance
+  guard (1.5× stroke) is checked first on every cycle and is unchanged, so a
+  longer timeout costs waiting time on a broken axis — never extra travel.
+- **Homing timeout and axis-configure logging now carry the fields a
+  post-mortem needs.** The timeout was the only abort that reported no
+  distance; it now gives travelled-vs-stroke and the *measured* mm/s, which
+  separates "still crawling toward the stop, raise the speed" from "barely
+  moved, check the mechanics". The per-axis configure line gains `homeMode`
+  and `homingSpeed`, neither of which appeared anywhere in the log before —
+  `homeMode` selects the park position and nothing else, so its absence made
+  park-behaviour reports impossible to diagnose from a log alone.
+
 ### Removed
 - **`homeMode: "gravity"`.** It declared an axis homed at wherever it happened
   to be resting, with no search, on the assumption that gravity had already
@@ -40,6 +64,21 @@ middle number carries breaking changes and the last carries fixes.
   config still carrying `"gravity"` gets safer rather than broken.
 
 ### Fixed
+- **Config changes apply on Initialize, not only on an application restart.**
+  A `rig.json` save made while EtherCAT was up was reloaded into memory but
+  never reached the motion controller: both init paths re-applied the config to
+  the EtherCAT master alone, so drive/PDO setup picked the change up while every
+  motion-owned value kept whatever it was given at startup — belt tension limits
+  and guards, stroke, velocity/accel/jerk, homing parameters, spike filter,
+  tracking, park/unpark times, conditioning mode. The UI's "Stop &
+  Re-initialize to apply" was therefore false; only closing and reopening the
+  app applied them. Both entry points now re-apply — the Qt Initialize button
+  and `/api/init`, since an operator who edits and initialises from the web UI
+  never touches the Qt button.
+
+  > Unchanged on the Pi: it has no `rig.json` reload path, so the headless
+  > daemon still needs a service restart to pick up a config change.
+
 - **Unpark now refuses an axis that was never homed.** Not reachable in the
   normal flow (stopping the loop re-arms the rehome, starting it homes, and
   park/unpark require a running loop), but a homing fatal error left that axis
@@ -80,5 +119,6 @@ headless daemon share one motion core.
   bindings), a compact Qt desktop panel on Windows, and an optional GPIO control
   panel on the Pi.
 
-[Unreleased]: https://github.com/crossthenoughts/nullCAT/compare/v0.9.0...main
+[Unreleased]: https://github.com/crossthenoughts/nullCAT/compare/v0.9.1...main
+[0.9.1]: https://github.com/crossthenoughts/nullCAT/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/crossthenoughts/nullCAT/releases/tag/v0.9.0

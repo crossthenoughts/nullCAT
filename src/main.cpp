@@ -43,7 +43,7 @@ int main(int argc, char* argv[])
         return 1;
     }
     app.setApplicationName("nullCAT");
-    app.setApplicationVersion("0.9.0");
+    app.setApplicationVersion("0.9.1");
     app.setOrganizationName("nullCAT");
 
     // ---- Process-level RT hardening (Windows) ----
