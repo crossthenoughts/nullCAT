@@ -104,7 +104,7 @@ private:
 
     // PC config-reload: on the native PC build the app reads config only at
     // startup, so a web UI save (rig.json) would otherwise need an app restart.
-    // Watch rig.json (the web-owned file) and reload live — apply immediately
+    // Watch rig.json (the web-owned file) and reload live - apply immediately
     // when EtherCAT is offline, or flag "re-initialize to apply" when it's up.
     void setupConfigWatcher();
     void reloadConfigFromWeb();

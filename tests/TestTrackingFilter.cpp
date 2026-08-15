@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// TestTrackingFilter.cpp — host-side acceptance tests (T1..T5) for the
+// TestTrackingFilter.cpp - host-side acceptance tests (T1..T5) for the
 // critically-damped ONLINE tracking filter with braking-aware velocity clamp.
 // Standalone (no Qt):
 //   g++ -std=c++17 -O2 -ffp-contract=off -I ../src TestTrackingFilter.cpp -o /tmp/ttf && /tmp/ttf

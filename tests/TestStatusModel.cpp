@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// TestStatusModel.cpp — unit tests for the shared status model.
+// TestStatusModel.cpp - unit tests for the shared status model.
 //
 // Proves the model (a) reproduces the current web derivation, (b) retains raw
 // state for future un-folding, (c) has a deterministic single colour table, and
@@ -26,7 +26,7 @@ static const char* nm(Indicator s) { return styleOf(s).name; }
 // ---- Golden reference: an independent C++ port of the CURRENT web app.js status
 // derivation (ds402() + stateClass() + the card merge). The model must reproduce
 // this for every realistic input, or the refactor would change the web. ----
-static const char* DASH = "\xE2\x80\x94";  // em dash, matches app.js '—'
+static const char* DASH = "\xE2\x80\x94";  // em dash, matches app.js ' - '
 static std::string lc_(std::string s){ for(char& c : s) c=(char)std::tolower((unsigned char)c); return s; }
 static bool has_(const std::string& h, const char* n){ return h.find(n) != std::string::npos; }
 
@@ -230,7 +230,7 @@ int main()
     }
 
     // ================================================================
-    // V1 review S2: rig-level boolean aggregates — the SINGLE SOURCE for
+    // V1 review S2: rig-level boolean aggregates - the SINGLE SOURCE for
     // /api/status parked/homing/hasBelts/beltsSlack AND the toggle
     // endpoints' resolution. Rules copied literally from the three former
     // hand-derivation sites; these pins are what make the consolidation

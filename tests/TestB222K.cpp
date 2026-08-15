@@ -113,7 +113,7 @@ private slots:
         loop.stop();
         std::this_thread::sleep_for(std::chrono::milliseconds(60));
 
-        // Third start for good measure — confirm the pattern is durable.
+        // Third start for good measure - confirm the pattern is durable.
         QVERIFY2(loop.start(), "Third start() should succeed");
         std::this_thread::sleep_for(std::chrono::milliseconds(80));
         loop.stop();
@@ -130,7 +130,7 @@ private slots:
     //
     // (Sim mode short-circuits A4 itself, so we can't directly observe
     // the registration logs, but the lifecycle is the part this test
-    // exercises — re-init must succeed without crashing or hanging.)
+    // exercises - re-init must succeed without crashing or hanging.)
     // --------------------------------------------------------------
     void k2_reinit_lifecycle_clean()
     {
@@ -155,7 +155,7 @@ private slots:
     // --------------------------------------------------------------
     // K-3: readDriveFaultHistory must skip on states other than the
     // mailbox-functional set (PRE_OP / SAFE_OP / OP). Specifically,
-    // SafeOp+Error (0x14) is what B222J R11 saw — drives don't respond
+    // SafeOp+Error (0x14) is what B222J R11 saw - drives don't respond
     // to SDO in that state, so attempting the read just wastes timeouts.
     // --------------------------------------------------------------
     void k3_fault_history_skips_safeop_error()

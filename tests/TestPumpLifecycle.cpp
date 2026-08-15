@@ -4,12 +4,12 @@
 // TestPumpLifecycle.cpp  (Build 222 Phase 3)
 //
 // Tests for EtherCATMaster pump dispatcher lifecycle.
-// All tests run in SIMULATION MODE — no hardware required.
+// All tests run in SIMULATION MODE - no hardware required.
 // Covers:
-//   PL-1  5 sequential startPump/stopPump cycles — no crash, no deadlock
-//   PL-2  startPump() then shutdown() — no deadlock, isInitialized() = false
-//   PL-3  shutdown() + re-initialize() — dispatch thread restarts, pump works
-//   PL-4  Multiple startPump() posts while pump already active — no double-launch
+//   PL-1  5 sequential startPump/stopPump cycles - no crash, no deadlock
+//   PL-2  startPump() then shutdown() - no deadlock, isInitialized() = false
+//   PL-3  shutdown() + re-initialize() - dispatch thread restarts, pump works
+//   PL-4  Multiple startPump() posts while pump already active - no double-launch
 // ============================================================
 
 #include <QtTest>
@@ -61,7 +61,7 @@ private Q_SLOTS:
         Logger::instance().init("", false);
     }
 
-    // PL-1: 5 sequential startPump/stopPump cycles — dispatch thread handles all without crash.
+    // PL-1: 5 sequential startPump/stopPump cycles - dispatch thread handles all without crash.
     // In sim mode startPumpBody() is a no-op, so this tests the dispatch CV cycle itself.
     void test_PL1_sequentialStartStop()
     {
@@ -82,7 +82,7 @@ private Q_SLOTS:
         QVERIFY(master.isInitialized());
     }
 
-    // PL-2: startPump() then shutdown() — no deadlock, master goes to uninitialized.
+    // PL-2: startPump() then shutdown() - no deadlock, master goes to uninitialized.
     void test_PL2_startPumpThenShutdown()
     {
         EtherCATMaster master;
@@ -102,7 +102,7 @@ private Q_SLOTS:
     // PL-3: dispatch thread restart path.
     // init → shutdown (joins first dispatch thread) → re-init (must restart dispatch
     // thread via the !joinable() path in initialize()) → startPump() → second shutdown()
-    // (joins the re-created dispatch thread — this join is the observable that proves
+    // (joins the re-created dispatch thread - this join is the observable that proves
     // startPumpDispatchThread() fired in initialize()).
     // In sim mode startPumpBody() is a no-op, so m_pumpActive is never set;
     // the second shutdown()'s join is the only way to verify the thread was alive.
@@ -113,11 +113,11 @@ private Q_SLOTS:
         master.applyConfig(makeTwoDriveConfig());
         QVERIFY(master.initializeAndEnterOp("sim"));
 
-        // First shutdown — dispatch thread joined here
+        // First shutdown - dispatch thread joined here
         master.shutdown();
         QVERIFY(!master.isInitialized());
 
-        // Re-init — dispatch thread must be restarted by initialize()
+        // Re-init - dispatch thread must be restarted by initialize()
         QVERIFY(master.initializeAndEnterOp("sim"));
         QVERIFY(master.isOperational());
 
@@ -125,14 +125,14 @@ private Q_SLOTS:
         master.startPump();
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
 
-        // Second shutdown — joining the re-created dispatch thread is the observable
+        // Second shutdown - joining the re-created dispatch thread is the observable
         // that initialize() correctly restarted it via startPumpDispatchThread().
         master.shutdown();
         QVERIFY(!master.isInitialized());
         QVERIFY(!master.isOperational());
     }
 
-    // PL-4: Multiple startPump() calls while pump already active — no double-launch.
+    // PL-4: Multiple startPump() calls while pump already active - no double-launch.
     // hasPumpCrashed() must remain false (sim no-op can't crash, but active flag
     // must not be set twice causing an orphaned thread).
     void test_PL4_multipleStartPumpWhileActive()

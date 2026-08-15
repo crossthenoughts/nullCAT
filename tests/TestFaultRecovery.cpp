@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// TestFaultRecovery.cpp  (Build 58 — P2-4)
+// TestFaultRecovery.cpp  (Build 58 - P2-4)
 //
 // Fault recovery integration tests.
 // Exercises the full fault → park → rehome → ONLINE round-trip
@@ -9,7 +9,7 @@
 // drive fault is detected mid-ONLINE.
 //
 // Also covers the Build 57 fix: stable-cycles rehome trigger
-// (drives that self-recover bypass stepFaultReset() — the
+// (drives that self-recover bypass stepFaultReset() - the
 // allClear check must still call startHoming()).
 //
 // Cycle time: 10ms (100Hz). parkTimeSec=0.1s → 10 cycles.

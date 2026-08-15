@@ -1,12 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// TestWkcMonitor.cpp — unit tests for the WKC error/recovery monitor.
+// TestWkcMonitor.cpp - unit tests for the WKC error/recovery monitor.
 //
 // Pins the semantics the recovery stack depends on (V1 review S4):
 // time-based trigger threshold from configure(), the exact cycle the
 // recovery signal fires, the inRecovery latch (one signal per sustained
-// loss), clear-on-good-cycle, and reset(). Pure logic — no SOEM / Qt /
+// loss), clear-on-good-cycle, and reset(). Pure logic - no SOEM / Qt /
 // NIC (ctx is opaque and never dereferenced).
 // Run with: ctest -R WkcMonitor   (or run the binary directly).
 // ============================================================
@@ -52,7 +52,7 @@ int main()
     {
         WkcMonitor m;
         feedErrors(m, 29, cycle);
-        CHECK(!m.isInRecovery(),              "default: 29 consecutive — no signal yet");
+        CHECK(!m.isInRecovery(),              "default: 29 consecutive - no signal yet");
         CHECK(m.getRecoveryAttempts() == 0,   "default: no attempt before threshold");
         feedErrors(m, 1, cycle);
         CHECK(m.isInRecovery(),               "default: signal fires exactly at 30");
@@ -80,9 +80,9 @@ int main()
         WkcMonitor m;
         m.configure(100);                     // 100 * 0.015 = 1.5 → floor of 3 applies
         feedErrors(m, 2, cycle);
-        CHECK(!m.isInRecovery(),              "100Hz: floor — no signal at 2");
+        CHECK(!m.isInRecovery(),              "100Hz: floor - no signal at 2");
         feedErrors(m, 1, cycle);
-        CHECK(m.isInRecovery(),               "100Hz: floor — signal at 3");
+        CHECK(m.isInRecovery(),               "100Hz: floor - signal at 3");
     }
 
     // ---- Latch: sustained loss signals ONCE, not per cycle ----

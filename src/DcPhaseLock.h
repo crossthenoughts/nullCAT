@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 // ============================================================
-// DcPhaseLock.h — DC phase-lock compensator
+// DcPhaseLock.h - DC phase-lock compensator
 //
 // A gentle, clamped PI compensator that locks the master's cycle phase to the
 // EtherCAT DC reference clock by trimming the per-cycle period a few ns at a
@@ -10,13 +10,13 @@
 // which differs from the DC reference (a drive's crystal) by a few ppm; the
 // sampling instant then WALKS across the cycle (~2.5 ppm = ~5 ns/cycle at
 // 500 Hz here) until it slides onto the SYNC0 latch boundary and faults the
-// drive (Er74.1) — worst on long OP-holds and long sessions.
+// drive (Er74.1) - worst on long OP-holds and long sessions.
 //
 // Why closed-loop and not a hardcoded drift number:
 //   The walk is the difference between two crystals (host vs DC reference). It
 //   DIFFERS between systems in magnitude AND sign, and drifts slowly with
 //   temperature. Lock-to-acquisition + the integrator self-discover the actual
-//   drift and continuously re-track it — correct on every Pi/PC/drive combo
+//   drift and continuously re-track it - correct on every Pi/PC/drive combo
 //   with no per-system constant.
 //
 // Loop-rate independence:
@@ -31,10 +31,10 @@
 //   feeds to advancePeriod() is the unchanged nominal), so behaviour is
 //   byte-identical to a free-running loop. The clamp bounds the per-cycle period
 //   perturbation regardless of gains or a bad DC reading, so even a mistuned or
-//   wrong-signed loop can only nudge the period by ±maxTrimNs — it cannot run
+//   wrong-signed loop can only nudge the period by ±maxTrimNs - it cannot run
 //   the period away. Pure arithmetic, no allocation/locks: RT-hot-path safe.
 //
-// Usage per cycle (caller owns one instance per timing thread — no sharing):
+// Usage per cycle (caller owns one instance per timing thread - no sharing):
 //   int64_t period = nominalCounts;
 //   if (lock.enabled()) period = lock.update(dcPhaseNs);   // dcPhaseNs = DCtime % cycleNs
 //   PlatformRT::advancePeriod(deadline, period);
@@ -51,7 +51,7 @@ public:
     struct Params
     {
         int64_t cycleNs       = 2000000;   // cycle / SYNC0 period (phase mod base), ns
-        int64_t nominalCounts = 0;         // PlatformRT::periodCounts(cycleTimeUs) — platform tick units
+        int64_t nominalCounts = 0;         // PlatformRT::periodCounts(cycleTimeUs) - platform tick units
         double  dtSec         = 0.002;     // cycle period in seconds (1/controlLoopHz)
         double  kp            = 2.5;       // PI proportional gain (rad/s-ish; damping)
         double  ki            = 1.6;       // PI integral gain (1/s; ~0.2 Hz bandwidth, critically damped)
@@ -86,7 +86,7 @@ public:
 
     // Returns the corrected period (in platform count units) for the next
     // advancePeriod(). Pass kNoSample on cycles with no fresh DC phase (e.g.
-    // before OP) — it holds nominal and does not advance internal state.
+    // before OP) - it holds nominal and does not advance internal state.
     int64_t update(int64_t dcPhaseNs)
     {
         if (dcPhaseNs == kNoSample) return m_p.nominalCounts;
@@ -111,7 +111,7 @@ public:
 
         // PI in continuous time: u (ns/s) is a frequency command; trim = -dt*u.
         // Sign: phase below target (e<0) => lengthen the period (trim>0) to let
-        // the DC clock catch back up — verified against the observed -5 ns/cycle
+        // the DC clock catch back up - verified against the observed -5 ns/cycle
         // walk (master period runs short, so we add time).
         const double u    = m_p.kp * (double)e + m_p.ki * m_integ;
         double       trim = -m_p.dtSec * u;

@@ -232,7 +232,7 @@ bool A6Drive::stepEnableStateMachine()
         {
             // Post-sync phase: keep requesting OperationEnabled every cycle until
             // the drive acknowledges (state leaves SwitchedOn). Do NOT reset
-            // m_commandSyncActive here — the reset above (before the switch)
+            // m_commandSyncActive here - the reset above (before the switch)
             // handles it when m_state transitions away from SwitchedOn.
             writeControlwordRaw(
                 DS402Bits::CW_SWITCH_ON | DS402Bits::CW_ENABLE_VOLTAGE |
@@ -291,7 +291,7 @@ void A6Drive::enableOperation()
 void A6Drive::prepareForPump()
 {
     // 0x0006 = Enable Voltage (bit 1) + Quick Stop (bit 2). DS402 "Shutdown" command:
-    // requests "Ready to Switch On" state — drive not enabled, no motion. Correct
+    // requests "Ready to Switch On" state - drive not enabled, no motion. Correct
     // neutral state to hold throughout the pre-OP and OP pumps before the control
     // loop's first enableOperation() call.
     writeControlword(DriveCommand::Shutdown);

@@ -1373,7 +1373,7 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
         }
     }
 
-    // Publish UI-visible state snapshot (safe — we are on the RT thread,
+    // Publish UI-visible state snapshot (safe - we are on the RT thread,
     // all m_axisState[] / m_runtime[] writes for this cycle are complete).
     publishStatus();
 }

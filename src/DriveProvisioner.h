@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 // ============================================================
-// DriveProvisioner.h — drive-side parameter provisioning (PreOp, SDO).
+// DriveProvisioner.h - drive-side parameter provisioning (PreOp, SDO).
 //
 // Writes the verified nullCAT parameter set into a drive's vendor object dictionary
 // and persists it to NVRAM. Runs ONLY in PreOp with the RT loop stopped (same regime
@@ -10,7 +10,7 @@
 // master's sdoTransferMutex. No RT / hot-path involvement.
 //
 // Safety model:
-//  1. STORE (0x1010:01="save") is issued ONLY if every readback verifies — any
+//  1. STORE (0x1010:01="save") is issued ONLY if every readback verifies - any
 //     mismatch aborts before NVRAM is touched.
 //  2. The store signature is the CiA-301 "save" magic (0x65766173), profile-driven.
 //  3. The carrier doubler (R22.38 / 0x2022) is NOT written here. It is not SDO-writable
@@ -18,7 +18,7 @@
 //     16 kHz step is done by hand on the drive panel. unlock/carrier stay in the profile
 //     for reference only.
 //  4. A durable before-state backup FILE is written before any change.
-//  5. Writes parameters only — no inertia auto-ID motion (that is a separate
+//  5. Writes parameters only - no inertia auto-ID motion (that is a separate
 //     guarded step). Inertia is written at its baseline value.
 //  6. The profile's clone[] values are generated from a known-good drive dump.
 //
@@ -89,7 +89,7 @@ public:
     // RT loop stopped. Sequence: precondition -> backup file -> write clone (+ baseline
     // inertia, + torqueOnly[] iff torqueAxis) -> readback-verify ALL -> STORE only if
     // zero mismatch. torqueAxis comes from the rig config's mode for this slave
-    // (provision_main resolves it). The carrier (R22.38) is NOT written — it is not
+    // (provision_main resolves it). The carrier (R22.38) is NOT written - it is not
     // SDO-writable on this drive; 16 kHz is a manual panel step.
     Result provision(int slave, const Profile& p, bool torqueAxis = false);
 

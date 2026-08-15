@@ -128,7 +128,7 @@ Top level: `configVersion`, `numDrives` (1 to 10, must match `axes[]`),
 | `countsPerMm` | double | derived | `encoderCountsPerRev * reduction / ballscrewPitch`, recomputed at load and on edit. Single source of scaling truth. Do not set by hand. |
 | `reductionRatio` | string | `"1:1"` | Gear or belt reduction (rotational and belt types). |
 | `homeDirection` | string | `"negative"` | Direction of the homing search. Wrong direction trips the stroke guard, it does not crash the axis. |
-| `homeMode` | string | `"endstop"` | `endstop` (park at the backoff point after homing — verticals, where gravity holds the axis at the bottom) or `center` (park at mid-stroke — the natural rest for a horizontal axis). Both run the same torque-based endstop search; this only sets where the axis parks. Any other value behaves as `endstop`. |
+| `homeMode` | string | `"endstop"` | `endstop` (park at the backoff point after homing - verticals, where gravity holds the axis at the bottom) or `center` (park at mid-stroke - the natural rest for a horizontal axis). Both run the same torque-based endstop search; this only sets where the axis parks. Any other value behaves as `endstop`. |
 | `homingBackoffMm` | double | `1.5` | Back-off from the hardstop after detection. |
 | `homingSpeedMmS` | double | `250.0` | Homing approach speed command. Too slow faults the search (torque never builds); values below about 10 are not usable on the reference hardware. |
 | `homingTorquePct` | int | `25` | Torque threshold for hardstop detection, percent of rated. |
@@ -166,12 +166,12 @@ NULLCAT,<axis1>,<axis2>,...,<axisN>
 ```
 
 - **Header (required):** everything before the **first comma** must spell
-  `NULLCAT` — case-insensitive, embedded whitespace ignored (`null cat ,`
+  `NULLCAT` - case-insensitive, embedded whitespace ignored (`null cat ,`
   parses). Anything else, or a packet with no comma, is rejected whole.
 - **Values:** comma-separated **decimal** numbers (`32767`, `1.5`, `-0.3`,
-  scientific notation all fine — C `strtod` rules). Bare hexadecimal like
+  scientific notation all fine - C `strtod` rules). Bare hexadecimal like
   `7FFF` does NOT parse (a leading digit is read as decimal, letters are
-  garbage) — configure the sender for decimal output. 16-bit unsigned
+  garbage) - configure the sender for decimal output. 16-bit unsigned
   center-at-32767 is the tested scaling (SimHub's *Decimal (string)* /
   16-bit mode).
 - **Axis order:** value 1 feeds your first configured axis (chain order),
@@ -181,7 +181,7 @@ NULLCAT,<axis1>,<axis2>,...,<axisN>
   *skipped and the remaining values shift down* onto the wrong axes.
   Always send a value for every axis.
 - **No lifecycle tokens:** the controller gates motion on its own
-  readiness, never on the sender's lifecycle — send only motion lines.
+  readiness, never on the sender's lifecycle - send only motion lines.
 - No timestamp field, no trailing newline required. Telemetry is
   considered lost after ~300 ms without a fresh motion packet; axes hold
   center until it resumes.

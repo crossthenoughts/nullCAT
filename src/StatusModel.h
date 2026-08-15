@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 // ============================================================
-// StatusModel.h — shared, platform-neutral status model
+// StatusModel.h - shared, platform-neutral status model
 //
 // One canonical status truth for every renderer (web cards, PC/Qt rows,
 // NeoPixel/HID box). It takes the engine's existing snapshot (AxisMotionState +
@@ -14,17 +14,17 @@
 // app.css .s-* palette + logo precedence) so behaviour is unchanged on the web and
 // the PC surface can adopt the identical model.
 //
-// No Qt, no web, no hardware deps — pure derivation over engine enums.
+// No Qt, no web, no hardware deps - pure derivation over engine enums.
 // ============================================================
 
 #include <cstdint>
 #include <string>
-#include "A6Drive.h"          // DriveState (DS402 electrical) — header is dep-light
+#include "A6Drive.h"          // DriveState (DS402 electrical) - header is dep-light
 #include "MotionController.h"  // AxisMotionState
 
 namespace status {
 
-// Six canonical indicator buckets — the colour vocabulary the web already uses
+// Six canonical indicator buckets - the colour vocabulary the web already uses
 // (s-op / s-home / s-park / s-off / s-fault / s-estop).
 enum class Indicator { RUNNING, BUSY, IDLE, OFFLINE, FAULT, ESTOP };
 
@@ -85,7 +85,7 @@ Indicator deriveAggregate(const AxisIndicator* axes, int count,
 // toggle endpoints' server-side resolution (WebServer::buildStatusJson +
 // park-toggle + belts-toggle). A second hand-derived copy would let those
 // surfaces disagree about "parked"/"slack".
-// Semantics — quirks included — are pinned by TestStatusModel; change the
+// Semantics - quirks included - are pinned by TestStatusModel; change the
 // rules here and in the tests together, never at a call site.
 
 struct MotionAggregates

@@ -141,7 +141,7 @@ private slots:
         DriveConfig d;
         d.slaveIndex                   = 3;
         d.name                         = "AxisAlpha";
-        d.mode                         = "torque";   // canonical token ("cst" is a read alias — see o1c)
+        d.mode                         = "torque";   // canonical token ("cst" is a read alias - see o1c)
         d.axisType                     = "linear_horizontal";
         d.invertDir                    = true;
         d.strokeMm                     = 175.5;

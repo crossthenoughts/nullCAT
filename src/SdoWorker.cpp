@@ -12,7 +12,7 @@
 #include "SdoWorker.h"
 #include "EtherCATMaster.h"
 #include "Logging.h"
-#include "PlatformRT.h"   // safeCall — SEH/signal guard around SOEM calls
+#include "PlatformRT.h"   // safeCall - SEH/signal guard around SOEM calls
 
 #ifdef SOEM_AVAILABLE
 extern "C" {
@@ -137,7 +137,7 @@ void SdoWorker::onChainReinit()
 //
 // In OP the slaves are in ECT_MBXH_CYCLIC. ecx_SDOread/ecx_SDOwrite then enqueue the
 // request into SOEM's internally-mutexed mailbox queue and BLOCK ON THIS (non-RT)
-// THREAD until the RT loop's processCyclicMailbox() services them — bounded to <=1
+// THREAD until the RT loop's processCyclicMailbox() services them - bounded to <=1
 // mailbox datagram per cycle (that drain is already unconditional in ControlLoop, the
 // limit=1 path designed for "queued SDOs"). So the worker adds NO new per-cycle work
 // to the RT loop and never raises its <=1-op/cycle ceiling; it only gives the existing

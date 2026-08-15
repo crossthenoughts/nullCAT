@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 // ============================================================
-// EvdevButtons — Pi capture/reader backend for the web binding wizard.
+// EvdevButtons - Pi capture/reader backend for the web binding wizard.
 //
 // A thread INSIDE the existing nullcat-pi service rather than a standalone
 // binder process: the wizard needs the WebServer and the reader in one
 // conversation (capture flow), and a thread in the already-resident rig
-// service adds ZERO new processes — nothing beyond the rig service itself
+// service adds ZERO new processes - nothing beyond the rig service itself
 // may stay resident on the Pi. When there are no bindings and no capture
 // armed, the thread BLOCKS on a condition variable: no device scanning, no
 // polling, nothing.
@@ -16,7 +16,7 @@
 // reports the next button press (vendor/product/code/name), then releases
 // them. Auto-disarms after 15s if nothing is pressed.
 // Runtime: bound devices (matched by vendor:product) are opened + EVIOCGRAB'd
-// (exclusive — presses can't leak to anything else on the Pi); a mapped press
+// (exclusive - presses can't leak to anything else on the Pi); a mapped press
 // POSTs to the local web server, so every physical button travels the same
 // tested contract path as every other surface.
 // ============================================================

@@ -2,18 +2,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 // ============================================================
-// GpioPanel.h — Pi-only physical control panel (libgpiod v2)
+// GpioPanel.h - Pi-only physical control panel (libgpiod v2)
 //
 // A small wired panel: 3 inputs (E-STOP mushroom NC, ENGAGE, PARK) and
 // 3 status LEDs (Run / Ready / Fault). A low-priority poll thread on
 // cores 0/1 (never the isolated RT cores) debounces the buttons, drives
 // the LEDs from a status snapshot, and fires the SAME controller actions
-// the WebServer uses — passed in as callbacks, so there is no second copy
+// the WebServer uses - passed in as callbacks, so there is no second copy
 // of the control logic and no dependency on the web server.
 //
 // The panel's e-stop path is software convenience only: the mushroom is
 // mechanically latched and hard-wired into the drives' stop chain, and
-// that hardware latch — not this code — is the safety device.
+// that hardware latch - not this code - is the safety device.
 //
 // Compiled only when libgpiod is found (HAVE_LIBGPIOD; see pi/CMakeLists.txt
 // and setup.sh → libgpiod-dev). gpiod.h is kept out of this header (opaque
@@ -76,7 +76,7 @@ public:
     GpioPanel& operator=(const GpioPanel&) = delete;
 
     // Request the lines and start the poll thread. Returns false (logged) if
-    // the chip/lines cannot be opened — the app then runs without a panel.
+    // the chip/lines cannot be opened - the app then runs without a panel.
     bool start(const PanelPins& pins,
                std::function<PanelStatus()> getStatus,
                const PanelActions& actions);

@@ -9,7 +9,7 @@
 //     area for fit on smaller monitors, collapsible Advanced
 //     group via a QToolButton with arrow indicator.
 //   - loadFromConfig() / saveToConfig(): no per-field signal/slot
-//     plumbing — fields are read-back en masse on OK.
+//     plumbing - fields are read-back en masse on OK.
 //   - validateFields(): live red borders + disabled OK button.
 //   - Reset to Defaults: replaces m_cfg with AppConfig{} but
 //     preserves drives[] (the web axis editor's domain) and the
@@ -121,7 +121,7 @@ void ApplicationSettingsDialog::buildUI()
     m_spinControlHz->setSuffix(" Hz");
     m_spinControlHz->setEnabled(false);
     m_spinControlHz->setToolTip(
-        "Control loop rate. Locked to 500 Hz — the only rate validated on "
+        "Control loop rate. Locked to 500 Hz - the only rate validated on "
         "Windows (Npcap transport). 1000 Hz is not stable on this platform.");
     fRT->addRow("Control Loop Rate:", m_spinControlHz);
     m_spinPdoWatchdog = new QSpinBox();
@@ -219,9 +219,9 @@ void ApplicationSettingsDialog::buildUI()
     fAdv->addRow("", m_checkCapScan);
 
     // requireUserFaultReset is rig.global config (safety policy travels with the
-    // rig) — edited in the web UI, not here.
+    // rig) - edited in the web UI, not here.
 
-    // followingErrorWindowMm is per-axis (rig) config — edited in the web
+    // followingErrorWindowMm is per-axis (rig) config - edited in the web
     // axis editor, not here.
 
     m_spinDcSyncOffset = new QSpinBox();

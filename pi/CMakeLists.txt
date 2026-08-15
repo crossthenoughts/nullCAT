@@ -1,5 +1,5 @@
 # ============================================================
-# pi/CMakeLists.txt — NullCAT-Pi headless Linux build
+# pi/CMakeLists.txt - NullCAT-Pi headless Linux build
 #
 # Builds the EtherCAT motion core as a headless daemon (web UI as the
 # control surface). Reuses the shared ../src sources unchanged; the only
@@ -24,12 +24,12 @@ set(SRC ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 
 find_package(Threads REQUIRED)
 
-# Qt6 — TRANSITIONAL dependency. Only Config.cpp uses it (Qt JSON). To be
+# Qt6 - TRANSITIONAL dependency. Only Config.cpp uses it (Qt JSON). To be
 # dropped once Config moves to nlohmann/json; the shipping binary is then
 # fully Qt-free. Core component only (no Widgets, no Network).
 find_package(Qt6 COMPONENTS Core REQUIRED)
 
-# SOEM — headers AND library MUST come from the same pinned tree so the
+# SOEM - headers AND library MUST come from the same pinned tree so the
 # generated ec_options.h (which sizes ecx_contextt) matches libsoem.a.
 # Mixing headers and library from different trees silently changes the
 # context-struct layout (ABI mismatch); one pinned tree rules that out
@@ -74,7 +74,7 @@ target_link_libraries(nullcat-pi PRIVATE
     Threads::Threads
 )
 
-# libgpiod (v2) — OPTIONAL physical control panel. find_library wants the .so
+# libgpiod (v2) - OPTIONAL physical control panel. find_library wants the .so
 # dev symlink (libgpiod-dev), so a host without it just builds without the
 # panel. When present, compile GpioPanel.cpp and define HAVE_LIBGPIOD so
 # main_headless wires it in.
@@ -89,16 +89,16 @@ if(GPIOD_LIB AND GPIOD_INC)
     check_library_exists(gpiod gpiod_line_settings_new ${GPIOD_LIBDIR} GPIOD_IS_V2)
 endif()
 if(GPIOD_LIB AND GPIOD_INC AND GPIOD_IS_V2)
-    message(STATUS "libgpiod v2 found (${GPIOD_LIB}) — building GPIO control panel")
+    message(STATUS "libgpiod v2 found (${GPIOD_LIB}) - building GPIO control panel")
     target_sources(nullcat-pi PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/GpioPanel.cpp)
     target_include_directories(nullcat-pi PRIVATE ${GPIOD_INC})
     target_link_libraries(nullcat-pi PRIVATE ${GPIOD_LIB})
     target_compile_definitions(nullcat-pi PRIVATE HAVE_LIBGPIOD=1)
 elseif(GPIOD_LIB AND GPIOD_INC)
-    message(WARNING "libgpiod found but it is v1 (no gpiod_line_settings_new) — "
+    message(WARNING "libgpiod found but it is v1 (no gpiod_line_settings_new) - "
         "GPIO panel disabled. GpioPanel needs libgpiod >= 2.0.")
 else()
-    message(WARNING "libgpiod not found — GPIO panel disabled. Install libgpiod-dev (v2) to enable it.")
+    message(WARNING "libgpiod not found - GPIO panel disabled. Install libgpiod-dev (v2) to enable it.")
 endif()
 
 # Stage the web UI + a logs/ dir next to the binary.

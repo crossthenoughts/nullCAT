@@ -5,10 +5,10 @@
 //
 // Unit tests for the log-control surface:
 //   L-1   Logger::parseLevel maps known strings + falls back to DEBUG.
-//   L-2   Logger::setDiagEnabled(false) short-circuits logDiag — no write
+//   L-2   Logger::setDiagEnabled(false) short-circuits logDiag - no write
 //         to the diag file, no entry visible on disk.
 //   L-3   Logger::setDiagEnabled(true) (default) preserves prior behaviour
-//         — logDiag writes are observable in the diag file.
+// - logDiag writes are observable in the diag file.
 //   L-4   Logger::setMinLevel suppresses LOG_* below the threshold.
 // ============================================================
 

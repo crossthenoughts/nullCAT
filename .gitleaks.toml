@@ -1,4 +1,4 @@
-# Gitleaks config — GENERIC rules only. This file is tracked and ships in
+# Gitleaks config - GENERIC rules only. This file is tracked and ships in
 # the public repo, so it must never contain personal strings (SSIDs,
 # hostnames, emails, LAN details): a tracked deny-list would publish the
 # very values it protects. Personal patterns belong in .gitleaks.local.toml
@@ -15,7 +15,7 @@ useDefault = true
 [allowlist]
 description = "Repo-wide false-positive suppressions"
 paths = [
-    # Vendored third-party header — upstream content, scanned upstream.
+    # Vendored third-party header - upstream content, scanned upstream.
     '''src/httplib\.h''',
     # Drive register dumps: hex object tables trip entropy detectors.
     '''Docs/drive-reference/.*''',

@@ -3,7 +3,7 @@
 // ============================================================
 // TestRTLogging.cpp  (Build 222D)
 //
-// Tests for Logger::pushRT() — the RT-safe, zero-heap-allocation
+// Tests for Logger::pushRT() - the RT-safe, zero-heap-allocation
 // log path used by the RT_LOG_* macros.
 //
 // Tests:
@@ -57,7 +57,7 @@ private slots:
         QVERIFY2(found, "pushRT basic format message not found in log ring");
     }
 
-    // RT-2: No format args — plain string literal
+    // RT-2: No format args - plain string literal
     void pushRT_noArgs()
     {
         Logger::instance().setRTThread();
@@ -76,7 +76,7 @@ private slots:
         QVERIFY2(found, "pushRT no-args message not found in log ring");
     }
 
-    // RT-3: Truncation — input longer than 478 chars gets "..." marker
+    // RT-3: Truncation - input longer than 478 chars gets "..." marker
     void pushRT_truncation()
     {
         Logger::instance().setRTThread();
@@ -132,7 +132,7 @@ private slots:
         QCOMPARE(logCount, 5);
     }
 
-    // RT-6: Counter reset on clean frame — two bursts of 150 produce 4 total fires
+    // RT-6: Counter reset on clean frame - two bursts of 150 produce 4 total fires
     void rateLimitPredicate_resetsOnRecovery()
     {
         uint64_t count = 0;
@@ -146,7 +146,7 @@ private slots:
                 ++logCount;
         }
 
-        // Clean frame — reset counter
+        // Clean frame - reset counter
         count = 0;
 
         // Second burst: 150 bad frames → fires at 1, 101 (2 more fires)

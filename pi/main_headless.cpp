@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// main_headless.cpp — NullCAT-Pi headless entry point
+// main_headless.cpp - NullCAT-Pi headless entry point
 //
 // Linux daemon equivalent of src/main.cpp, minus the Qt GUI and the
 // Windows process-hardening. Wires the same backend objects
@@ -116,7 +116,7 @@ int main(int argc, char* argv[])
     LOG_INFO(strf("Config: %s", cfgPath.c_str()));
     LOG_INFO(strf("NIC: %s", cfg.nicName.empty() ? "(not set)" : cfg.nicName.c_str()));
     if (cfg.simulationMode)
-        LOG_INFO("*** SIMULATION MODE — no EtherCAT hardware required ***");
+        LOG_INFO("*** SIMULATION MODE - no EtherCAT hardware required ***");
     LOG_INFO(strf("Drives: %d, Loop Hz: %d, Telemetry port: %d",
         cfg.numDrives, cfg.controlLoopHz, cfg.telemetryPort));
     LOG_INFO("==========================================================");
@@ -154,7 +154,7 @@ int main(int argc, char* argv[])
     webServer.setOnExitRequested([](int code) { requestExit(code); });
 
     // Button backend (EvdevButtons.h): capture + runtime reader for the web
-    // binding wizard. A thread in THIS process — no new service; it blocks
+    // binding wizard. A thread in THIS process - no new service; it blocks
     // on a condvar unless bindings exist or a capture is armed.
     EvdevButtons buttons;
     {
@@ -170,10 +170,10 @@ int main(int argc, char* argv[])
     buttons.start(dir + "/buttons.json", webServer.port());
     LOG_INFO(strf("WebServer listening on %s:%d", cfg.webBindAddr.c_str(), webServer.port()));
     if (cfg.webBindAddr == "127.0.0.1")
-        LOG_WARNING("webBindAddr=127.0.0.1 — web UI only reachable locally. "
+        LOG_WARNING("webBindAddr=127.0.0.1 - web UI only reachable locally. "
                     "Set webBindAddr to 0.0.0.0 (or the eth1 IP) in host.json for PC access.");
     if (cfg.nicName.empty())
-        LOG_WARNING("nicName not set in host.json — set it (e.g. eth0) before EtherCAT init.");
+        LOG_WARNING("nicName not set in host.json - set it (e.g. eth0) before EtherCAT init.");
 
     // ---- optional GPIO control panel (Pi appliance) ----
 #ifdef HAVE_LIBGPIOD
@@ -256,7 +256,7 @@ int main(int argc, char* argv[])
         if (gpioPanel.start(pins, getStatus, acts))
             LOG_INFO(strf("GPIO control panel enabled (mode=%s).", gpioMode.c_str()));
         else
-            LOG_WARNING("GPIO control panel failed to start — continuing without it.");
+            LOG_WARNING("GPIO control panel failed to start - continuing without it.");
     }
     else
     {

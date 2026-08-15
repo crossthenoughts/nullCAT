@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// Logging.cpp — RT-safe logging implementation.
+// Logging.cpp - RT-safe logging implementation.
 // ============================================================
 #include "Logging.h"
 
@@ -57,7 +57,7 @@ Logger::~Logger()
             m_drainThread.join();
     }
 
-    // Final drain — file only, callback may be gone
+    // Final drain - file only, callback may be gone
     {
         LogEntry entry;
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -156,7 +156,7 @@ void Logger::logDiag(const std::string& line)
 void Logger::writeDiagLine(const char* msg)
 {
     // Shared diag-file writer (logDiag + drained LVL_DIAG ring entries).
-    // Timestamp is stamped HERE — for ring entries that is drain time, a few
+    // Timestamp is stamped HERE - for ring entries that is drain time, a few
     // ms after the RT push, same latency semantics as RT_LOG lines.
     std::string full = currentTimestamp() + " | " + msg;
     std::lock_guard<std::mutex> lock(m_mutex);

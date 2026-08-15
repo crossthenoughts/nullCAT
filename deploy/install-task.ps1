@@ -3,13 +3,12 @@
 #
 # Creates a Windows Task Scheduler task that runs
 # nullCATWatchdog.exe with administrator privileges.
-# After install, users launch via the desktop shortcut — no
+# After install, users launch via the desktop shortcut - no
 # UAC prompt required.
 #
 # USAGE (run once as Administrator):
 #   Right-click install-task.ps1 → Run as administrator
-#   — or —
-#   Start-Process powershell -Verb RunAs -ArgumentList "-File install-task.ps1"
+# - or - #   Start-Process powershell -Verb RunAs -ArgumentList "-File install-task.ps1"
 # ============================================================
 
 $taskName   = "nullCAT"
@@ -51,7 +50,7 @@ $shell     = New-Object -ComObject WScript.Shell
 $shortcut  = $shell.CreateShortcut("$env:USERPROFILE\Desktop\nullCAT.lnk")
 $shortcut.TargetPath   = "schtasks.exe"
 $shortcut.Arguments    = "/run /tn `"$taskName`""
-$shortcut.WindowStyle  = 7          # minimised — hides the schtasks console flash
+$shortcut.WindowStyle  = 7          # minimised - hides the schtasks console flash
 $shortcut.IconLocation = $watchdog  # use the watchdog exe icon
 $shortcut.WorkingDirectory = $scriptDir
 $shortcut.Save()

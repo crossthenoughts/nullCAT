@@ -850,7 +850,7 @@ void ControlLoopWorker::run()
                     if (cycleCount - lastRecoverySignal > statsInterval)
                     {
                         lastRecoverySignal = cycleCount;
-                        RT_LOG_WARNING("ControlLoop: WKC dipped — signalling recovery thread.");
+                        RT_LOG_WARNING("ControlLoop: WKC dipped - signalling recovery thread.");
                         if (m_master)
                             m_master->signalRecoveryNeeded();
                     }
@@ -923,7 +923,7 @@ void ControlLoopWorker::run()
 
             maxJitterUs = 0.0;
 
-            // A17: RTT DIAG — emitted only when sendReceive was actually called.
+            // A17: RTT DIAG - emitted only when sendReceive was actually called.
             if (rttCount > 0)
             {
                 RT_DIAG("DIAG | rtt | cycle=%llu | count=%llu | min_us=%.1f | max_us=%.1f | avg_us=%.1f",
@@ -1037,7 +1037,7 @@ void ControlLoopWorker::run()
         m_master->setRtLoopActive(false);
 
     // startPump() posts to the persistent dispatch thread inside
-    // EtherCATMaster — safe to call from this dying RT thread.
+    // EtherCATMaster - safe to call from this dying RT thread.
     if (m_master && !m_master->isSimulation())
     {
         m_master->startPump();

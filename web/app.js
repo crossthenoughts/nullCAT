@@ -41,24 +41,24 @@ function applyState(s){
 
   setV(vLoop, running?'RUN':'STOP', running?'ok':'');
   setV(vEc, op?'OP':'OFF', op?'ok':'warn');
-  vRate.innerHTML = s.loopHz? s.loopHz.toFixed(0)+'<span class="u">Hz</span>' : '—';
-  vCyc.innerHTML  = s.loopHz? (1e6/s.loopHz).toFixed(0)+'<span class="u">µs</span>' : '—';
+  vRate.innerHTML = s.loopHz? s.loopHz.toFixed(0)+'<span class="u">Hz</span>' : ' - ';
+  vCyc.innerHTML  = s.loopHz? (1e6/s.loopHz).toFixed(0)+'<span class="u">µs</span>' : ' - ';
   setV(vWkc, String(s.wkcErrors ?? 0), (s.wkcErrors>0)?'bad':'ok');
   vSlv.textContent = (s.slavesFound ?? 0) + ' / ' + (s.numDrives ?? 0);
   setV(vTelemetry, s.telemetryReceiving?'RX':(s.telemetryInit?'idle':'off'), s.telemetryReceiving?'ok':(s.telemetryInit?'':'warn'));
-  // UDP rate diagnostic: new/arrival Hz + hold% (—  when diag off / no window yet)
+  // UDP rate diagnostic: new/arrival Hz + hold% ( - when diag off / no window yet)
   if(vUdp){ const ua=+s.udpArrivalHz, un=+s.udpNewHz, uh=+s.udpHoldPct;
-    vUdp.innerHTML = (ua>=0)? `${un.toFixed(0)}/${ua.toFixed(0)}<span class="u">Hz</span> ${uh.toFixed(0)}%` : '—'; }
+    vUdp.innerHTML = (ua>=0)? `${un.toFixed(0)}/${ua.toFixed(0)}<span class="u">Hz</span> ${uh.toFixed(0)}%` : ' - '; }
   // Config-page hint: suggest a mode from the measured new-frame rate (inform, never auto-switch).
   { const e=$('cf-udphint'); if(e){ const un=+s.udpNewHz;
     e.textContent = (un<0) ? 'UDP rate: enable diagnostics to measure'
-      : (un>500) ? `UDP new ${un.toFixed(0)}Hz — high; Bypass/Interpolate suggested`
-      : (un<150) ? `UDP new ${un.toFixed(0)}Hz — low; Interpolate or Filter suggested`
+      : (un>500) ? `UDP new ${un.toFixed(0)}Hz - high; Bypass/Interpolate suggested`
+      : (un<150) ? `UDP new ${un.toFixed(0)}Hz - low; Interpolate or Filter suggested`
       : `UDP new ${un.toFixed(0)}Hz`; } }
 
   const j=+s.maxJitterUs||0; jbuf[jhead]=j; jhead=(jhead+1)%SPARK_N; if(jfill<SPARK_N) jfill++;
   if(j>jpeak) jpeak=j;
-  vJit.textContent = j? j.toFixed(0):'—'; vJpk.textContent = jpeak? jpeak.toFixed(0):'—';
+  vJit.textContent = j? j.toFixed(0):' - '; vJpk.textContent = jpeak? jpeak.toFixed(0):' - ';
   renderSpark();
 
   buildDriveCards(s.drives||[], running);
@@ -124,25 +124,25 @@ function buildDriveCards(drives, loopRunning){
   while(driveGrid.children.length<drives.length){
     const i=driveGrid.children.length; const c=document.createElement('div'); c.className='dcard';
     c.innerHTML=
-      `<div class="dh"><span class="dot"></span><span class="nm">Drive ${i}</span><span class="tag typ">—</span><span class="tag dir"></span></div>`+
-      `<div class="dcfg">—</div>`+
-      `<div class="srow"><span class="stxt">—</span><span class="sw"></span></div>`+
+      `<div class="dh"><span class="dot"></span><span class="nm">Drive ${i}</span><span class="tag typ"> - </span><span class="tag dir"></span></div>`+
+      `<div class="dcfg"> - </div>`+
+      `<div class="srow"><span class="stxt"> - </span><span class="sw"></span></div>`+
       `<div class="metrics">`+
-        `<div class="mr pos-only"><span class="mk">Pos mm</span><span class="mv c pos">—</span></div>`+
-        `<div class="mr pos-only"><span class="mk">Tgt mm</span><span class="mv tgt">—</span></div>`+
-        `<div class="mr pos-only"><span class="mk">Vel mm/s</span><span class="mv vel">—</span></div>`+
-        `<div class="mr sub pos-only"><span class="mk2">peak</span><span class="mv2 velpk">—</span></div>`+
-        `<div class="mr trq-only"><span class="mk">Cmd %</span><span class="mv cmdtrq">—</span></div>`+
-        `<div class="mr"><span class="mk">Trq %</span><span class="mv trq">—</span></div>`+
-        `<div class="mr sub"><span class="mk2">peak</span><span class="mv2 trqpk">—</span></div>`+
-        `<div class="mr trq-only"><span class="mk">Duty rms 60s</span><span class="mv rms">—</span></div>`+
-        `<div class="mr trq-only"><span class="mk">Speed rpm</span><span class="mv rpmv">—</span></div>`+
-        `<div class="mr trq-only"><span class="mk">IGBT °C</span><span class="mv igbt">—</span></div>`+
-        `<div class="mr trq-only"><span class="mk">Guard</span><span class="mv guardv">—</span></div>`+
-        `<div class="mr pos-only"><span class="mk">Accel mm/s²</span><span class="mv acc">—</span></div>`+
+        `<div class="mr pos-only"><span class="mk">Pos mm</span><span class="mv c pos"> - </span></div>`+
+        `<div class="mr pos-only"><span class="mk">Tgt mm</span><span class="mv tgt"> - </span></div>`+
+        `<div class="mr pos-only"><span class="mk">Vel mm/s</span><span class="mv vel"> - </span></div>`+
+        `<div class="mr sub pos-only"><span class="mk2">peak</span><span class="mv2 velpk"> - </span></div>`+
+        `<div class="mr trq-only"><span class="mk">Cmd %</span><span class="mv cmdtrq"> - </span></div>`+
+        `<div class="mr"><span class="mk">Trq %</span><span class="mv trq"> - </span></div>`+
+        `<div class="mr sub"><span class="mk2">peak</span><span class="mv2 trqpk"> - </span></div>`+
+        `<div class="mr trq-only"><span class="mk">Duty rms 60s</span><span class="mv rms"> - </span></div>`+
+        `<div class="mr trq-only"><span class="mk">Speed rpm</span><span class="mv rpmv"> - </span></div>`+
+        `<div class="mr trq-only"><span class="mk">IGBT °C</span><span class="mv igbt"> - </span></div>`+
+        `<div class="mr trq-only"><span class="mk">Guard</span><span class="mv guardv"> - </span></div>`+
+        `<div class="mr pos-only"><span class="mk">Accel mm/s²</span><span class="mv acc"> - </span></div>`+
         `<div class="abar pos-only"><div class="fill"></div><div class="lim"></div></div>`+
-        `<div class="mr sub pos-only"><span class="mk2">clamp</span><span class="mv2 clip">—</span></div>`+
-        `<div class="mr pos-only"><span class="mk">Follow err mm</span><span class="mv ferr">—</span></div>`+
+        `<div class="mr sub pos-only"><span class="mk2">clamp</span><span class="mv2 clip"> - </span></div>`+
+        `<div class="mr pos-only"><span class="mk">Follow err mm</span><span class="mv ferr"> - </span></div>`+
       `</div>`;
     driveGrid.appendChild(c);
   }
@@ -155,11 +155,11 @@ function buildDriveCards(drives, loopRunning){
     // by TestStatusModel's 210-combo golden-reference sweep. The raw statusword is
     // still shown separately below.
     const ind = d.ind || {};
-    const stext = ind.text || '—';
+    const stext = ind.text || ' - ';
     const sclass = ind.cls || 's-off';
     card.className='dcard '+sclass+(sclass==='s-fault'?' fault':'');
     card.querySelector('.nm').textContent  = d.name || ('Drive '+i);
-    card.querySelector('.typ').textContent = TYPE[d.axisType] || '—';
+    card.querySelector('.typ').textContent = TYPE[d.axisType] || ' - ';
     const dir=card.querySelector('.dir');
     if(typeof d.invertDir==='boolean'){ dir.textContent=d.invertDir?'REV':'FWD'; dir.style.display=''; }
     else { dir.style.display='none'; }
@@ -175,32 +175,32 @@ function buildDriveCards(drives, loopRunning){
       card.querySelector('.dcfg').textContent = 'torque · CST';
       // Torque telemetry rows (see WebServer: cmdTrq/rms/rpm/igbtC/guard).
       const set=(sel,txt)=>{ const e=card.querySelector(sel); if(e) e.textContent=txt; return e; };
-      set('.cmdtrq', typeof d.cmdTrq==='number'? d.cmdTrq.toFixed(1) : '—');
-      const rmsEl=set('.rms', typeof d.rms==='number'? d.rms.toFixed(0)+'%' : '—');
+      set('.cmdtrq', typeof d.cmdTrq==='number'? d.cmdTrq.toFixed(1) : ' - ');
+      const rmsEl=set('.rms', typeof d.rms==='number'? d.rms.toFixed(0)+'%' : ' - ');
       if(rmsEl) rmsEl.style.color = typeof d.rms!=='number' ? ''
         : d.rms>105 ? 'var(--danger)' : d.rms>85 ? 'var(--warn)' : 'var(--ok)';   // vs RATED; >100 = i2t clock
-      set('.rpmv', typeof d.rpm==='number'? Math.abs(d.rpm).toFixed(0) : '—');
-      set('.igbt', typeof d.igbtC==='number'? d.igbtC.toFixed(0) : '—');
+      set('.rpmv', typeof d.rpm==='number'? Math.abs(d.rpm).toFixed(0) : ' - ');
+      set('.igbt', typeof d.igbtC==='number'? d.igbtC.toFixed(0) : ' - ');
       const GUARD={overspeed:'OVERSPEED TRIP',travel:'TRAVEL TRIP',relaxed:'RELAXED'};
-      const gEl=set('.guardv', GUARD[d.guard]||'—');
+      const gEl=set('.guardv', GUARD[d.guard]||' - ');
       if(gEl) gEl.style.color = d.guard==='relaxed' ? 'var(--warn)'
                               : d.guard ? 'var(--danger)' : 'var(--ink-soft)';
     }
     else {
-      const stroke = (typeof d.strokeMm==='number')? d.strokeMm.toFixed(0)+'mm':'—';
+      const stroke = (typeof d.strokeMm==='number')? d.strokeMm.toFixed(0)+'mm':' - ';
       const pitch  = (typeof d.ballscrewPitch==='number')? d.ballscrewPitch.toFixed(1)+'mm/rev':'';
       card.querySelector('.dcfg').textContent = pitch? stroke+' · '+pitch : stroke;
     }
-    // metrics — current big, peak small (peaks sticky per session)
+    // metrics - current big, peak small (peaks sticky per session)
     const pk=peaks[i]||(peaks[i]={vel:0,trq:0});
     if(typeof d.vel==='number' && Math.abs(d.vel)>pk.vel) pk.vel=Math.abs(d.vel);
     if(typeof d.trq==='number' && d.trq>pk.trq) pk.trq=d.trq;
-    card.querySelector('.pos').textContent   = typeof d.pos==='number'? d.pos.toFixed(3):'—';
-    card.querySelector('.tgt').textContent   = typeof d.target==='number'? d.target.toFixed(3):'—';
-    card.querySelector('.vel').textContent   = typeof d.vel==='number'? d.vel.toFixed(2):'—';
-    card.querySelector('.velpk').textContent = typeof d.vel==='number'? pk.vel.toFixed(2):'—';
-    card.querySelector('.trq').textContent   = typeof d.trq==='number'? d.trq.toFixed(1):'—';
-    card.querySelector('.trqpk').textContent = typeof d.trq==='number'? pk.trq.toFixed(1):'—';
+    card.querySelector('.pos').textContent   = typeof d.pos==='number'? d.pos.toFixed(3):' - ';
+    card.querySelector('.tgt').textContent   = typeof d.target==='number'? d.target.toFixed(3):' - ';
+    card.querySelector('.vel').textContent   = typeof d.vel==='number'? d.vel.toFixed(2):' - ';
+    card.querySelector('.velpk').textContent = typeof d.vel==='number'? pk.vel.toFixed(2):' - ';
+    card.querySelector('.trq').textContent   = typeof d.trq==='number'? d.trq.toFixed(1):' - ';
+    card.querySelector('.trqpk').textContent = typeof d.trq==='number'? pk.trq.toFixed(1):' - ';
     // Peak WINDOWED commanded accel vs the Amax limit -- the real headroom gauge. It's the
     // macroscopic accel (|dvel| over ~10 ms), NOT per-cycle: the per-cycle value pegs at
     // exactly Amax on every frame-boundary discontinuity, so it read 100% at every Amax.
@@ -219,11 +219,11 @@ function buildDriveCards(drives, loopRunning){
       const hot = pct>=95 || clip>=10;   // at the accel limit, or the clamp is binding a lot
       bar.classList.toggle('hot',hot);
       accEl.style.color = hot ? 'var(--danger)' : '';
-    } else { accEl.textContent='—'; accEl.style.color=''; fill.style.width='0%'; bar.classList.remove('hot'); }
+    } else { accEl.textContent=' - '; accEl.style.color=''; fill.style.width='0%'; bar.classList.remove('hot'); }
     const clipEl=card.querySelector('.clip');
-    clipEl.textContent = (typeof d.accelClipPct==='number')? `${clip.toFixed(1)}% clip · ${brake.toFixed(1)}% brake` : '—';
+    clipEl.textContent = (typeof d.accelClipPct==='number')? `${clip.toFixed(1)}% clip · ${brake.toFixed(1)}% brake` : ' - ';
     const ferrEl=card.querySelector('.ferr');
-    ferrEl.textContent = (typeof d.followErrPeak==='number')? d.followErrPeak.toFixed(3) : '—';
+    ferrEl.textContent = (typeof d.followErrPeak==='number')? d.followErrPeak.toFixed(3) : ' - ';
   });
 }
 
@@ -281,7 +281,7 @@ btn.park.onclick=()=>postCmd(parkMode==='unpark'?'/api/unpark':'/api/park'); btn
 btn.belts.onclick=()=>postCmd(beltsSlack?'/api/belts/tension':'/api/belts/slack');
 btn.estop.onclick=()=>postCmd('/api/estop'); btn.release.onclick=()=>postCmd('/api/estop/release');
 btn.restart.onclick=()=>{ if(confirm('Restart the application?')) postCmd('/api/restart'); };
-btn.shutdown.onclick=()=>{ if(confirm('Shut down the Pi?\n\nIt will power OFF — you must switch it back on manually to restart.')) postCmd('/api/shutdown'); };
+btn.shutdown.onclick=()=>{ if(confirm('Shut down the Pi?\n\nIt will power OFF - you must switch it back on manually to restart.')) postCmd('/api/shutdown'); };
 
 /* ---- collapsible panels (arrows) ---- */
 function toggle(panel, arrow){ const c=panel.classList.toggle('collapsed'); arrow.textContent=c?'▸':'▾'; }
@@ -305,7 +305,7 @@ let cfgObj=null;          // merged working model for the axis editor (host + ri
 let meta={hostOwner:'web'};
 function setField(id,v){ const el=$(id); if(!el||v==null) return; if(el.type==='checkbox') el.checked=!!v; else el.value=v; }
 
-// host.json inputs — disabled when a native app owns host (hostOwner==="native").
+// host.json inputs - disabled when a native app owns host (hostOwner==="native").
 const HOST_INPUT_IDS=['cf-sim','cf-nic','cf-hz','cf-wd','cf-dc','cf-bind','cf-wport','cf-sport','cf-sbind',
   'cf-loglvl','cf-logfile','cf-logcon','cf-diag','cf-temppoll','cf-cmdsync','cf-wkccyc','cf-wkcthr','cf-capscan','cf-gpiomode','cf-ledtest'];
 function applyHostOwnership(){
@@ -320,7 +320,7 @@ function applyHostOwnership(){
   // webUIEnabled on. On the Pi the web server is always the control surface.
   const bn=$('btnBindNativeNote'); if(bn) bn.style.display=native?'block':'none';
   const rn=$('cf-rignote'); if(rn) rn.textContent = native
-    ? 'Rig & axis settings: portable rig config — saved here, applies on the next Stop → Re-initialize.'
+    ? 'Rig & axis settings: portable rig config - saved here, applies on the next Stop → Re-initialize.'
     : 'Rig & axis settings: saved here, applied on service restart.';
 }
 
@@ -372,7 +372,7 @@ async function refreshPendingPill(fetchMeta){
   const pill=$('cfgPending'); if(!pill) return;
   const pend=!!(meta.rigPendingRestart||meta.hostPendingRestart);
   pill.style.display=pend?'':'none';
-  pill.textContent=(meta.hostOwner==='native')?'config saved — re-initialize to apply':'config saved — restart to apply';
+  pill.textContent=(meta.hostOwner==='native')?'config saved - re-initialize to apply':'config saved - restart to apply';
 }
 setInterval(()=>refreshPendingPill(true),15000);
 
@@ -404,7 +404,7 @@ function renderBindings(){
     const cap=btnCapturing===cmd;
     return `<div class="frow bindrow">
       <span>${label}</span>
-      <span class="bindcur${b?'':' unbound'}">${cap?'press a button…':(b?(b.label||(b.vendor+':'+b.product+' #'+b.code)):'—')}</span>
+      <span class="bindcur${b?'':' unbound'}">${cap?'press a button…':(b?(b.label||(b.vendor+':'+b.product+' #'+b.code)):' - ')}</span>
       <button class="btn btn-sm" data-bindcmd="${cmd}" ${btnCapturing?'disabled':''}>${b?'Rebind':'Bind'}</button>
       <button class="btn btn-sm" data-clearcmd="${cmd}" ${(!b||btnCapturing)?'disabled':''}>Clear</button>
     </div>`; }).join('');
@@ -433,19 +433,19 @@ async function captureFor(cmd){
         btnMap.bindings=btnMap.bindings.filter(b=>b.cmd!==cmd);
         btnMap.bindings.push({cmd,vendor:c.vendor,product:c.product,code:c.code,label:c.label});
         btnDirty=true; btnCapturing=null; renderBindings();
-        setBindStatus('captured — press Save bindings to apply');
+        setBindStatus('captured - press Save bindings to apply');
         return;
       }
       if(!c.listening&&!c.captured) break;   // backend disarmed (timeout)
     }catch(_){}
   }
-  btnCapturing=null; renderBindings(); setBindStatus('no button pressed — capture cancelled','var(--warn)');
+  btnCapturing=null; renderBindings(); setBindStatus('no button pressed - capture cancelled','var(--warn)');
 }
 async function saveBindings(){
   try{
     const r=await fetch(API+'/api/buttons',{method:'POST',body:JSON.stringify(btnMap)});
     const j=await r.json();
-    if(j.ok){ btnDirty=false; renderBindings(); setBindStatus('saved ✓ live — no restart needed','var(--ok)'); }
+    if(j.ok){ btnDirty=false; renderBindings(); setBindStatus('saved ✓ live - no restart needed','var(--ok)'); }
     else setBindStatus('✗ '+(j.error||'save failed'),'var(--danger)');
   }catch(e){ setBindStatus('✗ '+e,'var(--danger)'); }
 }
@@ -509,7 +509,7 @@ async function saveConfig(){
   try{
     const rr=await fetch(API+'/api/rig',{method:'POST',body:JSON.stringify(rig)}); const rj=await rr.json();
     if(!rj.ok){ st.textContent='✗ rig: '+(rj.error||'save failed'); st.style.color='var(--danger)'; return; }
-    // host.json — only when the web owns it (headless); on "native" the desktop app owns it.
+    // host.json - only when the web owns it (headless); on "native" the desktop app owns it.
     if(meta.hostOwner==='web'){
       const host={ configVersion:cfgObj._configVersion||2,
         nicName:$('cf-nic').value, controlLoopHz:+$('cf-hz').value, pdoWatchdogMs:+$('cf-wd').value,
@@ -526,8 +526,7 @@ async function saveConfig(){
       const hr=await fetch(API+'/api/host',{method:'POST',body:JSON.stringify(host)}); const hj=await hr.json();
       if(!hj.ok){ st.textContent='✗ host: '+(hj.error||'save failed'); st.style.color='var(--danger)'; return; }
     }
-    // Native (desktop) reloads config in-process on save (QFileSystemWatcher) —
-    // no app restart; it applies live when EtherCAT is offline, or on the next
+    // Native (desktop) reloads config in-process on save (QFileSystemWatcher) -     // no app restart; it applies live when EtherCAT is offline, or on the next
     // Stop→Re-initialize. Headless (hostOwner 'web', systemd) still needs a restart.
     const applyMsg=(meta.hostOwner==='native')?'Saved ✓ Re-initialize EtherCAT to apply (no app restart).':'Saved ✓ Restart to apply.';
     st.textContent=applyMsg+(clamped?` (${clamped} field${clamped>1?'s':''} clamped to safe range)`:''); st.style.color='var(--ok)';
@@ -577,7 +576,7 @@ function condMode(){ return (cfgObj&&cfgObj.conditioningMode)||'bypass'; }
 function axisApplicable(f,d){ if(f.pos&&d.mode==='torque')return false; if(f.belt&&d.axisType!=='belt')return false; if(f.torque&&d.mode!=='torque')return false; if(f.csp&&d.mode!=='csp')return false; if(f.filterOnly&&condMode()!=='filter')return false; return true; }
 function populateAxisEditor(){
   const sel=$('axisSel'); if(!sel) return; const drives=(cfgObj&&cfgObj.drives)||[];
-  sel.innerHTML = drives.length ? drives.map((d,i)=>`<option value="${i}">Axis ${i} — ${d.name||('Drive '+i)}</option>`).join('') : '<option value="-1">no drives in config</option>';
+  sel.innerHTML = drives.length ? drives.map((d,i)=>`<option value="${i}">Axis ${i} - ${d.name||('Drive '+i)}</option>`).join('') : '<option value="-1">no drives in config</option>';
   renderAxisFields(+sel.value||0);
 }
 function renderAxisFields(i){
@@ -602,7 +601,7 @@ function renderAxisFields(i){
   // the ratio changes; config validation rejects maxPct x ratio > 300% of rated.
   if(d.mode==='torque'){ const rf=parseFloat((d.reductionRatio||'1:1').split(':')[0])||1;
     const strap=(d.torqueMaxPct||0)*rf, over=strap>300;
-    h+=`<div class="cfg-note" style="grid-column:1/-1${over?';color:var(--danger)':''}">strap-side max = ${d.torqueMaxPct||0}% × ${d.reductionRatio||'1:1'} = <b>${strap.toFixed(0)}%</b> of rated motor torque${over?' — EXCEEDS 300% cap, reduce Torque max':''}. Overspeed guard is motor-side rpm (scales ×${rf} for the same strap speed).</div>`; }
+    h+=`<div class="cfg-note" style="grid-column:1/-1${over?';color:var(--danger)':''}">strap-side max = ${d.torqueMaxPct||0}% × ${d.reductionRatio||'1:1'} = <b>${strap.toFixed(0)}%</b> of rated motor torque${over?' - EXCEEDS 300% cap, reduce Torque max':''}. Overspeed guard is motor-side rpm (scales ×${rf} for the same strap speed).</div>`; }
   host.innerHTML=h;
   host.querySelectorAll('[data-k]').forEach(el=>{ el.onchange=()=>{ const k=el.dataset.k, dd=cfgObj.drives[i];
     dd[k] = el.type==='checkbox'?el.checked : el.dataset.num?(+el.value) : el.value;
@@ -637,7 +636,7 @@ function applyToAll(){
   if(!cfgObj||!cfgObj.drives) return; const i=+$('axisSel').value||0; const src=cfgObj.drives[i]; if(!src) return;
   cfgObj.drives.forEach((d,j)=>{ if(j===i) return; const nm=d.name, sl=d.slaveIndex;
     Object.assign(d, JSON.parse(JSON.stringify(src))); d.name=nm; d.slaveIndex=sl; });   // keep identity
-  const st=$('cfgStatus'); if(st){ st.textContent='Applied axis '+i+' to all axes (name + slaveIndex kept) — Save to persist'; st.style.color='var(--ink-soft)'; }
+  const st=$('cfgStatus'); if(st){ st.textContent='Applied axis '+i+' to all axes (name + slaveIndex kept) - Save to persist'; st.style.color='var(--ink-soft)'; }
 }
 { const a=$('axisAdd'), d=$('axisDel'), ap=$('axisApplyAll'); if(a)a.onclick=addAxis; if(d)d.onclick=removeAxis; if(ap)ap.onclick=applyToAll; }
 

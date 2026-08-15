@@ -5,7 +5,7 @@
 // WebServer.h
 //
 // Embedded HTTP + WebSocket server using cpp-httplib.
-// Runs in its own thread at normal priority — completely
+// Runs in its own thread at normal priority - completely
 // isolated from the RT loop by the command queue.
 //
 // Serves (core set; config, toggle and lifecycle endpoints are
@@ -44,7 +44,7 @@
 #include <chrono>
 #include <vector>
 
-// Forward declaration — avoids pulling the heavy httplib.h into every TU
+// Forward declaration - avoids pulling the heavy httplib.h into every TU
 // that includes WebServer.h.
 namespace httplib { class Server; }
 
@@ -61,12 +61,12 @@ public:
                        const AppConfig*  config);
 
     void setWebRoot(const std::string& path)    { m_webRoot    = path; }
-    // Path to config.json — enables GET/POST /api/config (passthrough save).
+    // Path to config.json - enables GET/POST /api/config (passthrough save).
     void setConfigPath(const std::string& path) { m_configPath = path; }
-    // Telemetry handle — lets /api/status report the receiving indicator.
+    // Telemetry handle - lets /api/status report the receiving indicator.
     void setTelemetry(TelemetryInput* s)              { m_telemetry     = s; }
     void setPort(int port)                      { m_port       = port; }
-    // Bind address. Defaults to 127.0.0.1 (loopback — no firewall prompt).
+    // Bind address. Defaults to 127.0.0.1 (loopback - no firewall prompt).
     // Set to "0.0.0.0" to allow remote access (RPi headless, phone, etc.)
     void setBindAddr(const std::string& addr)   { m_bindAddr   = addr; }
     // Extra Host-header names the operator allows (host.json webAllowedHosts,
@@ -79,7 +79,7 @@ public:
     // "name", "name:port", "1.2.3.4:port", "[::1]:port".
     static std::string hostHeaderName(const std::string& hostHeader);
     // True for loopback, RFC1918, IPv4 link-local, IPv6 loopback/link-local/
-    // ULA — i.e. a client on the local machine or a private LAN. Gates the
+    // ULA - i.e. a client on the local machine or a private LAN. Gates the
     // destructive endpoints (/api/shutdown, /api/restart): they must never be
     // driveable from a non-private source address.
     static bool isPrivateClientAddr(const std::string& addr);
@@ -157,7 +157,7 @@ private:
     // to call svr.stop() and unblock svr.listen().
     std::atomic<httplib::Server*> m_svr{nullptr};
 
-    // Async init — pre-created thread waits for signal, runs initializeAndEnterOp,
+    // Async init - pre-created thread waits for signal, runs initializeAndEnterOp,
     // then waits again. Avoids cold thread creation at click time.
     std::thread            m_initThread;
     std::atomic<bool>      m_initBusy{false};

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// TestTrajectory.cpp  (Build 63 — TF-4)
+// TestTrajectory.cpp  (Build 63 - TF-4)
 //
 // Tests for the s-curve trajectory planner exercised indirectly
 // through MotionController::process() while axes are ONLINE.

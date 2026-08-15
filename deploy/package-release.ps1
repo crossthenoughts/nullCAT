@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# package-release.ps1 — build a clean, shippable nullCAT Windows release zip.
+# package-release.ps1 - build a clean, shippable nullCAT Windows release zip.
 #
 # Produces dist\nullCAT-v<version>-win64.zip from a FRESH build directory, so
 # no stale artifacts (old exes, test binaries, machine-local host.json/rig.json/

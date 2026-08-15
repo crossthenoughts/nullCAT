@@ -1,14 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// TestTelemetryParse.cpp — pins the telemetry UDP wire-format semantics.
+// TestTelemetryParse.cpp - pins the telemetry UDP wire-format semantics.
 //
 // parsePacket runs ON THE RT THREAD at telemetry rate as a zero-allocation
 // span walker; this suite is the byte-for-byte wire contract any rewrite
 // must pass unchanged.
 //
 // Wire truth (rig-verified): every field after the NULLCAT header is an
-// axis value — there is NO timestamp field on the wire (timestampMs is
+// axis value - there is NO timestamp field on the wire (timestampMs is
 // always 0).
 //
 //   ctest -R TelemetryParse

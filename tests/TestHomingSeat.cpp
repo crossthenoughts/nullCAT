@@ -1,12 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// TestHomingSeat.cpp — regression test for the deinit "seat" mode of HomingSequence.
+// TestHomingSeat.cpp - regression test for the deinit "seat" mode of HomingSequence.
 //
 // Proves the three invariants the seat-mode flag must hold (see the design review):
 //   1. ADDITIVE: normal homing (seatMode=false) is byte-identical to seat homing
-//      (seatMode=true) for the ENTIRE shared path — enable, settle, search-to-torque —
-//      diverging at EXACTLY ONE cycle: the hardstop. Same search, same detection cycle,
+//      (seatMode=true) for the ENTIRE shared path - enable, settle, search-to-torque - //      diverging at EXACTLY ONE cycle: the hardstop. Same search, same detection cycle,
 //      bit-identical commanded/actual trace up to and including that cycle.
 //   3. NO HOME REFERENCE: seat mode never enters Backoff and never reaches Complete, and
 //      establishes NO home offset (getHomeOffset() stays 0). Normal homing does both.

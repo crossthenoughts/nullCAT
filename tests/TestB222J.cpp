@@ -47,14 +47,14 @@ private slots:
         // No error
         QCOMPARE(QString(EtherCATMaster::ds402ErrorCodeString(0x0000)),
                  QString("no error"));
-        // DC link undervoltage — common on rig power-cycle
+        // DC link undervoltage - common on rig power-cycle
         QCOMPARE(QString(EtherCATMaster::ds402ErrorCodeString(0x3220)),
                  QString("DC link undervoltage"));
-        // Following error window exceeded — what we're MOST likely to see
+        // Following error window exceeded - what we're MOST likely to see
         // in motion if drive integration falls behind
         QCOMPARE(QString(EtherCATMaster::ds402ErrorCodeString(0x8611)),
                  QString("following error window exceeded"));
-        // Sync error — what B222H R2 actually faulted on (SW=0xd74e)
+        // Sync error - what B222H R2 actually faulted on (SW=0xd74e)
         QCOMPARE(QString(EtherCATMaster::ds402ErrorCodeString(0x8700)),
                  QString("sync error"));
         // Drive overtemperature
@@ -65,7 +65,7 @@ private slots:
     // --------------------------------------------------------------
     // J-6b: unknown codes get a stable "unknown" string, not null
     // or a crash. The recovery scan logs raw hex anyway, so the
-    // description is just for human-readability — but it must never
+    // description is just for human-readability - but it must never
     // be null (would NULL-deref strncpy / printf).
     // --------------------------------------------------------------
     void j6b_ds402ErrorCodeString_unknown()
@@ -115,7 +115,7 @@ private slots:
         // because sim mode short-circuits at the top of the function.
         QVERIFY(true);
 #else
-        QSKIP("SOEM not available — fault-history readback test requires SOEM headers");
+        QSKIP("SOEM not available - fault-history readback test requires SOEM headers");
 #endif
     }
 
@@ -169,7 +169,7 @@ private slots:
         QVERIFY2(contents.find("slave_state") != std::string::npos,
             "Expected 'slave_state' tag in diag file");
 #else
-        QSKIP("SOEM not available — dumpSlaveState test requires SOEM headers");
+        QSKIP("SOEM not available - dumpSlaveState test requires SOEM headers");
 #endif
     }
 };

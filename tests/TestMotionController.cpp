@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// TestMotionController.cpp  (Build 55 — P2-3)
+// TestMotionController.cpp  (Build 55 - P2-3)
 //
 // State machine tests for MotionController.
 // Covers homing completion, FatalError handling, ESTOPPING,
@@ -885,7 +885,7 @@ private slots:
         MotionController mc;
         mc.configure(makeSingleAxisConfig());
 
-        // Enqueue before process() — simulates UI button press
+        // Enqueue before process() - simulates UI button press
         bool ok = mc.enqueueCommand({MotionCommand::Type::StartHoming, -1});
         QVERIFY(ok);
 

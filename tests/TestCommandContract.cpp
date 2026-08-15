@@ -1,17 +1,17 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// TestCommandContract.cpp — pins Docs/COMMAND_CONTRACT.md at the engine layer.
+// TestCommandContract.cpp - pins Docs/COMMAND_CONTRACT.md at the engine layer.
 //
 // The escaped-bug class in this project is CONTRACT bugs (torque mode shipped
 // broken for its entire life because nothing asserted "select torque => CST").
 // This suite asserts, for every enqueued MotionCommand, the OBSERVABLE state
-// change the contract table promises — including the silent engine-layer
+// change the contract table promises - including the silent engine-layer
 // refusals (e.g. TensionBelts under e-stop) that the HTTP layer cannot see.
 //
 // Same harness style as TestTorquePath: drives=nullptr, fresh MotionOutput per
 // cycle, no SOEM/NIC/Qt. Commands go through enqueueCommand() exactly as the
-// WebServer does — never by calling the handlers directly.
+// WebServer does - never by calling the handlers directly.
 //
 //   ctest -R CommandContract
 // ============================================================
@@ -38,7 +38,7 @@ static void pending(bool matchesProposedContract, const char* name)
                 name, matchesProposedContract ? "MATCHES" : "VIOLATES");
 }
 
-// One belt (torque) axis + one vertical (CSP) axis — the contract rows differ
+// One belt (torque) axis + one vertical (CSP) axis - the contract rows differ
 // per axis kind (belts never home; verticals never take belt commands).
 static AppConfig makeRigConfig()
 {

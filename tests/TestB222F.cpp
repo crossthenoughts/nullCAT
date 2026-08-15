@@ -10,18 +10,18 @@
 //   Fix 4: Diagnostic log emission (smoke tests)
 //
 // Tests:
-//   F-1  Fix 1: Real A6Drive — hold at CW=0x07 for N sync cycles before 0x0F
-//   F-2  Fix 1: Real A6Drive — target PDO tracks actual PDO during sync hold
+//   F-1  Fix 1: Real A6Drive - hold at CW=0x07 for N sync cycles before 0x0F
+//   F-2  Fix 1: Real A6Drive - target PDO tracks actual PDO during sync hold
 //   F-3  Fix 1: HomingSequence fault during SettlingDrive → FatalError + settle message
 //   F-4  Fix 1: HomingSequence no-fault settle → progresses to CSPTorqueSearch
-//   F-5  Fix 2: WKC math — 0 of 50 good → fail
-//   F-6  Fix 2: WKC math — 45 of 50 good (90%) → pass at threshold 0.9
-//   F-7  Fix 2: WKC math — 44 of 50 good (88%) → fail at threshold 0.9
-//   F-8  Fix 2: WKC math — 50 of 50 good (100%) → pass
-//   F-9  Fix 3: MotionController clearAxisLimits — wide limits set before homing start
-//   F-10 Fix 3: MotionController — correct limits restored after homing completes
-//   F-11 Fix 4: Sim init smoke test — setMasterState diag log path runs without crash
-//   F-12 Fix 4: Sim init smoke test — commandSyncCycles propagated to drives
+//   F-5  Fix 2: WKC math - 0 of 50 good → fail
+//   F-6  Fix 2: WKC math - 45 of 50 good (90%) → pass at threshold 0.9
+//   F-7  Fix 2: WKC math - 44 of 50 good (88%) → fail at threshold 0.9
+//   F-8  Fix 2: WKC math - 50 of 50 good (100%) → pass
+//   F-9  Fix 3: MotionController clearAxisLimits - wide limits set before homing start
+//   F-10 Fix 3: MotionController - correct limits restored after homing completes
+//   F-11 Fix 4: Sim init smoke test - setMasterState diag log path runs without crash
+//   F-12 Fix 4: Sim init smoke test - commandSyncCycles propagated to drives
 // ============================================================
 
 #include <QtTest>
@@ -130,7 +130,7 @@ private Q_SLOTS:
         // 0x0023 = CW_SWITCH_ON|CW_ENABLE_VOLTAGE|CW_QUICK_STOP (SW bits)
         sw = 0x0023;
 
-        // Run N sync cycles — controlword must remain 0x07 throughout the hold phase.
+        // Run N sync cycles - controlword must remain 0x07 throughout the hold phase.
         // (Old code overwrote 0x07 with 0x0F on the Nth call in the same invocation;
         //  new code keeps hold and post-sync strictly separated so all N calls stay 0x07.)
         for (int i = 0; i < SyncN; ++i)
@@ -239,7 +239,7 @@ private Q_SLOTS:
     }
 
     // ----------------------------------------------------------------
-    // F-5: WKC fraction math — 0 good of 50 → fail (fraction < 0.9)
+    // F-5: WKC fraction math - 0 good of 50 → fail (fraction < 0.9)
     // ----------------------------------------------------------------
     void f5_wkcMath_zeroGood_fail()
     {
@@ -251,7 +251,7 @@ private Q_SLOTS:
     }
 
     // ----------------------------------------------------------------
-    // F-6: WKC fraction math — 45 good of 50 (90%) → pass at threshold 0.9
+    // F-6: WKC fraction math - 45 good of 50 (90%) → pass at threshold 0.9
     // ----------------------------------------------------------------
     void f6_wkcMath_45of50_pass()
     {
@@ -263,7 +263,7 @@ private Q_SLOTS:
     }
 
     // ----------------------------------------------------------------
-    // F-7: WKC fraction math — 44 good of 50 (88%) → fail at threshold 0.9
+    // F-7: WKC fraction math - 44 good of 50 (88%) → fail at threshold 0.9
     // ----------------------------------------------------------------
     void f7_wkcMath_44of50_fail()
     {
@@ -275,7 +275,7 @@ private Q_SLOTS:
     }
 
     // ----------------------------------------------------------------
-    // F-8: WKC fraction math — 50 good of 50 (100%) → pass
+    // F-8: WKC fraction math - 50 good of 50 (100%) → pass
     // ----------------------------------------------------------------
     void f8_wkcMath_50of50_pass()
     {
@@ -287,7 +287,7 @@ private Q_SLOTS:
     }
 
     // ----------------------------------------------------------------
-    // F-9: clearAxisLimits — wide limits applied before homing start.
+    // F-9: clearAxisLimits - wide limits applied before homing start.
     //
     // On the first processHomingAxis cycle (state==Idle), clearAxisLimits
     // must call drive->setLimits with (-2*stroke, 3*stroke).
@@ -372,7 +372,7 @@ private Q_SLOTS:
     }
 
     // ----------------------------------------------------------------
-    // F-11: Sim init smoke test — setMasterState diag log runs without crash.
+    // F-11: Sim init smoke test - setMasterState diag log runs without crash.
     //
     // EtherCATMaster sim init calls setMasterState(Op), which now emits
     // a logDiag. Verify init succeeds and masterState == Op.

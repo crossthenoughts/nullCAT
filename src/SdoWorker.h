@@ -6,20 +6,19 @@
 //
 // A non-RT, LOW-VOLUME CoE SDO worker. During OP its only ongoing job is a slow
 // round-robin temperature poll (~1 SDO/s even at 10 drives); live writes and
-// inertia-ID are occasional. Engineered for CORRECTNESS, not throughput —
-// single-serial.
+// inertia-ID are occasional. Engineered for CORRECTNESS, not throughput - // single-serial.
 //
 // HOW IT STAYS OFF THE RT CRITICAL PATH (SOEM's native cyclic mailbox):
 //   During OP the slaves are in ECT_MBXH_CYCLIC. In that mode ecx_SDOread/
-//   ecx_SDOwrite do NOT touch the wire directly — they enqueue the request into
+//   ecx_SDOwrite do NOT touch the wire directly - they enqueue the request into
 //   SOEM's internally-mutexed mailbox queue and BLOCK ON THE CALLING (worker)
 //   THREAD until the RT loop's processCyclicMailbox() services them. That cyclic
 //   drain is already unconditional in ControlLoop with limit=1 (≤1 mailbox datagram
-//   per cycle — the path designed for "queued SDOs"). So this worker adds NO new
+//   per cycle - the path designed for "queued SDOs"). So this worker adds NO new
 //   per-cycle work to the RT loop and never raises its ≤1-op/cycle ceiling; it only
 //   gives the existing handler an op to service more often. The blocking wait lives
 //   entirely on this non-RT thread. (Rig-validated: servicing temp polls at the
-//   bounded rate leaves jitter/DC-phase/WKC flat — SOEM's bounded cyclic cost is
+//   bounded rate leaves jitter/DC-phase/WKC flat - SOEM's bounded cyclic cost is
 //   negligible in this loop.)
 //
 //   CONSEQUENCE: the worker must NOT hold soemAccessMutex across an SDO call (the RT
@@ -30,7 +29,7 @@
 // CONCURRENCY CONTRACT (one lock):
 //   * sdoTransferMutex (WHOLE transfer): held for an entire transfer by ANY SDO actor
 //     (this worker, the recovery thread's fault-history read, PREOP provisioning).
-//     Guarantees (a) one CoE transaction per slave at a time across actors — no
+//     Guarantees (a) one CoE transaction per slave at a time across actors - no
 //     interleave, and (b) the context is not freed mid-transfer (shutdown/re-init
 //     stop-join the worker before freeing m_ctx). The RT loop's per-step access is its
 //     own soemAccessMutex (the worker never takes it), so there is no lock-order cycle.
@@ -43,14 +42,13 @@
 // initializeAndEnterOp and shutdown), so no transfer can touch a stale context;
 // onChainReinit() discards queued + in-flight ops and cached temps.
 //
-// SCOPE: EXPEDITED SDO only (≤4 bytes) — covers temp, 0x6065, opMode, all
+// SCOPE: EXPEDITED SDO only (≤4 bytes) - covers temp, 0x6065, opMode, all
 // immediate params. Segmented transfer (strings / OD lists) is a clean follow-up.
 // Provisioning's heavy batch SDO is a SEPARATE PREOP path (classic mailbox, no RT
 // loop), not this worker.
 //
 // WRITES: encoding is SOEM's own ecx_SDOwrite (no hand-rolled codec to mis-encode).
-// readback-verify ("did it take") remains the FIRST write-caller's responsibility —
-// no write path is active yet (temp poll is read-only; submitWrite is unused),
+// readback-verify ("did it take") remains the FIRST write-caller's responsibility - // no write path is active yet (temp poll is read-only; submitWrite is unused),
 // so when provisioning/opMode/live-param writes are added, they MUST readback-verify
 // each write to a safety object (0x6072 torque limit, 0x6065 FE window).
 // ============================================================
@@ -112,7 +110,7 @@ public:
     bool poll(uint64_t id, SdoResult& out);
 
     // ---- temperature round-robin (the only ongoing OP-time SDO) ----
-    // Object + scaling are injected (not hardcoded) — default target is the IGBT
+    // Object + scaling are injected (not hardcoded) - default target is the IGBT
     // power-stage sensor (0x2040:0x31, U16, 0.1 C) that backs Er42.2. intervalSec is
     // PER DRIVE (default 15s -> ~1 op/s at 10 drives). driveCount is slaves 1..N.
     void configureTempPoll(uint16_t index, uint8_t sub, uint8_t size,

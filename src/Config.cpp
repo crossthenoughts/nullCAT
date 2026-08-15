@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// Config.cpp — configuration schema, persistence, validation.
+// Config.cpp - configuration schema, persistence, validation.
 //
 // All schema knowledge lives in this file. load() and save() are
 // driven from the same canonical field list so they can never
@@ -433,7 +433,7 @@ bool Config::load(const std::string& anchorPath)
     return true;
 }
 
-// host.json — single writer (Qt on PC, web on Pi). Merge-on-save preserves
+// host.json - single writer (Qt on PC, web on Pi). Merge-on-save preserves
 // unknown keys already in the file.
 bool Config::saveHost(const std::string& anchorPath) const
 {
@@ -446,7 +446,7 @@ bool Config::saveHost(const std::string& anchorPath) const
     return writeJsonObject(path, existing);
 }
 
-// rig.json — single writer (the web UI on both platforms). { configVersion,
+// rig.json - single writer (the web UI on both platforms). { configVersion,
 // numDrives, global:{...}, axes:[...] }. Unknown keys in global and per-axis
 // survive (merge-on-save); axes merge by slaveIndex.
 bool Config::saveRig(const std::string& anchorPath) const
@@ -596,7 +596,7 @@ std::vector<std::string> AppConfig::validate() const
         errors.push_back("controlLoopHz=" + std::to_string(controlLoopHz) +
                          " out of range [100, 4000]");
     else if (1000000000 % controlLoopHz != 0)
-        // SYNC0 period = 1e9 / Hz (integer ns) — must divide evenly or DC sync
+        // SYNC0 period = 1e9 / Hz (integer ns) - must divide evenly or DC sync
         // drifts from the loop. Valid: 250/500/1000/2000/4000 Hz.
         errors.push_back("controlLoopHz=" + std::to_string(controlLoopHz) +
                          " must divide 1e9 evenly (use 250/500/1000/2000/4000)");

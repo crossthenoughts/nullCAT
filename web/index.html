@@ -25,16 +25,16 @@
         <span class="clock" id="clock">--:--:--</span>
       </div>
       <div class="hstatus-cells">
-        <div class="hc"><span class="k">Loop</span><span class="v" id="v-loop">—</span></div>
-        <div class="hc"><span class="k">EtherCAT</span><span class="v" id="v-ec">—</span></div>
-        <div class="hc"><span class="k">Rate</span><span class="v" id="v-rate">—</span></div>
-        <div class="hc"><span class="k">Cycle</span><span class="v" id="v-cyc">—</span></div>
-        <div class="hc"><span class="k">WKC</span><span class="v" id="v-wkc">—</span></div>
-        <div class="hc"><span class="k">Slaves</span><span class="v" id="v-slv">—</span></div>
-        <div class="hc"><span class="k">Telemetry</span><span class="v" id="v-telemetry">—</span></div>
-        <div class="hc"><span class="k">UDP new/rx Hz</span><span class="v" id="v-udp">—</span></div>
+        <div class="hc"><span class="k">Loop</span><span class="v" id="v-loop"> - </span></div>
+        <div class="hc"><span class="k">EtherCAT</span><span class="v" id="v-ec"> - </span></div>
+        <div class="hc"><span class="k">Rate</span><span class="v" id="v-rate"> - </span></div>
+        <div class="hc"><span class="k">Cycle</span><span class="v" id="v-cyc"> - </span></div>
+        <div class="hc"><span class="k">WKC</span><span class="v" id="v-wkc"> - </span></div>
+        <div class="hc"><span class="k">Slaves</span><span class="v" id="v-slv"> - </span></div>
+        <div class="hc"><span class="k">Telemetry</span><span class="v" id="v-telemetry"> - </span></div>
+        <div class="hc"><span class="k">UDP new/rx Hz</span><span class="v" id="v-udp"> - </span></div>
         <div class="hc jit"><span class="k">Jitter now/pk µs</span>
-          <span class="v"><span id="v-jit">—</span><span class="sep">/</span><span id="v-jpk">—</span></span>
+          <span class="v"><span id="v-jit"> - </span><span class="sep">/</span><span id="v-jpk"> - </span></span>
           <svg class="spark" viewBox="0 0 60 18" preserveAspectRatio="none"><polyline id="sparkLine" points=""></polyline></svg>
         </div>
       </div>
@@ -43,9 +43,9 @@
 
   <!-- ===== drives (hero) ===== -->
   <div class="sec">
-    <span class="t">Drives</span><span class="c" id="driveCount">—</span>
+    <span class="t">Drives</span><span class="c" id="driveCount"> - </span>
     <span class="rule"></span>
-    <span class="act" id="btn-reset-stats" title="Re-baseline peak accel, clip rate, binds and following-error on all cards — drives stay live">Reset peaks</span>
+    <span class="act" id="btn-reset-stats" title="Re-baseline peak accel, clip rate, binds and following-error on all cards - drives stay live">Reset peaks</span>
   </div>
   <section class="grid" id="drive-grid"></section>
 
@@ -59,7 +59,7 @@
   <section class="panel collapsed" id="cfgPanel">
     <div class="cbody">
       <div class="cfg-note" id="cf-hostnote" style="display:none;grid-column:1/-1">
-        Host settings (NIC, ports, timing, GPIO) are managed by the desktop app on this machine — read-only here. Rig &amp; axis settings below are editable.
+        Host settings (NIC, ports, timing, GPIO) are managed by the desktop app on this machine - read-only here. Rig &amp; axis settings below are editable.
       </div>
       <div class="cfg-note" id="cf-rignote" style="grid-column:1/-1"></div>
       <div class="cgrp">
@@ -108,7 +108,7 @@
         <label class="frow"><span>Mode</span>
           <select id="cf-condmode"><option value="bypass">Bypass</option><option value="interpolate">Interpolate</option><option value="filter">Filter</option></select></label>
         <div class="cfg-note" id="cf-condnote"></div>
-        <div class="cfg-note" id="cf-udphint">UDP rate: —</div>
+        <div class="cfg-note" id="cf-udphint">UDP rate: - </div>
       </div>
       <div class="cgrp">
         <div class="gt">Advanced / EtherCAT tuning</div>
@@ -145,13 +145,13 @@
       </div>
       <!-- Button bindings. One row
            per bindable command; capture flow = click Bind, press the button.
-           Saves hot-apply (buttons.json) — no restart, no re-init. -->
+           Saves hot-apply (buttons.json) - no restart, no re-init. -->
       <div class="cgrp" style="grid-column:1/-1">
         <div class="gt bind-head" id="bindHead"><span class="arrow" id="bindArrow">▸</span>
           Button bindings <span class="c">HID box → rig commands · saved separately, applies live</span></div>
         <div class="bind-body collapsed" id="bindBody">
           <div class="cfg-note" id="btnBindNativeNote" style="display:none;border-left:2px solid var(--warn,#f5b340);padding-left:8px;margin-bottom:6px">
-            <b>PC:</b> keep the Web UI enabled for buttons to work. The button reader runs with the web server — bound presses only register while <code>webUIEnabled</code> is on. Turn the Web UI off and the box goes silent (bindings are kept, just not read).
+            <b>PC:</b> keep the Web UI enabled for buttons to work. The button reader runs with the web server - bound presses only register while <code>webUIEnabled</code> is on. Turn the Web UI off and the box goes silent (bindings are kept, just not read).
           </div>
           <div id="btnBindRows" class="cfg-note">loading…</div>
           <div style="margin-top:6px">
@@ -163,7 +163,7 @@
     </div>
     <div class="cfg-foot">
       <span class="cfg-note">Theme applies live (saved in browser). All other fields (global +
-        per-axis) write to <code>rig.json</code> — they take effect on the next
+        per-axis) write to <code>rig.json</code> - they take effect on the next
         <strong>EtherCAT Initialize</strong> (Windows) or <strong>service restart</strong> (Pi).</span>
       <span class="spacer"></span>
       <span class="cfg-note" id="cfgStatus"></span>
@@ -189,28 +189,28 @@
           <li><b>Carrier → 16 kHz:</b> navigate to <code>R22.38</code> and change <b>0 → 1</b> (×2 on the 8&nbsp;kHz base).</li>
           <li><b>Save</b> the params, then <b>power-cycle</b> the drive.</li>
         </ol>
-        <div class="pc-note">⚠ <b>Panel-only.</b> <code>R22.38</code> (<code>0x2022:39</code>) is not writable over EtherCAT/SDO even after the unlock, so the <code>provision</code> tool can't set it. Only <b>8 / 16 kHz</b> are valid — any other carrier faults (<code>Er31.0</code> / <code>Er50.1</code>). Skip the carrier if this drive must match others still on the 8&nbsp;kHz base.</div>
+        <div class="pc-note">⚠ <b>Panel-only.</b> <code>R22.38</code> (<code>0x2022:39</code>) is not writable over EtherCAT/SDO even after the unlock, so the <code>provision</code> tool can't set it. Only <b>8 / 16 kHz</b> are valid - any other carrier faults (<code>Er31.0</code> / <code>Er50.1</code>). Skip the carrier if this drive must match others still on the 8&nbsp;kHz base.</div>
       </div>
 
       <!-- Step 2: config params via the standalone tool -->
       <div class="prov-callout pc-soft">
         <div class="pc-step">Step 2 · config params · provision tool</div>
-        <div class="pc-title">Write the nullCAT parameter set (service stopped — the tool owns the NIC)</div>
+        <div class="pc-title">Write the nullCAT parameter set (service stopped - the tool owns the NIC)</div>
         <pre class="pc-code">sudo systemctl stop nullcat-pi
 sudo ./provision eth0 &lt;slave&gt; --fresh    # write the params, verify, store to NVRAM
 # power-cycle the drive
 sudo ./provision eth0 &lt;slave&gt; --verify    # confirm everything persisted</pre>
-        <div class="pc-note">Writes the 18 deliberate params + both notch frequencies (7999) + baseline inertia, and stores to NVRAM <b>only if every readback verifies</b>. A before-state backup file is written first. Per-axis inertia (auto-ID) and notch frequency are tuned separately — they are not blind-cloned.</div>
+        <div class="pc-note">Writes the 18 deliberate params + both notch frequencies (7999) + baseline inertia, and stores to NVRAM <b>only if every readback verifies</b>. A before-state backup file is written first. Per-axis inertia (auto-ID) and notch frequency are tuned separately - they are not blind-cloned.</div>
       </div>
 
-      <!-- The exact params the tool writes — all panel-doable, so this doubles as a manual sheet -->
+      <!-- The exact params the tool writes - all panel-doable, so this doubles as a manual sheet -->
       <div class="pc-note" style="margin:-2px 0 2px">
-        The values below are <b>exactly what the <code>provision</code> tool writes</b> — every one has a front-panel code,
+        The values below are <b>exactly what the <code>provision</code> tool writes</b> - every one has a front-panel code,
         so you can key them in by hand if you'd rather not run the tool. <b>Save to NVRAM on the panel</b> when done.
       </div>
       <div class="prov-tables">
         <table class="prov-table">
-          <caption>EtherCAT sync — required by this master</caption>
+          <caption>EtherCAT sync - required by this master</caption>
           <thead><tr><th>Panel</th><th>Control</th><th>nullCAT</th><th>Notes</th></tr></thead>
           <tbody>
             <tr><td>C13.05</td><td>Sync mode</td><td>2</td><td>DC sync (mandatory for this master)</td></tr>
@@ -220,12 +220,12 @@ sudo ./provision eth0 &lt;slave&gt; --verify    # confirm everything persisted</
         </table>
 
         <table class="prov-table">
-          <caption>Gains, stiffness &amp; inertia — cloned across drives</caption>
+          <caption>Gains, stiffness &amp; inertia - cloned across drives</caption>
           <thead><tr><th>Panel</th><th>Control</th><th>nullCAT</th><th>Notes</th></tr></thead>
           <tbody>
-            <tr><td>C00.04</td><td>Gain auto-tune mode</td><td>0</td><td>Manual — gains frozen, not auto-tuned</td></tr>
+            <tr><td>C00.04</td><td>Gain auto-tune mode</td><td>0</td><td>Manual - gains frozen, not auto-tuned</td></tr>
             <tr><td>C00.05</td><td>Stiffness level</td><td>10</td><td></td></tr>
-            <tr><td>C00.06</td><td>Load inertia ratio</td><td>100</td><td>Baseline (factory) — auto-ID per axis later</td></tr>
+            <tr><td>C00.06</td><td>Load inertia ratio</td><td>100</td><td>Baseline (factory) - auto-ID per axis later</td></tr>
             <tr><td>C01.01</td><td>1st speed loop gain</td><td>150</td><td></td></tr>
             <tr><td>C01.02</td><td>1st speed loop integral time</td><td>5685</td><td></td></tr>
             <tr><td>C01.03</td><td>1st torque ref filter time</td><td>112</td><td></td></tr>
@@ -239,7 +239,7 @@ sudo ./provision eth0 &lt;slave&gt; --verify    # confirm everything persisted</
         </table>
 
         <table class="prov-table">
-          <caption>Notch filters — sound profile (notches 1 &amp; 2)</caption>
+          <caption>Notch filters - sound profile (notches 1 &amp; 2)</caption>
           <thead><tr><th>Panel</th><th>Control</th><th>nullCAT</th><th>Notes</th></tr></thead>
           <tbody>
             <tr><td>C01.40</td><td>1st notch frequency</td><td>7999</td><td>8000 = parked/off; 7999 engages. Per-axis: set to measured resonance</td></tr>
@@ -273,9 +273,9 @@ sudo ./provision eth0 &lt;slave&gt; --verify    # confirm everything persisted</
        polls). All buttons grey with it, so a dead network path LOOKS dead instead of
        silently eating clicks (see the eth1 carrier-drop incident). Clears itself. -->
   <div id="linkBanner" class="link-banner" hidden>
-    ⚠ LINK LOST — no response from the controller. Controls disabled; readings are stale.
+    ⚠ LINK LOST - no response from the controller. Controls disabled; readings are stale.
     The rig keeps running and the <b>physical E-STOP still works</b>. Check the network path
-    (direct cable / WiFi) — this clears automatically when data returns.
+    (direct cable / WiFi) - this clears automatically when data returns.
   </div>
 
   <!-- Command-refusal line: server's reason for a click that did nothing. -->

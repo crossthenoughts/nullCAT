@@ -4,13 +4,13 @@
 // TestB222E.cpp  (Build 222E)
 //
 // Unit tests for threading audit fixes C1 and C3.
-// All tests run in SIMULATION MODE — no hardware required.
+// All tests run in SIMULATION MODE - no hardware required.
 //
 // Tests:
-//   E-1  C1: stopPump() after rapid startPump() — pump is not active on return
-//   E-2  C1: concurrent startPump/stopPump from two threads — no deadlock
-//   E-3  C3: setRtLoopActive(true) blocks startPumpBody() — isPumpActive() stays false
-//   E-4  C3: setRtLoopActive(false) after block — startPump() succeeds (sim no-op, dispatch clears)
+//   E-1  C1: stopPump() after rapid startPump() - pump is not active on return
+//   E-2  C1: concurrent startPump/stopPump from two threads - no deadlock
+//   E-3  C3: setRtLoopActive(true) blocks startPumpBody() - isPumpActive() stays false
+//   E-4  C3: setRtLoopActive(false) after block - startPump() succeeds (sim no-op, dispatch clears)
 // ============================================================
 
 #include <QtTest>
@@ -60,7 +60,7 @@ private Q_SLOTS:
         Logger::instance().init("", false);
     }
 
-    // E-1: C1 — stopPump() called immediately after startPump() must not leave
+    // E-1: C1 - stopPump() called immediately after startPump() must not leave
     // pump active. In sim mode startPumpBody() is a no-op, so the dispatch thread
     // wakes, calls startPumpBody() (returns immediately), clears m_dispatchBusy.
     // stopPump() must spin until m_dispatchBusy clears, then observe m_pumpActive=false.
@@ -83,7 +83,7 @@ private Q_SLOTS:
         master.shutdown();
     }
 
-    // E-2: C1 — concurrent startPump/stopPump from two threads must not deadlock
+    // E-2: C1 - concurrent startPump/stopPump from two threads must not deadlock
     // and must not leave the master in an inconsistent state.
     void test_E2_concurrentStartStop()
     {
@@ -123,7 +123,7 @@ private Q_SLOTS:
         master.shutdown();
     }
 
-    // E-3: C3 — setRtLoopActive(true) prevents startPumpBody() from launching T5.
+    // E-3: C3 - setRtLoopActive(true) prevents startPumpBody() from launching T5.
     // In sim mode startPumpBody() bails at m_rtLoopActive check (before sim check),
     // so m_dispatchBusy is set by startPump() and cleared by T4 quickly.
     // isPumpActive() must remain false.
@@ -148,7 +148,7 @@ private Q_SLOTS:
         master.shutdown();
     }
 
-    // E-4: C3 — after clearing setRtLoopActive(false), startPump() goes through
+    // E-4: C3 - after clearing setRtLoopActive(false), startPump() goes through
     // normally (sim no-op, but dispatch cycle completes and m_dispatchBusy clears).
     // stopPump() must return cleanly.
     void test_E4_rtLoopActiveReleaseAllowsPump()

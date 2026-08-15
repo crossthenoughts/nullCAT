@@ -128,7 +128,7 @@ Default OFF keeps local builds fast; CI configures with it ON.
 SOEM on Windows uses raw Ethernet sockets via Npcap. You need **two
 separate downloads** from https://npcap.com/#download:
 
-1. **The Npcap installer** (the runtime driver — needed to *run* nullCAT).
+1. **The Npcap installer** (the runtime driver - needed to *run* nullCAT).
    During install, check **"Install Npcap in WinPcap API-compatible Mode"**
    (required for SOEM). Reboot if prompted.
 2. **The Npcap SDK zip, version 1.16 or newer** (needed to *build*). Extract
@@ -140,7 +140,7 @@ separate downloads** from https://npcap.com/#download:
    > **Use 1.16+.** SOEM's `nicdrv.h` includes both `<pcap.h>` and
    > `<Packet32.h>`. In SDK 1.13 and older, `Packet32.h` re-defines
    > `struct bpf_program` and `struct bpf_insn`, which modern `pcap.h`
-   > already defines — the build fails with
+   > already defines - the build fails with
    > `error C2011: 'bpf_program': 'struct' type redefinition`.
 
 You pass the SDK path to CMake as `-DNPCAP_SDK` in Step 6 (it defaults to

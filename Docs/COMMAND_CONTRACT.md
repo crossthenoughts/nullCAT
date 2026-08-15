@@ -41,21 +41,21 @@ in the same commit.
 
 | Command | Endpoint | HTTP-layer guard (errResp) | Engine-layer guard (silent; visible via status/log) | Outcome signal in /api/status | Bindable |
 |---|---|---|---|---|---|
-| Initialize | `/api/init` | refused if already operational / init busy / not ready | — (async bring-up; failure surfaces in status + log) | `masterOp:true`, `slavesFound` | yes |
+| Initialize | `/api/init` | refused if already operational / init busy / not ready | - (async bring-up; failure surfaces in status + log) | `masterOp:true`, `slavesFound` | yes |
 | De-initialize | `/api/deinit` | refused if not initialized / busy | seat pass runs bus-health guard (may SKIP seat, still de-inits) | `masterOp:false` | yes |
-| Start loop | `/api/start` | needs master operational; ok if already running | — | `loopRunning:true` | yes |
+| Start loop | `/api/start` | needs master operational; ok if already running | - | `loopRunning:true` | yes |
 | Stop loop | `/api/stop` | none (no-op when stopped) | parks axes as part of stop | `loopRunning:false`, `parked:true` | yes |
 | Home | `/api/home` | needs motion controller | ignored per-axis unless axis eligible (belt axes never home) | `homing:true` → `needsRehome:false` | yes |
 | Park | `/api/park` | needs motion controller | per-axis state machine | `parked:true` | yes |
 | Unpark | `/api/unpark` | needs motion controller | **position axes only**: belts NEVER tension via unpark, auto or explicit; requires homed axes | `parked:false` | yes |
 | Slack belts | `/api/belts/slack` | needs motion controller | torque axes only; allowed in any non-fault state | `beltsSlack:true` | yes |
 | Tension belts | `/api/belts/tension` | needs motion controller | **REFUSED under e-stop** (logged, silent on wire); torque axes only; from PARKED/PARKING | `beltsSlack:false` | yes |
-| Software e-stop | `/api/estop` | needs components | — (always honored) | `estop:true` | yes |
-| E-stop release | `/api/estop/release` | none | — | `estop:false` | **desktop-only** (re-arm needs eyes on the rig) |
+| Software e-stop | `/api/estop` | needs components | - (always honored) | `estop:true` | yes |
+| E-stop release | `/api/estop/release` | none | - | `estop:false` | **desktop-only** (re-arm needs eyes on the rig) |
 | Reset fault (+lockout) | `/api/reset-fault` | needs components | drive may refuse reset until thermal decay (Er40/41); retried by fault monitor | drive state via per-drive status; lockout cleared | yes |
-| Reset stats | `/api/resetstats` | needs loop | — | tuning metrics re-baseline | no (tuning, not operation) |
-| Restart service | `/api/restart` | private client address only | — | — | **never bindable** |
-| Power off | `/api/shutdown` | private client address only | — | — | **never bindable** |
+| Reset stats | `/api/resetstats` | needs loop | - | tuning metrics re-baseline | no (tuning, not operation) |
+| Restart service | `/api/restart` | private client address only | - | - | **never bindable** |
+| Power off | `/api/shutdown` | private client address only | - | - | **never bindable** |
 
 Notes:
 - `clear-lockout` is deliberately NOT a separate endpoint: `/api/reset-fault`

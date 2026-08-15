@@ -61,7 +61,7 @@ public:
         return true;
     }
 
-    // Non-blocking check — safe to call from either thread (approximate).
+    // Non-blocking check - safe to call from either thread (approximate).
     bool empty() const
     {
         return m_readIdx.load(std::memory_order_relaxed) ==
@@ -73,7 +73,7 @@ private:
     std::atomic<std::size_t> m_writeIdx{0};  // advanced by producer after write
     std::atomic<std::size_t> m_readIdx{0};   // advanced by consumer after read
 
-    // Pad to separate cache lines — prevents false sharing between
+    // Pad to separate cache lines - prevents false sharing between
     // producer (writes m_writeIdx) and consumer (writes m_readIdx).
     static_assert(sizeof(std::atomic<std::size_t>) <= 64,
         "Unexpected atomic size -- cache line padding may be insufficient");

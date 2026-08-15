@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// DriveProvisioner.cpp — see DriveProvisioner.h
+// DriveProvisioner.cpp - see DriveProvisioner.h
 // ============================================================
 #include "DriveProvisioner.h"
 #include "EtherCATMaster.h"
@@ -152,8 +152,8 @@ bool Provisioner::readParam(int slave, const Param& p, int64_t& out, std::string
 bool Provisioner::preconditionOk(int slave, std::string& why)
 {
     if (!m_master.isInitialized())      { why = "master not initialised"; return false; }
-    if (m_master.isRtLoopActive())      { why = "RT loop is running — stop the control loop first"; return false; }
-    if (m_master.isOperational())       { why = "master is in OP — provisioning requires PreOp (stop the loop)"; return false; }
+    if (m_master.isRtLoopActive())      { why = "RT loop is running - stop the control loop first"; return false; }
+    if (m_master.isOperational())       { why = "master is in OP - provisioning requires PreOp (stop the loop)"; return false; }
     if (slave < 1 || slave > m_master.getSlaveCount()) { why = "slave index out of range"; return false; }
     return true;
 }
@@ -193,7 +193,7 @@ Result Provisioner::provision(int slave, const Profile& p, bool torqueAxis)
     // The apply-list: clone + baseline inertia, plus torqueOnly[] (C06.20 runaway
     // protection = 0) when the rig config says this slave is a torque axis. All are
     // public OD entries (no unlock needed). The carrier (R22.38 / 0x2022) is
-    // deliberately NOT touched here — it is not SDO-writable on this drive even after
+    // deliberately NOT touched here - it is not SDO-writable on this drive even after
     // the C00.31=1107 unlock, so 16 kHz is a manual panel step. See provision_main
     // --fresh note.
     std::vector<Param> apply = p.clone;
@@ -240,7 +240,7 @@ Result Provisioner::provision(int slave, const Profile& p, bool torqueAxis)
         }
     } else {
         r.ok = false; r.stored = false;
-        r.message = strf("slave %d: config readback verify FAILED — NVRAM NOT written. Before-state: %s",
+        r.message = strf("slave %d: config readback verify FAILED - NVRAM NOT written. Before-state: %s",
                          slave, r.backupFile.c_str());
         LOG_ERROR("DriveProvisioner: " + r.message);
     }
@@ -274,7 +274,7 @@ Result Provisioner::verify(int slave, const Profile& p, bool torqueAxis)
     }
     r.ok = all;
     r.message = all ? strf("slave %d: all %zu params match the profile.", slave, check.size())
-                    : strf("slave %d: MISMATCH — drive does not match the profile (see per-param).", slave);
+                    : strf("slave %d: MISMATCH - drive does not match the profile (see per-param).", slave);
     return r;
 }
 

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Bump the copyright year range in every SPDX-FileCopyrightText header and
-# in README.md. The notice is templated HERE — this script is the single
+# in README.md. The notice is templated HERE - this script is the single
 # place that knows the canonical string; never hand-edit 77 headers.
 #
 # Usage:  tools/bump-copyright.sh 2026-2027

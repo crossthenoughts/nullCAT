@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// StatusModel.cpp — see StatusModel.h for the model contract.
+// StatusModel.cpp - see StatusModel.h for the model contract.
 //
 // The derivation reproduces web/app.js byte-for-byte (the reference
 // implementation) so the web is unchanged and the PC surface can match it.
@@ -51,7 +51,7 @@ namespace {
 
 struct Electrical { Indicator state; const char* text; bool fault; };
 
-// DS402 statusword (0x6041) decode — byte-identical to web app.js ds402().
+// DS402 statusword (0x6041) decode - byte-identical to web app.js ds402().
 // Decoding the RAW statusword (not DriveState) guarantees the web renders the
 // same text/colour before and after consuming the model.
 Electrical decodeElectrical(uint16_t sw)

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// TestConfigValidation.cpp  (Build 65 — P4-2)
+// TestConfigValidation.cpp  (Build 65 - P4-2)
 //
 // Unit tests for AppConfig::validate().
 // Covers: valid config, drive count bounds, Hz bounds,

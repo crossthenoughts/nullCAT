@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 // ============================================================
-// DirectInputButtons — Windows (DirectInput8) capture/reader backend for the
+// DirectInputButtons - Windows (DirectInput8) capture/reader backend for the
 // web binding wizard. The PC counterpart to pi/EvdevButtons; it implements the
 // same three WebServer::ButtonBackendHooks (armCapture / pollCapture /
 // bindingsChanged), reads the same web-owned buttons.json, and POSTs a mapped
-// press to the local web server — so a physical button on the PC travels the
+// press to the local web server - so a physical button on the PC travels the
 // exact same tested contract path as on the Pi.
 //
 // A single thread owns all DirectInput state. Idle (no bindings AND no capture
-// armed) it BLOCKS on a condition variable — zero device work. When bindings
+// armed) it BLOCKS on a condition variable - zero device work. When bindings
 // exist or a capture is armed it polls attached game-controller devices at
 // ~66 Hz for a fresh button-press edge. DirectInput is poll-based (no evdev-style
 // blocking read), so this is a light poll gated on "actually in use".

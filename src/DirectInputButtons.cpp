@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// DirectInputButtons.cpp — see DirectInputButtons.h. Windows-only (DirectInput8).
+// DirectInputButtons.cpp - see DirectInputButtons.h. Windows-only (DirectInput8).
 // The Windows counterpart to pi/EvdevButtons.cpp: same three hooks, same
 // buttons.json contract, same POST-to-local-webserver runtime path.
 // ============================================================
@@ -10,7 +10,7 @@
 #ifdef _WIN32   // whole backend is Windows-only; compiles to nothing elsewhere
 
 #include "Logging.h"
-#include "Config.h"     // isBindableCommand — defense in depth at exec time
+#include "Config.h"     // isBindableCommand - defense in depth at exec time
 
 #include <QJsonDocument>
 #include <QJsonObject>

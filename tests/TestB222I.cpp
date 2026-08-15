@@ -4,9 +4,9 @@
 // TestB222I.cpp  (Build 222I)
 //
 // Unit tests for B222I changes:
-//   I-1     ec_options.h aligned to library (EC_MAXMBX=1486 etc.) — verified by
+//   I-1     ec_options.h aligned to library (EC_MAXMBX=1486 etc.) - verified by
 //           sizeof(ecx_contextt) sanity check; runtime ABI invariant.
-//   I-2a    stageDCArm wrapped in PlatformRT::safeCall — code inspection
+//   I-2a    stageDCArm wrapped in PlatformRT::safeCall - code inspection
 //           (hardware-only at runtime; sim path doesn't enter stageDCArm).
 //   I-2c    drainElistImpl corruption guard: out-of-range Slave or Etype
 //           triggers corrupted_skip exit, not 100-entry bailout.
@@ -15,7 +15,7 @@
 //   I-4a    A5: recovery thread start/stop is reentrant + clean.
 //   I-4b    A5: signalRecoveryNeeded sets the atomic flag (consumed by thread).
 //   I-4c    A5: sendReceive() / processCyclicMailbox() acquire m_soemAccessMutex
-//           (functional check — they still work under the lock).
+//           (functional check - they still work under the lock).
 // ============================================================
 
 #include <QtTest>
@@ -100,14 +100,14 @@ private slots:
             if (line.find("bailed at") != std::string::npos) foundBailout = true;
         }
         QVERIFY2(foundCorrupted, "Expected 'drainElist aborted ... Slave=9999' warning");
-        QVERIFY2(!foundBailout, "Should NOT have hit the 100-entry bailout — guard should fire first");
+        QVERIFY2(!foundBailout, "Should NOT have hit the 100-entry bailout - guard should fire first");
 #else
         QSKIP("SOEM not available");
 #endif
     }
 
     // --------------------------------------------------------------
-    // I-2c-2: drainElistImpl corruption guard — out-of-range Etype.
+    // I-2c-2: drainElistImpl corruption guard - out-of-range Etype.
     // --------------------------------------------------------------
     void i2c_drainElist_corruption_guard_etype()
     {
@@ -167,7 +167,7 @@ private slots:
     {
         EtherCATMaster master;
         master.setSimulationMode(true);
-        // signalRecoveryNeeded() works even if thread not started — just sets a flag.
+        // signalRecoveryNeeded() works even if thread not started - just sets a flag.
         master.signalRecoveryNeeded();
         QVERIFY(!master.isRecoveryThreadRunning());  // start gated by simulationMode
     }
@@ -213,7 +213,7 @@ private slots:
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - t0).count();
         QVERIFY2(elapsed < 1000,
-            qPrintable(QString("sendReceive loop took %1ms — possible deadlock").arg(elapsed)));
+            qPrintable(QString("sendReceive loop took %1ms - possible deadlock").arg(elapsed)));
     }
 };
 

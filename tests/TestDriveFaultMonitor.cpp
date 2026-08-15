@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// TestDriveFaultMonitor.cpp  (Build 63 — TF-1)
+// TestDriveFaultMonitor.cpp  (Build 63 - TF-1)
 //
 // Unit tests for DriveFaultMonitor, the per-drive fault state
 // machine extracted from ControlLoop.
@@ -82,13 +82,13 @@ private slots:
         // (m_faultResetStep increments to 3 → clears on the 3rd step call)
         // But startFaultReset() is called by the monitor on the first Fault step,
         // so subsequent steps call stepFaultReset.
-        // Step 2 and 3 — still pending
+        // Step 2 and 3 - still pending
         auto r2 = mon.step(0, &mock, DriveState::Fault, 2);
         QVERIFY(!r2.firstFaultSeen); // already seen
         QVERIFY(!r2.disable);
         QVERIFY(r2.skipEnableSM);
 
-        // Step 3 — cleared
+        // Step 3 - cleared
         auto r3 = mon.step(0, &mock, DriveState::Fault, 3);
         QVERIFY(r3.seedPosition);
         QVERIFY(r3.allClearRehome);
@@ -108,12 +108,12 @@ private slots:
 
         for (int attempt = 0; attempt < DriveFaultMonitor::MAX_FAULT_RETRIES + 2; ++attempt)
         {
-            // Fresh mock each round — each mock starts with faultResetStep=0
+            // Fresh mock each round - each mock starts with faultResetStep=0
             MockA6Drive mock;
             mock.configure(1, 0.0, 0.05);
             mock.injectFault();
 
-            // Drive stuck in Fault — run enough steps to complete one reset cycle
+            // Drive stuck in Fault - run enough steps to complete one reset cycle
             // (3 stepFaultReset calls) then inject fault again
             for (int s = 0; s < 5; ++s)
             {
@@ -128,7 +128,7 @@ private slots:
                 }
                 if (r.seedPosition)
                 {
-                    // fault cleared this round — re-inject for next attempt
+                    // fault cleared this round - re-inject for next attempt
                     mock.injectFault();
                     break;
                 }

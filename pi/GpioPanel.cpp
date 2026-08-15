@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// GpioPanel.cpp — physical control panel via libgpiod v2 (chardev API)
+// GpioPanel.cpp - physical control panel via libgpiod v2 (chardev API)
 //
 // Inputs use the internal pull-ups, so:
 //   - Buttons (ENGAGE/PARK): momentary to GND → pressed reads INACTIVE (low).
@@ -108,7 +108,7 @@ bool GpioPanel::start(const PanelPins& pins,
     m_running.store(true);
     m_thread  = std::thread(&GpioPanel::run, this);
 
-    LOG_INFO(strf("GpioPanel: started on %s — estop=%u%s%s",
+    LOG_INFO(strf("GpioPanel: started on %s - estop=%u%s%s",
                   path.c_str(), pins.estop,
                   pins.useButtons ? strf(" engage=%u park=%u", pins.engage, pins.park).c_str() : " (no buttons)",
                   pins.useLeds ? strf(" LEDs run=%u ready=%u fault=%u", pins.ledRun, pins.ledReady, pins.ledFault).c_str() : " (no LEDs)"));
@@ -194,7 +194,7 @@ void GpioPanel::run()
             if (estopLatched)
             {
                 // Latch only persists while the mushroom is open; release it to clear.
-                LOG_INFO("GpioPanel: ENGAGE ignored — release the E-STOP mushroom first.");
+                LOG_INFO("GpioPanel: ENGAGE ignored - release the E-STOP mushroom first.");
             }
             else if (st.loopRunning)
             {
@@ -236,7 +236,7 @@ void GpioPanel::run()
             else if (!st.masterOp && !st.initBusy && prevInitBusy)
             {
                 engageAutoStart = false;
-                LOG_INFO("GpioPanel: ENGAGE chain cancelled — init did not reach OP.");
+                LOG_INFO("GpioPanel: ENGAGE chain cancelled - init did not reach OP.");
             }
         }
         prevInitBusy = st.initBusy;
@@ -292,7 +292,7 @@ void GpioPanel::run()
 // the panel is stopping. Red=fault pin, Amber=ready pin, Green=run pin.
 // While the test runs, the poll loop is not sampling inputs, so an E-STOP
 // press is acted on only when the test ends. Inputs are level-sampled and the
-// mushroom latches mechanically, so the press is delayed, never lost — and the
+// mushroom latches mechanically, so the press is delayed, never lost - and the
 // software stop is a convenience anyway: the latch hard-wired to the drives is
 // the safety device.
 void GpioPanel::runLedTest(void* request)

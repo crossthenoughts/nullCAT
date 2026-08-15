@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// TestTorquePath.cpp — belt / torque-mode safety invariants for MotionController.
+// TestTorquePath.cpp - belt / torque-mode safety invariants for MotionController.
 //
 // The belt torque command is computed by MotionController::process() from the axis
 // state + telemetry input, independent of the drive object, so this drives the controller

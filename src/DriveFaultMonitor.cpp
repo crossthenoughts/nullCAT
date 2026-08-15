@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// DriveFaultMonitor.cpp — see DriveFaultMonitor.h
+// DriveFaultMonitor.cpp - see DriveFaultMonitor.h
 // ============================================================
 #include "DriveFaultMonitor.h"
 #include <cstring>

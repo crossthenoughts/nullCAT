@@ -7,16 +7,16 @@
 // relaunches it automatically on crash or restart request.
 //
 // Exit code conventions (must match WebServer /api/restart logic):
-//   0  — clean user quit    → watchdog exits, does NOT relaunch
-//   2  — restart requested  → watchdog relaunches after 500ms
-//   other — crash           → watchdog relaunches after 5000ms
+//   0 - clean user quit    → watchdog exits, does NOT relaunch
+//   2 - restart requested  → watchdog relaunches after 500ms
+//   other - crash           → watchdog relaunches after 5000ms
 //
 // The 5s crash delay gives Windows time to:
 //   1. Release the single-instance mutex (nullCAT_SingleInstance)
 //   2. Return the EtherCAT NIC/npcap handle to a clean state
 //   3. Allow drives to finish their ESC state-machine reset
 //
-// Circuit breaker — if nullCAT crashes MAX_CRASHES times
+// Circuit breaker - if nullCAT crashes MAX_CRASHES times
 // within CRASH_WINDOW_MS, the watchdog stops relaunching and shows a
 // message box. This prevents infinite restart loops when the drive is
 // in a persistently bad state (e.g. ESC unresponsive after power cycle).
@@ -36,7 +36,7 @@
 static const int EXIT_CLEAN   = 0;
 static const int EXIT_RESTART = 2;
 
-// Circuit breaker — stop relaunching after this many crashes
+// Circuit breaker - stop relaunching after this many crashes
 // within CRASH_WINDOW_MS milliseconds. Restart requests (exit 2)
 // are intentional and do not count toward the crash budget.
 static const int   MAX_CRASHES      = 5;
@@ -94,7 +94,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
         if (exitCode == EXIT_CLEAN)
         {
-            // User quit intentionally — exit watchdog too
+            // User quit intentionally - exit watchdog too
             break;
         }
 
@@ -134,8 +134,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         // try to acquire them again.
         int delayMs = (exitCode == EXIT_RESTART) ? 500 : 5000;
 
-        // Extra 500ms grace period before relaunching regardless of reason —
-        // gives the OS time to fully clean up handles from the exited process.
+        // Extra 500ms grace period before relaunching regardless of reason -         // gives the OS time to fully clean up handles from the exited process.
         Sleep(500);
         Sleep(delayMs);
     }

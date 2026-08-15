@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// provision_main.cpp — nullCAT standalone drive-provisioning tool.
+// provision_main.cpp - nullCAT standalone drive-provisioning tool.
 //
 // Run with the master service STOPPED (it owns the NIC), exactly like slaveinfo:
 //   sudo systemctl stop nullcat-pi
@@ -12,7 +12,7 @@
 // It brings the bus to SafeOp (master.initialize, NOT OP), then runs the
 // DriveProvisioner sequence (backup -> write -> readback-verify-all -> STORE only on
 // zero mismatch). No motion, no control loop. The 16 kHz carrier (R22.38) is a manual
-// panel step (not SDO-writable) — --fresh just prints the reminder. See DriveProvisioner.h.
+// panel step (not SDO-writable) - --fresh just prints the reminder. See DriveProvisioner.h.
 // ============================================================
 #include "EtherCATMaster.h"
 #include "DriveProvisioner.h"
@@ -134,7 +134,7 @@ int main(int argc, char** argv)
     if (!verify) printf("STORED to NVRAM: %s%s\n", st(res.stored),
                         res.stored ? "  -> POWER-CYCLE the drive, then re-run with --verify" : "");
 
-    // 16 kHz carrier is a manual panel step (not SDO-writable) — remind for a fresh drive.
+    // 16 kHz carrier is a manual panel step (not SDO-writable) - remind for a fresh drive.
     if (fresh && !verify && res.stored)
         printf("\nFresh drive: set the 16 kHz carrier on the PANEL (this tool does not):\n"
                "    C00.31 = 1107 (unlock), then R22.38 = 1, save, power-cycle.\n"

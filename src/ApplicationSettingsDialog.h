@@ -5,7 +5,7 @@
 // ApplicationSettingsDialog.h
 //
 // The PC's native HOST editor (host/rig split): it edits host.json
-// only. On save it calls Config::saveHost() — the web UI owns
+// only. On save it calls Config::saveHost() - the web UI owns
 // rig.json (axes + global tuning) on both platforms, so this dialog
 // never touches rig config.
 //
@@ -48,8 +48,7 @@ public:
     AppConfig getConfig() const;
 
 protected:
-    // Block wheel events on spinboxes/combos unless they have focus —
-    // prevents scrolling the dialog body from accidentally editing values.
+    // Block wheel events on spinboxes/combos unless they have focus -     // prevents scrolling the dialog body from accidentally editing values.
     bool eventFilter(QObject* obj, QEvent* ev) override;
 
 private slots:

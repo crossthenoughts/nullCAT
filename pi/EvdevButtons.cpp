@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// EvdevButtons.cpp — see EvdevButtons.h. Linux-only (evdev).
+// EvdevButtons.cpp - see EvdevButtons.h. Linux-only (evdev).
 // ============================================================
 #include "EvdevButtons.h"
 #include "Logging.h"
-#include "Config.h"     // isBindableCommand — defense in depth at exec time
+#include "Config.h"     // isBindableCommand - defense in depth at exec time
 #include "httplib.h"
 
 #include <QJsonDocument>

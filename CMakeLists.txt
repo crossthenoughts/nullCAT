@@ -67,7 +67,7 @@ if(NOT SOEM_INCLUDE_DIR OR NOT SOEM_LIBRARY)
 endif()
 
 # ============================================================
-# Npcap SDK (Windows) — SOEM's raw-socket transport.
+# Npcap SDK (Windows) - SOEM's raw-socket transport.
 # NPCAP_SDK: root of the extracted SDK (Include/pcap.h + Lib/x64/wpcap.lib).
 # Override on the command line (CI does: -DNPCAP_SDK=C:/npcap-sdk).
 #
@@ -285,7 +285,7 @@ add_custom_command(TARGET nullCAT POST_BUILD
 # ============================================================
 # Watchdog launcher (Windows only)
 # Monitors nullCAT.exe and relaunches on crash/restart.
-# Runs under the Task Scheduler admin task — no UAC prompt.
+# Runs under the Task Scheduler admin task - no UAC prompt.
 # ============================================================
 if(WIN32)
     add_executable(nullCATWatchdog WIN32 src/Watchdog.cpp)
@@ -321,7 +321,7 @@ message(STATUS "==========================================")
 message(STATUS "")
 
 # ============================================================
-# Test Targets (Phase 2 — P2-1 through P2-4)
+# Test Targets (Phase 2 - P2-1 through P2-4)
 #
 # Test binaries link Qt + MockA6Drive + MotionController only.
 # They do NOT link SOEM or npcap (no hardware required).
@@ -437,7 +437,7 @@ add_motion_test(TestConfigTwoFile tests/TestConfigTwoFile.cpp)
 # ---- Build 222D: RT-safe logging tests ----
 add_motion_test(TestRTLogging tests/TestRTLogging.cpp)
 
-# ---- Build 72: TestInitSequence — EtherCATMaster init sequence (sim mode) ----
+# ---- Build 72: TestInitSequence - EtherCATMaster init sequence (sim mode) ----
 #
 # Unlike the other test targets, this one links EtherCATMaster.cpp which
 # requires SOEM + npcap at link time.  All tests run in simulation mode
@@ -493,7 +493,7 @@ if(WIN32 AND SOEM_LIBRARY)
         set_tests_properties(TestInitSequence PROPERTIES TIMEOUT 60)
     endif()
 
-    # ---- B222 Phase 3: TestPumpLifecycle — dispatch thread lifecycle (sim mode) ----
+    # ---- B222 Phase 3: TestPumpLifecycle - dispatch thread lifecycle (sim mode) ----
     set(PUMP_TEST_SOURCES
         tests/TestPumpLifecycle.cpp
         src/EtherCATMaster.cpp
@@ -538,7 +538,7 @@ if(WIN32 AND SOEM_LIBRARY)
         set_tests_properties(TestPumpLifecycle PROPERTIES TIMEOUT 60)
     endif()
 
-    # ---- B222E: TestB222E — threading audit fixes C1/C3 (sim mode) ----
+    # ---- B222E: TestB222E - threading audit fixes C1/C3 (sim mode) ----
     set(B222E_TEST_SOURCES
         tests/TestB222E.cpp
         src/EtherCATMaster.cpp
@@ -583,7 +583,7 @@ if(WIN32 AND SOEM_LIBRARY)
         set_tests_properties(TestB222E PROPERTIES TIMEOUT 60)
     endif()
 
-    # ---- B222F: TestB222F — command sync, WKC math, limits, diag logs (sim mode) ----
+    # ---- B222F: TestB222F - command sync, WKC math, limits, diag logs (sim mode) ----
     set(B222F_TEST_SOURCES
         tests/TestB222F.cpp
         src/EtherCATMaster.cpp
@@ -630,7 +630,7 @@ if(WIN32 AND SOEM_LIBRARY)
         set_tests_properties(TestB222F PROPERTIES TIMEOUT 60)
     endif()
 
-    # ---- B222G: TestB222G — Npcap drain regression, Logger flush, drainElist cap ----
+    # ---- B222G: TestB222G - Npcap drain regression, Logger flush, drainElist cap ----
     set(B222G_TEST_SOURCES
         tests/TestB222G.cpp
         src/EtherCATMaster.cpp
@@ -677,7 +677,7 @@ if(WIN32 AND SOEM_LIBRARY)
         set_tests_properties(TestB222G PROPERTIES TIMEOUT 60)
     endif()
 
-    # ---- B222H: TestB222H — ALStatusCode pre-check, mbx_rl DIAG, ecx_err2string, RTT tracking ----
+    # ---- B222H: TestB222H - ALStatusCode pre-check, mbx_rl DIAG, ecx_err2string, RTT tracking ----
     set(B222H_TEST_SOURCES
         tests/TestB222H.cpp
         src/EtherCATMaster.cpp
@@ -726,7 +726,7 @@ if(WIN32 AND SOEM_LIBRARY)
         set_tests_properties(TestB222H PROPERTIES TIMEOUT 120)
     endif()
 
-    # ---- B222I: TestB222I — ABI fix, drainElist corruption guard,
+    # ---- B222I: TestB222I - ABI fix, drainElist corruption guard,
     #              A4 cyclic mailbox, A5 recovery thread ----
     set(B222I_TEST_SOURCES
         tests/TestB222I.cpp
@@ -776,7 +776,7 @@ if(WIN32 AND SOEM_LIBRARY)
         set_tests_properties(TestB222I PROPERTIES TIMEOUT 120)
     endif()
 
-    # ---- B222J: TestB222J — DS402 fault history readback, mailbox overrun
+    # ---- B222J: TestB222J - DS402 fault history readback, mailbox overrun
     #              counter in diag, A4 ordering fix (verified by absence of
     #              wkc=0 SDO warnings in hardware logs) ----
     set(B222J_TEST_SOURCES
@@ -827,7 +827,7 @@ if(WIN32 AND SOEM_LIBRARY)
         set_tests_properties(TestB222J PROPERTIES TIMEOUT 120)
     endif()
 
-    # ---- B222K: TestB222K — ControlLoop start/stop/start lifecycle,
+    # ---- B222K: TestB222K - ControlLoop start/stop/start lifecycle,
     #              re-init mailbox handler reset, fault-history state gating ----
     set(B222K_TEST_SOURCES
         tests/TestB222K.cpp
@@ -879,10 +879,10 @@ if(WIN32 AND SOEM_LIBRARY)
 endif()
 
 # ---- TestLogControls: Logger parseLevel + diagEnabled gate + minLevel
-#              suppression. No SOEM required — pure Logger unit tests.
+#              suppression. No SOEM required - pure Logger unit tests.
 add_motion_test(TestLogControls tests/TestLogControls.cpp)
 
-# ---- B222M: TestB222M — ForegroundKeeper construction, flags, opacity, size.
+# ---- B222M: TestB222M - ForegroundKeeper construction, flags, opacity, size.
 #              Requires Qt::Widgets (for QWidget); not covered by add_motion_test
 #              which links Qt::Core+Test only.
 if(QT_VERSION_MAJOR EQUAL 6)
@@ -914,8 +914,7 @@ else()
 endif()
 
 # (TestB222N retired: its merge-on-save preservation cases were folded into
-#  tests/TestConfigTwoFile.cpp — the two-file config contract's single home —
-#  and its legacy-migration case died with the migration path.)
+#  tests/TestConfigTwoFile.cpp - the two-file config contract's single home - #  and its legacy-migration case died with the migration path.)
 
 # ---- B222O: TestB222O -- canonical save/load round-trip + scaling collapse.
 #              Pulls Config + A6Drive + Logging. Qt::Core only.

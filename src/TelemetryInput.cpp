@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
 // TelemetryInput.cpp
-// UDP telemetry reception (SimHub, SimTools, FlyPT Mover — any custom UDP sender).
+// UDP telemetry reception (SimHub, SimTools, FlyPT Mover - any custom UDP sender).
 //
 // Cross-platform: Winsock on Windows, BSD sockets on
 // Linux. Only the socket I/O (initialize/receive/shutdown) is
@@ -112,14 +112,13 @@ bool TelemetryInput::initialize(int port, const std::string& bindAddr)
                reinterpret_cast<const char*>(&timeout), sizeof(timeout));
 #endif
 
-    // Bind address (telemetryBindAddr): "" / "0.0.0.0" = platform default —
-    // Windows loopback (telemetry source usually local), Linux any-interface (the PC
+    // Bind address (telemetryBindAddr): "" / "0.0.0.0" = platform default -     // Windows loopback (telemetry source usually local), Linux any-interface (the PC
     // sends over the LAN/point-to-point link). An explicit address restricts
     // reception to that interface (e.g. pin the Pi to the wired PC link, or
     // open a headless Windows NUC to a separate game PC.s telemetry).
     // COMPAT: "127.0.0.1"/"localhost" on Linux is a stale UI placeholder in
     // existing host.json files, and loopback telemetry into the Pi has no use
-    // case — auto-correct to any-interface with a warning instead of silently
+    // case - auto-correct to any-interface with a warning instead of silently
     // killing PC→Pi telemetry on update.
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
@@ -211,10 +210,10 @@ bool TelemetryInput::receive()
         int err = WSAGetLastError();
 #ifdef _WIN32
         if (err == WSAEWOULDBLOCK)
-            return false;  // No data available — normal for non-blocking
+            return false;  // No data available - normal for non-blocking
 #else
         if (err == EWOULDBLOCK || err == EAGAIN)
-            return false;  // No data available — normal for non-blocking
+            return false;  // No data available - normal for non-blocking
 #endif
         LOG_WARNING(strf("TelemetryInput: recvfrom() error: %d", err));
         return false;
@@ -263,7 +262,7 @@ bool TelemetryInput::receive()
 }
 
 // ============================================================
-// updateUdpRate — UDP telemetry-rate diagnostic (receive thread only).
+// updateUdpRate - UDP telemetry-rate diagnostic (receive thread only).
 // Active only when diagnostics are enabled (otherwise one atomic-bool check and
 // out). Per Motion packet: count arrival, and classify NEW vs HOLD by comparing
 // the raw values to the previous packet. A held frame is BIT-IDENTICAL (the sender

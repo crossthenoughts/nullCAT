@@ -96,7 +96,7 @@ public:
     void requestStatsReset() { m_statsResetRequested.store(true, std::memory_order_release); }
 
     // Status/event callbacks.
-    // Called from RT thread — UI must marshal via QMetaObject::invokeMethod.
+    // Called from RT thread - UI must marshal via QMetaObject::invokeMethod.
     void setOnLoopStarted(std::function<void()> cb)                              { m_onLoopStarted       = std::move(cb); }
     void setOnLoopStopped(std::function<void()> cb)                              { m_onLoopStopped       = std::move(cb); }
     void setOnStatsUpdated(std::function<void(LoopStats)> cb)                    { m_onStatsUpdated      = std::move(cb); }

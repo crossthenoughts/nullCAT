@@ -9,8 +9,7 @@
 // EtherCAT WKC:
 //   Each slave increments the WKC when it processes PDO data.
 //   expectedWKC = (outputsWKC * 2) + inputsWKC
-//   A mismatch means one or more slaves did not process data —
-//   typically caused by a dropped slave, cable issue, or
+//   A mismatch means one or more slaves did not process data - //   typically caused by a dropped slave, cable issue, or
 //   slave timeout.
 //
 // Strategy:
@@ -35,7 +34,7 @@
 #include <cstdint>
 #include <atomic>
 
-// SOEM context forward declaration — full headers included by EtherCATMaster.cpp
+// SOEM context forward declaration - full headers included by EtherCATMaster.cpp
 struct ecx_context;
 typedef struct ecx_context ecx_contextt;
 

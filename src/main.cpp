@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
 // main.cpp
-// EtherCAT Motion Controller — StepperOnline A6 Drives
+// EtherCAT Motion Controller - StepperOnline A6 Drives
 //
 // Entry point: initializes Qt, loads config, creates all
 // backend objects, connects them to the GUI, and runs the
@@ -75,7 +75,7 @@ int main(int argc, char* argv[])
 
     if (!config.load(cfgPath.toStdString()))
     {
-        // Config load failed — log the error but continue with defaults
+        // Config load failed - log the error but continue with defaults
         // Logger not yet initialized, so print to stderr
         fprintf(stderr, "Warning: Could not load config.json (%s). Using defaults.\n",
                 config.lastError().c_str());
@@ -105,14 +105,14 @@ int main(int argc, char* argv[])
     LOG_INFO(strf("Config loaded from: %s", cfgPath.toStdString().c_str()));
     LOG_INFO(strf("NIC: %s", cfg.nicName.empty() ? "(not set)" : cfg.nicName.c_str()));
     if (cfg.simulationMode)
-    LOG_INFO("*** SIMULATION MODE ENABLED — no EtherCAT hardware required ***");
+    LOG_INFO("*** SIMULATION MODE ENABLED - no EtherCAT hardware required ***");
     LOG_INFO(strf("Drives: %d, Loop Hz: %d, Telemetry Port: %d",
         cfg.numDrives, cfg.controlLoopHz, cfg.telemetryPort));
     LOG_INFO("==========================================================");
 
     // ---- Create Backend Objects ----
 
-    // EtherCAT master — apply all config before any init attempt
+    // EtherCAT master - apply all config before any init attempt
     EtherCATMaster master;
     master.setSimulationMode(cfg.simulationMode);
     master.applyConfig(cfg);
@@ -150,7 +150,7 @@ int main(int argc, char* argv[])
     webServer.setAllowedHosts(cfg.webAllowedHosts);
     // Enable the web config editor (GET/POST /api/config) and the telemetry
     // receiving indicator. Without setConfigPath, /api/config 404s and the
-    // web UI has no working config surface — defeating PC↔web parity.
+    // web UI has no working config surface - defeating PC↔web parity.
     webServer.setConfigPath(cfgPath.toStdString());
     webServer.setTelemetry(&telemetry);
     webServer.setOnStopRequested([&loop]()

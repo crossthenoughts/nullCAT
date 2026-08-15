@@ -4,7 +4,7 @@
 // TestB222H.cpp  (Build 222H)
 //
 // Unit tests for B222H fixes:
-//   H-1a/1b  A1a+A1b: checkSlaveErrorStateCached — ALStatusCode pre-check
+//   H-1a/1b  A1a+A1b: checkSlaveErrorStateCached - ALStatusCode pre-check
 //            before configMap (A1a) and pre-OP SDO burst (A1b)
 //   H-8      A8: mbx_rl field added to slave_state and pre_config_map_slave DIAG
 //   H-15     A15: ecx_err2string format in drainElistImpl;
@@ -122,7 +122,7 @@ private Q_SLOTS:
         QCOMPARE(failedSlave, -1);
         QVERIFY2(detail.empty(), "Expected empty detail on clean check");
 #else
-        QSKIP("SOEM not available — skipping (ecx_contextt not fully defined)");
+        QSKIP("SOEM not available - skipping (ecx_contextt not fully defined)");
 #endif
     }
 
@@ -154,7 +154,7 @@ private Q_SLOTS:
 
     // ----------------------------------------------------------------
     // H-1a/1b-3: With 3 slaves, the check stops at the first dirty
-    // slave (slave 2) — slave 3's error code is never inspected.
+    // slave (slave 2) - slave 3's error code is never inspected.
     // ----------------------------------------------------------------
     void h1_middleSlaveDirty_stopsAtFirst()
     {
@@ -340,9 +340,9 @@ private Q_SLOTS:
         // New format (A15) uses ecx_err2string via safeErr2String and emits "(fmt_error)"
         // when ecx_err2string crashes (AbortCode=0 is not in SOEM's table → null → crash).
         QVERIFY2(content.find("index=0x6040") == std::string::npos,
-                 "Unexpected old 'index=0x6040' field — A15 replaced explicit format with ecx_err2string");
+                 "Unexpected old 'index=0x6040' field - A15 replaced explicit format with ecx_err2string");
 #else
-        QSKIP("SOEM not available — skipping elist formatter test");
+        QSKIP("SOEM not available - skipping elist formatter test");
 #endif
     }
 
@@ -413,7 +413,7 @@ private Q_SLOTS:
         std::string content((std::istreambuf_iterator<char>(f)),
                              std::istreambuf_iterator<char>());
         QVERIFY2(content.find("DIAG | rtt") == std::string::npos,
-                 "Unexpected 'DIAG | rtt' in sim-mode log — rttCount should stay 0");
+                 "Unexpected 'DIAG | rtt' in sim-mode log - rttCount should stay 0");
     }
 
     // ----------------------------------------------------------------
@@ -425,7 +425,7 @@ private Q_SLOTS:
     // ----------------------------------------------------------------
     void h18_hardwareOnlySkip()
     {
-        QSKIP("A18 OP transition early-exit requires live hardware — verified by code inspection");
+        QSKIP("A18 OP transition early-exit requires live hardware - verified by code inspection");
     }
 
     // ----------------------------------------------------------------
@@ -437,7 +437,7 @@ private Q_SLOTS:
     // ----------------------------------------------------------------
     void h1cDiag_hardwareOnlySkip()
     {
-        QSKIP("A1c-diag dc_margin_sample requires live hardware — verified by code inspection");
+        QSKIP("A1c-diag dc_margin_sample requires live hardware - verified by code inspection");
     }
 };
 

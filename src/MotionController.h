@@ -2,20 +2,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 // ============================================================
-// MotionController — per-axis motion state machine (PARKED / HOMING /
+// MotionController - per-axis motion state machine (PARKED / HOMING /
 // UNPARKING / BLENDING / ONLINE / PARKING / ESTOPPING), CSP command
 // conditioning, belt torque tensioning with runaway guards, and the
 // deinit seat-on-the-stop sequence.
 //
 // Threading contract:
-//   - UI thread must call enqueueCommand() — never startHoming() or
+//   - UI thread must call enqueueCommand() - never startHoming() or
 //     startPark() directly.
 //   - RT thread (ControlLoop) may call startHoming()/startPark()/
-//     setNeedsRehome() directly — they execute immediately.
+//     setNeedsRehome() directly - they execute immediately.
 //   - setEmergencyStop(): atomic-only; state transitions happen inside
-//     process() on estop edge detection — no m_axisState write from UI.
+//     process() on estop edge detection - no m_axisState write from UI.
 //   - RT thread publishes a MotionStatus snapshot at the end of each
-//     process(); the UI reads getMotionStatus() — no direct access to
+//     process(); the UI reads getMotionStatus() - no direct access to
 //     m_axisState[], m_runtime[], or m_needsRehome from outside the
 //     RT thread.
 // ============================================================
@@ -37,7 +37,7 @@ struct MotionCommand
     {
         StartHoming,      // intVal = axis index (-1 = all axes)
         StartPark,        // no args
-        StartUnpark,      // no args — return parked axes to standby/online
+        StartUnpark,      // no args - return parked axes to standby/online
         SlackBelts,       // torque axes only: ease tension to 0 (don/doff); others untouched
         TensionBelts,     // torque axes only: blend 0 -> live tension; others untouched
     };
@@ -66,7 +66,7 @@ enum class AxisMotionState
 
 // Snapshot of UI-visible motion state published by the RT thread at the end of
 // each process() cycle. The UI timer reads this via getMotionStatus() under a
-// read lock — the UI never touches m_axisState[], m_runtime[], or
+// read lock - the UI never touches m_axisState[], m_runtime[], or
 // m_needsRehome directly, so there is no data race on them.
 struct MotionStatus
 {
@@ -180,7 +180,7 @@ public:
     MotionStatus getMotionStatus() const;
 
     // ---- RT-thread-only state accessors (called from ControlLoop) ----
-    // Do NOT call these from the UI thread — use getMotionStatus() instead.
+    // Do NOT call these from the UI thread - use getMotionStatus() instead.
     AxisMotionState getAxisState(int i) const
     {
         if (i < 0 || i >= MAX_DRIVES) return AxisMotionState::PARKED;

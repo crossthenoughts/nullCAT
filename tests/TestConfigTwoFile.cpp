@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// TestConfigTwoFile.cpp  (Slice 2 — host/rig config split)
+// TestConfigTwoFile.cpp  (Slice 2 - host/rig config split)
 //
 // Verifies the two-file (host.json + rig.json) load/save:
 //   - cold start (no config of any kind) writes a VALID two-file set
@@ -68,7 +68,7 @@ private slots:
     // host.json alone (the Pi installer seeds one; rig.json does not exist
     // yet) must keep its values. Regression: load() used to call the full
     // setDefaults() when drives were empty, resetting the entire AppConfig
-    // and wiping the host fields it had just read — every fresh Pi install
+    // and wiping the host fields it had just read - every fresh Pi install
     // lost its seeded nicName/webBindAddr on first boot.
     void hostOnly_preservesHostFields()
     {
@@ -294,7 +294,7 @@ private slots:
 
         QJsonObject host = readObj(dir.path() + "/host.json");
         QVERIFY2(host.contains("experimentalFutureField"),
-                 "Unknown host.json key dropped by saveHost() — merge regression.");
+                 "Unknown host.json key dropped by saveHost() - merge regression.");
         QCOMPARE(host.value("experimentalFutureField").toString(), QString("keep-me"));
         QCOMPARE(host.value("nicName").toString(), QString("ChangedNic"));
     }
@@ -311,7 +311,7 @@ private slots:
         writeText(dir.path() + "/rig.json",
             "{ \"configVersion\": 2, \"numDrives\": 1, \"global\": {},"
             "  \"axes\": [ { \"slaveIndex\": 1, \"name\": \"Heave\", \"strokeMm\": 150.0,"
-            "                \"_comment\": \"Hand-tuned — do not auto-adjust\" } ] }\n");
+            "                \"_comment\": \"Hand-tuned - do not auto-adjust\" } ] }\n");
 
         Config cfg; QVERIFY(cfg.load(anchor(dir).toStdString()));
         QVERIFY(cfg.save(anchor(dir).toStdString()));
@@ -324,7 +324,7 @@ private slots:
         QCOMPARE(axes.size(), 1);
         QVERIFY2(axes.at(0).toObject().contains("_comment"), "Per-axis _comment dropped.");
         QCOMPARE(axes.at(0).toObject().value("_comment").toString(),
-                 QString("Hand-tuned — do not auto-adjust"));
+                 QString("Hand-tuned - do not auto-adjust"));
     }
 
     // Unknown host keys survive when only an UNRELATED modelled field changed.

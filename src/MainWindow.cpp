@@ -36,8 +36,8 @@
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
-    setWindowTitle("nullCAT — EtherCAT Motion");
-    // Narrow instrument-panel window — readouts on top, run-deck pinned to
+    setWindowTitle("nullCAT - EtherCAT Motion");
+    // Narrow instrument-panel window - readouts on top, run-deck pinned to
     // the bottom via a stretch.
     setMinimumSize(370, 580);
     resize(390, 682);   // ~collapsed-content height; the log fold grows/shrinks it
@@ -119,7 +119,7 @@ void MainWindow::setComponents(
         // heap-allocate and post to the event queue thousands of times per second
         // (loop Hz x drives), lengthening the RT critical section for a no-op
         // handler. The UI pulls status at 5 Hz in onRefreshTimer instead. Do not re-add.
-        // m_loop->setOnDriveStatusUpdated(...);   // (see onDriveStatusUpdated — no-op)
+        // m_loop->setOnDriveStatusUpdated(...);   // (see onDriveStatusUpdated - no-op)
         m_loop->setOnFaultLockout([this](int idx, const std::string& msg) {
             QString qmsg = QString::fromStdString(msg);
             QMetaObject::invokeMethod(this, [this, idx, qmsg]() {
@@ -141,7 +141,7 @@ void MainWindow::setComponents(
         buildAxisChips();
         setupConfigWatcher();
         if (m_config->get().simulationMode)
-            setWindowTitle("nullCAT — EtherCAT Motion  [SIMULATION MODE]");
+            setWindowTitle("nullCAT - EtherCAT Motion  [SIMULATION MODE]");
     }
 
     updateWebButtons();
@@ -152,7 +152,7 @@ void MainWindow::setComponents(
 //   win #21262d  panel #191d23  panel2 #262c34  edge #10141a  edge2 #323a44
 //   ink #e8ebef  ink2 #aeb6c2  muted #6d7783  faint #48515c
 //   green #37c95a  amber #f5b340  red #ec3b3b  cyan #2fcfd6
-// QSS can't do letter-spacing / text-transform / box-shadow — those use QFont
+// QSS can't do letter-spacing / text-transform / box-shadow - those use QFont
 // or pre-uppercased text; the glow is approximated with a light inner border.
 // ============================================================================
 
@@ -165,7 +165,7 @@ static const char* kSubBtnStyle =
     "QPushButton:hover:enabled { background:#262c34; color:#e8ebef; }"
     "QPushButton:disabled { color:#48515c; border-color:#262c34; }";
 
-// "warn" sub-button (Reset Faults) — amber text on a warm-edged outline.
+// "warn" sub-button (Reset Faults) - amber text on a warm-edged outline.
 static const char* kWarnBtnStyle =
     "QPushButton { background:transparent; color:#f5b340; border:1px solid #5a4a2a;"
     "              border-radius:4px; padding:8px 6px; font-size:11px; }"
@@ -185,7 +185,7 @@ static const char* kRunBtnStyle =
     "QPushButton:hover:enabled { background:#2f3640; }"
     "QPushButton:disabled { background:#1e232a; color:#48515c; border-color:#262c34; }";
 
-// E-STOP — the only full-width red bar; light inner border approximates the glow.
+// E-STOP - the only full-width red bar; light inner border approximates the glow.
 static const char* kEstopStyle =
     "QPushButton { background:#ec3b3b; color:#ffffff; border:1px solid #ff7a7a;"
     "              border-radius:5px; font-weight:800; font-size:15px; padding:14px 0; }"
@@ -202,7 +202,7 @@ void MainWindow::buildUI()
     setCentralWidget(central);
 
     // Readouts on top, run-deck pinned to the bottom via a stretch.
-    // Styling is visual-only — widgets and handlers are unaffected by it.
+    // Styling is visual-only - widgets and handlers are unaffected by it.
     central->setStyleSheet(
         "QWidget#central { background:#21262d; }"
         "QLabel { color:#e8ebef; font-family:'Space Grotesk','Segoe UI',sans-serif; }"
@@ -243,8 +243,8 @@ void MainWindow::buildUI()
 
     m_catLogo = new QLabel();
     m_catLogo->setAlignment(Qt::AlignCenter);
-    m_catLogo->setFixedSize(64, 42);   // wide racer art — trim the box to its real height
-    m_catLogo->setToolTip("Rig status (aggregate) — the same indicator the web UI shows.");
+    m_catLogo->setFixedSize(64, 42);   // wide racer art - trim the box to its real height
+    m_catLogo->setToolTip("Rig status (aggregate) - the same indicator the web UI shows.");
     header->addWidget(m_catLogo, 0, Qt::AlignVCenter);
     header->addStretch();   // centre the brand block between the cat and the pill
 
@@ -265,7 +265,7 @@ void MainWindow::buildUI()
     header->addLayout(brand);
     header->addStretch();
 
-    // Connection pill — the aggregate status (recoloured by state in updateCatLogo).
+    // Connection pill - the aggregate status (recoloured by state in updateCatLogo).
     m_labelAgg = new QLabel("OFFLINE");
     m_labelAgg->setAlignment(Qt::AlignCenter);
     { QFont pf; pf.setPixelSize(10); pf.setLetterSpacing(QFont::AbsoluteSpacing, 1.4); m_labelAgg->setFont(pf); }
@@ -310,11 +310,11 @@ void MainWindow::buildUI()
     m_labelLoopState->setStyleSheet("color:#f5b340;");
     sg->addWidget(m_labelLoopState, 1, 1);
     sg->addWidget(cap("RATE"), 1, 2);
-    m_labelLoopHz = new QLabel("—");
+    m_labelLoopHz = new QLabel(" - ");
     m_labelLoopHz->setStyleSheet("color:#e8ebef;");
     sg->addWidget(m_labelLoopHz, 1, 3);
     sg->addWidget(cap("JITTER"), 2, 0);
-    m_labelJitter = new QLabel("—");
+    m_labelJitter = new QLabel(" - ");
     m_labelJitter->setStyleSheet("color:#e8ebef;");
     sg->addWidget(m_labelJitter, 2, 1);
     sg->addWidget(cap("WKC"), 2, 2);
@@ -375,7 +375,7 @@ void MainWindow::buildUI()
     mainLayout->addWidget(m_btnEmergency);
     mainLayout->addSpacing(2);
 
-    // Init/Stop EtherCAT — context-aware (onToggleEtherCAT). Style swaps between
+    // Init/Stop EtherCAT - context-aware (onToggleEtherCAT). Style swaps between
     // green primary (live GO) and neutral in updateButtonStates.
     m_btnInitEC = new QPushButton("Initialize EtherCAT");
     m_btnInitEC->setMinimumHeight(40);
@@ -385,7 +385,7 @@ void MainWindow::buildUI()
     connect(m_btnInitEC, &QPushButton::clicked, this, &MainWindow::onToggleEtherCAT);
     mainLayout->addWidget(m_btnInitEC);
 
-    // Start/Stop Loop — context-aware (onToggleLoop).
+    // Start/Stop Loop - context-aware (onToggleLoop).
     m_btnStart = new QPushButton("Start Loop");
     m_btnStart->setMinimumHeight(40);
     m_btnStart->setStyleSheet(kRunBtnStyle);
@@ -394,7 +394,7 @@ void MainWindow::buildUI()
     connect(m_btnStart, &QPushButton::clicked, this, &MainWindow::onToggleLoop);
     mainLayout->addWidget(m_btnStart);
 
-    // Park/Unpark — rig-level toggle. Park eases every axis to its rest position;
+    // Park/Unpark - rig-level toggle. Park eases every axis to its rest position;
     // Unpark returns them to standby without a rehome. Label/enable/style driven
     // in updateButtonStates from the SHARED motion aggregates, so this button and
     // the web's park-toggle can never disagree about what a click will do.
@@ -402,11 +402,11 @@ void MainWindow::buildUI()
     m_btnPark->setMinimumHeight(36);
     m_btnPark->setStyleSheet(kRunBtnStyle);
     m_btnPark->setToolTip("Park all axes (ease to rest position).\n"
-                          "Once parked, the same button unparks — no rehome needed.");
+                          "Once parked, the same button unparks - no rehome needed.");
     connect(m_btnPark, &QPushButton::clicked, this, &MainWindow::onTogglePark);
     mainLayout->addWidget(m_btnPark);
 
-    // Belt don/doff — rig-level toggle for torque (belt-tension) axes only; hidden
+    // Belt don/doff - rig-level toggle for torque (belt-tension) axes only; hidden
     // on rigs without them. Slack eases tension to 0 (get in/out), Tension blends
     // back in. Visibility/label/enable/style all driven in updateButtonStates,
     // mirroring the web btn-belts. (onToggleBelts dispatches Slack vs Tension.)
@@ -429,7 +429,7 @@ void MainWindow::buildUI()
     m_btnResetFaults->setStyleSheet(kWarnBtnStyle);
     connect(m_btnResetFaults, &QPushButton::clicked, this, &MainWindow::onResetFaults);
     sec->addWidget(m_btnResetFaults);
-    // Home — rarely needed; highlights amber when a rehome IS required (onRefreshTimer).
+    // Home - rarely needed; highlights amber when a rehome IS required (onRefreshTimer).
     m_btnStartHoming = new QPushButton("Home");
     m_btnStartHoming->setMinimumHeight(30);
     m_btnStartHoming->setStyleSheet(kSubBtnStyle);
@@ -510,7 +510,7 @@ void MainWindow::buildAxisChips()
 
         row->addStretch();
 
-        chip.state = new QLabel("—");
+        chip.state = new QLabel(" - ");
         chip.state->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         { QFont f; f.setPixelSize(11); f.setLetterSpacing(QFont::AbsoluteSpacing, 0.8); chip.state->setFont(f); }
         chip.state->setStyleSheet("color:#6d7783;");
@@ -547,7 +547,7 @@ void MainWindow::onStopEtherCAT()
     m_btnInitEC->setText("Stopping…");
     QApplication::processEvents();
 
-    // Mirror the web /api/deinit teardown: stop the loop (defensive — the button
+    // Mirror the web /api/deinit teardown: stop the loop (defensive - the button
     // is only enabled when stopped), seat the verticals onto the bottom stop and
     // de-energize ON the stop, then walk OP->INIT. seatThenStop() self-guards.
     // NO manual disableAllDrives(): de-energizing mid-stroke under DC sync
@@ -561,7 +561,7 @@ void MainWindow::onStopEtherCAT()
     if (m_loop)   m_loop->seatThenStop();
     if (m_master) m_master->shutdown();
 
-    statusBar()->showMessage("EtherCAT stopped — drives returned to INIT.");
+    statusBar()->showMessage("EtherCAT stopped - drives returned to INIT.");
     updateButtonStates();
 }
 
@@ -728,7 +728,7 @@ void MainWindow::onStartHoming()
     LOG_INFO("GUI: Homing sequence started for all axes.");
     // Enqueue so startHoming() executes on the RT thread, not the UI thread.
     m_motion->enqueueCommand({MotionCommand::Type::StartHoming, -1});
-    statusBar()->showMessage("Homing in progress — watch drive state column...");
+    statusBar()->showMessage("Homing in progress - watch drive state column...");
 }
 
 bool MainWindow::configEditAllowed()
@@ -819,7 +819,7 @@ void MainWindow::onApplicationSettings()
     if (m_config->saveHost(cfgPath.toStdString()))   // Qt owns host.json only; web owns rig.json
         LOG_INFO("Application settings saved.");
     else
-        LOG_WARNING("Could not save config.json — changes active until restart.");
+        LOG_WARNING("Could not save config.json - changes active until restart.");
 
     // ---- Live-apply runtime-mutable fields ----
     // Mode-lock guarantees EtherCAT is offline and the control loop is
@@ -933,7 +933,7 @@ void MainWindow::reloadConfigFromWeb()
     const QString cfgPath = QCoreApplication::applicationDirPath() + "/config.json";
     if (!m_config->load(cfgPath.toStdString()))
     {
-        LOG_WARNING("Config file changed but reload failed — restart to apply.");
+        LOG_WARNING("Config file changed but reload failed - restart to apply.");
         return;
     }
 
@@ -942,8 +942,8 @@ void MainWindow::reloadConfigFromWeb()
     const bool busy = m_loopRunning || (m_master && m_master->isInitialized());
     if (busy)
     {
-        LOG_INFO("Config updated from web UI — Re-initialize EtherCAT to apply.");
-        statusBar()->showMessage("Config saved from web — Stop & Re-initialize EtherCAT to apply.");
+        LOG_INFO("Config updated from web UI - Re-initialize EtherCAT to apply.");
+        statusBar()->showMessage("Config saved from web - Stop & Re-initialize EtherCAT to apply.");
         return;
     }
 
@@ -951,8 +951,8 @@ void MainWindow::reloadConfigFromWeb()
     buildAxisChips();
     if (m_motion) m_motion->configure(m_config->get());
     updateButtonStates();     // belt/torque axis presence may have changed
-    LOG_INFO("Config updated from web UI — applied (active on next Initialize).");
-    statusBar()->showMessage("Config updated from web UI — active on next Initialize.");
+    LOG_INFO("Config updated from web UI - applied (active on next Initialize).");
+    statusBar()->showMessage("Config updated from web UI - active on next Initialize.");
 }
 
 void MainWindow::onToggleWebServer()
@@ -1049,7 +1049,7 @@ void MainWindow::onEmergencyStop()
     if (m_motion) m_motion->setEmergencyStop(true);
     if (m_master) m_master->disableAllDrives();
 
-    m_btnEmergency->setText("⚡ E-STOP ACTIVE — click to clear");
+    m_btnEmergency->setText("⚡ E-STOP ACTIVE - click to clear");
     m_btnEmergency->setStyleSheet(kEstopActiveStyle);
 
     disconnect(m_btnEmergency, &QPushButton::clicked, this, &MainWindow::onEmergencyStop);
@@ -1066,7 +1066,7 @@ void MainWindow::onEmergencyStop()
         });
 
     updateButtonStates();
-    statusBar()->showMessage("EMERGENCY STOP — ramping to halt.");
+    statusBar()->showMessage("EMERGENCY STOP - ramping to halt.");
 }
 
 void MainWindow::onRefreshTimer()
@@ -1093,7 +1093,7 @@ void MainWindow::onRefreshTimer()
 
     if (m_motion)
     {
-        // Read all motion state from the RT-published snapshot — no direct
+        // Read all motion state from the RT-published snapshot - no direct
         // access to m_axisState[] or m_runtime[] from the UI thread. Per-axis
         // state text is rendered by updateStatusIndicators() into the chips; here
         // we only drive the rehome/homing status-bar + Home-button highlighting.
@@ -1103,7 +1103,7 @@ void MainWindow::onRefreshTimer()
         {
             // Make it obvious that the user needs to press Home after a fault-park:
             // the amber highlight overrides the ghost kSubBtnStyle.
-            statusBar()->showMessage("REHOME REQUIRED — press 'Home' to continue.");
+            statusBar()->showMessage("REHOME REQUIRED - press 'Home' to continue.");
             m_btnStartHoming->setStyleSheet(
                 "QPushButton { background-color:#f5b340; color:#0c130e; font-weight:bold;"
                 "             border:1px solid #f5b340; border-radius:4px; padding:8px 6px; font-size:11px; }"
@@ -1119,7 +1119,7 @@ void MainWindow::onRefreshTimer()
             {
                 QString current = statusBar()->currentMessage();
                 if (current.contains("Homing"))
-                    statusBar()->showMessage("Homing complete — axes unparking.");
+                    statusBar()->showMessage("Homing complete - axes unparking.");
             }
         }
     }
@@ -1154,7 +1154,7 @@ void MainWindow::onLoopStarted()
     m_loopRunning = true;
     m_labelLoopState->setText("Running");
     m_labelLoopState->setStyleSheet("color:#37c95a;");
-    statusBar()->showMessage("Control loop running — unparking axes...");
+    statusBar()->showMessage("Control loop running - unparking axes...");
     updateButtonStates();
 
 #ifdef _WIN32
@@ -1174,8 +1174,8 @@ void MainWindow::onLoopStopped()
     m_loopRunning = false;
     m_labelLoopState->setText("Stopped");
     m_labelLoopState->setStyleSheet("color:#f5b340;");
-    m_labelLoopHz->setText("—");
-    m_labelJitter->setText("—");
+    m_labelLoopHz->setText(" - ");
+    m_labelJitter->setText(" - ");
     m_labelWkc->setText("0");
     m_labelWkc->setStyleSheet("color:#37c95a;");
     statusBar()->showMessage("Control loop stopped.");
@@ -1267,7 +1267,7 @@ void MainWindow::updateButtonStates()
     bool initBusy = (m_master && m_master->isInitializing());
     bool configEditOk = !loopRun && !ecInit;
 
-    // ---- Init/Stop EtherCAT — one context-aware button (mirror web app.js) ----
+    // ---- Init/Stop EtherCAT - one context-aware button (mirror web app.js) ----
     //   busy        -> disabled, "Initializing…/Stopping…"
     //   OP && !loop -> "Stop EtherCAT" (de-init)
     //   OP && loop  -> disabled, "EtherCAT: OP" (stop the loop first)
@@ -1293,9 +1293,9 @@ void MainWindow::updateButtonStates()
         m_btnInitEC->setText("Initialize EtherCAT");
     }
 
-    // ---- Start/Stop Loop — one context-aware button (mirror web app.js) ----
+    // ---- Start/Stop Loop - one context-aware button (mirror web app.js) ----
     // Start enabled when OP && stopped; Stop enabled when running && !settling
-    // (settling = an axis still homing / unparking / blending — greys Stop like
+    // (settling = an axis still homing / unparking / blending - greys Stop like
     // the web UI so the user can't interrupt the auto-home -> unpark blend).
     bool settling = false;
     if (loopRun && m_motion)
@@ -1496,7 +1496,7 @@ void MainWindow::updateCatLogo(status::Indicator agg)
 
     if (m_labelAgg)
     {
-        // Connection pill — colour text + border by state (font set once in buildUI).
+        // Connection pill - colour text + border by state (font set once in buildUI).
         m_labelAgg->setText(label);
         m_labelAgg->setStyleSheet(QString(
             "color:%1; border:1px solid %1; border-radius:13px; padding:5px 11px;").arg(col.name()));
@@ -1575,7 +1575,7 @@ void MainWindow::closeEvent(QCloseEvent* event)
 // context is destroyed; a fresh init is required on resume.
 //
 // PBT_APMRESUMEAUTOMATIC fires when the system comes back. We
-// log a warning — the user must press Initialize + Start again.
+// log a warning - the user must press Initialize + Start again.
 // We do NOT attempt automatic reconnection because the NIC pcap
 // handle is stale and the drive ESC state machines have reset.
 // ============================================================

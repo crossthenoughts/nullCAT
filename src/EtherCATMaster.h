@@ -34,8 +34,8 @@ enum class InitError
 {
     None = 0,
     AlreadyInProgress,  // concurrent init guard fired
-    NicNotFound,        // ecx_init() failed — NIC not found or Npcap not installed
-    NicBindFailed,      // ecx_config_init() SEH crash — NIC not bound to Npcap
+    NicNotFound,        // ecx_init() failed - NIC not found or Npcap not installed
+    NicBindFailed,      // ecx_config_init() SEH crash - NIC not bound to Npcap
     NoSlavesFound,      // ecx_config_init() returned 0 slaves
     SlaveNotResponding, // slave failed PreOp broadcast or CoE mailbox not responding
     PreOpSettleFailed,  // slaves did not stabilize in PreOp within timeout
@@ -86,17 +86,17 @@ public:
     EtherCATMaster();
     ~EtherCATMaster();
 
-    // Full init sequence in one call — use this from all code paths
+    // Full init sequence in one call - use this from all code paths
     // (web UI, Qt button, tests). Calls applyConfig(), initialize(),
     // configurePDOs(), enterOperational() in order with correct error
     // handling. Returns InitResult; operator bool() allows legacy bool checks.
     InitResult initializeAndEnterOp(const std::string& nicName);
 
-    // Apply config values before initialize() — called by initializeAndEnterOp().
+    // Apply config values before initialize() - called by initializeAndEnterOp().
     // Also called at startup in main.cpp so defaults are correct from the start.
     void applyConfig(const AppConfig& cfg);
 
-    // Low-level steps exposed for MainWindow backward compat — prefer
+    // Low-level steps exposed for MainWindow backward compat - prefer
     // initializeAndEnterOp() for all new code.
     InitResult initialize(const std::string& nicName);
     InitResult configurePDOs();
@@ -132,14 +132,14 @@ public:
     int  getExpectedWKC()  const { return m_expectedWKC; }
     bool hasPumpCrashed()  const { return m_pumpCrashed.load(); }
 
-    // Test-only wrappers — expose drainElistImpl.
+    // Test-only wrappers - expose drainElistImpl.
     // drainElistForTest uses the production cap (100); drainElistForTestCapped
     // accepts a custom cap so tests can trigger the bailout path using a real
     // 64-entry ring (push EC_MAXELIST entries, then drain with max < 64).
     static void drainElistForTest(ecx_contextt* ctx, const char* location);
     static void drainElistForTestCapped(ecx_contextt* ctx, const char* location, int max);
 
-    // Test-only wrappers — expose checkSlaveErrorStateCached and dumpSlaveState.
+    // Test-only wrappers - expose checkSlaveErrorStateCached and dumpSlaveState.
     static bool checkSlaveErrorStateForTest(ecx_contextt* ctx, int slaveCount, const char* location,
                                              int& failedSlaveOut, std::string& detailOut);
     static void dumpSlaveStateForTest(ecx_contextt* ctx, int slaveCount, const char* location);
@@ -170,7 +170,7 @@ public:
     void setEnableCapabilityScan(bool en)     { m_enableCapabilityScan = en; }
 
     // IGBT temperature round-robin poll interval (seconds PER DRIVE).
-    // 0 (default) DISABLES the poll — the worker thread still runs but issues no SDO,
+    // 0 (default) DISABLES the poll - the worker thread still runs but issues no SDO,
     // so the bus is untouched until this is set > 0 (after the byte-identical trust
     // gate passes). Set from config before initializeAndEnterOp().
     void setTempPollSec(double s)             { m_tempPollSec = s; }
@@ -199,10 +199,10 @@ public:
     // (the worker, the recovery thread's fault-history read, PREOP provisioning) so
     // there is one CoE transaction per slave at a time. The worker uses SOEM's native
     // cyclic SDO path (ecx_SDOread/write) and deliberately does NOT take
-    // m_soemAccessMutex — that would deadlock the RT cyclic handler it waits on.
+    // m_soemAccessMutex - that would deadlock the RT cyclic handler it waits on.
     std::mutex& sdoTransferMutex()         { return m_sdoTransferMutex; }
 
-    // Observable by tests — true only while T5 (pump thread) is running.
+    // Observable by tests - true only while T5 (pump thread) is running.
     bool isPumpActive() const { return m_pumpActive.load(std::memory_order_acquire); }
 
     void stopPump();
@@ -272,7 +272,7 @@ private:
     alignas(64) char m_iomap[SOEM_IOMAP_SIZE] = {};
 
     int              m_slaveCount = 0;
-    std::atomic<int> m_masterState{static_cast<int>(ECState::None)};  // atomic — read by T1/T2, written by T8
+    std::atomic<int> m_masterState{static_cast<int>(ECState::None)};  // atomic - read by T1/T2, written by T8
     std::atomic<int64_t> m_dcPhaseNs{0};   // DC reference phase within cycle (ns), passive diagnostic
     std::string      m_lastError;
     int     m_expectedWKC = 0;
@@ -290,7 +290,7 @@ private:
     void applyPPProfile(ecx_contextt* ctx, int slaveIdx, const DriveConfig& cfg);
     InitResult enterOperationalBody();              // body wrapped by safeCall in enterOperational()
 
-    // Pump dispatcher — bridge + pump thread always run on a
+    // Pump dispatcher - bridge + pump thread always run on a
     // persistent thread regardless of which thread calls startPump().
     void startPumpDispatchThread();  // start (or restart after shutdown) the dispatch thread
     void startPumpBody();            // bridge + m_pumpThread launch; called only by dispatch thread
@@ -327,13 +327,13 @@ private:
 
     // Per-slave reconfig attempt cap. Indexed by slave
     // number (element 0 unused); sized in startRecoveryThread(). Touched only
-    // on the recovery thread — no atomics needed. Reset per slave on
+    // on the recovery thread - no atomics needed. Reset per slave on
     // successful reconfig and on address recovery (slave power-cycled back).
     static constexpr int kMaxRecoveryReconfigAttempts = 5;
     std::vector<int> m_recoveryReconfigFails;
 
     // Branch-4 double-confirm: state==NONE can mean "slave gone" OR "the
-    // state-read datagram itself died in a frame-loss burst" — a single burst
+    // state-read datagram itself died in a frame-loss burst" - a single burst
     // can mark every healthy slave lost in one scan. Mark-lost + input
     // zeroing + mailbox LOST now require TWO consecutive scans agreeing; any
     // healthy read clears the pending flag. A genuinely dropped slave is just
@@ -361,11 +361,11 @@ private:
     // Serialises SOEM port access between the RT control loop / pump
     // thread (sendReceive, processCyclicMailbox) and the recovery thread
     // (readstate, writestate, dcsync0, single FPRD). Held only for short
-    // operations — ecx_reconfig_slave (~600ms) and ecx_recover_slave (~6ms)
+    // operations - ecx_reconfig_slave (~600ms) and ecx_recover_slave (~6ms)
     // run WITHOUT this mutex; SOEM's internal port mutex handles wire-level
     // serialisation. See doRecoveryScan() for rationale.
     //
-    // KNOWN LIMITATION — priority inversion: Windows std::mutex is implemented
+    // KNOWN LIMITATION - priority inversion: Windows std::mutex is implemented
     // over SRWLock and does NOT do priority inheritance. If the RT thread
     // (TIME_CRITICAL) blocks on this mutex while the recovery thread
     // (ABOVE_NORMAL) holds it, RT effectively waits at the holder's priority.

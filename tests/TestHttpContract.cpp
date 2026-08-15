@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// TestHttpContract.cpp — pins Docs/COMMAND_CONTRACT.md at the HTTP layer.
+// TestHttpContract.cpp - pins Docs/COMMAND_CONTRACT.md at the HTTP layer.
 //
 // TestCommandContract proves MotionCommand => engine state. THIS suite proves
 // the WIRING above it: real POSTs to the real WebServer routes, against the
@@ -16,11 +16,11 @@
 //     (/api/start before init).
 //   - ok:true means ACCEPTED, not DONE: outcome truth is polled from
 //     /api/status (e.g. TensionBelts under e-stop returns ok yet the belt
-//     stays slack — the silent engine refusal, visible only via status).
+//     stays slack - the silent engine refusal, visible only via status).
 //   - Option A ruling: after /api/start (auto-home + auto-unpark in sim) and
 //     after e-stop release, the belt stays SLACK until explicit tension.
 //
-// Assertions are dumb substring checks on the status JSON — deliberately: the
+// Assertions are dumb substring checks on the status JSON - deliberately: the
 // web UI itself consumes these exact tokens.
 //
 //   ctest -R HttpContract
@@ -71,7 +71,7 @@ static bool has(const std::string& body, const char* token)
 }
 
 // Poll /api/status until it contains `token` (or timeout). The contract says
-// outcome truth is status polling — the tests obey their own contract.
+// outcome truth is status polling - the tests obey their own contract.
 static bool waitStatus(const char* token, int timeoutMs)
 {
     for (int t = 0; t < timeoutMs; t += 50)

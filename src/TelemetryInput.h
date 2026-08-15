@@ -12,7 +12,7 @@ static constexpr int MAX_DRIVES = 10;
 
 enum class TelemetryPacketType
 {
-    Motion,   // NULLCAT,<axis1>,...  — motion data (the only accepted packet)
+    Motion,   // NULLCAT,<axis1>,... - motion data (the only accepted packet)
     Invalid
 };
 
@@ -33,9 +33,9 @@ public:
     ~TelemetryInput();
 
     // bindAddr semantics: "" or "0.0.0.0" = platform
-    // default (Linux: any interface; Windows: loopback — the telemetry source,
+    // default (Linux: any interface; Windows: loopback - the telemetry source,
     // e.g. SimHub, usually runs locally). An explicit address binds that
-    // interface only — EXCEPT "127.0.0.1"/"localhost" on Linux, auto-corrected
+    // interface only - EXCEPT "127.0.0.1"/"localhost" on Linux, auto-corrected
     // to any-interface with a warning: loopback telemetry into the Pi has no
     // use case, and existing host.json files carry 127.0.0.1 as a stale UI
     // placeholder (honoring it literally would silently kill PC→Pi telemetry
@@ -95,8 +95,7 @@ public:
     // No lifecycle callbacks by design: sender lifecycle signals are
     // intentionally ignored (see receive()).
 
-    // Parse one UDP line into a TelemetryData. Pure function of its inputs —
-    // public static so TestTelemetryParse can pin the wire-format semantics
+    // Parse one UDP line into a TelemetryData. Pure function of its inputs -     // public static so TestTelemetryParse can pin the wire-format semantics
     // (this runs on the RT thread at telemetry rate; no heap).
     static bool parsePacket(const char* buf, int len, TelemetryData& out);
 

@@ -87,7 +87,7 @@ logs/
 .gitleaks.local.toml
 
 # ============================================================
-# Ingestion inbox — files dropped here for Claude analysis,
+# Ingestion inbox - files dropped here for Claude analysis,
 # not durable repo artifacts.
 # ============================================================
 _ingest/

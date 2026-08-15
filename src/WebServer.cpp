@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// WebServer.cpp — embedded HTTP + WebSocket control/status
+// WebServer.cpp - embedded HTTP + WebSocket control/status
 // server. Endpoint contracts and threading notes in WebServer.h.
 // ============================================================
 
-// httplib uses platform sockets — suppress Windows warnings
+// httplib uses platform sockets - suppress Windows warnings
 #ifdef _WIN32
 #  define WIN32_LEAN_AND_MEAN
 #  define NOMINMAX
@@ -80,7 +80,7 @@ static std::string siblingFile(const std::string& anchor, const char* name)
 }
 
 // Who owns host.json on THIS build. Keyed off HAS_QT_CONFIG (a native config UI
-// is compiled in), NOT the OS — so a future headless x86/Windows NUC build,
+// is compiled in), NOT the OS - so a future headless x86/Windows NUC build,
 // which omits the Qt config UI, correctly reports "web" and lets the browser
 // edit host fields. PC (Qt) = "native"; headless (Pi, or headless NUC) = "web".
 static const char* hostOwner()
@@ -114,7 +114,7 @@ std::string WebServer::hostHeaderName(const std::string& hostHeader)
     }
     else
     {
-        // Strip ":port" — but a bare (non-bracketed) IPv6 literal has multiple
+        // Strip ":port" - but a bare (non-bracketed) IPv6 literal has multiple
         // colons and carries no port; leave it whole.
         const size_t first = h.find(':');
         if (first != std::string::npos && h.find(':', first + 1) == std::string::npos)
@@ -188,7 +188,7 @@ std::vector<std::string> WebServer::collectLocalAddrs()
 #endif
     for (auto& s : out)
     {
-        // Drop an IPv6 scope suffix ("fe80::1%eth0") — Host headers never carry one.
+        // Drop an IPv6 scope suffix ("fe80::1%eth0") - Host headers never carry one.
         const size_t pct = s.find('%');
         if (pct != std::string::npos) s.erase(pct);
         std::transform(s.begin(), s.end(), s.begin(),
@@ -225,8 +225,7 @@ bool WebServer::hostAllowed(const std::string& hostHeader)
         return std::find(m_localAddrs.begin(), m_localAddrs.end(), name) != m_localAddrs.end();
     };
     if (inCache()) return true;
-    // Miss: the interface set may have changed (DHCP renew, USB NIC replug —
-    // the eth1 class of event). Rescan at most once per 5s, then re-check.
+    // Miss: the interface set may have changed (DHCP renew, USB NIC replug -     // the eth1 class of event). Rescan at most once per 5s, then re-check.
     const auto now = std::chrono::steady_clock::now();
     if (now - m_lastAddrScan > std::chrono::seconds(5))
     {
@@ -333,20 +332,20 @@ std::string WebServer::buildStatusJson() const
         // so omitting the live block when the loop is stopped stays valid JSON.
         s += "{\"index\":" + jsonInt(i);
 
-        // config fields — always present, so cards render before Initialize
+        // config fields - always present, so cards render before Initialize
         if (m_config && i < static_cast<int>(m_config->drives.size()))
         {
             const DriveConfig& dc = m_config->drives[i];
             s += ",\"name\":"           + jsonStr(dc.name);
             s += ",\"axisType\":"       + jsonStr(dc.axisType);
-            s += ",\"mode\":"           + jsonStr(dc.mode);   // csp/pp/torque — card hides position rows in torque
+            s += ",\"mode\":"           + jsonStr(dc.mode);   // csp/pp/torque - card hides position rows in torque
             s += ",\"invertDir\":"      + jsonBool(dc.invertDir);
             s += ",\"strokeMm\":"       + jsonDouble(dc.strokeMm, 1);
             s += ",\"ballscrewPitch\":" + jsonDouble(dc.ballscrewPitch, 2);
             s += ",\"maxAccel\":"       + jsonDouble(dc.maxAccelerationMmS2, 0); // Amax, for the accel bar
         }
 
-        // electrical/PDO fields — available whenever the master is OP, including
+        // electrical/PDO fields - available whenever the master is OP, including
         // during init/enable before the loop runs (statusword, position, torque
         // read straight from the drive's live PDO).
         if (masterOp && m_master && i < m_master->getDriveCount() && m_master->getDrive(i))
@@ -364,7 +363,7 @@ std::string WebServer::buildStatusJson() const
                     s += ",\"igbtC\":" + jsonDouble(sw->tempLatestC(static_cast<uint16_t>(slave)), 0);
             }
         }
-        // motion-layer + loop-computed fields — only while the control loop runs
+        // motion-layer + loop-computed fields - only while the control loop runs
         if (loopRunning)
         {
             if (i < ms.numDrives)
@@ -399,7 +398,7 @@ std::string WebServer::buildStatusJson() const
             }
         }
 
-        // Canonical indicator (additive) — derived from the same inputs the web uses
+        // Canonical indicator (additive) - derived from the same inputs the web uses
         // (statusword when OP, motion state when the loop runs). state/text/fault +
         // the shared colour class/pattern, so any renderer shows the same thing.
         bool hasSw = (masterOp && m_master && i < m_master->getDriveCount() && m_master->getDrive(i));
@@ -425,7 +424,7 @@ std::string WebServer::buildStatusJson() const
     }
     s += "]";
 
-    // Aggregate / summary indicator — single precedence rule, in the model.
+    // Aggregate / summary indicator - single precedence rule, in the model.
     status::Indicator agg = status::deriveAggregate(inds.data(), static_cast<int>(inds.size()),
                                                     loopRunning, estop);
     const status::Style& aggStl = status::styleOf(agg);
@@ -551,7 +550,7 @@ bool WebServer::start()
                 // Inverse of Initialize. The control loop hands PDO cycling to
                 // the background pump when it stops, so the drives sit in OP
                 // with no clean way down. shutdown() disables the drives, walks
-                // the slaves OP→INIT and closes the NIC — drives leave OP
+                // the slaves OP→INIT and closes the NIC - drives leave OP
                 // without a DC-sync fault. Stop the loop first so the RT thread
                 // has released SOEM before we tear the master down. masterOp
                 // goes false afterwards, which re-enables Initialize.
@@ -679,7 +678,7 @@ bool WebServer::start()
             res.set_content(ss.str(), "application/json");
         };
 
-        // GET /api/meta — surface-ownership hint for the web UI. hostOwner =
+        // GET /api/meta - surface-ownership hint for the web UI. hostOwner =
         // "native" when a native config UI owns host.json, "web" when headless.
         // The web shows/edits the host section only when it owns it.
         svr.Get("/api/meta", [this](const httplib::Request&, httplib::Response& res)
@@ -705,15 +704,15 @@ bool WebServer::start()
                             "application/json");
         });
 
-        // GET /api/rig — the portable rig config (axes + global feel).
+        // GET /api/rig - the portable rig config (axes + global feel).
         svr.Get("/api/rig",  [serveConfigFile](const httplib::Request&, httplib::Response& res) { serveConfigFile("rig.json",  res); });
-        // GET /api/host — the per-machine host config (read-only display on PC).
+        // GET /api/host - the per-machine host config (read-only display on PC).
         svr.Get("/api/host", [serveConfigFile](const httplib::Request&, httplib::Response& res) { serveConfigFile("host.json", res); });
 
         // ---- Button bindings ----
         // buttons.json is the THIRD namespace: per-machine (this host's box),
         // but WEB-OWNED ON BOTH PLATFORMS (unlike host.json, native-owned on
-        // PC) — the wizard must save exactly where host.json is read-only.
+        // PC) - the wizard must save exactly where host.json is read-only.
         // Missing file = empty map, not an error.
         svr.Get("/api/buttons", [this](const httplib::Request&, httplib::Response& res)
         {
@@ -749,7 +748,7 @@ bool WebServer::start()
             res.status = 400;
         };
 
-        // /api/init — async EtherCAT init. Returns immediately with {"ok":true,"status":"starting"}
+        // /api/init - async EtherCAT init. Returns immediately with {"ok":true,"status":"starting"}
         // or {"ok":false,"error":"..."} if already initializing/operational.
         // Progress is visible via the initBusy + masterOp fields in /api/status and WS push.
         postCmd("/api/init", [this, errResp](const httplib::Request&, httplib::Response& res)
@@ -762,7 +761,7 @@ bool WebServer::start()
             res.set_content("{\"ok\":true,\"status\":\"starting\"}", "application/json");
         });
 
-        // /api/deinit — async EtherCAT de-init (inverse of /api/init). Stops the
+        // /api/deinit - async EtherCAT de-init (inverse of /api/init). Stops the
         // loop if running, then brings the drives OP→INIT and closes the master,
         // so they leave OP cleanly (no DC-sync fault) and Initialize re-enables.
         postCmd("/api/deinit", [this, errResp](const httplib::Request&, httplib::Response& res)
@@ -801,20 +800,20 @@ bool WebServer::start()
             std::filesystem::rename(tmp, path, ec);
             if (ec)
             { std::error_code ec2; std::filesystem::remove(tmp, ec2); errResp(res, "Save failed (rename)."); return; }
-            LOG_INFO(std::string("WebServer: ") + which + " updated via web — restart to apply.");
+            LOG_INFO(std::string("WebServer: ") + which + " updated via web - restart to apply.");
             res.set_content("{\"ok\":true,\"restartRequired\":true}", "application/json");
         };
 
-        // POST /api/rig — the web owns rig.json on both platforms.
+        // POST /api/rig - the web owns rig.json on both platforms.
         postCmd("/api/rig", [this, errResp, writeConfigNamespace](const httplib::Request& req, httplib::Response& res)
         {
             if (m_configPath.empty()) { errResp(res, "No config path configured."); return; }
             writeConfigNamespace("rig.json", Config::validateRigBody(m_configPath, req.body), req.body, res);
         });
 
-        // POST /api/host — only honored on headless builds (hostOwner == "web").
+        // POST /api/host - only honored on headless builds (hostOwner == "web").
         // When a native UI owns host.json, refuse so a browser cannot become a
-        // second writer of host.json — single-writer enforced server-side, not
+        // second writer of host.json - single-writer enforced server-side, not
         // merely hidden in the UI.
         postCmd("/api/host", [this, errResp, writeConfigNamespace](const httplib::Request& req, httplib::Response& res)
         {
@@ -829,7 +828,7 @@ bool WebServer::start()
             writeConfigNamespace("host.json", Config::validateHostBody(m_configPath, req.body), req.body, res);
         });
 
-        // /api/start — start the control loop (drive must already be operational)
+        // /api/start - start the control loop (drive must already be operational)
         postCmd("/api/start", [this, okResp, errResp](const httplib::Request&, httplib::Response& res)
         {
             if (!m_loop) { errResp(res, "Components not ready."); return; }
@@ -930,7 +929,7 @@ bool WebServer::start()
         // button). Resolution happens HERE against canonical engine state
         // (server-side: cannot drift), with two guards a single button needs
         // that a pair doesn't:
-        //   1. transitions are NO-OPS, never reversals — a toggle only acts
+        //   1. transitions are NO-OPS, never reversals - a toggle only acts
         //      from a settled state (press during PARKING must not unpark);
         //   2. a per-toggle cooldown swallows double-press/bounce flip-flops.
         // Discrete endpoints stay for the dashboard, scripts, and legacy maps.
@@ -952,7 +951,7 @@ bool WebServer::start()
         {
             static std::atomic<int64_t> last{0};
             if (!toggleReady(last)) { errResp(res, "Toggle cooldown."); return; }
-            // requestInit/requestDeinit already refuse while busy — guard 1 is
+            // requestInit/requestDeinit already refuse while busy - guard 1 is
             // inherited for the whole bring-up/teardown window.
             if (m_master && m_master->isOperational())
             {
@@ -1026,7 +1025,7 @@ bool WebServer::start()
             resolvedResp(res, beltsSlack ? "belts/tension" : "belts/slack");
         });
 
-        // ---- Button bindings — save (hot-applies, no restart) and
+        // ---- Button bindings - save (hot-applies, no restart) and
         // the capture flow for the web wizard. The bindable-command set is
         // enforced server-side in Config::validateButtonsBody; a crafted POST
         // cannot bind restart/shutdown/estop-release.
@@ -1049,7 +1048,7 @@ bool WebServer::start()
             if (ec)
             { std::error_code ec2; std::filesystem::remove(tmp, ec2); errResp(res, "Save failed (rename)."); return; }
             if (m_buttonHooks.bindingsChanged) m_buttonHooks.bindingsChanged();
-            LOG_INFO("WebServer: buttons.json updated via web — hot-applied.");
+            LOG_INFO("WebServer: buttons.json updated via web - hot-applied.");
             res.set_content("{\"ok\":true,\"hotApplied\":true}", "application/json");
         });
 
@@ -1077,7 +1076,7 @@ bool WebServer::start()
             okResp(res);
         });
 
-        // Graceful shutdown — watchdog will NOT relaunch (exit code 0)
+        // Graceful shutdown - watchdog will NOT relaunch (exit code 0)
         // Power OFF the machine (clean OS shutdown). On Linux the non-root service
         // calls `systemctl poweroff` via a NOPASSWD sudoers rule (see
         // pi/nullcat-poweroff.sudoers). Detached + delayed so the HTTP response
@@ -1098,7 +1097,7 @@ bool WebServer::start()
             if (!privateClientOnly(req, res)) return;
             res.set_content("{\"ok\":true,\"status\":\"powering off\"}", "application/json");
 #ifdef __linux__
-            LOG_INFO("WebServer: shutdown requested via web UI — powering off.");
+            LOG_INFO("WebServer: shutdown requested via web UI - powering off.");
             std::thread([] {
                 std::this_thread::sleep_for(std::chrono::milliseconds(600));
                 if (std::system("sudo -n systemctl poweroff") != 0)
@@ -1109,7 +1108,7 @@ bool WebServer::start()
 #endif
         });
 
-        // Restart — watchdog WILL relaunch after 500ms (exit code 2)
+        // Restart - watchdog WILL relaunch after 500ms (exit code 2)
         postCmd("/api/restart", [this, privateClientOnly](const httplib::Request& req, httplib::Response& res)
         {
             if (!privateClientOnly(req, res)) return;
@@ -1186,7 +1185,7 @@ bool WebServer::start()
 void WebServer::stop()
 {
     m_running.store(false);
-    // Signal svr.listen() to return — without this the server thread
+    // Signal svr.listen() to return - without this the server thread
     // blocks forever and join() hangs, causing a crash on app close.
     if (auto* svr = m_svr.load())
         svr->stop();

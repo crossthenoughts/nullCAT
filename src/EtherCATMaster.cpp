@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// EtherCATMaster.cpp — SOEM-based EtherCAT master. Owns bus init
+// EtherCATMaster.cpp - SOEM-based EtherCAT master. Owns bus init
 // (PreOp → SafeOp → OP with DC/SYNC0 arming), cyclic process-data
 // exchange, the background pump, the recovery thread, and bus
 // diagnostics.
@@ -80,9 +80,9 @@ static int drainSlaveMailbox(ecx_contextt* ctx, int slave)
         ec_mbxbuft* mbx = nullptr;
         int wkc = ecx_mbxreceive(ctx, slave, &mbx, 0);  // timeout=0: non-blocking SM1 poll
 
-        // wkc == EC_TIMEOUT (-5): SM1 bit 3 = 0, mailbox is empty — drain complete.
+        // wkc == EC_TIMEOUT (-5): SM1 bit 3 = 0, mailbox is empty - drain complete.
         // wkc == 0: ecx_mbxreceive processed an emergency internally (pushed to
-        //   ctx->elist, buffer already dropped) — keep draining, more may follow.
+        //   ctx->elist, buffer already dropped) - keep draining, more may follow.
         // These two cases MUST be distinguished. Treating wkc<=0 as "done" would
         // stop the drain on the first emergency instead of continuing to flush.
         if (wkc == EC_TIMEOUT) break;
@@ -91,13 +91,13 @@ static int drainSlaveMailbox(ecx_contextt* ctx, int slave)
         if (mbx)
         {
             // Unexpected non-emergency message (CoE response, EoE, etc.) queued
-            // before any SDO request — log mbxtype and discard.
+            // before any SDO request - log mbxtype and discard.
             uint8_t mbxtype = reinterpret_cast<uint8_t*>(mbx)[4] & 0x0f;
             LOG_WARNING(strf("  Slave %d: drain discarded unexpected mbxtype=0x%02x", slave, mbxtype));
             ecx_dropmbx(ctx, mbx);
         }
 
-        osal_usleep(1000);  // 1ms between polls — prevents tight spin on multi-message burst
+        osal_usleep(1000);  // 1ms between polls - prevents tight spin on multi-message burst
     }
 
     return count;
@@ -201,7 +201,7 @@ InitResult EtherCATMaster::initializeAndEnterOp(const std::string& nicName)
         }
         else
         {
-            LOG_INFO("EtherCATMaster: SDO worker started (temp poll disabled — no bus traffic).");
+            LOG_INFO("EtherCATMaster: SDO worker started (temp poll disabled - no bus traffic).");
         }
         m_sdoWorker->start();
     }
@@ -216,14 +216,14 @@ InitResult EtherCATMaster::initializeAndEnterOp(const std::string& nicName)
 //   <timestamp> | DIAG | <category> | location=X | key=val | ...
 //
 // Valid location strings (fixed vocabulary):
-//   pre_mbx_ping     — after BRD flush, before first SDO
-//   post_config_map  — after ecx_config_map_group()
-//   post_safeop_sdos — after SafeOp mode/torque/following-error SDOs
-//   pre_config_map   — immediately before ecx_config_map_group(), every attempt
-//   pre_op_request   — after pre-OP pump, before writing OP state
-//   post_op_result   — after ecx_readstate(), success or failure
-//   pre_op_pump      — periodic sample during 4s pre-OP pump (cycle= field)
-//   op_pump          — periodic sample during 5s OP pump (cycle= field)
+//   pre_mbx_ping - after BRD flush, before first SDO
+//   post_config_map - after ecx_config_map_group()
+//   post_safeop_sdos - after SafeOp mode/torque/following-error SDOs
+//   pre_config_map - immediately before ecx_config_map_group(), every attempt
+//   pre_op_request - after pre-OP pump, before writing OP state
+//   post_op_result - after ecx_readstate(), success or failure
+//   pre_op_pump - periodic sample during 4s pre-OP pump (cycle= field)
+//   op_pump - periodic sample during 5s OP pump (cycle= field)
 //
 // drainElist:    reads and clears SOEM's internal error ring (ctx->elist).
 //                total=0 | status=empty is the expected outcome on a clean
@@ -235,14 +235,14 @@ InitResult EtherCATMaster::initializeAndEnterOp(const std::string& nicName)
 //                SM1 is the slave→master mailbox. Bit 3 (0x08) = slave has
 //                data waiting for the master to read (Emergency objects live
 //                here after an unclean session). Uses ECT_REG_SM1STAT
-//                directly — NOT ecx_mbxempty() which reads SM0STAT (wrong
+//                directly - NOT ecx_mbxempty() which reads SM0STAT (wrong
 //                direction: master→slave).
 //
 // dumpSlaveState: logs SOEM slavelist fields set by ecx_config_map_group().
 //                 Call after configMap to verify PDO byte counts and DC state.
 //
 // dumpPreConfigMapState: captures live ESC state immediately before configMap.
-//                 Fires on every attempt — comparing crash vs success cases
+//                 Fires on every attempt - comparing crash vs success cases
 //                 reveals whether slaves are actually in PreOp when configMap
 //                 is called. live_state from FPRD on 0x0130 (not from
 //                 slavelist[i].state cache). Mismatch line fires if they differ.
@@ -256,7 +256,7 @@ InitResult EtherCATMaster::initializeAndEnterOp(const std::string& nicName)
 //
 // samplePumpState: reads live registers per slave during pump loops (after
 //                 waitUntil so timing is not affected). Reads 0x0130 (AL Status),
-//                 0x0134 (AL Status Code), 0x0981 (DC Sync Act) via FPRD — not
+//                 0x0134 (AL Status Code), 0x0981 (DC Sync Act) via FPRD - not
 //                 from cached slavelist[i].state. Optional registers included
 //                 only if probeDiagRegisters confirmed they are implemented.
 //                 Returns false if any slave shows non-zero al_code (anomaly).
@@ -289,12 +289,12 @@ static const char* safeErr2String(ec_errort err, uint32_t* exCode) noexcept
 #endif
 }
 
-// Shared implementation — maxEntries is injectable so unit tests can
+// Shared implementation - maxEntries is injectable so unit tests can
 // exercise the bailout path with a real (non-corrupted) elist by using a low cap.
 //
 // Per-entry sanity guard: with a corrupted master state the drain can iterate
 // past the valid elist into adjacent memory, reading ec_errort entries with
-// garbage Slave indices (monotonically decreasing values — the signature of
+// garbage Slave indices (monotonically decreasing values - the signature of
 // reading sequential memory as struct). The known cause (an
 // EC_MAXMBX/EC_MBXPOOLSIZE/EC_MAXEEPDO header ABI mismatch) is fixed at the
 // source; the guard below is defence-in-depth so any similar condition aborts
@@ -314,7 +314,7 @@ static void drainElistImpl(ecx_contextt* ctx, const char* location, int maxEntri
         ++count;
 
         // Sanity-check the popped entry before formatting. Garbage values are the
-        // signature of out-of-bounds reads on a corrupted master state — log once
+        // signature of out-of-bounds reads on a corrupted master state - log once
         // and abort the drain so we don't compound the issue with 99 more reads.
         if (err.Slave > EC_MAXSLAVE || static_cast<int>(err.Etype) < 0 ||
             static_cast<int>(err.Etype) > 9)
@@ -324,7 +324,7 @@ static void drainElistImpl(ecx_contextt* ctx, const char* location, int maxEntri
                 "status=corrupted_skip | entries_before_abort=%d",
                 location, err.Slave, static_cast<int>(err.Etype), count));
             LOG_WARNING(strf(
-                "EtherCATMaster: drainElist aborted at entry %d — out-of-range "
+                "EtherCATMaster: drainElist aborted at entry %d - out-of-range "
                 "Slave=%d / Etype=%d indicates elist corruption. Location=%s",
                 count, err.Slave, static_cast<int>(err.Etype), location));
             corrupted = true;
@@ -355,7 +355,7 @@ static void drainElistImpl(ecx_contextt* ctx, const char* location, int maxEntri
             "DIAG | elist | location=%s | total=%d | status=bailout_max_reached",
             location, count));
         LOG_WARNING(strf(
-            "EtherCATMaster: drainElist bailed at %d entries — elist may be corrupted "
+            "EtherCATMaster: drainElist bailed at %d entries - elist may be corrupted "
             "or excessive emergencies queued. Location=%s",
             maxEntries, location));
     }
@@ -461,7 +461,7 @@ static void dumpSlaveState(ecx_contextt* ctx, int slaveCount, const char* locati
 
 static void dumpPreConfigMapState(ecx_contextt* ctx, int slaveCount)
 {
-    // Port-level state — one line for the whole context.
+    // Port-level state - one line for the whole context.
     Logger::instance().logDiag(strf(
         "DIAG | pre_config_map_port | slavecount=%d | lastidx=%d | redstate=%d",
         ctx->slavecount, (int)ctx->port.lastidx, ctx->port.redstate));
@@ -742,7 +742,7 @@ InitResult EtherCATMaster::initialize(const std::string& nicName)
 
     if (exCode != 0)
     {
-        // ecx_init() already returned OK, so the NIC IS bound — a crash here
+        // ecx_init() already returned OK, so the NIC IS bound - a crash here
         // points at buffer pollution or drive ESC corruption, not binding.
         m_lastError = strf(
             "ecx_config_init() crashed (0x%08x).\n"
@@ -884,7 +884,7 @@ InitResult EtherCATMaster::stagePreOpSettle(ecx_contextt* ctx, int timeoutMs)
         uint8_t s = ctx->slavelist[i].state;
         if ((s & ~EC_STATE_ERROR) != EC_STATE_PRE_OP || (s & EC_STATE_ERROR))
         {
-            LOG_WARNING(strf("  Slave %d: state=0x%02x after settle — not cleanly in PreOp", i, s));
+            LOG_WARNING(strf("  Slave %d: state=0x%02x after settle - not cleanly in PreOp", i, s));
             allPreOpFinal = false;
             if (firstSettleFail < 0) firstSettleFail = i;
         }
@@ -941,10 +941,10 @@ InitResult EtherCATMaster::stagePDOConfig(ecx_contextt* ctx)
     }
 
     // --- Configure DC + register PO2SO hook ---
-    // ecx_configdc() must stay before ecx_config_map_group() — canonical SOEM ordering.
+    // ecx_configdc() must stay before ecx_config_map_group() - canonical SOEM ordering.
     // dcsyncHook fires per slave inside ecx_config_map_group() during the PreOp→SafeOp
     // transition, at the correct point relative to CoE 1C12/1C13 SDO reads.
-    // ecx_dcsync0() writes only DC FPWR registers — no CoE mailbox overlap.
+    // ecx_dcsync0() writes only DC FPWR registers - no CoE mailbox overlap.
     {
         // Defensive SYNC0 disarm BEFORE DC configuration (companion to the
         // shutdown() disarm): if the previous session left sync
@@ -975,14 +975,14 @@ InitResult EtherCATMaster::stagePDOConfig(ecx_contextt* ctx)
         }
         else
         {
-            LOG_WARNING("EtherCATMaster: ecx_configdc() failed — DC sync not configured.");
+            LOG_WARNING("EtherCATMaster: ecx_configdc() failed - DC sync not configured.");
         }
     }
 
     // --- ALStatusCode pre-check before configMap ---
     // Uses SOEM cache from stagePreOpSettle (ecx_readstate was called in polling loop, fresh on
     // return), with live FPRD fallback per slave.
-    // Non-zero ALStatusCode means the ESC is in an error state — configMap crashes if we proceed.
+    // Non-zero ALStatusCode means the ESC is in an error state - configMap crashes if we proceed.
     {
         int failedSlave = -1;
         std::string detail;
@@ -1044,7 +1044,7 @@ InitResult EtherCATMaster::stagePDOConfig(ecx_contextt* ctx)
 
 InitResult EtherCATMaster::stageDCArm(ecx_contextt* ctx)
 {
-    // Verify dcsyncHook applied — read back DC registers per slave.
+    // Verify dcsyncHook applied - read back DC registers per slave.
     //
     // NO re-arm on a small margin. A sub-millisecond margin here is a
     // READ-TIME ARTIFACT: the hook arms start times +SyncDelay (100ms) during
@@ -1076,10 +1076,10 @@ InitResult EtherCATMaster::stageDCArm(ecx_contextt* ctx)
             int64_t sysTime = 0;
             ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSYSTIME, 8, &sysTime,   EC_TIMEOUTRET);
             int64_t marginNs = startTime - sysTime;
-            LOG_INFO(strf("  Slave %d: PO2SO hook result — 0x0981=0x%02x startTime=%lld marginNs=%lld (~%dms)",
+            LOG_INFO(strf("  Slave %d: PO2SO hook result - 0x0981=0x%02x startTime=%lld marginNs=%lld (~%dms)",
                 i, dcAct, (long long)startTime, (long long)marginNs, (int)(marginNs / 1000000LL)));
             if (dcAct != 0x03)
-                LOG_WARNING(strf("  Slave %d: 0x0981=0x%02x (expected 0x03) — dcsyncHook may not have applied", i, dcAct));
+                LOG_WARNING(strf("  Slave %d: 0x0981=0x%02x (expected 0x03) - dcsyncHook may not have applied", i, dcAct));
 
         }, &exCode);
 
@@ -1095,7 +1095,7 @@ InitResult EtherCATMaster::stageDCArm(ecx_contextt* ctx)
             "DIAG | dc_arm_crash | slave=%d | exception_code=0x%08x",
             failedSlave, exCode));
         return InitResult::fail(InitError::DCConfigFailed,
-            strf("Slave %d: stageDCArm crashed (0x%08x). DC register read or SYNC0 re-arm faulted — power cycle required.",
+            strf("Slave %d: stageDCArm crashed (0x%08x). DC register read or SYNC0 re-arm faulted - power cycle required.",
                  failedSlave, exCode),
             failedSlave, exCode);
     }
@@ -1104,7 +1104,7 @@ InitResult EtherCATMaster::stageDCArm(ecx_contextt* ctx)
 
 InitResult EtherCATMaster::pingMailbox(ecx_contextt* ctx)
 {
-    // Step 3: Read device type (0x1000) — always available in PreOp.
+    // Step 3: Read device type (0x1000) - always available in PreOp.
     // If wkc=0, the CoE mailbox isn't ready yet. Retry up to 5x with 100ms gaps.
     // This is the root cause of 1C12 wkc=0: drive in PreOp but mailbox not open.
     bool mbxAlive = false;
@@ -1163,7 +1163,7 @@ InitResult EtherCATMaster::discoverAndPrepareSlaves(ecx_contextt* ctx, int& outT
 
     if (anyError)
     {
-        // Write PreOp directly to clear error bits — do NOT broadcast INIT.
+        // Write PreOp directly to clear error bits - do NOT broadcast INIT.
         //
         // Broadcasting INIT instead sends drives to Init → next writestate
         // triggers a fresh Init→PreOp transition → ecx_config_map_group() crashes
@@ -1172,7 +1172,7 @@ InitResult EtherCATMaster::discoverAndPrepareSlaves(ecx_contextt* ctx, int& outT
         //
         // The AL error bit is cleared by writing the target state (PreOp = 0x02)
         // to the AL Control register. This does not trigger a full ESC reset and
-        // leaves the SII in its current idle state — exactly what configMap needs.
+        // leaves the SII in its current idle state - exactly what configMap needs.
         ctx->slavelist[0].state = EC_STATE_PRE_OP;
         ecx_writestate(ctx, 0);
         ecx_statecheck(ctx, 0, EC_STATE_PRE_OP, EC_TIMEOUTSTATE * 2);
@@ -1239,11 +1239,11 @@ InitResult EtherCATMaster::discoverAndPrepareSlaves(ecx_contextt* ctx, int& outT
     // objects in SM1. If any slave shows sm1=pending here, those objects can
     // consume mailbox-pool slots during the first SDO exchange.
     // EC_MBXPOOLSIZE in the installed headers must match the value the SOEM
-    // library was built with — a mismatch is a silent ABI break.
+    // library was built with - a mismatch is a silent ABI break.
     dumpMbxState(ctx, m_slaveCount, "pre_mbx_ping");
 
     // Drain queued emergencies from SM1 before any SDO exchange.
-    // Placed here — after ecx_statecheck confirmed PreOp (SM1 hardware enabled)
+    // Placed here - after ecx_statecheck confirmed PreOp (SM1 hardware enabled)
     // and after the BRD flush (stale frames cleared). No additional settle
     // needed: SM1 is readable as soon as PreOp is confirmed; the drain is read-only
     // (SM1 status FPRD + data FPRD), not an SDO operation. The 1000ms SDO settle
@@ -1539,7 +1539,7 @@ void EtherCATMaster::runCapabilityScan(ecx_contextt* ctx)
 
 InitResult EtherCATMaster::stagePreOpPump(ecx_contextt* ctx)
 {
-    // NOT idempotent: calls timerBegin() (refcounted multimedia timer — must be
+    // NOT idempotent: calls timerBegin() (refcounted multimedia timer - must be
     // paired with timerEnd() in stageOPTransition). Only reachable via
     // enterOperationalBody(), which has no retry loop at this stage.
 
@@ -1628,7 +1628,7 @@ InitResult EtherCATMaster::stagePreOpPump(ecx_contextt* ctx)
     // wkc>0 but pushed an error into the elist.
     drainElist(ctx, "post_safeop_sdos");
 
-    // Optional diagnostic SDO reads — extracted to runCapabilityScan() to keep this stage ≤150 lines
+    // Optional diagnostic SDO reads - extracted to runCapabilityScan() to keep this stage ≤150 lines
     runCapabilityScan(ctx);
 
     // --- Initialize drive targets ---
@@ -1672,10 +1672,10 @@ InitResult EtherCATMaster::stagePreOpPump(ecx_contextt* ctx)
     ProbedRegs probes = probeDiagRegisters(ctx, m_slaveCount);
 
     PlatformRT::timerBegin();
-    const int64_t ticksPer1Ms = PlatformRT::periodCounts(1000.0);  // 1ms — pre-OP and OP transition pumps
+    const int64_t ticksPer1Ms = PlatformRT::periodCounts(1000.0);  // 1ms - pre-OP and OP transition pumps
     PlatformRT::Timestamp deadline = PlatformRT::now();
 
-    int lastWkc = -999;  // sentinel — triggers wkc_change log on first cycle
+    int lastWkc = -999;  // sentinel - triggers wkc_change log on first cycle
     LOG_INFO("EtherCATMaster: Pumping cyclic data for 4s at 1ms cadence (4000 cycles)...");
     for (int cycle = 0; cycle < 4000; ++cycle)
     {
@@ -1694,7 +1694,7 @@ InitResult EtherCATMaster::stagePreOpPump(ecx_contextt* ctx)
         }
         PlatformRT::waitUntil(deadline);
 
-        // Post-waitUntil diagnostics — no cadence impact.
+        // Post-waitUntil diagnostics - no cadence impact.
         if (wkc != lastWkc)
         {
             Logger::instance().logDiag(strf(
@@ -1762,14 +1762,14 @@ void EtherCATMaster::logOPFailureDiagnostics(ecx_contextt* ctx)
 
 void EtherCATMaster::runOPBridge(ecx_contextt* ctx, int64_t ticksPer2Ms)
 {
-    // Warm-up bridge — run 10 frames on the calling thread before creating
+    // Warm-up bridge - run 10 frames on the calling thread before creating
     // the pump thread. Windows/Npcap per-thread send-path state
     // (OVERLAPPED handle, completion port binding) appears to be initialized
     // lazily on first use: the calling thread has sent thousands of frames,
     // a fresh OS thread has not. Without the bridge, the pump thread can
     // crash on its first safeSendReceive (~4ms after OP) with 0xC0000005,
     // timing consistent with the send path failing before the first packet
-    // reaches the wire. Diagnosis is behavioral inference — not verified at
+    // reaches the wire. Diagnosis is behavioral inference - not verified at
     // the Npcap source level.
     PlatformRT::Timestamp bNext = PlatformRT::now();
     for (int i = 0; i < 10; ++i)
@@ -1851,7 +1851,7 @@ InitResult EtherCATMaster::stageOPTransition(ecx_contextt* ctx)
     bool allOp = false;
     bool pumpCrashed = false;
     int firstAnomalyCycle = -1;
-    int lastWkc = -999;  // sentinel — triggers wkc_change log on first cycle
+    int lastWkc = -999;  // sentinel - triggers wkc_change log on first cycle
 
     for (int i = 0; i < 5000; ++i)
     {
@@ -1866,7 +1866,7 @@ InitResult EtherCATMaster::stageOPTransition(ecx_contextt* ctx)
         }
         PlatformRT::waitUntil(deadline);
 
-        // Post-waitUntil diagnostics — no cadence impact.
+        // Post-waitUntil diagnostics - no cadence impact.
         if (wkc != lastWkc)
         {
             Logger::instance().logDiag(strf(
@@ -1924,7 +1924,7 @@ InitResult EtherCATMaster::stageOPTransition(ecx_contextt* ctx)
     }
     PlatformRT::timerEnd();
 
-    // Final state check — broadcast then per-slave to confirm
+    // Final state check - broadcast then per-slave to confirm
     if (!pumpCrashed)
     {
         uint32_t rsEx = 0;
@@ -1947,7 +1947,7 @@ InitResult EtherCATMaster::stageOPTransition(ecx_contextt* ctx)
         }
     }
 
-    // Full snapshot after OP attempt — before returning, regardless of outcome.
+    // Full snapshot after OP attempt - before returning, regardless of outcome.
     drainElist(ctx, "post_op_result");
     dumpSlaveState(ctx, m_slaveCount, "post_op_result");
 
@@ -2039,7 +2039,7 @@ InitResult EtherCATMaster::verifyOperationalWKC(ecx_contextt* ctx)
 // ============================================================
 // enterOperational() wraps the real work in safeCall so that
 // any ecx_SDOwrite/ecx_SDOread access violation is caught, logged,
-// and returned as false — instead of silently killing the process
+// and returned as false - instead of silently killing the process
 // and feeding the watchdog relaunch loop with no log entry
 // indicating what went wrong.
 // ============================================================
@@ -2066,7 +2066,7 @@ InitResult EtherCATMaster::enterOperational()
     {
         m_lastError = strf(
             "enterOperational() crashed (0x%08x). "
-            "An SDO write to the drive failed — drive ESC in bad state. "
+            "An SDO write to the drive failed - drive ESC in bad state. "
             "Power cycle the drive and retry.",
             exCode);
         LOG_ERROR(m_lastError);
@@ -2107,7 +2107,7 @@ InitResult EtherCATMaster::enterOperationalBody()
     setMasterState(ECState::SafeOp);
     LOG_INFO("EtherCATMaster: SAFE-OP reached.");
 
-    // dcsync0 applied via PO2SO hook inside ecx_config_map_group() — no call here.
+    // dcsync0 applied via PO2SO hook inside ecx_config_map_group() - no call here.
     m_expectedWKC = (ctx->grouplist[0].outputsWKC * 2) + ctx->grouplist[0].inputsWKC;
     LOG_INFO(strf("EtherCATMaster: Expected WKC=%d", m_expectedWKC));
     assignPDOPointers();
@@ -2151,7 +2151,7 @@ void EtherCATMaster::stopPump()
     }
 }
 
-// Persistent dispatch thread — always running (started in constructor,
+// Persistent dispatch thread - always running (started in constructor,
 // stopped in shutdown/destructor). startPump() posts a request here; this thread
 // calls startPumpBody() so the bridge and pump thread never run on a dying RT thread.
 void EtherCATMaster::startPumpDispatchThread()
@@ -2201,7 +2201,7 @@ void EtherCATMaster::startPumpBody()
 
     // 10-frame bridge on the dispatch thread before launching the pump thread.
     // The dispatch thread has sent frames before (at init or prior restart), so
-    // Npcap's per-thread send-path state is already warm — no AV on first pump frame.
+    // Npcap's per-thread send-path state is already warm - no AV on first pump frame.
     PlatformRT::timerBegin();
     runOPBridge(ctx, ticksPer2Ms);
 
@@ -2351,7 +2351,7 @@ void EtherCATMaster::initCyclicMailboxHandler(ecx_contextt* ctx)
     PlatformRT::safeCall([&]() { initRc = ecx_initmbxqueue(ctx, 0); }, &exCode);
     if (exCode != 0)
     {
-        LOG_WARNING(strf("EtherCATMaster: ecx_initmbxqueue crashed (0x%08x) — cyclic mailbox handler disabled.", exCode));
+        LOG_WARNING(strf("EtherCATMaster: ecx_initmbxqueue crashed (0x%08x) - cyclic mailbox handler disabled.", exCode));
         return;
     }
 
@@ -2443,12 +2443,12 @@ int EtherCATMaster::processCyclicMailbox(int limit)
 //   Tail:     islost && state <= INIT   → ecx_recover_slave (address recovery)
 //
 // Branch 3 rules: SYNC0 must be disarmed BEFORE the reconfig
-// walk — ecx_reconfig_slave takes the slave INIT→PreOp→SafeOp, and doing
+// walk - ecx_reconfig_slave takes the slave INIT→PreOp→SafeOp, and doing
 // that with SYNC0 still armed is the stale-arm condition that latches
 // drive-side sync faults (arm/disarm only below SafeOp). Accepting
 // rc >= PRE_OP instead would re-arm SYNC0 on a PreOp slave
 // and request OP from PreOp (invalid AL transition), hammering a wedged
-// drive every ~2s indefinitely — hence the strict SAFE_OP acceptance.
+// drive every ~2s indefinitely - hence the strict SAFE_OP acceptance.
 //
 // All SOEM calls are wrapped in PlatformRT::safeCall + m_soemAccessMutex.
 // The mutex serialises against sendReceive() and processCyclicMailbox() on
@@ -2498,17 +2498,17 @@ void EtherCATMaster::recoveryThreadMain()
     // Windows background load (browsers, audio, capture, etc.) without
     // competing with the TIME_CRITICAL pump/RT threads. THREAD_PRIORITY_NORMAL
     // (the std::thread default) can be preempted for tens-to-hundreds of ms,
-    // which is fatal mid-ecx_reconfig_slave — the slave can fault its mailbox
+    // which is fatal mid-ecx_reconfig_slave - the slave can fault its mailbox
     // watchdog if we don't make progress through the INIT→PreOp→SafeOp walk.
     //
     // Affinity: explicitly reset to "all cores except the RT core" so we
     // never accidentally inherit a pinned affinity from the spawning thread.
     // If a future change starts this thread from a context that has affinity
     // pinned (e.g. from the RT thread), the inheritance would put recovery
-    // and RT on the same core — fighting for CPU time. Resetting explicitly
+    // and RT on the same core - fighting for CPU time. Resetting explicitly
     // makes our behaviour independent of the spawner.
     //
-    // MMCSS is intentionally NOT used — that's reserved for actual real-time
+    // MMCSS is intentionally NOT used - that's reserved for actual real-time
     // work (the pump and control loop). Windows doesn't inherit MMCSS
     // assignment across threads, so we just don't register.
 #ifdef _WIN32
@@ -2590,7 +2590,7 @@ void EtherCATMaster::readDriveFaultHistory(uint16_t slaveIdx)
     // race with cyclic mailbox routing; the AS715N returns wkc=0
     // on 0x603F when slaves are in SafeOp+Error. Only attempt
     // the readback when the slave is in PRE_OP, SAFE_OP, or OP without the
-    // error bit set. SafeOp+Error (0x14) is skipped — the drives don't
+    // error bit set. SafeOp+Error (0x14) is skipped - the drives don't
     // respond to SDO in that state, and Branch 1 will ACK it back to plain
     // SafeOp where the read would work; let the next recovery scan iteration
     // pick it up.
@@ -2601,7 +2601,7 @@ void EtherCATMaster::readDriveFaultHistory(uint16_t slaveIdx)
         (state == EC_STATE_OPERATIONAL);
     if (!mailboxFunctional)
     {
-        LOG_INFO(strf("RecoveryThread: slave %d state=0x%02x — fault-history readback skipped (mailbox not in a known-good state)",
+        LOG_INFO(strf("RecoveryThread: slave %d state=0x%02x - fault-history readback skipped (mailbox not in a known-good state)",
             slaveIdx, state));
         return;
     }
@@ -2609,11 +2609,11 @@ void EtherCATMaster::readDriveFaultHistory(uint16_t slaveIdx)
     // Hold the whole-transfer mutex for the entire fault-history SDO
     // sequence so the SdoWorker cannot interleave a temp/one-off transfer between
     // these reads (mailbox-interleave protection). Lock order is transfer(outer) ->
-    // soemAccess(inner, taken per read below). RT-loop impact is unchanged — each
+    // soemAccess(inner, taken per read below). RT-loop impact is unchanged - each
     // read still releases soemAccessMutex, so sendReceive() interleaves as before.
     std::lock_guard<std::mutex> xfer(m_sdoTransferMutex);
 
-    // 0x6041 — DS402 statusword (always available in PreOp+; 2 bytes).
+    // 0x6041 - DS402 statusword (always available in PreOp+; 2 bytes).
     // Read this first as a sanity check before the optional CANopen objects.
     // If 0x6041 returns wkc=0 the slave isn't responding to SDO at all, so
     // skip the rest rather than wasting timeouts.
@@ -2629,17 +2629,17 @@ void EtherCATMaster::readDriveFaultHistory(uint16_t slaveIdx)
     }
     if (exCode != 0)
     {
-        LOG_WARNING(strf("RecoveryThread: slave %d 0x6041 SDO read crashed (0x%08x) — aborting readback", slaveIdx, exCode));
+        LOG_WARNING(strf("RecoveryThread: slave %d 0x6041 SDO read crashed (0x%08x) - aborting readback", slaveIdx, exCode));
         return;
     }
     if (wkc <= 0)
     {
-        LOG_INFO(strf("RecoveryThread: slave %d 0x6041 SDO read wkc=%d — slave not responding to SDO, aborting readback", slaveIdx, wkc));
+        LOG_INFO(strf("RecoveryThread: slave %d 0x6041 SDO read wkc=%d - slave not responding to SDO, aborting readback", slaveIdx, wkc));
         return;
     }
     LOG_INFO(strf("RecoveryThread: slave %d 0x6041 DS402 statusword = 0x%04x", slaveIdx, statusword));
 
-    // 0x603F — current error code (DS402, 2 bytes)
+    // 0x603F - current error code (DS402, 2 bytes)
     uint16_t curErr = 0;
     sz = sizeof(curErr);
     {
@@ -2663,7 +2663,7 @@ void EtherCATMaster::readDriveFaultHistory(uint16_t slaveIdx)
         LOG_INFO(strf("RecoveryThread: slave %d 0x603F SDO read wkc=%d (drive may not support)", slaveIdx, wkc));
     }
 
-    // 0x1001 — error register (DS301, 1 byte bit-coded category)
+    // 0x1001 - error register (DS301, 1 byte bit-coded category)
     //   bit 0: generic  | bit 1: current     | bit 2: voltage
     //   bit 3: temperature | bit 4: communication | bit 5: device-specific
     //   bit 7: manufacturer-specific
@@ -2680,7 +2680,7 @@ void EtherCATMaster::readDriveFaultHistory(uint16_t slaveIdx)
         LOG_INFO(strf("RecoveryThread: slave %d 0x1001 error register = 0x%02x", slaveIdx, errReg));
     }
 
-    // 0x1003:0 — number of stored errors (DS301)
+    // 0x1003:0 - number of stored errors (DS301)
     uint8_t numStored = 0;
     sz = sizeof(numStored);
     {
@@ -2696,7 +2696,7 @@ void EtherCATMaster::readDriveFaultHistory(uint16_t slaveIdx)
         return;
     }
 
-    // 0x1003:N — each stored error: low 16 bits = code, high 16 = manuf info.
+    // 0x1003:N - each stored error: low 16 bits = code, high 16 = manuf info.
     // Cap at 5 entries to bound scan time (each SDO ~1-2ms).
     int maxRead = (numStored > 5) ? 5 : numStored;
     LOG_INFO(strf("RecoveryThread: slave %d 0x1003 history has %d entries (reading first %d)",
@@ -2752,7 +2752,7 @@ void EtherCATMaster::noteReconfigFailure(int slave, int rc)
     if (slave >= (int)m_recoveryReconfigFails.size()) return;
     int fails = ++m_recoveryReconfigFails[slave];
     if (fails >= kMaxRecoveryReconfigAttempts)
-        LOG_ERROR(strf("RecoveryThread: slave %d reconfig failed %d times (rc=%d) — "
+        LOG_ERROR(strf("RecoveryThread: slave %d reconfig failed %d times (rc=%d) - "
                        "giving up until re-init or slave power-cycle; SYNC0 left disarmed",
                        slave, fails, rc));
     else
@@ -2846,7 +2846,7 @@ void EtherCATMaster::doRecoveryScan()
             // IMPORTANT: do NOT hold m_soemAccessMutex during ecx_reconfig_slave.
             // The call has a ~600ms timeout. Holding our mutex that long would
             // block RT sendReceive() and fire the 100ms PDO watchdog on the
-            // healthy slaves — turning a one-slave fault into a three-slave
+            // healthy slaves - turning a one-slave fault into a three-slave
             // fault. SOEM's internal port mutex already serialises wire access
             // with the RT thread's sendReceive, so we're still safe at the bus
             // layer. The downside: master-side ec_slavet fields (state, islost,
@@ -2872,7 +2872,7 @@ void EtherCATMaster::doRecoveryScan()
                 if (s->hasdc)
                 {
                     // Re-arm at SafeOp, then verify the start-time margin the
-                    // same way stageDCArm does at init — a thin
+                    // same way stageDCArm does at init - a thin
                     // margin here rolls the same Er74.1 dice the init path
                     // was hardened against.
                     int64_t marginNs = 0;
@@ -2917,7 +2917,7 @@ void EtherCATMaster::doRecoveryScan()
         // Branch 4: state == NONE
         else if (!s->islost)
         {
-            // ecx_statecheck has a 2ms timeout — exactly one SYNC0 period at
+            // ecx_statecheck has a 2ms timeout - exactly one SYNC0 period at
             // 500Hz. Don't hold m_soemAccessMutex here either; SOEM port mutex
             // handles wire serialisation. The memset of s->inputs IS under the
             // mutex below, since that touches our PDO buffer which the RT
@@ -2967,7 +2967,7 @@ void EtherCATMaster::doRecoveryScan()
             {
                 s->islost = FALSE;
                 // Slave physically dropped and returned (e.g. drive power-cycle)
-                // — fresh hardware state earns fresh reconfig attempts.
+                // - fresh hardware state earns fresh reconfig attempts.
                 if (i < (int)m_recoveryReconfigFails.size())
                     m_recoveryReconfigFails[i] = 0;
                 LOG_INFO(strf("RecoveryThread: slave %d address recovered (rc=%d)", i, rc));
@@ -2995,16 +2995,16 @@ void EtherCATMaster::shutdown()
         return;
     }
 
-    // Stop the SDO worker FIRST — join it so no worker transfer is
+    // Stop the SDO worker FIRST - join it so no worker transfer is
     // in flight (or can start) before any thread tears down / ecx_close frees m_ctx.
     // Mirrors the recovery-thread-first ordering below; prevents use-after-free.
     if (m_sdoWorker) m_sdoWorker->stop();
 
     // Shutdown ordering:
-    // (1) Stop recovery thread first — no more SOEM access from a non-RT thread.
+    // (1) Stop recovery thread first - no more SOEM access from a non-RT thread.
     // (2) Stop current pump thread.
-    // (3) Stop dispatch thread + join — no new pump can launch after this.
-    // (4) Stop pump again — catches any pump thread dispatch launched just before join.
+    // (3) Stop dispatch thread + join - no new pump can launch after this.
+    // (4) Stop pump again - catches any pump thread dispatch launched just before join.
     // (5) ecx_close().
     stopRecoveryThread();
     stopPump();
@@ -3026,7 +3026,7 @@ void EtherCATMaster::shutdown()
     //
     // Specifically: initCyclicMailboxHandler short-circuits on the second
     // init if m_mbxHandlerInit is still true from the
-    // first session — the new ecx_contextt's mailbox queue never gets
+    // first session - the new ecx_contextt's mailbox queue never gets
     // initialised and the new slavelist never gets registered. processCyclicMailbox
     // would then call ecx_mbxhandler on stale/uninitialised state.
     m_mbxHandlerInit = false;
@@ -3275,7 +3275,7 @@ void EtherCATMaster::checkSlaveStates()
 
 void EtherCATMaster::setMasterState(ECState state)
 {
-    // Atomic read/write — m_masterState is read by T1/T2 (getMasterState, isOperational)
+    // Atomic read/write - m_masterState is read by T1/T2 (getMasterState, isOperational)
     // and written here by T8 (init thread). Plain ECState assignment is formally UB.
     ECState prev = static_cast<ECState>(m_masterState.load(std::memory_order_relaxed));
     if (prev != state)

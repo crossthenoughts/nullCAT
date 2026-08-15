@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
-// TestHomingSequence.cpp  (Build 55 — P2-2)
+// TestHomingSequence.cpp  (Build 55 - P2-2)
 //
 // Unit tests for HomingSequence state machine.
 // Exercises every state and error path using MockA6Drive.
@@ -206,7 +206,7 @@ private slots:
         QCOMPARE((int)s, (int)HomingSequence::State::FatalError);
     }
 
-    // ---- P2-2-7: FatalError is terminal — step() does not restart ----
+    // ---- P2-2-7: FatalError is terminal - step() does not restart ----
     // Key validation for P1-1: after FatalError, further step() calls must
     // return FatalError immediately without changing any state.
     void fatalErrorDoesNotRestart()

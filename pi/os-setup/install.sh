@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# nullCAT Pi installer — stock Raspberry Pi OS Lite (64-bit) to tuned
+# nullCAT Pi installer - stock Raspberry Pi OS Lite (64-bit) to tuned
 # EtherCAT motion controller in one run and one reboot.
 #
 # What it does (all idempotent; safe to re-run):
@@ -27,7 +27,7 @@
 set -euo pipefail
 
 # ----------------------------------------------------------------------------
-# Configuration — edit if your setup differs
+# Configuration - edit if your setup differs
 # ----------------------------------------------------------------------------
 SOEM_REPO="https://github.com/OpenEtherCATsociety/SOEM.git"
 SOEM_COMMIT="b410bf6ef599d5c85302ea45cae5f55f8e9aa394"   # pinned, verified build

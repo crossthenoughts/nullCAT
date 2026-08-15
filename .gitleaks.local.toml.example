@@ -1,4 +1,4 @@
-# Template for .gitleaks.local.toml — copy to .gitleaks.local.toml (which is
+# Template for .gitleaks.local.toml - copy to .gitleaks.local.toml (which is
 # git-ignored) and fill in YOUR machine's personal patterns. Do not commit
 # the filled-in file; do not put real values in this example.
 

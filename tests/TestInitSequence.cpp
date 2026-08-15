@@ -6,7 +6,7 @@
 // Integration tests for EtherCATMaster::initializeAndEnterOp()
 // and the unified init sequence refactor (B222 Phase 2: InitResult).
 //
-// All tests run in SIMULATION MODE — no hardware required.
+// All tests run in SIMULATION MODE - no hardware required.
 // Covers:
 //   IS-1  applyConfig() propagates all config fields
 //   IS-2  initializeAndEnterOp() in sim mode → Op state, correct drive count
@@ -176,11 +176,11 @@ private Q_SLOTS:
         master.initializeAndEnterOp("sim");
         QVERIFY(!master.isInitializing()); // cleared after success
 
-        // Try with no drives configured — init still succeeds in sim mode
+        // Try with no drives configured - init still succeeds in sim mode
         // (sim mode is lenient), but isInitializing must clear regardless.
         EtherCATMaster emptyMaster;
         emptyMaster.setSimulationMode(true);
-        // no applyConfig — empty drive list
+        // no applyConfig - empty drive list
         emptyMaster.initializeAndEnterOp("sim");
         QVERIFY(!emptyMaster.isInitializing());
     }
@@ -191,7 +191,7 @@ private Q_SLOTS:
     void test_IS6_NicNotFound()
     {
         EtherCATMaster master;
-        // No simulation mode, no initialize() — enterOperational() should fail immediately.
+        // No simulation mode, no initialize() - enterOperational() should fail immediately.
         InitResult result = master.enterOperational();
 
         QVERIFY(!result.ok);

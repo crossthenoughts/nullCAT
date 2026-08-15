@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 // ============================================================
-// Config.h — application + per-axis configuration structures.
+// Config.h - application + per-axis configuration structures.
 //
 // Scaling pipeline:
 //   countsPerMm = encoderCountsPerRev * reduction / ballscrewPitch
 //
 //   Computed at config load and any time the dialog mutates either
 //   field. A6Drive consumes countsPerMm directly via the single-arg
-//   setScaling(double countsPerMm) — one scaling pipeline, one
+//   setScaling(double countsPerMm) - one scaling pipeline, one
 //   source of truth.
 //
 // AppConfig::validate() returns a list of error strings.
@@ -43,7 +43,7 @@ struct DriveConfig
 
     // Derived scaling: countsPerMm = encoderCountsPerRev / ballscrewPitch.
     // Computed at load() and on dialog edit. Read directly by
-    // EtherCATMaster + A6Drive — single source of truth.
+    // EtherCATMaster + A6Drive - single source of truth.
     double  countsPerMm       = 13107.2;
 
     // Belt / rotational
@@ -53,7 +53,7 @@ struct DriveConfig
     std::string homeDirection     = "negative";
     std::string homeMode          = "endstop";
     double  homingBackoffMm   = 1.5;
-    double  homingSpeedMmS    = 250.0;   // mm/s — too-slow homing (e.g. 8) faults
+    double  homingSpeedMmS    = 250.0;   // mm/s - too-slow homing (e.g. 8) faults
     int     homingTorquePct   = 25;
 
     // Motion limits
@@ -91,7 +91,7 @@ struct DriveConfig
     bool    spikeFilterEnabled= false;
     double  spikeMaxMm        = 5.0;
 
-    // Torque mode (CST) — belt tensioner. Values are % of motor RATED torque
+    // Torque mode (CST) - belt tensioner. Values are % of motor RATED torque
     // (100 = rated, up to ~300 = peak). telemetry raw 0..65535 maps linearly to
     // [torqueMinPct, torqueMaxPct]; the belt never drops below torqueMinPct while
     // tracking. The drive's 0x6072 (max torque) is the HARD ceiling above these.
@@ -169,7 +169,7 @@ struct AppConfig
     double  blendMaxVelocityMmS   = 20.0;
     int     dcSyncOffsetNs        = 0;
 
-    // DC phase-lock compensator. Default OFF — when disabled the loop and
+    // DC phase-lock compensator. Default OFF - when disabled the loop and
     // pump free-run exactly as before (byte-identical). When enabled, a
     // gentle clamped PI trims the per-cycle period to lock the sampling phase to
     // the DC reference clock, eliminating the ppm-drift walk that slides the
@@ -282,7 +282,7 @@ public:
     bool load(const std::string& anchorPath);
     // Writes BOTH files (transitional convenience). Single-writer callers
     // should prefer saveHost()/saveRig() so each file has exactly one writer
-    // per platform (Qt owns host on PC; the web owns rig on both) — that is
+    // per platform (Qt owns host on PC; the web owns rig on both) - that is
     // what makes the cross-surface write-race structurally impossible.
     bool save(const std::string& anchorPath) const;
     bool saveHost(const std::string& anchorPath) const;   // host.json only
@@ -302,7 +302,7 @@ public:
     // Validate a proposed rig.json / host.json body (string) against the OTHER
     // namespace already on disk, using the unified validator. The dir is taken
     // from anchorPath. Returns one string per error; empty = valid. Writes
-    // nothing — used by the web /api/rig and /api/host endpoints before save.
+    // nothing - used by the web /api/rig and /api/host endpoints before save.
     static std::vector<std::string> validateRigBody(const std::string& anchorPath,
                                                     const std::string& rigJsonBody);
     static std::vector<std::string> validateHostBody(const std::string& anchorPath,

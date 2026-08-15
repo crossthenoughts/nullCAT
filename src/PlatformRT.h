@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 // ============================================================
-// PlatformRT.h — platform abstraction for real-time thread
+// PlatformRT.h - platform abstraction for real-time thread
 // primitives. Isolates all OS-specific RT code so ControlLoop.cpp
 // and EtherCATMaster.cpp compile on Windows and Linux without
 // #ifdefs in the logic.
@@ -54,7 +54,7 @@ using Timestamp = struct timespec;
 #endif
 
 // ============================================================
-// qpfTicks() — cached QueryPerformanceFrequency (Windows only).
+// qpfTicks() - cached QueryPerformanceFrequency (Windows only).
 // Queried once; safe because QPC frequency is constant per boot.
 // All hot-path timing functions use this instead of calling
 // QueryPerformanceFrequency() on every tick.
@@ -190,7 +190,7 @@ inline void threadTeardown(RtHandle& h)
 inline void timerBegin()
 {
 #ifdef _WIN32
-    // 1ms system timer resolution — sufficient for the hybrid sleep+busy-wait
+    // 1ms system timer resolution - sufficient for the hybrid sleep+busy-wait
     // in waitUntil(). NtSetTimerResolution is deliberately NOT used: it is
     // system-wide and doubles the timer interrupt rate, measurably
     // increasing RT jitter.
@@ -206,7 +206,7 @@ inline void timerEnd()
 }
 
 // ============================================================
-// now() — returns the current high-resolution timestamp.
+// now() - returns the current high-resolution timestamp.
 // ============================================================
 inline Timestamp now()
 {
@@ -222,7 +222,7 @@ inline Timestamp now()
 }
 
 // ============================================================
-// countsPerMicro() — conversion factor from timestamp ticks to µs.
+// countsPerMicro() - conversion factor from timestamp ticks to µs.
 // On Linux this is always 1000.0 (nanoseconds → microseconds).
 // ============================================================
 inline double countsPerMicro()
@@ -235,7 +235,7 @@ inline double countsPerMicro()
 }
 
 // ============================================================
-// addMicros() — returns a timestamp advanced by periodUs microseconds.
+// addMicros() - returns a timestamp advanced by periodUs microseconds.
 // ============================================================
 inline Timestamp addMicros(const Timestamp& t, double periodUs)
 {
@@ -257,7 +257,7 @@ inline Timestamp addMicros(const Timestamp& t, double periodUs)
 }
 
 // ============================================================
-// advancePeriod() — advances a deadline timestamp by exactly
+// advancePeriod() - advances a deadline timestamp by exactly
 // one period's worth of ticks. Avoids accumulated float error.
 // ============================================================
 inline void advancePeriod(Timestamp& deadline, int64_t periodCounts)
@@ -275,7 +275,7 @@ inline void advancePeriod(Timestamp& deadline, int64_t periodCounts)
 }
 
 // ============================================================
-// periodCounts() — converts a cycle time in µs to integer ticks.
+// periodCounts() - converts a cycle time in µs to integer ticks.
 // Use with advancePeriod() to avoid float accumulation.
 // ============================================================
 inline int64_t periodCounts(double cycleTimeUs)
@@ -288,7 +288,7 @@ inline int64_t periodCounts(double cycleTimeUs)
 }
 
 // ============================================================
-// elapsedMicros() — signed difference: (a - b) in microseconds.
+// elapsedMicros() - signed difference: (a - b) in microseconds.
 // Positive when a is after b.
 // ============================================================
 inline double elapsedMicros(const Timestamp& a, const Timestamp& b)
@@ -304,7 +304,7 @@ inline double elapsedMicros(const Timestamp& a, const Timestamp& b)
 }
 
 // ============================================================
-// waitUntil() — sleeps until near the deadline, then busy-waits
+// waitUntil() - sleeps until near the deadline, then busy-waits
 // the final 100µs for precision. Uses cached QPC frequency.
 // ============================================================
 inline void waitUntil(const Timestamp& deadline)
@@ -331,7 +331,7 @@ inline void waitUntil(const Timestamp& deadline)
 }
 
 // ============================================================
-// safeCall() — wraps a function call in a SEH handler on
+// safeCall() - wraps a function call in a SEH handler on
 // Windows, plain call on Linux. Returns true on success.
 // exceptionCode is set to the SEH code on Windows if an
 // exception fires; always 0 on Linux.

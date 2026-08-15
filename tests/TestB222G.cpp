@@ -4,14 +4,13 @@
 // TestB222G.cpp  (Build 222G)
 //
 // Unit tests for B222G fixes:
-//   G-1  P1: Pre-config-init Npcap drain — sim init regression
+//   G-1  P1: Pre-config-init Npcap drain - sim init regression
 //   G-3a P3: Logger::flush() method exists and runs without crash
-//   G-3b P3: Logger::flush() with open file — content is readable after flush
+//   G-3b P3: Logger::flush() with open file - content is readable after flush
 //   G-3c P3: PlatformRT::safeCall catches SEH and runs flush without crash
 //   G-4  P4: drainElist bails at MAX_DRAIN_ENTRIES=100 on corrupted elist
 //
-// P2 (error message update) is verified by code inspection only —
-// the crash path requires a live NIC and cannot be unit-tested.
+// P2 (error message update) is verified by code inspection only - // the crash path requires a live NIC and cannot be unit-tested.
 // ============================================================
 
 #include <QtTest>
@@ -87,7 +86,7 @@ private Q_SLOTS:
     void cleanupTestCase() {}
 
     // ----------------------------------------------------------------
-    // G-1: P1 regression — sim init still succeeds after B222G changes.
+    // G-1: P1 regression - sim init still succeeds after B222G changes.
     //
     // The pre-config-init drain is in the hardware-only code path and
     // cannot be unit-tested without a live NIC. This test confirms the
@@ -123,7 +122,7 @@ private Q_SLOTS:
     }
 
     // ----------------------------------------------------------------
-    // G-3b: Logger::flush() with open file — written content is readable.
+    // G-3b: Logger::flush() with open file - written content is readable.
     //
     // writeEntry() already calls flush() per-write, but this test
     // verifies the explicit flush() API leaves the file in a consistent
@@ -195,8 +194,7 @@ private Q_SLOTS:
         // to corrupt it with out-of-range head values (which SOEM's modular math
         // collapses to EC_MAXELIST%N apparent entries).
         //
-        // ecx_contextt holds slavelist[200] + grouplist arrays and exceeds 100 KB —
-        // too large for the stack (default 1 MB shared with Qt's own frames).
+        // ecx_contextt holds slavelist[200] + grouplist arrays and exceeds 100 KB -         // too large for the stack (default 1 MB shared with Qt's own frames).
         // Heap-allocate so the test doesn't overflow the stack.
         std::unique_ptr<ecx_contextt> ctxPtr(new ecx_contextt());
         memset(ctxPtr.get(), 0, sizeof(ecx_contextt));
@@ -228,7 +226,7 @@ private Q_SLOTS:
         }
         QVERIFY2(foundBailout, "Expected 'bailed at 30 entries' warning not found in ring buffer");
 #else
-        QSKIP("SOEM not available — skipping elist bailout test");
+        QSKIP("SOEM not available - skipping elist bailout test");
 #endif
     }
 };

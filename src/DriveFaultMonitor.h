@@ -49,10 +49,10 @@ public:
         // Caller should: motion->setNeedsRehome(true); motion->startPark();
         bool firstFaultSeen    = false;
 
-        // All faults cleared — caller should startHoming() if needsRehome().
+        // All faults cleared - caller should startHoming() if needsRehome().
         bool allClearRehome    = false;
 
-        // Just hit MAX_FAULT_RETRIES — caller should emit faultLockoutOccurred().
+        // Just hit MAX_FAULT_RETRIES - caller should emit faultLockoutOccurred().
         // disable is also true when this fires.
         bool lockoutJustOccurred = false;
 
@@ -60,7 +60,7 @@ public:
         // Caller must: drive->setTargetPositionRaw(drive->getActualPositionRaw()); continue;
         bool seedPosition      = false;
 
-        // Drive is in a fault state still being handled — skip enable SM.
+        // Drive is in a fault state still being handled - skip enable SM.
         // (disable=false here means the caller should NOT call disableOperation)
         bool skipEnableSM      = false;
     };
@@ -77,9 +77,9 @@ public:
     void clearLockout(int driveIndex);
 
     // Main per-cycle, per-drive entry point.
-    // drive    — used for startFaultReset/stepFaultReset/isFaultResetPending.
-    // state    — pre-fetched from drive->getState() this cycle.
-    // cycleCount — monotonically increasing RT cycle counter.
+    // drive - used for startFaultReset/stepFaultReset/isFaultResetPending.
+    // state - pre-fetched from drive->getState() this cycle.
+    // cycleCount - monotonically increasing RT cycle counter.
     DriveResult step(int driveIndex, A6Drive* drive, DriveState state, uint64_t cycleCount);
 
     // Accessors for tests and diagnostics.

@@ -1,12 +1,12 @@
 # Changelog
 
 Notable changes to nullCAT. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
-versioning is [Semantic Versioning](https://semver.org/) — while on `0.x`, the
+versioning is [Semantic Versioning](https://semver.org/) - while on `0.x`, the
 middle number carries breaking changes and the last carries fixes.
 
 ## [Unreleased]
 
-## [0.9.1] — 2026-08-15
+## [0.9.1] - 2026-08-15
 
 Config changes now reach the engine without restarting the application, the
 desktop panel gains its missing Park control, and axis defaults come from one
@@ -34,7 +34,7 @@ configuration changes with no application restart.
   > **If your `rig.json` omits any of these keys, the effective value changes:**
   > `homeMode` `center` → `endstop`, `homingSpeedMmS` `5` → `250`,
   > `maxAccelerationMmS2` `2000` → `10000`. A rig configured through the web UI
-  > is unaffected — it writes every key explicitly. A hand-written or partial
+  > is unaffected - it writes every key explicitly. A hand-written or partial
   > `rig.json` is not: in particular, homing would approach the hardstop 50×
   > faster than before. Check your axes before the first run on this version.
 
@@ -45,14 +45,13 @@ configuration changes with no application restart.
   speed: `homingSpeed` is a per-cycle step multiplier, not true mm/s, so any
   "expected traverse time" computed from it would be fiction. The distance
   guard (1.5× stroke) is checked first on every cycle and is unchanged, so a
-  longer timeout costs waiting time on a broken axis — never extra travel.
+  longer timeout costs waiting time on a broken axis - never extra travel.
 - **Homing timeout and axis-configure logging now carry the fields a
   post-mortem needs.** The timeout was the only abort that reported no
   distance; it now gives travelled-vs-stroke and the *measured* mm/s, which
   separates "still crawling toward the stop, raise the speed" from "barely
   moved, check the mechanics". The per-axis configure line gains `homeMode`
-  and `homingSpeed`, neither of which appeared anywhere in the log before —
-  `homeMode` selects the park position and nothing else, so its absence made
+  and `homingSpeed`, neither of which appeared anywhere in the log before -   `homeMode` selects the park position and nothing else, so its absence made
   park-behaviour reports impossible to diagnose from a log alone.
 
 ### Removed
@@ -68,11 +67,11 @@ configuration changes with no application restart.
   A `rig.json` save made while EtherCAT was up was reloaded into memory but
   never reached the motion controller: both init paths re-applied the config to
   the EtherCAT master alone, so drive/PDO setup picked the change up while every
-  motion-owned value kept whatever it was given at startup — belt tension limits
+  motion-owned value kept whatever it was given at startup - belt tension limits
   and guards, stroke, velocity/accel/jerk, homing parameters, spike filter,
   tracking, park/unpark times, conditioning mode. The UI's "Stop &
   Re-initialize to apply" was therefore false; only closing and reopening the
-  app applied them. Both entry points now re-apply — the Qt Initialize button
+  app applied them. Both entry points now re-apply - the Qt Initialize button
   and `/api/init`, since an operator who edits and initialises from the web UI
   never touches the Qt button.
 
@@ -82,7 +81,7 @@ configuration changes with no application restart.
 - **Unpark now refuses an axis that was never homed.** Not reachable in the
   normal flow (stopping the loop re-arms the rehome, starting it homes, and
   park/unpark require a running loop), but a homing fatal error left that axis
-  parked-and-unhomed while its peers also ended parked — which reads as "all
+  parked-and-unhomed while its peers also ended parked - which reads as "all
   parked", so the toggle offered Unpark. Unpark ramps toward mid-stroke, and
   for an unhomed axis that target is in a coordinate frame unrelated to the
   machine.
@@ -90,7 +89,7 @@ configuration changes with no application restart.
   directory was never on the compile path, so SOEM's `nicdrv.h` could not find
   `pcap.h`. It built only on machines whose SOEM tree happened to vendor the
   pcap headers. `BUILD_INSTRUCTIONS.md` also now covers the SDK as a separate
-  download from the Npcap runtime, and requires **1.16 or newer** — 1.13 and
+  download from the Npcap runtime, and requires **1.16 or newer** - 1.13 and
   older redefine `bpf_program`/`bpf_insn` and fail to compile against SOEM 2.x.
 - **Release archives use ZIP-spec path separators.** `Compress-Archive` writes
   backslashes, which Windows tools tolerate but some non-Windows tools turn
@@ -104,7 +103,7 @@ configuration changes with no application restart.
   `nullCAT.exe` itself still links it normally, so a missing Npcap fails
   immediately and visibly for an end user.
 
-## [0.9.0] — 2026-08-04
+## [0.9.0] - 2026-08-04
 
 First public beta. Windows desktop build (Qt + Npcap/SOEM) and the Raspberry Pi
 headless daemon share one motion core.
