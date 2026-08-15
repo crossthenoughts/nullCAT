@@ -129,7 +129,7 @@
           </select></label>
         <div class="frow"><span>LED test</span>
           <button class="btn btn-sm btn-action" id="cf-ledtest" type="button">Run LED test</button></div>
-        <div class="cfg-note" style="grid-column:1/-1">Pins use defaults (see wiring PDF); edit config.json for custom pins. Mode change needs a restart; LED test runs immediately.</div>
+        <div class="cfg-note" style="grid-column:1/-1">Pins use defaults (see wiring PDF); edit <code>host.json</code> for custom pins. Mode change needs a restart; LED test runs immediately.</div>
       </div>
       <div class="cgrp" id="axisGrp" style="grid-column:1/-1">
         <div class="gt">Per-axis configuration</div>
@@ -163,10 +163,11 @@
     </div>
     <div class="cfg-foot">
       <span class="cfg-note">Theme applies live (saved in browser). All other fields (global +
-        per-axis) write to <code>config.json</code> — <strong>Restart to apply</strong>.</span>
+        per-axis) write to <code>rig.json</code> — they take effect on the next
+        <strong>EtherCAT Initialize</strong> (Windows) or <strong>service restart</strong> (Pi).</span>
       <span class="spacer"></span>
       <span class="cfg-note" id="cfgStatus"></span>
-      <button class="btn btn-start btn-sm" id="cfgSave">Save to config.json</button>
+      <button class="btn btn-start btn-sm" id="cfgSave">Save to rig.json</button>
     </div>
   </section>
 

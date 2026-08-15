@@ -78,6 +78,86 @@ static bool runUntilState(MotionController& mc, A6Drive* drive,
     return false;
 }
 
+// ---- Config re-apply helpers ------------------------------------------------
+// configure() branches on BOTH axisType ("belt" vs everything else) and mode
+// ("torque" / "pp" / csp), and the parkPos it derives additionally depends on
+// homeMode. The re-apply tests below sweep that whole matrix rather than belts
+// alone, because a regression in any one branch looks identical from the UI:
+// "I changed a setting and it did nothing until I restarted the app."
+static AppConfig makeAxisConfig(const char* axisType, const char* mode,
+                                const char* homeMode, double strokeMm,
+                                double backoffMm, double torqueMinPct = 5.0,
+                                double torqueMaxPct = 50.0)
+{
+    DriveConfig dc;
+    dc.slaveIndex           = 1;
+    dc.axisType             = axisType;
+    dc.mode                 = mode;
+    dc.homeMode             = homeMode;
+    dc.strokeMm             = strokeMm;
+    dc.homingBackoffMm      = backoffMm;
+    dc.homeDirection        = "negative";
+    dc.homingSpeedMmS       = 400.0;
+    dc.homingTorquePct      = 25;
+    dc.maxVelocityMmS       = 200.0;
+    dc.maxAccelerationMmS2  = 2000.0;
+    dc.maxJerkMmS3          = 20000.0;
+    dc.unparkTimeSec        = 0.1;
+    dc.parkTimeSec          = 0.1;
+    dc.onlineHoldTimeoutSec = 5.0;
+    dc.countsPerMm          = 100.0;
+    dc.torqueMinPct         = torqueMinPct;
+    dc.torqueMaxPct         = torqueMaxPct;
+
+    AppConfig cfg;
+    cfg.controlLoopHz       = 100;
+    cfg.numDrives           = 1;
+    cfg.blendTimeSec        = 0.1;
+    cfg.blendMaxVelocityMmS = 20.0;
+    cfg.drives.push_back(dc);
+    return cfg;
+}
+
+// Cycles spent searching before the axis reaches ONLINE, under whichever config
+// is currently in force. parkPos is NOT usable as the probe here: a PARKED axis
+// holds its ACTUAL position while un-homed, and holds the home position (not
+// parkPos) once homed (B222P). Homing speed, by contrast, flows straight through
+// configure() -> HomingSequence::configure(), so a MotionController still holding
+// a stale AxisConfig searches at the old speed and the cycle count does not move.
+// Returns -1 if ONLINE is never reached.
+static int cyclesToOnline(MotionController& mc, MockA6Drive& mock, int maxCycles = 20000)
+{
+    mc.startHoming();
+    TelemetryData empty{};
+    A6Drive* drives[1] = { &mock };
+    for (int i = 0; i < maxCycles; ++i)
+    {
+        MotionOutput out{};
+        mc.process(empty, out, drives, 1);
+        if (mc.getAxisState(0) == AxisMotionState::ONLINE) return i;
+    }
+    return -1;
+}
+
+// Settled belt tension under the config in force. Belts tension ONLY via the
+// command queue (the path every real surface uses), never via unpark.
+static double settledBeltTorque(MotionController& mc)
+{
+    MotionCommand c;
+    c.type = MotionCommand::Type::TensionBelts;
+    mc.enqueueCommand(c);
+
+    TelemetryData sd{};
+    sd.valid        = true;
+    sd.numPositions = 1;
+    sd.positions[0] = 0.0;
+    sd.packetType   = TelemetryPacketType::Motion;
+
+    MotionOutput out{};
+    for (int i = 0; i < 200; ++i) { out = MotionOutput{}; mc.process(sd, out, nullptr, 0); }
+    return out.torques[0];
+}
+
 // ============================================================
 
 class TestMotionController : public QObject
@@ -90,6 +170,130 @@ private slots:
     {
         // TF-6: suppress log output during tests
         Logger::instance().setMinLevel(LogLevel::LVL_CRITICAL);
+    }
+
+    // ============================================================
+    // Config re-apply: a second configure() fully replaces the first.
+    //
+    // Both EtherCAT init paths -- the Qt Initialize button (MainWindow) and
+    // /api/init (WebServer) -- call configure() with the reloaded AppConfig, so
+    // that a rig.json edit saved while EtherCAT was up reaches the engine on
+    // Stop -> Initialize rather than needing an application restart. That is the
+    // contract the config page now states; these tests pin the engine behaviour
+    // it rests on, across every axis type and drive mode.
+    // ============================================================
+
+    // Position axes, per (axisType, mode, homeMode). Halving the search speed
+    // must lengthen the search: if the re-apply is lost, the controller keeps
+    // homing at the original speed and the count is unchanged.
+    void reapply_positionAxis_takesNewHomingSpeed_data()
+    {
+        QTest::addColumn<QString>("axisType");
+        QTest::addColumn<QString>("mode");
+        QTest::addColumn<QString>("homeMode");
+
+        QTest::newRow("linear_vertical/csp/endstop")   << "linear_vertical"   << "csp" << "endstop";
+        QTest::newRow("linear_horizontal/csp/center")  << "linear_horizontal" << "csp" << "center";
+        QTest::newRow("linear_vertical/pp/endstop")    << "linear_vertical"   << "pp"  << "endstop";
+        QTest::newRow("linear_horizontal/pp/center")   << "linear_horizontal" << "pp"  << "center";
+    }
+
+    void reapply_positionAxis_takesNewHomingSpeed()
+    {
+        QFETCH(QString, axisType);
+        QFETCH(QString, mode);
+        QFETCH(QString, homeMode);
+
+        const QByteArray at = axisType.toUtf8(), md = mode.toUtf8(), hm = homeMode.toUtf8();
+
+        AppConfig fastCfg = makeAxisConfig(at.constData(), md.constData(), hm.constData(), 100.0, 1.5);
+        fastCfg.drives[0].homingSpeedMmS = 400.0;
+
+        MotionController mc;
+        mc.configure(fastCfg);
+
+        MockA6Drive fastMock;
+        fastMock.configure(1, 0.0, 0.05);
+        fastMock.setHardstop(-2.0, true, 50.0);
+        const int fastCycles = cyclesToOnline(mc, fastMock);
+        QVERIFY2(fastCycles > 0, "axis never reached ONLINE under the first config");
+
+        AppConfig slowCfg = fastCfg;
+        slowCfg.drives[0].homingSpeedMmS = 100.0;        // 4x slower search
+        mc.configure(slowCfg);
+
+        MockA6Drive slowMock;
+        slowMock.configure(1, 0.0, 0.05);
+        slowMock.setHardstop(-2.0, true, 50.0);
+        const int slowCycles = cyclesToOnline(mc, slowMock);
+        QVERIFY2(slowCycles > 0, "axis never reached ONLINE after re-apply");
+
+        QVERIFY2(slowCycles > fastCycles,
+                 qPrintable(QString("re-applied homing speed had no effect: %1 cycles then %2")
+                            .arg(fastCycles).arg(slowCycles)));
+    }
+
+    // The reported symptom was belt settings specifically: tension limits are
+    // consumed only through configure(), so a stale AxisConfig silently keeps
+    // commanding the old tension.
+    void reapply_beltTorque_takesNewTensionLimits()
+    {
+        MotionController mc;
+        mc.setEmergencyStop(false);
+
+        mc.configure(makeAxisConfig("belt", "torque", "endstop", 100.0, 1.5, 5.0, 50.0));
+        const double lowFloor = settledBeltTorque(mc);
+
+        mc.configure(makeAxisConfig("belt", "torque", "endstop", 100.0, 1.5, 20.0, 50.0));
+        const double highFloor = settledBeltTorque(mc);
+
+        QVERIFY2(highFloor > lowFloor,
+                 qPrintable(QString("belt tension floor did not re-apply: %1 then %2")
+                            .arg(lowFloor).arg(highFloor)));
+    }
+
+    // Belts are marked homed without a search; position axes must run the real
+    // one. Switching axisType therefore has to rebind that branch too -- a stale
+    // AxisConfig would leave a re-typed axis claiming a home reference it has
+    // never established.
+    void reapply_switchingAxisTypeRebindsHomingBranch()
+    {
+        MockA6Drive mock;
+        mock.configure(1, 0.0, 0.05);
+        mock.setHardstop(-2.0, true, 50.0);
+
+        MotionController mc;
+        mc.configure(makeAxisConfig("belt", "torque", "endstop", 100.0, 3.0));
+        mc.startHoming();
+        runCycles(mc, &mock, 5);
+        QVERIFY2(mc.isAxisHomed(0), "belt should be marked homed without a search");
+
+        mc.configure(makeAxisConfig("linear_vertical", "csp", "endstop", 100.0, 3.0));
+        QVERIFY2(!mc.isAxisHomed(0), "configure() must clear the home reference");
+
+        mc.startHoming();
+        QCOMPARE((int)mc.getAxisState(0), (int)AxisMotionState::HOMING);
+    }
+
+    // Why both init paths guard the call on the loop being stopped: configure()
+    // reseats every axis and drops the home reference. Pin it so the guard's
+    // rationale cannot quietly stop being true.
+    void reapply_resetsEveryAxisToParkedAndUnhomed()
+    {
+        MockA6Drive mock;
+        mock.configure(1, 0.0, 0.05);
+        mock.setHardstop(-2.0, true, 50.0);
+
+        MotionController mc;
+        mc.configure(makeSingleAxisConfig(100.0));
+        mc.startHoming();
+        QVERIFY(runUntilState(mc, &mock, AxisMotionState::ONLINE, 5000));
+        QVERIFY(mc.isAxisHomed(0));
+
+        mc.configure(makeSingleAxisConfig(100.0));
+        QCOMPARE((int)mc.getAxisState(0), (int)AxisMotionState::PARKED);
+        QVERIFY(!mc.isAxisHomed(0));
+        QVERIFY(mc.needsRehome());
     }
 
     // ---- P2-3-1: configure() starts PARKED, startHoming() → HOMING ----
