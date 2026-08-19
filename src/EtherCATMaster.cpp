@@ -1853,6 +1853,10 @@ InitResult EtherCATMaster::stageOPTransition(ecx_contextt* ctx)
     int firstAnomalyCycle = -1;
     int lastWkc = -999;  // sentinel - triggers wkc_change log on first cycle
 
+    // Straggler shepherd state (see the shepherd block in the pump loop).
+    static constexpr int SHEPHERD_MAX_NUDGES = 10;
+    std::vector<int> opNudges(static_cast<size_t>(m_slaveCount) + 1, 0);
+
     for (int i = 0; i < 5000; ++i)
     {
         PlatformRT::advancePeriod(deadline, ticksPer1Ms);
@@ -1919,6 +1923,57 @@ InitResult EtherCATMaster::stageOPTransition(ecx_contextt* ctx)
                 Logger::instance().logDiag(strf(
                     "DIAG | op_early_exit | cycle=%d | all_slaves_op=1", i + 1));
                 break;
+            }
+
+            // --- Straggler shepherd (per-slave OP re-request) ---
+            //
+            // The OP request above is a single broadcast; before this existed a
+            // slave that missed it or silently declined (the A6's SafeOp->OP
+            // step is DC-sensitive) had NO second chance -- it sat at SafeOp
+            // with ALCode=0x0000 for the full 5s and failed the whole init.
+            // Field signature: strict downstream gradient, ~1-in-10 failures
+            // at 5 drives, stragglers healthy but never re-asked.
+            //
+            // So, on the same 100ms cadence as the state check: a slave at
+            // SAFE_OP+ERROR gets the AL error acknowledged (it re-requests OP
+            // on the next round once clean); a slave parked at plain SAFE_OP
+            // gets a per-slave OP re-request, bounded and logged. Register
+            // writes only (no mailbox traffic to disturb the 1ms pump), never
+            // touches SYNC0, and the first nudge waits until ~200ms so the
+            // broadcast keeps a fair window -- a healthy boot logs nothing.
+            // A slave below SafeOp, or one out of nudges, still fails init
+            // exactly as before: this shepherds hesitation, not faults.
+            if (i + 1 >= 200)
+            {
+                for (int j = 1; j <= m_slaveCount; ++j)
+                {
+                    uint16 st = ctx->slavelist[j].state;
+                    if ((st & ~EC_STATE_ERROR) == EC_STATE_OPERATIONAL) continue;
+
+                    if (st == (EC_STATE_SAFE_OP + EC_STATE_ERROR))
+                    {
+                        LOG_WARNING(strf("EtherCATMaster: Slave %d SAFE-OP+ERROR (ALCode=0x%04x) "
+                            "at %dms -- acknowledging.", j, ctx->slavelist[j].ALstatuscode, i + 1));
+                        ctx->slavelist[j].state = EC_STATE_SAFE_OP + EC_STATE_ACK;
+                        uint32_t wsEx = 0;
+                        PlatformRT::safeCall([ctx, j]() { ecx_writestate(ctx, j); }, &wsEx);
+                        if (wsEx != 0) LOG_ERROR(strf("shepherd: ack writestate crashed (0x%08x)", wsEx));
+                    }
+                    else if (st == EC_STATE_SAFE_OP && opNudges[j] < SHEPHERD_MAX_NUDGES)
+                    {
+                        ++opNudges[j];
+                        LOG_WARNING(strf("EtherCATMaster: Slave %d still SAFE-OP at %dms -- "
+                            "re-requesting OP (nudge %d/%d).",
+                            j, i + 1, opNudges[j], SHEPHERD_MAX_NUDGES));
+                        Logger::instance().logDiag(strf(
+                            "DIAG | op_shepherd | slave=%d | cycle=%d | nudge=%d",
+                            j, i + 1, opNudges[j]));
+                        ctx->slavelist[j].state = EC_STATE_OPERATIONAL;
+                        uint32_t wsEx = 0;
+                        PlatformRT::safeCall([ctx, j]() { ecx_writestate(ctx, j); }, &wsEx);
+                        if (wsEx != 0) LOG_ERROR(strf("shepherd: OP writestate crashed (0x%08x)", wsEx));
+                    }
+                }
             }
         }
     }

@@ -7,6 +7,17 @@ middle number carries breaking changes and the last carries fixes.
 ## [Unreleased]
 
 ### Fixed
+- **Multi-drive EtherCAT init no longer fails because one slave hesitated.**
+  The OP request was a single broadcast: a slave that missed it or silently
+  declined (the A6's SafeOp-to-OP step is DC-sensitive) sat at SAFE-OP with no
+  error code for the full 5s window and failed the whole init -- each added
+  drive was another independent chance of that, which is how 5 drives reached
+  roughly one failure in ten. The init pump now shepherds stragglers on its
+  existing 100ms check: a slave at SAFE-OP+ERROR gets the AL error
+  acknowledged, a slave parked at plain SAFE-OP gets a per-slave OP
+  re-request, bounded (10 nudges) and logged per slave. Register writes only,
+  SYNC0 untouched, healthy boots log nothing. A slave below SAFE-OP, or one
+  that exhausts its nudges, still fails init exactly as before.
 - **An axis homed in the positive raw direction can no longer be driven
   through its endstop.** The engineering frame had no direction sign: it
   silently assumed homing searched raw-negative, so an axis whose retract

@@ -301,7 +301,7 @@ private slots:
     // ============================================================
     // Home frame direction: an inline axis (invertDir=false, retract = raw
     // positive) homes against a high-raw stop, and everything afterwards must
-    // move AWAY from that stop. On pre-0.9.2 code the engineering frame had no
+    // move AWAY from that stop. On pre-0.9.3 code the engineering frame had no
     // sign, so this exact sequence homed correctly and then commanded the
     // unpark HALF A STROKE THROUGH the hardstop -- the field failure that
     // motivated the frame fix. These two tests fail on that code.
@@ -381,7 +381,7 @@ private slots:
         QVERIFY(runUntilState(mc, &mock, AxisMotionState::ONLINE, 8000));
 
         // Post-homing raw clamp window must sit AWAY from the stop:
-        // [homeOffset - stroke, homeOffset] = ~[-99.5, 0.5]. Pre-0.9.2 this was
+        // [homeOffset - stroke, homeOffset] = ~[-99.5, 0.5]. Pre-0.9.3 this was
         // [homeOffset, homeOffset + stroke] -- entirely on the far side of the
         // stop, disarming the drive-level overtravel clamp exactly where it
         // was needed.

@@ -151,7 +151,7 @@ public:
     // engineering position 0.0 is the backoff point and engineering ALWAYS
     // increases away from the homed stop -- regardless of which raw direction
     // the search ran. This is the single place that invariant lives; nothing
-    // above this class may reason about raw direction. (Before 0.9.2 the sign
+    // above this class may reason about raw direction. (Before 0.9.3 the sign
     // did not exist: the frame silently assumed a raw-negative search, and a
     // positive-direction home produced a frame pointing INTO the hardstop --
     // homing succeeded, then unpark drove through the stop.)

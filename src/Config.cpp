@@ -240,7 +240,7 @@ static void readDriveConfig(const QJsonObject& obj, int idx, DriveConfig& d)
     rdDbl (obj, "encoderCountsPerRev",    d.encoderCountsPerRev);
     rdStr (obj, "reductionRatio",         d.reductionRatio);
     rdStr (obj, "homeDirection",          d.homeDirection, true);
-    // parkMode was called homeMode until 0.9.2. Read the old key first so an
+    // parkMode was called homeMode until 0.9.3. Read the old key first so an
     // existing rig.json keeps its park position, then let the new key win if
     // both are present. Without this the field would silently fall back to the
     // struct default and move where the axis parks.

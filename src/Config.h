@@ -54,7 +54,7 @@ struct DriveConfig
     // parkMode selects the PARK position only; it has no effect on homing,
     // which always runs the torque search in homeDirection. "center" parks at
     // mid-stroke, anything else parks at homingBackoffMm. (Was "homeMode"
-    // until 0.9.2, which read as though it chose how the axis homed.)
+    // until 0.9.3, which read as though it chose how the axis homed.)
     std::string parkMode          = "endstop";
     double  homingBackoffMm   = 1.5;
     // NOT true mm/s: a per-cycle step multiplier applied against a fixed
