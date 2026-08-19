@@ -20,6 +20,11 @@ middle number carries breaking changes and the last carries fixes.
   past it.
 
 ### Changed
+- **Config keys renamed to what they actually do**: `homeMode` is now
+  `parkMode` (it selects the park position and never affected homing) and
+  `homingSpeedMmS` is now `homingSpeed` (the value is a step multiplier, not
+  mm/s). Both old keys are still read, so existing `rig.json` files keep
+  working; when both spellings are present the new one wins.
 - **`invertDir` now means what it always said: the axis's mechanical
   polarity.** Tick it (labelled "Foldback" in the web UI) for a foldback
   linkage, leave it off for an inline actuator. It sets the homing search
