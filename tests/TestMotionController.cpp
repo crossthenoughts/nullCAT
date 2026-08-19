@@ -8,7 +8,7 @@
 // and PARKED behaviour. Uses MockA6Drive throughout.
 //
 // Cycle time: 10ms (100Hz). ESTOP_RAMP_SEC = 0.5s → 50 cycles.
-// parkPos: homeMode="endstop" → ac.parkPos = homingBackoffMm = 1.5mm.
+// parkPos: parkMode="endstop" → ac.parkPos = homingBackoffMm = 1.5mm.
 // ============================================================
 
 #include <QtTest>
@@ -20,7 +20,7 @@
 // ---- Helpers ----
 
 // Build a minimal AppConfig for a single linear axis.
-// homeMode="endstop" → parkPos = homingBackoffMm = 1.5mm.
+// parkMode="endstop" → parkPos = homingBackoffMm = 1.5mm.
 static AppConfig makeSingleAxisConfig(double cycleHz   = 100.0,
                                       double strokeMm  = 100.0,
                                       double speedMmS  = 400.0,   // 0.2mm/cycle in-harness (see homingStepMm)
@@ -31,11 +31,12 @@ static AppConfig makeSingleAxisConfig(double cycleHz   = 100.0,
     dc.slaveIndex           = 1;
     dc.axisType             = "linear_vertical";
     dc.strokeMm             = strokeMm;
-    dc.homingSpeedMmS       = speedMmS;
+    dc.homingSpeed       = speedMmS;
     dc.homingBackoffMm      = backoffMm;
     dc.homingTorquePct      = torquePct;
     dc.homeDirection        = "negative";
-    dc.homeMode             = "endstop";    // parkPos = backoffMm = 1.5mm
+    dc.invertDir            = true;   // foldback fixture: retract = raw negative (see TestHomingSequence)
+    dc.parkMode             = "endstop";    // parkPos = backoffMm = 1.5mm
     dc.maxVelocityMmS       = 200.0;
     dc.maxAccelerationMmS2  = 2000.0;
     dc.maxJerkMmS3          = 20000.0;
@@ -81,23 +82,24 @@ static bool runUntilState(MotionController& mc, A6Drive* drive,
 // ---- Config re-apply helpers ------------------------------------------------
 // configure() branches on BOTH axisType ("belt" vs everything else) and mode
 // ("torque" / "pp" / csp), and the parkPos it derives additionally depends on
-// homeMode. The re-apply tests below sweep that whole matrix rather than belts
+// parkMode. The re-apply tests below sweep that whole matrix rather than belts
 // alone, because a regression in any one branch looks identical from the UI:
 // "I changed a setting and it did nothing until I restarted the app."
 static AppConfig makeAxisConfig(const char* axisType, const char* mode,
-                                const char* homeMode, double strokeMm,
+                                const char* parkMode, double strokeMm,
                                 double backoffMm, double torqueMinPct = 5.0,
                                 double torqueMaxPct = 50.0)
 {
     DriveConfig dc;
     dc.slaveIndex           = 1;
+    dc.invertDir            = true;   // foldback fixture: retract = raw negative (see TestHomingSequence)
     dc.axisType             = axisType;
     dc.mode                 = mode;
-    dc.homeMode             = homeMode;
+    dc.parkMode             = parkMode;
     dc.strokeMm             = strokeMm;
     dc.homingBackoffMm      = backoffMm;
     dc.homeDirection        = "negative";
-    dc.homingSpeedMmS       = 400.0;
+    dc.homingSpeed       = 400.0;
     dc.homingTorquePct      = 25;
     dc.maxVelocityMmS       = 200.0;
     dc.maxAccelerationMmS2  = 2000.0;
@@ -183,14 +185,14 @@ private slots:
     // it rests on, across every axis type and drive mode.
     // ============================================================
 
-    // Position axes, per (axisType, mode, homeMode). Halving the search speed
+    // Position axes, per (axisType, mode, parkMode). Halving the search speed
     // must lengthen the search: if the re-apply is lost, the controller keeps
     // homing at the original speed and the count is unchanged.
     void reapply_positionAxis_takesNewHomingSpeed_data()
     {
         QTest::addColumn<QString>("axisType");
         QTest::addColumn<QString>("mode");
-        QTest::addColumn<QString>("homeMode");
+        QTest::addColumn<QString>("parkMode");
 
         QTest::newRow("linear_vertical/csp/endstop")   << "linear_vertical"   << "csp" << "endstop";
         QTest::newRow("linear_horizontal/csp/center")  << "linear_horizontal" << "csp" << "center";
@@ -202,12 +204,12 @@ private slots:
     {
         QFETCH(QString, axisType);
         QFETCH(QString, mode);
-        QFETCH(QString, homeMode);
+        QFETCH(QString, parkMode);
 
-        const QByteArray at = axisType.toUtf8(), md = mode.toUtf8(), hm = homeMode.toUtf8();
+        const QByteArray at = axisType.toUtf8(), md = mode.toUtf8(), hm = parkMode.toUtf8();
 
         AppConfig fastCfg = makeAxisConfig(at.constData(), md.constData(), hm.constData(), 100.0, 1.5);
-        fastCfg.drives[0].homingSpeedMmS = 400.0;
+        fastCfg.drives[0].homingSpeed = 400.0;
 
         MotionController mc;
         mc.configure(fastCfg);
@@ -219,7 +221,7 @@ private slots:
         QVERIFY2(fastCycles > 0, "axis never reached ONLINE under the first config");
 
         AppConfig slowCfg = fastCfg;
-        slowCfg.drives[0].homingSpeedMmS = 100.0;        // 4x slower search
+        slowCfg.drives[0].homingSpeed = 100.0;        // 4x slower search
         mc.configure(slowCfg);
 
         MockA6Drive slowMock;
@@ -294,6 +296,100 @@ private slots:
         QCOMPARE((int)mc.getAxisState(0), (int)AxisMotionState::PARKED);
         QVERIFY(!mc.isAxisHomed(0));
         QVERIFY(mc.needsRehome());
+    }
+
+    // ============================================================
+    // Home frame direction: an inline axis (invertDir=false, retract = raw
+    // positive) homes against a high-raw stop, and everything afterwards must
+    // move AWAY from that stop. On pre-0.9.2 code the engineering frame had no
+    // sign, so this exact sequence homed correctly and then commanded the
+    // unpark HALF A STROKE THROUGH the hardstop -- the field failure that
+    // motivated the frame fix. These two tests fail on that code.
+    // ============================================================
+
+    void inlineAxis_unparkMovesAwayFromStop_neverThroughIt()
+    {
+        AppConfig cfg = makeAxisConfig("linear_vertical", "csp", "endstop", 100.0, 1.5);
+        cfg.drives[0].invertDir = false;            // inline: retract = raw positive
+
+        MockA6Drive mock;
+        mock.configure(1, 0.0, 0.05);
+        mock.setHardstop(2.0, /*isMinLimit=*/false, 50.0);   // retracted stop at +2mm raw
+
+        MotionController mc;
+        mc.configure(cfg);
+        mc.startHoming();
+
+        // Home -> auto-unpark -> ONLINE, tracking the peak raw excursion.
+        // Unlike the state-only tests, this one closes the loop the way
+        // ControlLoop does: motion output is applied to the drive via the
+        // frame-aware setTargetPosition() (homing writes its own raw targets,
+        // so output is applied only once the axis is homed), and updateStatus()
+        // lets the mock chase, so the mock's RAW position is the machine truth.
+        TelemetryData empty{};
+        A6Drive* drives[1] = { &mock };
+        double maxRaw = -1e9;
+        bool online = false;
+        for (int i = 0; i < 8000 && !online; ++i)
+        {
+            mock.updateStatus();
+            MotionOutput out{};
+            mc.process(empty, out, drives, 1);
+            if (mc.isAxisHomed(0)) mock.setTargetPosition(out.positions[0]);
+            maxRaw = std::max(maxRaw, mock.getActualPositionRaw());
+            online = (mc.getAxisState(0) == AxisMotionState::ONLINE);
+        }
+        QVERIFY2(online, "inline axis never reached ONLINE");
+
+        // Let the unpark/blend settle, still tracking the excursion. The mock
+        // chases at 0.05mm/cycle, so the ~50mm move to centre needs ~1000
+        // cycles; 1500 gives margin.
+        for (int i = 0; i < 1500; ++i)
+        {
+            mock.updateStatus();
+            MotionOutput out{};
+            mc.process(empty, out, drives, 1);
+            mock.setTargetPosition(out.positions[0]);
+            maxRaw = std::max(maxRaw, mock.getActualPositionRaw());
+        }
+
+        // Never through the stop (homing presses it by design; nothing after may).
+        QVERIFY2(maxRaw < 2.0 + 0.6,
+                 qPrintable(QString("axis passed the hardstop: peak raw %1 vs stop 2.0").arg(maxRaw)));
+
+        // And genuinely AWAY from it: centre = eng 50 = raw homeOffset - 50 = -49.5.
+        const double raw = mock.getActualPositionRaw();
+        QVERIFY2(raw < -40.0,
+                 qPrintable(QString("axis did not move away from the stop: raw %1, want ~-49.5").arg(raw)));
+        QVERIFY2(std::abs(mock.getActualPosition() - 50.0) < 2.0,
+                 qPrintable(QString("eng position %1, want ~50 (centre)").arg(mock.getActualPosition())));
+    }
+
+    void inlineAxis_driveLimits_onCorrectSideOfStop()
+    {
+        AppConfig cfg = makeAxisConfig("linear_vertical", "csp", "endstop", 100.0, 1.5);
+        cfg.drives[0].invertDir = false;
+
+        MockA6Drive mock;
+        mock.configure(1, 0.0, 0.05);
+        mock.setHardstop(2.0, /*isMinLimit=*/false, 50.0);
+        mock.resetLimitsTracker();
+
+        MotionController mc;
+        mc.configure(cfg);
+        mc.startHoming();
+        QVERIFY(runUntilState(mc, &mock, AxisMotionState::ONLINE, 8000));
+
+        // Post-homing raw clamp window must sit AWAY from the stop:
+        // [homeOffset - stroke, homeOffset] = ~[-99.5, 0.5]. Pre-0.9.2 this was
+        // [homeOffset, homeOffset + stroke] -- entirely on the far side of the
+        // stop, disarming the drive-level overtravel clamp exactly where it
+        // was needed.
+        QVERIFY(mock.getSetLimitsCallCount() >= 1);
+        QVERIFY2(std::abs(mock.getLastSetLimitsMax() - 0.5) < 0.3,
+                 qPrintable(QString("limits max %1, want ~0.5").arg(mock.getLastSetLimitsMax())));
+        QVERIFY2(std::abs(mock.getLastSetLimitsMin() - (-99.5)) < 0.3,
+                 qPrintable(QString("limits min %1, want ~-99.5").arg(mock.getLastSetLimitsMin())));
     }
 
     // ---- P2-3-1: configure() starts PARKED, startHoming() → HOMING ----
@@ -472,7 +568,7 @@ private slots:
         }
     }
 
-    // ---- An unrecognised homeMode must NOT instant-home ----
+    // ---- An unrecognised parkMode must NOT instant-home ----
     // The retired "gravity" mode declared an axis homed at wherever it was
     // resting, with no search. It is gone; a leftover config carrying it (or any
     // other unknown value) must fall through to the REAL torque endstop search,
@@ -487,9 +583,10 @@ private slots:
         dc.slaveIndex          = 1;
         dc.axisType            = "linear_vertical";
         dc.strokeMm            = 100.0;
-        dc.homeMode            = "gravity";   // retired mode = now just "unknown"
+        dc.parkMode            = "gravity";   // retired mode = now just "unknown"
         dc.homeDirection       = "negative";
-        dc.homingSpeedMmS      = 400.0;
+        dc.invertDir           = true;   // foldback fixture: retract = raw negative (see TestHomingSequence)
+        dc.homingSpeed      = 400.0;
         dc.homingBackoffMm     = 1.5;
         dc.homingTorquePct     = 25;
         dc.maxVelocityMmS      = 200.0;
@@ -515,7 +612,7 @@ private slots:
 
         // The old behaviour was homed==true after exactly this one cycle.
         QVERIFY2(!mc.isAxisHomed(0),
-                 "Unknown homeMode instant-homed -- the retired gravity "
+                 "Unknown parkMode instant-homed -- the retired gravity "
                  "short-circuit is still present");
         QCOMPARE(mc.getAxisState(0), AxisMotionState::HOMING);
     }
@@ -536,9 +633,10 @@ private slots:
         dc.slaveIndex          = 1;
         dc.axisType            = "linear_horizontal";
         dc.strokeMm            = 100.0;
-        dc.homeMode            = "center";
+        dc.parkMode            = "center";
         dc.homeDirection       = "negative";
-        dc.homingSpeedMmS      = 400.0;
+        dc.invertDir           = true;   // foldback fixture: retract = raw negative (see TestHomingSequence)
+        dc.homingSpeed      = 400.0;
         dc.homingBackoffMm     = 1.5;
         dc.homingTorquePct     = 25;
         dc.maxVelocityMmS      = 200.0;
@@ -582,9 +680,10 @@ private slots:
         dc.slaveIndex          = 1;
         dc.axisType            = "belt";
         dc.strokeMm            = 360.0;
-        dc.homeMode            = "center";
+        dc.parkMode            = "center";
         dc.homeDirection       = "negative";
-        dc.homingSpeedMmS      = 400.0;  // harness speed: step = speed*REF_DT(0.0005); pre-redesign tests assumed speed*0.01
+        dc.invertDir           = true;   // foldback fixture: retract = raw negative (see TestHomingSequence)
+        dc.homingSpeed      = 400.0;  // harness speed: step = speed*REF_DT(0.0005); pre-redesign tests assumed speed*0.01
         dc.homingBackoffMm     = 0.0;
         dc.homingTorquePct     = 25;
         dc.maxVelocityMmS      = 200.0;
@@ -639,11 +738,12 @@ private slots:
             dc.slaveIndex           = ax + 1;
             dc.axisType             = "linear_vertical";
             dc.strokeMm             = 100.0;
-            dc.homingSpeedMmS       = 1000.0; // fast: 0.5mm/cycle (1000*REF_DT) → reaches stop quickly
+            dc.homingSpeed       = 1000.0; // fast: 0.5mm/cycle (1000*REF_DT) → reaches stop quickly
             dc.homingBackoffMm      = 1.5;
             dc.homingTorquePct      = 25;
             dc.homeDirection        = "negative";
-            dc.homeMode             = "endstop";
+            dc.invertDir           = true;   // foldback fixture: retract = raw negative (see TestHomingSequence)
+            dc.parkMode             = "endstop";
             dc.maxVelocityMmS       = 200.0;
             dc.maxAccelerationMmS2  = 2000.0;
             dc.maxJerkMmS3          = 20000.0;
@@ -709,11 +809,12 @@ private slots:
             dc.slaveIndex           = ax + 1;
             dc.axisType             = "linear_vertical";
             dc.strokeMm             = 100.0;
-            dc.homingSpeedMmS       = 1000.0;  // harness speed: step = speed*REF_DT(0.0005); pre-redesign tests assumed speed*0.01
+            dc.homingSpeed       = 1000.0;  // harness speed: step = speed*REF_DT(0.0005); pre-redesign tests assumed speed*0.01
             dc.homingBackoffMm      = 1.5;
             dc.homingTorquePct      = 25;
             dc.homeDirection        = "negative";
-            dc.homeMode             = "endstop";
+            dc.invertDir           = true;   // foldback fixture: retract = raw negative (see TestHomingSequence)
+            dc.parkMode             = "endstop";
             dc.maxVelocityMmS       = 200.0;
             dc.maxAccelerationMmS2  = 2000.0;
             dc.maxJerkMmS3          = 20000.0;
@@ -773,7 +874,7 @@ private slots:
 
     // ---- B222P regression: post-homing PARKED holds at home position, not parkPos ----
     //
-    // For homeMode="center", parkPos = strokeMm/2 (e.g. 40mm for an 80mm
+    // For parkMode="center", parkPos = strokeMm/2 (e.g. 40mm for an 80mm
     // stroke). Prior to B222P, the PARKED state output unconditionally
     // commanded ac.parkPos every cycle once rt.homed was true. The cycle
     // right after homing-complete saw the target jump from ~0mm (the
@@ -787,7 +888,7 @@ private slots:
     // of cycles while the others search -- and that's where the bug bit.
     void postHoming_centerMode_doesNotJumpToParkPos()
     {
-        // Two-axis config, homeMode="center", strokeMm=80 -> parkPos=40.
+        // Two-axis config, parkMode="center", strokeMm=80 -> parkPos=40.
         AppConfig cfg;
         cfg.controlLoopHz = 100;
         cfg.numDrives     = 2;
@@ -797,11 +898,12 @@ private slots:
             dc.slaveIndex           = ax + 1;
             dc.axisType             = "linear_vertical";
             dc.strokeMm             = 80.0;
-            dc.homingSpeedMmS       = 400.0;  // harness speed: step = speed*REF_DT(0.0005); pre-redesign tests assumed speed*0.01
+            dc.homingSpeed       = 400.0;  // harness speed: step = speed*REF_DT(0.0005); pre-redesign tests assumed speed*0.01
             dc.homingBackoffMm      = 1.5;
             dc.homingTorquePct      = 25;
             dc.homeDirection        = "negative";
-            dc.homeMode             = "center";    // parkPos = 40.0
+            dc.invertDir           = true;   // foldback fixture: retract = raw negative (see TestHomingSequence)
+            dc.parkMode             = "center";    // parkPos = 40.0
             dc.maxVelocityMmS       = 200.0;
             dc.maxAccelerationMmS2  = 2000.0;
             dc.maxJerkMmS3          = 20000.0;
@@ -850,7 +952,7 @@ private slots:
         // Capture axis 0's commanded position over the next 30 cycles. Each
         // cycle motion-out.positions[0] should stay close to the homing
         // completion position (=0 in engineering, the backoff point). It must
-        // NOT jump to 40 (parkPos = strokeMm/2 for homeMode=center).
+        // NOT jump to 40 (parkPos = strokeMm/2 for parkMode=center).
         double maxCommandedAbs = 0.0;
         for (int k = 0; k < 30; ++k)
         {

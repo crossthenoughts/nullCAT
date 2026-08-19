@@ -6,6 +6,30 @@ middle number carries breaking changes and the last carries fixes.
 
 ## [Unreleased]
 
+### Fixed
+- **An axis homed in the positive raw direction can no longer be driven
+  through its endstop.** The engineering frame had no direction sign: it
+  silently assumed homing searched raw-negative, so an axis whose retract
+  direction is raw-positive (an inline actuator on a rig wired like the
+  reference foldbacks) homed correctly and was then commanded half a stroke
+  THROUGH the hardstop on unpark. Position now always counts away from
+  whichever stop was homed, the post-homing drive clamp window lands on the
+  correct side of that stop (it previously landed entirely on the far side,
+  disarming the overtravel protection exactly where it was needed), and even
+  a misconfigured axis can only home to the unintended end, never be pushed
+  past it.
+
+### Changed
+- **`invertDir` now means what it always said: the axis's mechanical
+  polarity.** Tick it (labelled "Foldback" in the web UI) for a foldback
+  linkage, leave it off for an inline actuator. It sets the homing search
+  direction and the telemetry response together (previously it flipped the
+  telemetry response only, which is why an inline axis could not be made to
+  retract to home). `homeDirection` is now a travel-frame stop selector:
+  `negative` (default) homes to the retracted stop, `positive` to the
+  extended stop for park-extended setups. Existing foldback configs
+  (`invertDir: true`, `homeDirection: negative`) behave identically.
+
 ## [0.9.1] - 2026-08-15
 
 Config changes now reach the engine without restarting the application, the

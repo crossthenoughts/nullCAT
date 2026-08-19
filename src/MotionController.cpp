@@ -56,6 +56,12 @@ void MotionController::configure(const AppConfig& config)
 
         ac.strokeMm = dc.strokeMm;
         ac.invertDir = dc.invertDir;
+        // Telemetry polarity composes TWO reversals: the linkage (invertDir --
+        // foldback moves the platform opposite to actuator extension) and the
+        // frame (homing to the extended stop points engineering the other way
+        // along the same travel). XOR keeps the platform's response identical
+        // whether an axis parks retracted or extended.
+        ac.telemetryInvert = (dc.invertDir != (dc.homeDirection == "positive"));
         ac.axisType = dc.axisType;
         ac.countsPerMm = dc.countsPerMm;
         ac.maxVelocityMmS = dc.maxVelocityMmS;
@@ -66,9 +72,9 @@ void MotionController::configure(const AppConfig& config)
         ac.onlineHoldTimeoutSec = dc.onlineHoldTimeoutSec;
         ac.spikeFilterEnabled = dc.spikeFilterEnabled;
         ac.spikeMaxMm = dc.spikeMaxMm;
-        ac.homeMode = dc.homeMode;
+        ac.parkMode = dc.parkMode;
         ac.homingBackoffMm = dc.homingBackoffMm;
-        ac.homingSpeedMmS = dc.homingSpeedMmS;
+        ac.homingSpeed = dc.homingSpeed;
         ac.homingTorquePct = dc.homingTorquePct;
         ac.homeDirection = dc.homeDirection;
         ac.torqueMode    = (dc.mode == "torque");
@@ -121,7 +127,7 @@ void MotionController::configure(const AppConfig& config)
 
             // "endstop": park at backoff after homing (vertical axes -- gravity holds at bottom)
             // "center":  park at mid-stroke after homing (horizontal axes -- natural rest position)
-            if (dc.homeMode == "center")
+            if (dc.parkMode == "center")
                 ac.parkPos = ac.centerPos;
             else
                 ac.parkPos = dc.homingBackoffMm;  // "endstop" and all other modes
@@ -147,18 +153,18 @@ void MotionController::configure(const AppConfig& config)
 
         m_homing[i].configure(dc, m_cycleTimeSec);
 
-        // homeMode and homingSpeed are logged because they are the two settings a
+        // parkMode and homingSpeed are logged because they are the two settings a
         // homing/park post-mortem always needs and neither was previously in the
-        // log: homeMode selects parkPos (nothing else), and homingSpeed is a
+        // log: parkMode selects parkPos (nothing else), and homingSpeed is a
         // per-cycle step multiplier rather than true mm/s (see homingStepMm),
         // so it is quoted as the raw setting.
         LOG_INFO(strf("MotionController: Axis %d '%s' type=%s "
             "stroke=%.1fmm backoff=%.2fmm center=%.1fmm maxV=%.1fmm/s maxA=%.1fmm/s2 maxJ=%.1fmm/s3 "
-            "homeDir=%s homeMode=%s homingSpeed=%.0f (setting, not mm/s)",
+            "homeDir=%s parkMode=%s homingSpeed=%.0f (setting, not mm/s)",
             i + 1, dc.name.c_str(), dc.axisType.c_str(),
             ac.strokeMm, ac.parkPos, ac.centerPos,
             ac.maxVelocityMmS, ac.maxAccelMmS2, ac.maxJerkMmS3,
-            ac.homeDirection.c_str(), dc.homeMode.c_str(), ac.homingSpeedMmS));
+            ac.homeDirection.c_str(), dc.parkMode.c_str(), ac.homingSpeed));
 
         // Conditioning mode + (Filter only) the derived knee consequences -- read
         // the cost of the numbers, not just the numbers. (CSP axes only.)
@@ -735,7 +741,11 @@ void MotionController::stepSeatRelief(A6Drive** drives, int numHwDrives)
         {
             // Ease AWAY from the stop (opposite the press / home-search direction), one
             // homing step per cycle so following error stays capped -- same gentle pace.
-            const double reliefSign = (m_axisConfig[i].homeDirection == "negative") ? 1.0 : -1.0;
+            // Away from the stop = opposite of the search direction, from the
+            // same helper homing itself uses (this was the one site that
+            // hand-flipped homeDirection before the sign became centralised).
+            const double reliefSign = -HomingSequence::searchSign(
+                m_axisConfig[i].invertDir, m_axisConfig[i].homeDirection);
             d->setTargetPositionRaw(actual + reliefSign * m_homing[i].homingStepMm());
         }
     }
@@ -957,7 +967,7 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
                 // NEVER command ac.parkPos unconditionally here. Right after
                 // homing, rt.currentPos is the post-homing position (0.0), so
                 // jumping to parkPos would be a |parkPos - 0| step in one cycle:
-                // harmless for homeMode=="endstop" (parkPos ~1.5mm, small enough
+                // harmless for parkMode=="endstop" (parkPos ~1.5mm, small enough
                 // for the drive to track) but tens of mm for "center" -- an
                 // instant Er87.1 on every cold homing. The unpark trajectory
                 // starts from rt.currentPos and ramps smoothly to centerPos,
@@ -1077,12 +1087,12 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
                 {
                     double norm = (raw - TELEMETRY_CENTER) / TELEMETRY_CENTER;
                     targetMm = ac.centerPos + norm * (ac.strokeMm / 2.0);
-                    if (ac.invertDir)
+                    if (ac.telemetryInvert)
                         targetMm = ac.centerPos - (targetMm - ac.centerPos);
                 }
                 else
                 {
-                    targetMm = ac.centerPos + (ac.invertDir ? -raw : raw);
+                    targetMm = ac.centerPos + (ac.telemetryInvert ? -raw : raw);
                 }
                 if (ac.spikeFilterEnabled)
                     targetMm = applySpikeFilter(i, targetMm);
@@ -1229,12 +1239,12 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
                 {
                     double norm = (raw - TELEMETRY_CENTER) / TELEMETRY_CENTER;
                     targetMm = ac.centerPos + norm * (ac.strokeMm / 2.0);
-                    if (ac.invertDir)
+                    if (ac.telemetryInvert)
                         targetMm = ac.centerPos - (targetMm - ac.centerPos);
                 }
                 else
                 {
-                    targetMm = ac.centerPos + (ac.invertDir ? -raw : raw);
+                    targetMm = ac.centerPos + (ac.telemetryInvert ? -raw : raw);
                 }
 
                 if (ac.spikeFilterEnabled)
@@ -1398,11 +1408,11 @@ void MotionController::processHomingAxis(int i, A6Drive* drive, MotionOutput& ou
         return;
     }
 
-    // (A "gravity" homeMode used to short-circuit here: it declared the axis
+    // (A "gravity" parkMode used to short-circuit here: it declared the axis
     // homed at wherever it happened to be resting, with no search, on the
     // assumption that gravity had already parked a vertical actuator on its
     // bottom stop. It was a leftover from the PP-mode era, never exposed in the
-    // UI or documented, and unused. Removed: any unrecognised homeMode now falls
+    // UI or documented, and unused. Removed: any unrecognised parkMode now falls
     // through to the real torque-based endstop search below, which is the safe
     // direction -- an axis with no valid reference searches for one instead of
     // inventing one.)
@@ -1423,16 +1433,23 @@ void MotionController::processHomingAxis(int i, A6Drive* drive, MotionOutput& ou
     if (hs == HomingSequence::State::Complete)
     {
         double homeOffset = m_homing[i].getHomeOffset();
-        drive->setHomeOffset(homeOffset);
+        double frameSign  = m_homing[i].getFrameSign();
+        drive->setHomeOffset(homeOffset, frameSign);
 
-        RT_LOG_INFO("MotionController: Axis %d home offset applied: %.3f",
-            i + 1, homeOffset);
+        RT_LOG_INFO("MotionController: Axis %d home frame applied: offset=%.3f sign=%+.0f",
+            i + 1, homeOffset, frameSign);
 
-        // Update drive limits to the offset coordinate system:
-        // After homing, position 0.0 = backoff, strokeMm = full extension
-        drive->setLimits(ac.minPos + homeOffset, ac.maxPos + homeOffset);
+        // Update drive limits to the homed coordinate window. The engineering
+        // window is always [minPos, maxPos] away from the stop; in raw terms
+        // its endpoints are offset + sign*minPos and offset + sign*maxPos,
+        // which ORDER-SWAP when the frame is reversed -- min/max them, or a
+        // positive-direction home would place the clamp window entirely on the
+        // far side of the stop (the exact overtravel it exists to prevent).
+        const double rawA = homeOffset + frameSign * ac.minPos;
+        const double rawB = homeOffset + frameSign * ac.maxPos;
+        drive->setLimits(std::min(rawA, rawB), std::max(rawA, rawB));
         RT_LOG_INFO("MotionController: Axis %d drive limits updated to [%.3f, %.3f] (absolute)",
-            i + 1, ac.minPos + homeOffset, ac.maxPos + homeOffset);
+            i + 1, std::min(rawA, rawB), std::max(rawA, rawB));
 
         rt.homed = true;
         double actualPos = drive->getActualPosition();

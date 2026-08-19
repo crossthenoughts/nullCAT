@@ -14,7 +14,7 @@ const vLoop=$('v-loop'), vEc=$('v-ec'), vRate=$('v-rate'), vCyc=$('v-cyc'),
 const btn={ init:$('btn-init'),start:$('btn-start'),stop:$('btn-stop'),home:$('btn-home'),
   park:$('btn-park'),belts:$('btn-belts'),fault:$('btn-fault'),restart:$('btn-restart'),shutdown:$('btn-shutdown'),estop:$('btn-estop'),release:$('btn-release') };
 
-let lastRecvMs=0, jpeak=0, ecatMode='init', parkMode='park', beltsSlack=false;  // ecatMode/parkMode/beltsSlack: what those buttons do now
+let lastRecvMs=0, jpeak=0, ecatMode='init', parkBtnMode='park', beltsSlack=false;  // ecatMode/parkBtnMode/beltsSlack: what those buttons do now (parkBtnMode is button state, NOT the parkMode config field)
 const SPARK_N=60; const jbuf=new Float32Array(SPARK_N); let jhead=0, jfill=0;
 const peaks={};   // per-drive sticky {vel,trq}
 
@@ -101,7 +101,7 @@ function applyState(s){
   btn.home.disabled=!running||estop||settling;
   // Park toggles to Unpark once all axes are parked (no rehome needed to resume).
   const parked=!!s.parked;
-  parkMode=parked?'unpark':'park';
+  parkBtnMode=parked?'unpark':'park';
   btn.park.textContent=parked?'Unpark All':'Park All';
   btn.park.disabled=!running||estop;
   btn.park.classList.toggle('btn-start',parked);  // green-ish when it will resume motion
@@ -277,7 +277,7 @@ btn.init.onclick=()=>{
 };
 btn.start.onclick=()=>postCmd('/api/start');
 btn.stop.onclick=()=>postCmd('/api/stop'); btn.home.onclick=()=>postCmd('/api/home');
-btn.park.onclick=()=>postCmd(parkMode==='unpark'?'/api/unpark':'/api/park'); btn.fault.onclick=()=>postCmd('/api/reset-fault');
+btn.park.onclick=()=>postCmd(parkBtnMode==='unpark'?'/api/unpark':'/api/park'); btn.fault.onclick=()=>postCmd('/api/reset-fault');
 btn.belts.onclick=()=>postCmd(beltsSlack?'/api/belts/tension':'/api/belts/slack');
 btn.estop.onclick=()=>postCmd('/api/estop'); btn.release.onclick=()=>postCmd('/api/estop/release');
 btn.restart.onclick=()=>{ if(confirm('Restart the application?')) postCmd('/api/restart'); };
@@ -541,7 +541,7 @@ async function saveConfig(){
 const AXIS_SPEC=[
   {k:'name',label:'Name',type:'text'},
   {k:'axisType',label:'Type',type:'select',opts:['linear_vertical','linear_horizontal','belt']},
-  {k:'invertDir',label:'Invert dir',type:'bool',pos:true},
+  {k:'invertDir',label:'Foldback',type:'bool',pos:true},
   {k:'mode',label:'Drive mode',type:'select',opts:['csp','pp','torque']},
   {k:'strokeMm',label:'Stroke',type:'num',min:1,max:2000,step:0.1,unit:'mm',pos:true},
   {k:'ballscrewPitch',label:'Screw pitch',type:'num',min:0.5,max:50,step:0.01,unit:'mm/rev',pos:true},
@@ -549,10 +549,10 @@ const AXIS_SPEC=[
   // Reduction shown in torque mode too: the strap sees motor torque x ratio, so it is
   // part of the SAFETY picture there (strap-side note + validation cap use it).
   {k:'reductionRatio',label:'Reduction',type:'select',opts:['1:1','1.5:1','2:1','3:1','4:1']},
-  {k:'homeDirection',label:'Home dir',type:'select',opts:['negative','positive'],pos:true},
-  {k:'homeMode',label:'Home mode',type:'select',opts:['center','endstop'],pos:true},
+  {k:'homeDirection',label:'Home stop (neg=retracted)',type:'select',opts:['negative','positive'],pos:true},
+  {k:'parkMode',label:'Park position',type:'select',opts:['center','endstop'],pos:true},
   {k:'homingBackoffMm',label:'Home backoff',type:'num',min:0.1,max:20,step:0.01,unit:'mm',pos:true},
-  {k:'homingSpeedMmS',label:'Home speed',type:'num',min:1,max:5000,step:1,unit:'cmd',pos:true},
+  {k:'homingSpeed',label:'Home speed',type:'num',min:1,max:5000,step:1,unit:'cmd',pos:true},
   {k:'homingTorquePct',label:'Home torque',type:'num',min:5,max:100,step:1,unit:'%',pos:true},
   {k:'maxVelocityMmS',label:'Max vel',type:'num',min:1,max:10000,step:1,unit:'mm/s',pos:true},
   {k:'maxAccelerationMmS2',label:'Max accel',type:'num',min:1,max:100000,step:1,unit:'mm/s²',pos:true},

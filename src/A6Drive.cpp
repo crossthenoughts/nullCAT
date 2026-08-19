@@ -450,8 +450,9 @@ void A6Drive::setTargetPosition(double engineeringUnits)
 {
     if (!m_pTargetPosition) return;
 
-    // Apply home offset: caller's 0.0 = backoff position
-    double absolute = engineeringUnits + m_homeOffset;
+    // Apply the home frame: caller's 0.0 = backoff position, and the sign
+    // orients engineering away from the homed stop (see setHomeOffset).
+    double absolute = m_homeOffset + m_frameSign * engineeringUnits;
 
     // Clamp to configured limits
     double clamped = std::max(m_minPos, std::min(m_maxPos, absolute));
@@ -566,7 +567,7 @@ double A6Drive::getActualPosition() const
 {
     if (!m_pActualPosition)
         return m_simActualPos;
-    return countsToUnits(m_lastActualCounts) - m_homeOffset;
+    return m_frameSign * (countsToUnits(m_lastActualCounts) - m_homeOffset);
 }
 
 // ============================================================

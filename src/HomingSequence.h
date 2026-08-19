@@ -44,15 +44,35 @@ public:
 
     HomingSequence() = default;
 
+    // Raw-frame direction of the homing search, derived from the axis mechanics
+    // and the (rare) far-side override -- the ONE place this is computed:
+    //
+    //   invertDir      false = inline actuator (retract = raw positive)
+    //                  true  = foldback linkage (retract = raw negative)
+    //   homeDirection  "negative" (default) = home to the RETRACTED stop
+    //                  "positive"           = home to the EXTENDED stop
+    //                  (travel-frame names: negative travel = retract)
+    //
+    // The frame sign the axis runs under afterwards is the opposite of this
+    // (engineering increases AWAY from whichever stop was homed), so even a
+    // wrong invertDir only homes to the unintended end -- the frame is still
+    // built away from the stop that was actually found, and the axis cannot
+    // be commanded through it.
+    static double searchSign(bool invertDir, const std::string& homeDirection)
+    {
+        const double retractRaw = invertDir ? -1.0 : 1.0;
+        return (homeDirection == "positive") ? -retractRaw : retractRaw;
+    }
+
     void configure(const DriveConfig& cfg, double cycleTimeSec)
     {
         m_backoffMm = cfg.homingBackoffMm;
-        m_speedMmS = cfg.homingSpeedMmS;
+        m_speedMmS = cfg.homingSpeed;
         m_torquePct = cfg.homingTorquePct;
         m_homeDir  = cfg.homeDirection;
         m_cycleTimeSec = cycleTimeSec;
         m_state = State::Idle;
-        m_dirSign = (cfg.homeDirection == "negative") ? -1.0 : 1.0;
+        m_dirSign = searchSign(cfg.invertDir, cfg.homeDirection);
         m_seatMode = false;   // normal homing unless start(seatMode=true) is used
         // Abort torque search if travel exceeds 1.5x configured stroke. The
         // stroke itself is kept so a timeout can report how far the search got
@@ -429,6 +449,9 @@ public:
     bool        isFatalError()   const { return m_state == State::FatalError; }
     double      getHardstopPos() const { return m_hardstopPos; }
     double      getHomeOffset()  const { return m_homeOffset; }
+    // Frame sign for A6Drive::setHomeOffset(): opposite of the search
+    // direction, so engineering increases away from the homed stop.
+    double      getFrameSign()   const { return -m_dirSign; }
     int         getCycleCount()  const { return m_cycleCount; }
 
     static std::string stateName(State s)

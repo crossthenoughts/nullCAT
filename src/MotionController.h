@@ -208,6 +208,10 @@ private:
     {
         double  strokeMm          = 100.0;
         bool        invertDir     = false;
+        // Effective telemetry polarity: invertDir (linkage reversal) XOR
+        // homed-extended (frame reversal). Computed once in configure() so the
+        // RT path composes the two signs without re-deriving them per cycle.
+        bool        telemetryInvert = false;
         std::string axisType      = "linear_vertical";
         double  countsPerMm       = 100.0;
         double  maxVelocityMmS    = 200.0;
@@ -237,9 +241,9 @@ private:
         double  onlineHoldTimeoutSec = 15.0;  // total stale-telemetry hold before park
         bool    spikeFilterEnabled= false;
         double  spikeMaxMm        = 5.0;
-        std::string homeMode      = "center";
+        std::string parkMode      = "center";
         double  homingBackoffMm   = 1.5;
-        double  homingSpeedMmS    = 5.0;
+        double  homingSpeed    = 5.0;
         int     homingTorquePct   = 25;
         std::string homeDirection = "negative";
         double  minPos            = 0.0;

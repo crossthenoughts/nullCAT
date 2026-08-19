@@ -51,9 +51,17 @@ struct DriveConfig
 
     // Homing
     std::string homeDirection     = "negative";
-    std::string homeMode          = "endstop";
+    // parkMode selects the PARK position only; it has no effect on homing,
+    // which always runs the torque search in homeDirection. "center" parks at
+    // mid-stroke, anything else parks at homingBackoffMm. (Was "homeMode"
+    // until 0.9.2, which read as though it chose how the axis homed.)
+    std::string parkMode          = "endstop";
     double  homingBackoffMm   = 1.5;
-    double  homingSpeedMmS    = 250.0;   // mm/s - too-slow homing (e.g. 8) faults
+    // NOT true mm/s: a per-cycle step multiplier applied against a fixed
+    // reference dt, so the achieved speed also depends on loop rate and drive
+    // gain (see HomingSequence::homingStepMm). Too low a value can exhaust the
+    // search timeout on a long axis.
+    double  homingSpeed    = 250.0;
     int     homingTorquePct   = 25;
 
     // Motion limits

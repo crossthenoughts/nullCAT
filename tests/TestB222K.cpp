@@ -62,7 +62,7 @@ static AppConfig makeSimConfig(int hz)
     d.ballscrewPitch = 5.0;
     d.countsPerMm = 2000.0;
     d.strokeMm = 100.0;
-    d.homingSpeedMmS = 5.0;
+    d.homingSpeed = 5.0;
     cfg.drives.push_back(d);
     return cfg;
 }

@@ -142,14 +142,29 @@ public:
     bool isHomingError()     const;
     void stopHoming();
 
-    // ---- Software home offset ----
-    // After homing, call setHomeOffset() with the raw position at the
-    // backoff point. All subsequent get/setTargetPosition calls will
-    // apply this offset so that position 0.0 = backoff position.
-    virtual void   setHomeOffset(double offsetUnits) { m_homeOffset = offsetUnits; m_homeOffsetSet = true; }
+    // ---- Software home frame (offset + direction) ----
+    // After homing, call setHomeOffset() with the raw position at the backoff
+    // point and the frame sign. The engineering frame is:
+    //     raw = homeOffset + frameSign * engineering
+    //     eng = frameSign * (raw - homeOffset)
+    // frameSign is chosen by homing as the OPPOSITE of the search direction, so
+    // engineering position 0.0 is the backoff point and engineering ALWAYS
+    // increases away from the homed stop -- regardless of which raw direction
+    // the search ran. This is the single place that invariant lives; nothing
+    // above this class may reason about raw direction. (Before 0.9.2 the sign
+    // did not exist: the frame silently assumed a raw-negative search, and a
+    // positive-direction home produced a frame pointing INTO the hardstop --
+    // homing succeeded, then unpark drove through the stop.)
+    virtual void   setHomeOffset(double offsetUnits, double frameSign = 1.0)
+    {
+        m_homeOffset = offsetUnits;
+        m_frameSign  = (frameSign < 0.0) ? -1.0 : 1.0;
+        m_homeOffsetSet = true;
+    }
     virtual double getHomeOffset() const { return m_homeOffset; }
+    virtual double getFrameSign()  const { return m_frameSign; }
     virtual bool   isHomeOffsetSet() const { return m_homeOffsetSet; }
-    virtual void   clearHomeOffset() { m_homeOffset = 0.0; m_homeOffsetSet = false; }
+    virtual void   clearHomeOffset() { m_homeOffset = 0.0; m_frameSign = 1.0; m_homeOffsetSet = false; }
 
     // Position access WITH offset applied (normal operation)
     virtual void   setTargetPosition(double engineeringUnits);
@@ -262,6 +277,7 @@ private:
 
     // Software home offset
     double m_homeOffset = 0.0;
+    double m_frameSign  = 1.0;   // +1: eng increases with raw; -1: reversed (positive-direction home)
     bool   m_homeOffsetSet = false;
 
     // Rate limiter

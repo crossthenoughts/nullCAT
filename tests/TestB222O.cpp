@@ -154,9 +154,9 @@ private slots:
         // also pins the reduction-ratio factor.
         d.countsPerMm                  = 65536.0 / 8.0 * 3.0;
         d.homeDirection                = "positive";
-        d.homeMode                     = "endstop";
+        d.parkMode                     = "endstop";
         d.homingBackoffMm              = 2.7;
-        d.homingSpeedMmS               = 12.0;
+        d.homingSpeed               = 12.0;
         d.homingTorquePct              = 40;
         d.maxVelocityMmS               = 333.0;
         d.maxAccelerationMmS2          = 4242.0;
@@ -189,9 +189,9 @@ private slots:
         QCOMPARE(b.countsPerMm,                d.countsPerMm);
         QCOMPARE(b.reductionRatio,             d.reductionRatio);
         QCOMPARE(b.homeDirection,              d.homeDirection);
-        QCOMPARE(b.homeMode,                   d.homeMode);
+        QCOMPARE(b.parkMode,                   d.parkMode);
         QCOMPARE(b.homingBackoffMm,            d.homingBackoffMm);
-        QCOMPARE(b.homingSpeedMmS,             d.homingSpeedMmS);
+        QCOMPARE(b.homingSpeed,             d.homingSpeed);
         QCOMPARE(b.homingTorquePct,            d.homingTorquePct);
         QCOMPARE(b.maxVelocityMmS,             d.maxVelocityMmS);
         QCOMPARE(b.maxAccelerationMmS2,        d.maxAccelerationMmS2);

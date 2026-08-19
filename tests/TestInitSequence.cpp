@@ -34,11 +34,11 @@ static AppConfig makeTwoDriveConfig()
     d1.slaveIndex          = 1;
     d1.axisType            = "linear_vertical";
     d1.strokeMm            = 100.0;
-    d1.homingSpeedMmS      = 10.0;
+    d1.homingSpeed      = 10.0;
     d1.homingBackoffMm     = 1.5;
     d1.homingTorquePct     = 25;
     d1.homeDirection       = "negative";
-    d1.homeMode            = "endstop";
+    d1.parkMode            = "endstop";
     d1.maxVelocityMmS      = 200.0;
     d1.maxAccelerationMmS2 = 2000.0;
     d1.maxJerkMmS3         = 20000.0;

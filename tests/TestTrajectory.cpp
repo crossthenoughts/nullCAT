@@ -39,11 +39,11 @@ static AppConfig makeTrajectoryConfig(double maxVelMmS     = 200.0,
     dc.slaveIndex           = 1;
     dc.axisType             = "linear_vertical";
     dc.strokeMm             = strokeMm;
-    dc.homingSpeedMmS       = 50.0;    // fast homing
+    dc.homingSpeed       = 50.0;    // fast homing
     dc.homingBackoffMm      = 1.5;
     dc.homingTorquePct      = 25;
     dc.homeDirection        = "negative";
-    dc.homeMode             = "endstop";
+    dc.parkMode             = "endstop";
     dc.maxVelocityMmS       = maxVelMmS;
     dc.maxAccelerationMmS2  = 2000.0;
     dc.maxJerkMmS3          = 20000.0;
@@ -116,7 +116,7 @@ private slots:
 
         MockA6Drive mock;
         mock.configure(1, 0.0, 0.5);
-        mock.setHardstop(-50.0, true, 50.0);
+        mock.setHardstop(50.0, false, 50.0);   // inline fixture: retract = raw positive, stop at +50 (reversed frame)
 
         int c = driveToOnline(mc, &mock, 5000);
         QVERIFY2(c > 0, "Did not reach ONLINE before velocity test");
@@ -160,7 +160,7 @@ private slots:
 
         MockA6Drive mock;
         mock.configure(1, 0.0, 0.5);
-        mock.setHardstop(-50.0, true, 50.0);
+        mock.setHardstop(50.0, false, 50.0);   // inline fixture: retract = raw positive, stop at +50 (reversed frame)
 
         int c = driveToOnline(mc, &mock, 5000);
         QVERIFY2(c > 0, "Did not reach ONLINE");
@@ -200,7 +200,7 @@ private slots:
 
         MockA6Drive mock;
         mock.configure(1, 0.0, 0.5);
-        mock.setHardstop(-50.0, true, 50.0);
+        mock.setHardstop(50.0, false, 50.0);   // inline fixture: retract = raw positive, stop at +50 (reversed frame)
 
         int c = driveToOnline(mc, &mock, 5000);
         QVERIFY2(c > 0, "Did not reach ONLINE");
@@ -239,7 +239,7 @@ private slots:
 
         MockA6Drive mock;
         mock.configure(1, 0.0, 0.5);
-        mock.setHardstop(-50.0, true, 50.0);
+        mock.setHardstop(50.0, false, 50.0);   // inline fixture: retract = raw positive, stop at +50 (reversed frame)
 
         // Homing puts the axis in BLENDING after completing.
         mc.startHoming();

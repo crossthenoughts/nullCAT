@@ -202,8 +202,8 @@ private slots:
     // ---- Axis defaults: a MISSING key must fall back to the compiled-in
     // DriveConfig default (Config.h), which is what CONFIG_REFERENCE promises.
     // The reader used to spell a second default into every call site, and three
-    // of them disagreed with the struct -- homeMode "center" vs "endstop",
-    // homingSpeedMmS 5 vs 250, maxAccelerationMmS2 2000 vs 10000 -- so an axis
+    // of them disagreed with the struct -- parkMode "center" vs "endstop",
+    // homingSpeed 5 vs 250, maxAccelerationMmS2 2000 vs 10000 -- so an axis
     // omitting them silently got the stale value. ----
     void axisDefaults_missingKeysUseStructDefaults()
     {
@@ -221,8 +221,8 @@ private slots:
 
         // The three that had diverged -- assert against the struct, not literals,
         // so this test keeps holding if the defaults are retuned later.
-        QCOMPARE(QString::fromStdString(d.homeMode), QString::fromStdString(def.homeMode));
-        QCOMPARE(d.homingSpeedMmS,      def.homingSpeedMmS);
+        QCOMPARE(QString::fromStdString(d.parkMode), QString::fromStdString(def.parkMode));
+        QCOMPARE(d.homingSpeed,      def.homingSpeed);
         QCOMPARE(d.maxAccelerationMmS2, def.maxAccelerationMmS2);
         // Spot-check the rest of the surface is untouched by the reader rewrite.
         QCOMPARE(QString::fromStdString(d.axisType),     QString::fromStdString(def.axisType));
@@ -244,6 +244,43 @@ private slots:
 
     // Explicit values must still win over the defaults (the rewrite must not
     // have turned any read into a no-op).
+    // parkMode/homingSpeed were homeMode/homingSpeedMmS until 0.9.2. A rig.json
+    // written before the rename must keep its values: falling back to the struct
+    // defaults would move where the axis parks and jump the homing speed, both
+    // silently.
+    void deprecatedKeys_homeModeAndHomingSpeedMmS_stillRead()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        writeText(dir.path() + "/host.json", "{ \"controlLoopHz\": 500 }\n");
+        writeText(dir.path() + "/rig.json",
+            "{ \"configVersion\": 2, \"numDrives\": 1, \"global\": {},"
+            "  \"axes\": [ { \"slaveIndex\": 1, \"axisType\": \"linear_horizontal\","
+            "                \"homeMode\": \"center\", \"homingSpeedMmS\": 8.0 } ] }\n");
+
+        Config cfg; QVERIFY(cfg.load(anchor(dir).toStdString()));
+        const DriveConfig& d = cfg.get().drives[0];
+        QCOMPARE(QString::fromStdString(d.parkMode), QString("center"));
+        QCOMPARE(d.homingSpeed, 8.0);
+    }
+
+    // Both spellings present: the current name wins, so a file mid-migration is
+    // not decided by key order.
+    void deprecatedKeys_newNameWinsOverOld()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        writeText(dir.path() + "/host.json", "{ \"controlLoopHz\": 500 }\n");
+        writeText(dir.path() + "/rig.json",
+            "{ \"configVersion\": 2, \"numDrives\": 1, \"global\": {},"
+            "  \"axes\": [ { \"slaveIndex\": 1,"
+            "                \"homeMode\": \"endstop\", \"parkMode\": \"center\","
+            "                \"homingSpeedMmS\": 8.0, \"homingSpeed\": 42.0 } ] }\n");
+
+        Config cfg; QVERIFY(cfg.load(anchor(dir).toStdString()));
+        const DriveConfig& d = cfg.get().drives[0];
+        QCOMPARE(QString::fromStdString(d.parkMode), QString("center"));
+        QCOMPARE(d.homingSpeed, 42.0);
+    }
+
     void axisDefaults_explicitValuesStillWin()
     {
         QTemporaryDir dir; QVERIFY(dir.isValid());
@@ -252,8 +289,8 @@ private slots:
             "{ \"configVersion\": 2, \"numDrives\": 1, \"global\": {},"
             "  \"axes\": [ { \"slaveIndex\": 3, \"name\": \"Belt\","
             "                \"mode\": \"cst\", \"axisType\": \"linear_horizontal\","
-            "                \"homeMode\": \"center\", \"homeDirection\": \"positive\","
-            "                \"strokeMm\": 175.5, \"homingSpeedMmS\": 12.0,"
+            "                \"parkMode\": \"center\", \"homeDirection\": \"positive\","
+            "                \"strokeMm\": 175.5, \"homingSpeed\": 12.0,"
             "                \"maxAccelerationMmS2\": 4242.0, \"invertDir\": true,"
             "                \"spikeFilterEnabled\": true, \"homingTorquePct\": 40 } ] }\n");
 
@@ -263,10 +300,10 @@ private slots:
         QCOMPARE(QString::fromStdString(d.name), QString("Belt"));
         QCOMPARE(QString::fromStdString(d.mode), QString("torque"));   // "cst" normalised
         QCOMPARE(QString::fromStdString(d.axisType), QString("linear_horizontal"));
-        QCOMPARE(QString::fromStdString(d.homeMode), QString("center"));
+        QCOMPARE(QString::fromStdString(d.parkMode), QString("center"));
         QCOMPARE(QString::fromStdString(d.homeDirection), QString("positive"));
         QCOMPARE(d.strokeMm,            175.5);
-        QCOMPARE(d.homingSpeedMmS,      12.0);
+        QCOMPARE(d.homingSpeed,      12.0);
         QCOMPARE(d.maxAccelerationMmS2, 4242.0);
         QCOMPARE(d.homingTorquePct,     40);
         QCOMPARE(d.invertDir,           true);

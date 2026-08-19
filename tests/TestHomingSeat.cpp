@@ -42,9 +42,10 @@ static DriveConfig makeCfg()
 {
     DriveConfig c;
     c.homeDirection  = "negative";   // search downward (toward the min/bottom stop)
+    c.invertDir      = true;         // foldback fixture: retract = raw negative (see TestHomingSequence)
     c.homingTorquePct = 25;          // the rig's threshold
     c.homingBackoffMm = 1.0;         // normal homing backs off 1.0mm; seat must NOT
-    c.homingSpeedMmS  = 50.0;
+    c.homingSpeed  = 50.0;
     c.strokeMm        = 80.0;
     return c;
 }

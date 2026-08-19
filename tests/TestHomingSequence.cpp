@@ -28,8 +28,13 @@ static DriveConfig makeConfig(const std::string& dir = "negative",
 {
     DriveConfig c;
     c.homeDirection    = dir;
+    // Foldback fixture (retract = raw negative), matching the reference rig.
+    // Keeps the raw-negative search these tests were built around now that the
+    // search direction derives from invertDir; homeDirection is the travel-
+    // frame stop selector ("negative" = retracted stop, "positive" = extended).
+    c.invertDir        = true;
     c.strokeMm         = strokeMm;
-    c.homingSpeedMmS   = speedMmS;
+    c.homingSpeed   = speedMmS;
     c.homingBackoffMm  = backoffMm;
     c.homingTorquePct  = torquePct;
     return c;
@@ -92,6 +97,36 @@ private slots:
 
         // Hardstop position recorded
         QVERIFY(std::abs(hs.getHardstopPos() - (-50.0)) < 0.2);
+
+        // Foldback + retract home: frame sign +1 (engineering increases with
+        // raw, away from the low stop) -- the exact pre-0.9.2 behaviour, pinned.
+        QCOMPARE(hs.getFrameSign(), 1.0);
+    }
+
+    // ---- Inline axis: retract = raw POSITIVE ----
+    // invertDir=false must search raw-positive and hand back a reversed frame
+    // sign, so engineering still increases away from the (high-raw) stop. On
+    // pre-0.9.2 code the frame had no sign: homing succeeded and the axis was
+    // then commanded THROUGH the stop on unpark. This is the engine half of
+    // that regression test (the unpark half lives in TestMotionController).
+    void inlineRetractHoming_searchesRawPositive_reversedFrame()
+    {
+        MockA6Drive mock;
+        mock.configure(1, 0.0, 0.05);
+        mock.setHardstop(50.0, /*isMinLimit=*/false, 50.0);   // retracted stop at +50mm raw
+
+        DriveConfig cfg = makeConfig("negative");   // negative = RETRACT (travel frame)
+        cfg.invertDir = false;                      // inline: retract = raw positive
+        HomingSequence hs;
+        hs.configure(cfg, 0.01);
+        hs.start(&mock);
+
+        HomingSequence::State s = runUntilDone(hs, &mock, 3500);
+
+        QCOMPARE((int)s, (int)HomingSequence::State::Complete);
+        QVERIFY(std::abs(hs.getHardstopPos() - 50.0) < 0.2);
+        QVERIFY(std::abs(hs.getHomeOffset() - 48.5) < 0.2);   // backed off BELOW the stop
+        QCOMPARE(hs.getFrameSign(), -1.0);
     }
 
     // ---- P2-2-2: Torque search timeout → FatalError ----
@@ -254,6 +289,10 @@ private slots:
         QCOMPARE((int)s, (int)HomingSequence::State::Complete);
         // Hardstop near +50mm
         QVERIFY(std::abs(hs.getHardstopPos() - 50.0) < 0.5);
+        // Foldback homed to the EXTENDED stop (the park-extended use case):
+        // search ran raw-positive, so the frame reverses -- engineering still
+        // increases away from the stop that was homed.
+        QCOMPARE(hs.getFrameSign(), -1.0);
     }
 
     // ---- P3-1: Stroke limit fires FatalError when no hardstop found ----

@@ -29,11 +29,12 @@ static AppConfig makeSingleAxisConfig()
     dc.slaveIndex           = 1;
     dc.axisType             = "linear_vertical";
     dc.strokeMm             = 100.0;
-    dc.homingSpeedMmS       = 400.0;  // harness speed: step = speed*REF_DT(0.0005); pre-redesign tests assumed speed*0.01
+    dc.homingSpeed       = 400.0;  // harness speed: step = speed*REF_DT(0.0005); pre-redesign tests assumed speed*0.01
     dc.homingBackoffMm      = 1.5;
     dc.homingTorquePct      = 25;
     dc.homeDirection        = "negative";
-    dc.homeMode             = "endstop";    // parkPos = 1.5mm
+    dc.invertDir            = true;   // foldback fixture: retract = raw negative (see TestHomingSequence)
+    dc.parkMode             = "endstop";    // parkPos = 1.5mm
     dc.maxVelocityMmS       = 200.0;
     dc.maxAccelerationMmS2  = 2000.0;
     dc.maxJerkMmS3          = 20000.0;
@@ -356,11 +357,12 @@ private slots:
             dc.slaveIndex           = ax + 1;
             dc.axisType             = "linear_vertical";
             dc.strokeMm             = 100.0;
-            dc.homingSpeedMmS       = 1000.0;  // harness speed: step = speed*REF_DT(0.0005); pre-redesign tests assumed speed*0.01
+            dc.homingSpeed       = 1000.0;  // harness speed: step = speed*REF_DT(0.0005); pre-redesign tests assumed speed*0.01
             dc.homingBackoffMm      = 1.5;
             dc.homingTorquePct      = 25;
             dc.homeDirection        = "negative";
-            dc.homeMode             = "endstop";
+            dc.invertDir            = true;   // foldback fixture: retract = raw negative (see TestHomingSequence)
+            dc.parkMode             = "endstop";
             dc.maxVelocityMmS       = 200.0;
             dc.maxAccelerationMmS2  = 2000.0;
             dc.maxJerkMmS3          = 20000.0;

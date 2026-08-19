@@ -173,9 +173,9 @@ static void writeDriveConfig(const DriveConfig& d, QJsonObject& obj)
     obj["countsPerMm"]               = d.countsPerMm;
     obj["reductionRatio"]            = QString::fromStdString(d.reductionRatio);
     obj["homeDirection"]             = QString::fromStdString(d.homeDirection);
-    obj["homeMode"]                  = QString::fromStdString(d.homeMode);
+    obj["parkMode"]                  = QString::fromStdString(d.parkMode);
     obj["homingBackoffMm"]           = d.homingBackoffMm;
-    obj["homingSpeedMmS"]            = d.homingSpeedMmS;
+    obj["homingSpeed"]            = d.homingSpeed;
     obj["homingTorquePct"]           = d.homingTorquePct;
     obj["maxVelocityMmS"]            = d.maxVelocityMmS;
     obj["maxAccelerationMmS2"]       = d.maxAccelerationMmS2;
@@ -204,8 +204,8 @@ static void writeDriveConfig(const DriveConfig& d, QJsonObject& obj)
 //
 // The previous form spelled a default into every call site
 // (obj.value(k).toDouble(2000.0)), creating a SECOND set of defaults that was
-// free to drift from the struct -- and had: homeMode "center" vs "endstop",
-// homingSpeedMmS 5 vs 250, maxAccelerationMmS2 2000 vs 10000. An axis missing
+// free to drift from the struct -- and had: parkMode "center" vs "endstop",
+// homingSpeed 5 vs 250, maxAccelerationMmS2 2000 vs 10000. An axis missing
 // those keys silently got the stale value, defeating the configured default
 // and contradicting CONFIG_REFERENCE ("missing keys fall back to compiled-in
 // defaults"). Passing the current value as the fallback also means a null or
@@ -240,9 +240,15 @@ static void readDriveConfig(const QJsonObject& obj, int idx, DriveConfig& d)
     rdDbl (obj, "encoderCountsPerRev",    d.encoderCountsPerRev);
     rdStr (obj, "reductionRatio",         d.reductionRatio);
     rdStr (obj, "homeDirection",          d.homeDirection, true);
-    rdStr (obj, "homeMode",               d.homeMode, true);
+    // parkMode was called homeMode until 0.9.2. Read the old key first so an
+    // existing rig.json keeps its park position, then let the new key win if
+    // both are present. Without this the field would silently fall back to the
+    // struct default and move where the axis parks.
+    rdStr (obj, "homeMode",               d.parkMode, true);   // deprecated alias
+    rdStr (obj, "parkMode",               d.parkMode, true);
     rdDbl (obj, "homingBackoffMm",        d.homingBackoffMm);
-    rdDbl (obj, "homingSpeedMmS",         d.homingSpeedMmS);
+    rdDbl (obj, "homingSpeedMmS",      d.homingSpeed);        // deprecated alias (see parkMode above)
+    rdDbl (obj, "homingSpeed",         d.homingSpeed);
     rdInt (obj, "homingTorquePct",        d.homingTorquePct);
     rdDbl (obj, "maxVelocityMmS",         d.maxVelocityMmS);
     rdDbl (obj, "maxAccelerationMmS2",    d.maxAccelerationMmS2);
@@ -665,16 +671,16 @@ std::vector<std::string> AppConfig::validate() const
         else if (d.maxVelocityMmS > 10000.0)
             errors.push_back(pfx + "maxVelocityMmS must be <= 10000");
 
-        if (d.homingSpeedMmS <= 0.0)
-            errors.push_back(pfx + "homingSpeedMmS must be > 0");
+        if (d.homingSpeed <= 0.0)
+            errors.push_back(pfx + "homingSpeed must be > 0");
 
-        // homingSpeedMmS is a homing-command number, not true mm/s (the achieved
+        // homingSpeed is a homing-command number, not true mm/s (the achieved
         // homing velocity is the drive's position-loop gain x per-cycle step, see
         // HomingSequence::homingStepMm). So it is NOT bounded by maxVelocityMmS;
         // the per-cycle following error is hard-capped by HOMING_MAX_STEP_MM
         // instead. Keep only a generous sanity ceiling here.
-        if (d.homingSpeedMmS > 5000.0)
-            errors.push_back(pfx + "homingSpeedMmS must be <= 5000");
+        if (d.homingSpeed > 5000.0)
+            errors.push_back(pfx + "homingSpeed must be <= 5000");
 
         if (d.homingTorquePct < 1 || d.homingTorquePct > 100)
             errors.push_back(pfx + "homingTorquePct=" +

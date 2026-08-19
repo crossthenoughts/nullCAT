@@ -44,11 +44,12 @@ static DriveConfig makeHomingConfig(double strokeMm = 100.0,
     c.slaveIndex          = 1;
     c.axisType            = "linear_vertical";
     c.strokeMm            = strokeMm;
-    c.homingSpeedMmS      = 5.0;
+    c.homingSpeed      = 5.0;
     c.homingBackoffMm     = 1.5;
     c.homingTorquePct     = 25;
     c.homeDirection       = dir;
-    c.homeMode            = "endstop";
+    c.invertDir           = true;   // foldback fixture: retract = raw negative (see TestHomingSequence)
+    c.parkMode            = "endstop";
     c.maxVelocityMmS      = 200.0;
     c.maxAccelerationMmS2 = 2000.0;
     c.maxJerkMmS3         = 20000.0;

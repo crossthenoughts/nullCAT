@@ -51,6 +51,7 @@ public:
         m_faultResetStep  = 0;
         m_hardstopActive        = false;
         m_mockHomeOffset        = 0.0;
+        m_mockFrameSign         = 1.0;
         m_mockHomeOffsetSet     = false;
         m_fraInjected           = false;
         m_useIntermediateStates = false;
@@ -197,28 +198,31 @@ public:
     double getActualPositionRaw() const override { return m_actualPos; }
     void   setTargetPositionRaw(double pos) override { m_targetPos = pos; }
 
-    // ---- Position (with home offset, used post-homing) ----
+    // ---- Position (with home frame, used post-homing) ----
+    // Mirrors A6Drive's frame exactly: raw = offset + sign * eng.
 
     double getActualPosition() const override
     {
-        return m_actualPos - m_mockHomeOffset;
+        return m_mockFrameSign * (m_actualPos - m_mockHomeOffset);
     }
 
     void setTargetPosition(double eu) override
     {
-        m_targetPos = eu + m_mockHomeOffset;
+        m_targetPos = m_mockHomeOffset + m_mockFrameSign * eu;
     }
 
-    // ---- Home offset ----
+    // ---- Home frame ----
 
-    void   setHomeOffset(double offsetUnits) override
+    void   setHomeOffset(double offsetUnits, double frameSign = 1.0) override
     {
         m_mockHomeOffset    = offsetUnits;
+        m_mockFrameSign     = (frameSign < 0.0) ? -1.0 : 1.0;
         m_mockHomeOffsetSet = true;
     }
     double getHomeOffset()   const override { return m_mockHomeOffset; }
+    double getFrameSign()    const override { return m_mockFrameSign; }
     bool   isHomeOffsetSet() const override { return m_mockHomeOffsetSet; }
-    void   clearHomeOffset() override { m_mockHomeOffset = 0.0; m_mockHomeOffsetSet = false; }
+    void   clearHomeOffset() override { m_mockHomeOffset = 0.0; m_mockFrameSign = 1.0; m_mockHomeOffsetSet = false; }
 
     // ---- Torque ----
 
@@ -306,6 +310,7 @@ private:
 
     // Home offset (separate from A6Drive's private members -- those aren't accessible)
     double m_mockHomeOffset    = 0.0;
+    double m_mockFrameSign     = 1.0;
     bool   m_mockHomeOffsetSet = false;
 
     // setLimits call tracking (for test assertions)

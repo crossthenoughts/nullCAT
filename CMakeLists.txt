@@ -416,6 +416,10 @@ endmacro()
 # ---- P2-2: HomingSequence unit tests ----
 add_motion_test(TestHomingSequence tests/TestHomingSequence.cpp)
 
+# ---- Deinit seat-mode regression (was Pi-only; PC-3) -- the seat core
+# compiles into the PC binary, so it runs here too ----
+add_motion_test(TestHomingSeat tests/TestHomingSeat.cpp)
+
 # ---- P2-3: MotionController state machine tests ----
 add_motion_test(TestMotionController tests/TestMotionController.cpp)
 

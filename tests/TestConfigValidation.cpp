@@ -27,7 +27,7 @@ private:
         DriveConfig dc;
         dc.strokeMm         = 100.0;
         dc.homingBackoffMm  = 1.5;
-        dc.homingSpeedMmS   = 5.0;
+        dc.homingSpeed   = 5.0;
         dc.maxVelocityMmS   = 200.0;
         dc.maxAccelerationMmS2 = 500.0;
         dc.homingTorquePct  = 25;
