@@ -99,14 +99,14 @@ private slots:
         QVERIFY(std::abs(hs.getHardstopPos() - (-50.0)) < 0.2);
 
         // Foldback + retract home: frame sign +1 (engineering increases with
-        // raw, away from the low stop) -- the exact pre-0.9.3 behaviour, pinned.
+        // raw, away from the low stop) -- the exact pre-0.9.2 behaviour, pinned.
         QCOMPARE(hs.getFrameSign(), 1.0);
     }
 
     // ---- Inline axis: retract = raw POSITIVE ----
     // invertDir=false must search raw-positive and hand back a reversed frame
     // sign, so engineering still increases away from the (high-raw) stop. On
-    // pre-0.9.3 code the frame had no sign: homing succeeded and the axis was
+    // pre-0.9.2 code the frame had no sign: homing succeeded and the axis was
     // then commanded THROUGH the stop on unpark. This is the engine half of
     // that regression test (the unpark half lives in TestMotionController).
     void inlineRetractHoming_searchesRawPositive_reversedFrame()

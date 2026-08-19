@@ -244,7 +244,7 @@ private slots:
 
     // Explicit values must still win over the defaults (the rewrite must not
     // have turned any read into a no-op).
-    // parkMode/homingSpeed were homeMode/homingSpeedMmS until 0.9.3. A rig.json
+    // parkMode/homingSpeed were homeMode/homingSpeedMmS until 0.9.2. A rig.json
     // written before the rename must keep its values: falling back to the struct
     // defaults would move where the axis parks and jump the homing speed, both
     // silently.
