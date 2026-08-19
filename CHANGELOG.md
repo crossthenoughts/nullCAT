@@ -6,6 +6,13 @@ middle number carries breaking changes and the last carries fixes.
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-08-19
+
+Multi-drive init made reliable, a coordinate-frame fix that makes it
+impossible to command an axis through its endstop, and honest names for the
+axis-direction settings. Rig-verified across a five-drive session: homing,
+unpark and telemetry response correct on both foldback and inline actuators.
+
 ### Fixed
 - **Multi-drive EtherCAT init no longer fails because one slave hesitated.**
   The OP request was a single broadcast: a slave that missed it or silently
@@ -158,6 +165,7 @@ headless daemon share one motion core.
   bindings), a compact Qt desktop panel on Windows, and an optional GPIO control
   panel on the Pi.
 
-[Unreleased]: https://github.com/crossthenoughts/nullCAT/compare/v0.9.1...main
+[Unreleased]: https://github.com/crossthenoughts/nullCAT/compare/v0.9.2...main
+[0.9.2]: https://github.com/crossthenoughts/nullCAT/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/crossthenoughts/nullCAT/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/crossthenoughts/nullCAT/releases/tag/v0.9.0
