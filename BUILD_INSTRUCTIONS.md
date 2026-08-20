@@ -31,19 +31,32 @@ sudo apt install cmake g++ qt6-base-dev libgpiod-dev
 
 ## SOEM (pinned tree)
 
-SOEM headers and library must come from the **same tree**. The generated
-`ec_options.h` sizes the context struct, so mixing headers from one tree with a
-library from another silently changes the struct layout (ABI mismatch). One pinned
-tree rules that out.
+SOEM is **not** bundled with this repository; you fetch and build it yourself.
+
+Check out the pinned revision below. It is the revision CI builds and the one
+the published binaries are built against. SOEM's `master` moves, and headers
+and library must come from the **same tree**: the generated `ec_options.h`
+sizes the context struct, so mixing headers from one tree with a library from
+another silently changes the struct layout (ABI mismatch) rather than failing
+loudly.
 
 ```bash
 git clone https://github.com/OpenEtherCATsociety/SOEM.git ~/SOEM
+cd ~/SOEM && git checkout b410bf6ef599d5c85302ea45cae5f55f8e9aa394
 cmake -S ~/SOEM -B ~/SOEM/build
 cmake --build ~/SOEM/build -j2
 ```
 
+> **On Linux, do NOT run `cmake --install`.** The Pi build reads the
+> **source+build tree** directly: headers from `<SOEM_ROOT>/include`, the
+> generated `ec_options.h` from `<SOEM_ROOT>/build/include`, the platform
+> layers from `<SOEM_ROOT>/osal` and `<SOEM_ROOT>/oshw/linux`, and
+> `libsoem.a` from `<SOEM_ROOT>/build`. An install prefix does not contain
+> that layout. **This is the opposite of the Windows build**, which points
+> `SOEM_ROOT` at an install prefix; see the Windows section.
+
 The Pi build looks for the tree at `~/SOEM` by default (override with
-`-DSOEM_ROOT=`) and links `libsoem.a` straight from `<SOEM_ROOT>/build`.
+`-DSOEM_ROOT=`).
 
 ## Build
 
@@ -99,7 +112,7 @@ Default OFF keeps local builds fast; CI configures with it ON.
 | 1 | Visual Studio 2022 (C++ Desktop workload) |
 | 2 | CMake 3.20+ |
 | 3 | Qt 6.x (Qt 5.15+ also supported) |
-| 4 | SOEM (built from source, below) |
+| 4 | SOEM (fetched and built from source, below - not bundled with this repo) |
 | 5 | Npcap runtime **and** Npcap SDK (for SOEM raw Ethernet on Windows) |
 
 ## Step 1: Install Visual Studio 2022
@@ -150,13 +163,32 @@ You pass the SDK path to CMake as `-DNPCAP_SDK` in Step 6 (it defaults to
 
 Open a **x64 Native Tools Command Prompt for VS 2022** (Start Menu):
 
+SOEM is **not** bundled with this repository; you fetch and build it yourself.
+
 ```cmd
 git clone https://github.com/OpenEtherCATsociety/SOEM.git C:\libs\SOEM-src
 cd C:\libs\SOEM-src
+git checkout b410bf6ef599d5c85302ea45cae5f55f8e9aa394
 cmake -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 cmake --install build --prefix C:\libs\SOEM --config Release
 ```
+
+Check out the pinned revision above. It is the revision CI builds and the one
+the published binaries are built against. SOEM's `master` moves, and headers
+and library must come from the same tree: the generated `ec_options.h` sizes
+the context struct, so mixing versions silently changes the struct layout
+(ABI mismatch) rather than failing loudly.
+
+> **The last line is not optional, and the two paths are different.**
+> `C:\libs\SOEM-src` is the source checkout; `C:\libs\SOEM` is the install
+> prefix that `cmake --install` produces. **`-DSOEM_ROOT` must point at the
+> install prefix**, never at the source checkout. Several headers only exist
+> after installing: `ec_options.h` is generated from `ec_options.h.in` at
+> configure time, and `nicdrv.h` is placed under `include\soem\`. Pointing
+> `SOEM_ROOT` at the source checkout produces "cannot open source file"
+> errors for exactly those two files. (The Linux/Pi build does the opposite
+> and reads the source+build tree directly; do not carry that recipe over.)
 
 Expected layout after install:
 
@@ -355,6 +387,26 @@ the position layout. Use the vendor manual to inspect the object dictionary.
   `include\soem\soem.h` and `lib\soem.lib`, built for Release x64
 - Linux: ensure the pinned tree at `~/SOEM` (or `-DSOEM_ROOT`) contains a
   built `build/libsoem.a`
+
+### "cannot open source file soem/ec_options.h" or "nicdrv.h"
+On **Windows**, `SOEM_ROOT` is pointing at the SOEM **source checkout**
+instead of the **install prefix**. Neither header exists in the source tree
+in usable form: `ec_options.h` is generated from `ec_options.h.in` when SOEM
+is configured, and `nicdrv.h` is only placed under `include\soem\` by
+`cmake --install`. Run the install step from Step 5 and point `-DSOEM_ROOT`
+at the install prefix (`C:\libs\SOEM`), not the checkout
+(`C:\libs\SOEM-src`).
+
+On **Linux/Pi** the same symptom means the opposite: SOEM was not built, so
+`build/include/ec_options.h` was never generated. Run the two `cmake`
+commands from the SOEM section. Do not install on Linux; `SOEM_ROOT` is the
+source+build tree there.
+
+### SOEM builds but this project fails oddly, or the rig misbehaves
+Check you are on the pinned SOEM revision
+(`b410bf6ef599d5c85302ea45cae5f55f8e9aa394`). A different SOEM version can
+compile and link cleanly while sizing the context struct differently, which
+shows up as unexplained runtime behaviour rather than a build error.
 
 ---
 
