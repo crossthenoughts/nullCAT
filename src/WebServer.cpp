@@ -16,6 +16,7 @@
 #include "httplib.h"
 #include "Logging.h"
 #include "StatusModel.h"   // shared canonical status (additive emit)
+#include "A6FaultCodes.h"  // decoded fault names on the drive cards
 #include "SdoWorker.h"     // IGBT temp readout for the drive cards (OP-time round-robin poll)
 #include <vector>
 
@@ -416,7 +417,25 @@ std::string WebServer::buildStatusJson() const
            + ",\"text\":"    + jsonStr(ind.text)
            + ",\"fault\":"   + jsonBool(ind.fault)
            + ",\"cls\":"     + jsonStr(stl.webClass)
-           + ",\"pattern\":" + jsonStr(stl.pattern) + "}";
+           + ",\"pattern\":" + jsonStr(stl.pattern);
+        // Decoded fault identity (additive). Precise Er name when the
+        // recovery thread's one-shot 0x203F read has landed; otherwise the
+        // coarse 603F class + candidate list from the live PDO word.
+        if (ind.fault && hasSw)
+        {
+            A6Drive* dp = m_master->getDrive(i);
+            uint16_t bus   = dp ? dp->getFaultCode() : 0;
+            uint32_t panel = dp ? dp->getPanelCode() : 0;
+            const A6FaultInfo* fi = a6PanelFault(static_cast<uint16_t>(panel & 0xFFFF));
+            if (fi)
+                s += ",\"faultCode\":" + jsonStr(fi->er)
+                   + ",\"faultText\":" + jsonStr(std::string(fi->name)
+                        + (fi->resettable ? "" : " -- not resettable, power cycle"));
+            else if (bus != 0)
+                s += ",\"faultCode\":" + jsonStr(strf("0x%04x", bus))
+                   + ",\"faultText\":" + jsonStr(a6BusFaultCandidates(bus));
+        }
+        s += "}";
         inds.push_back(ind);
 
         s += "}";

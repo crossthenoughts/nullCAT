@@ -441,6 +441,9 @@ add_motion_test(TestConfigTwoFile tests/TestConfigTwoFile.cpp)
 # ---- Build 222D: RT-safe logging tests ----
 add_motion_test(TestRTLogging tests/TestRTLogging.cpp)
 
+# ---- A6 fault decode tables (0x203F panel codes / 0x603F candidates) ----
+add_motion_test(TestFaultCodes tests/TestFaultCodes.cpp)
+
 # ---- Build 72: TestInitSequence - EtherCATMaster init sequence (sim mode) ----
 #
 # Unlike the other test targets, this one links EtherCATMaster.cpp which

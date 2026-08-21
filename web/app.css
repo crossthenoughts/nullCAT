@@ -84,6 +84,9 @@ body{ font-family:'Space Grotesk',system-ui,sans-serif; color:var(--ink); backgr
 .srow{ display:flex; align-items:center; gap:6px; padding-bottom:5px; border-bottom:1.5px solid var(--hair); }
 .srow .stxt{ font-family:var(--mono); font-size:.74rem; font-weight:500; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-soft); }
 .srow .sw{ margin-left:auto; font-family:var(--mono); font-size:.6rem; color:var(--ink-soft); opacity:.65; }
+/* decoded fault line (Er code + name from the A6 fault table) -- only rendered while faulted */
+.flt{ font-family:var(--mono); font-size:.62rem; line-height:1.35; color:var(--danger);
+  padding:3px 0 4px; border-bottom:1.5px solid var(--hair); }
 .metrics{ display:flex; flex-direction:column; }
 .mr{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
 .mr .mk{ font-family:var(--mono); font-size:.6rem; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft); }

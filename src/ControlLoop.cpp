@@ -15,6 +15,7 @@
 
 #include "ControlLoop.h"
 #include "DriveFaultMonitor.h"
+#include "A6FaultCodes.h"
 #include "Logging.h"
 #include "DcPhaseLock.h"
 
@@ -685,15 +686,22 @@ void ControlLoopWorker::run()
 
                         if (fr.firstFaultSeen)
                         {
-                            // The 0x603F fault code identifies the drive-panel Er-code
-                            // from the log alone (manual fault table; e.g. 0x8700 =
-                            // sync/Er74.x, 0x3220 = Er43.1 undervolt, overload family =
-                            // Er40/41).
-                            RT_LOG_ERROR("ControlLoop: Drive %d FAULT. SW=0x%04x code=0x%04x (603F) (retries so far: %d/%d)",
+                            // Decoded in-line: 603F is a coarse CiA402 class shared by
+                            // several panel Er codes, so the candidates are named here
+                            // rather than sending the operator to the manual. The
+                            // decode is a static literal -- RT-safe.
+                            RT_LOG_ERROR("ControlLoop: Drive %d FAULT. SW=0x%04x code=0x%04x (603F: %s) (retries so far: %d/%d)",
                                 drive->getSlaveIndex(), drive->getStatusword(),
                                 drive->getFaultCode(),
+                                a6BusFaultCandidates(drive->getFaultCode()),
                                 faultMonitor.getRetryCount(i),
                                 DriveFaultMonitor::MAX_FAULT_RETRIES);
+                            // Precise decode: flag the recovery thread to
+                            // SDO-read 0x203F (exact Er panel code) off-RT.
+                            // Single atomic fetch_or here -- no mailbox
+                            // traffic from the RT path.
+                            if (m_master)
+                                m_master->requestPanelCodeRead(i);
                             if (m_motion)
                             {
                                 m_motion->setNeedsRehome(true);

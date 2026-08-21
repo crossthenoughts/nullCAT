@@ -13,6 +13,7 @@
 // ============================================================
 
 #include "EtherCATMaster.h"
+#include "A6FaultCodes.h"
 #include "SdoWorker.h"
 #include "Logging.h"
 #include "PlatformRT.h"
@@ -2545,6 +2546,12 @@ void EtherCATMaster::signalRecoveryNeeded()
     m_needsRecovery.store(true, std::memory_order_release);
 }
 
+void EtherCATMaster::requestPanelCodeRead(int driveIndex)
+{
+    if (driveIndex < 0 || driveIndex >= 32) return;
+    m_panelReadMask.fetch_or(uint32_t(1) << driveIndex, std::memory_order_acq_rel);
+}
+
 void EtherCATMaster::startRecoveryThread()
 {
     if (m_recoveryThreadRunning.load() || m_simulationMode) return;
@@ -2620,6 +2627,35 @@ void EtherCATMaster::recoveryThreadMain()
         {
             doRecoveryScan();
         }
+
+        // One-shot precise fault decode: the RT loop flags a faulted drive
+        // via requestPanelCodeRead(); the blocking 0x203F mailbox read runs
+        // here, off the RT path. Single transaction per fault event.
+        uint32_t panelMask = m_panelReadMask.exchange(0, std::memory_order_acq_rel);
+        if (panelMask != 0 && m_initialized && !m_simulationMode)
+        {
+            for (int i = 0; i < getDriveCount() && i < 32; ++i)
+            {
+                if (!(panelMask & (uint32_t(1) << i))) continue;
+                A6Drive* d = getDrive(i);
+                if (!d) continue;
+                uint32_t panel = d->readPanelCode(getContext());
+                uint16_t er = static_cast<uint16_t>(panel & 0xFFFF);
+                const A6FaultInfo* fi = a6PanelFault(er);
+                if (fi)
+                {
+                    LOG_ERROR(strf("Drive %d panel fault 0x%03x = %s: %s (%s)",
+                        d->getSlaveIndex(), er, fi->er, fi->name,
+                        fi->resettable ? "resettable" : "NOT resettable -- power cycle"));
+                }
+                else if (panel != 0)
+                {
+                    LOG_ERROR(strf("Drive %d panel fault 0x203F=0x%08x (low16=0x%04x not in table -- "
+                        "check A6 manual Table 10-1)", d->getSlaveIndex(), panel, er));
+                }
+            }
+        }
+
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }

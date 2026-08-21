@@ -382,6 +382,26 @@ uint16_t A6Drive::readErrorCode(ecx_contextt* ctx)
 #endif
 }
 
+uint32_t A6Drive::readPanelCode(ecx_contextt* ctx)
+{
+#ifndef SOEM_AVAILABLE
+    return 0;
+#else
+    if (!ctx) return 0;
+    uint32_t panel = 0;
+    int size = sizeof(panel);
+    int wkc = ecx_SDOread(ctx, (uint16)m_slaveIndex, 0x203F, 0x00,
+        FALSE, &size, &panel, 700000);
+    if (wkc > 0)
+    {
+        m_panelCode.store(panel, std::memory_order_release);
+        return panel;
+    }
+    LOG_WARNING(strf("A6Drive[%d]: Could not read panel code 0x203F (wkc=%d)", m_slaveIndex, wkc));
+    return 0;
+#endif
+}
+
 void A6Drive::startHomingMode(ModeOfOperation mode, ecx_contextt* ctx)
 {
     if (!m_pModeOfOperation || !m_pControlword) return;

@@ -6,6 +6,23 @@ middle number carries breaking changes and the last carries fixes.
 
 ## [Unreleased]
 
+### Added
+- **Drive faults are now decoded to their exact A6 Er codes.** Previously a
+  fault logged only the raw 0x603F bus code, which is a coarse CiA402 class
+  shared by many distinct faults (0xFF00 alone covers six different Er
+  codes) - identifying the actual fault meant walking to the rig and
+  reading the drive's panel. Now: the fault log line names the candidate Er
+  codes for the bus class inline, and a one-shot SDO read of 0x203F (the
+  precise panel code) runs on the recovery thread the moment a fault is
+  seen, logging the exact Er code, its meaning, and whether it is
+  resettable or needs a power cycle. The web drive card shows the decoded
+  fault name while the drive is faulted. The full fault and alarm tables
+  from the A6-EC manual (Er01.0 through ErC2.0 plus the ALF alarm class)
+  ship in `A6FaultCodes.h` with a unit test (`TestFaultCodes`) proving
+  panel-code uniqueness and table consistency. The read is a single
+  mailbox transaction per fault event, not a poll - it cannot destabilise
+  DC sync the way the old temperature polling did.
+
 ### Changed
 - **Telemetry is 16-bit only; the millimetre-guessing heuristic is gone.**
   The wire contract has always documented one scaling (0..65535, centre

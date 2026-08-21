@@ -127,6 +127,7 @@ function buildDriveCards(drives, loopRunning){
       `<div class="dh"><span class="dot"></span><span class="nm">Drive ${i}</span><span class="tag typ"> - </span><span class="tag dir"></span></div>`+
       `<div class="dcfg"> - </div>`+
       `<div class="srow"><span class="stxt"> - </span><span class="sw"></span></div>`+
+      `<div class="flt" style="display:none"></div>`+
       `<div class="metrics">`+
         `<div class="mr pos-only"><span class="mk">Pos mm</span><span class="mv c pos"> - </span></div>`+
         `<div class="mr pos-only"><span class="mk">Tgt mm</span><span class="mv tgt"> - </span></div>`+
@@ -166,6 +167,15 @@ function buildDriveCards(drives, loopRunning){
     // status row: chosen status text + raw statusword hex
     card.querySelector('.stxt').textContent = stext;
     card.querySelector('.sw').textContent   = ('sw' in d) ? hex4(d.sw) : '';
+    // decoded fault line: precise Er name once the 0x203F read lands, else
+    // the coarse 603F class. Hidden entirely when not faulted.
+    const fEl=card.querySelector('.flt');
+    if(fEl){
+      if(ind.fault && (ind.faultCode||ind.faultText)){
+        fEl.textContent=[ind.faultCode,ind.faultText].filter(Boolean).join(' · ');
+        fEl.style.display='';
+      } else fEl.style.display='none';
+    }
     // config line: stroke · pitch (small, static)
     // Torque axes have no stroke/ballscrew and no meaningful position rows -- hide them
     // (CSS .torque .pos-only) and show the mode instead. TRQ % stays (the useful readout).

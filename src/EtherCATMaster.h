@@ -238,6 +238,13 @@ public:
     void signalRecoveryNeeded();
     bool isRecoveryThreadRunning() const { return m_recoveryThreadRunning.load(); }
 
+    // Request a one-shot SDO read of 0x203F (precise panel/Er fault code) for
+    // a faulted drive. RT-safe (single fetch_or); the blocking mailbox read
+    // itself runs on the recovery thread's 10ms tick. One transaction per
+    // fault event -- NOT a poll (sustained SDO polling destabilises DC sync
+    // on Windows; see the temperature-poll history).
+    void requestPanelCodeRead(int driveIndex);
+
     // Re-apply PP profile SDOs (0x6081/6083/6084) for a slave that
     // has been recovered via ecx_recover_slave(). SDO values are recalculated
     // from the stored DriveConfig. No-op for CSP/torque drives.
@@ -356,6 +363,7 @@ private:
     std::thread       m_recoveryThread;
     std::atomic<bool> m_needsRecovery{false};
     std::atomic<bool> m_recoveryStop{false};
+    std::atomic<uint32_t> m_panelReadMask{0};   // bit n = read 0x203F from drive n
     std::atomic<bool> m_recoveryThreadRunning{false};
 
     // Serialises SOEM port access between the RT control loop / pump

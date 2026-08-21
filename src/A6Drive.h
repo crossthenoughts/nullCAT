@@ -135,6 +135,15 @@ public:
     void startFaultReset();
     uint16_t readErrorCode(ecx_contextt* ctx);
 
+    // Precise fault identity: SDO-read 0x203F (UInt32; low 16 bits = the
+    // panel/Er code, e.g. 0x871 = Er87.1). Blocking mailbox transaction --
+    // recovery thread only, NEVER the RT loop. Returns 0 on failure.
+    // The last successful read is cached for the UI (atomic: written by the
+    // recovery thread, read by web/UI threads).
+    uint32_t readPanelCode(ecx_contextt* ctx);
+    uint32_t getPanelCode() const { return m_panelCode.load(std::memory_order_acquire); }
+    void     clearPanelCode()     { m_panelCode.store(0, std::memory_order_release); }
+
     // Homing mode -- retained for compatibility but mode 35 should NOT
     // be used (it can't return to CSP during operation).
     void startHomingMode(ModeOfOperation mode, ecx_contextt* ctx = nullptr);
@@ -319,6 +328,7 @@ private:
     uint32_t* m_pMaxProfileVel = nullptr;  // 0x607F in 1702h -- MUST be written (0 = motion locked)
     uint32_t  m_maxProfileVelCounts = 0x80000000u;  // 0x607F value (counts/s); see setter
     uint16_t* m_pFaultCode     = nullptr;  // 0x603F, in+0 of 1B01h (both layouts) -- live read
+    std::atomic<uint32_t> m_panelCode{0};  // last 0x203F read (low 16 = Er panel code)
 
     DriveState parseStatusword(uint16_t sw) const;
     void       writeControlword(DriveCommand cmd);
