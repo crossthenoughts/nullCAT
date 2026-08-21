@@ -7,9 +7,8 @@
 #   linux-arm64  compile + test coverage for the shipped Pi platform, via
 #                QEMU in a Debian trixie arm64 container (matches the
 #                reference rig's toolchain: GCC/glibc/Qt6/libgpiod 2.x)
-#   windows      MSVC build. Marked non-blocking until proven green on the
-#                public runner (Qt + Npcap SDK provisioning is the moving
-#                part); flip continue-on-error to false once it is.
+#   windows      MSVC build. BLOCKING: proven green across many consecutive
+#                runs since the Npcap SDK 1.16 + delay-load fixes.
 #
 # No self-hosted runners, by policy: fork PRs execute workflow code, and a
 # runner attached to rig hardware must never run untrusted code. Hardware
@@ -123,7 +122,7 @@ jobs:
   windows:
     runs-on: windows-latest
     timeout-minutes: 45
-    continue-on-error: true   # flip to false once proven green on the public runner
+    continue-on-error: false  # blocking since 0.9.3 dev: green across many consecutive runs
     steps:
       - uses: actions/checkout@v4
       - uses: jurplel/install-qt-action@v4

@@ -6,6 +6,51 @@ middle number carries breaking changes and the last carries fixes.
 
 ## [Unreleased]
 
+### Changed
+- **Telemetry is 16-bit only; the millimetre-guessing heuristic is gone.**
+  The wire contract has always documented one scaling (0..65535, centre
+  32767, full scale = the axis's configured stroke), but an unspecced
+  heuristic dating to the project's first commit re-guessed the format on
+  every frame: any channel above 500 meant "treat ALL channels as 16-bit",
+  otherwise values were read as millimetres. A channel hovering around 500
+  teleported targets between opposite stroke ends on consecutive frames, and
+  one odd channel flipped the interpretation of every axis. Values are now
+  read as 16-bit, full stop. A sender emitting raw mm offsets must be
+  reconfigured to 16-bit output (SimHub's Decimal / 16-bit mode - what the
+  setup guides have always specified).
+- **All-zeros telemetry frames are treated as no-data.** In 16-bit, zero
+  means full deflection to one end, so a frame where every channel is 0
+  would command the whole rig to one end of travel at once - but no real
+  motion frame looks like that, while some telemetry tools do emit
+  all-zeros at menu/idle. Such frames now feed the normal telemetry-loss
+  standby (hold, then ease to centre, then park) instead of being obeyed.
+  This deliberately replaces the accidental protection the removed
+  heuristic used to provide for that case.
+- **Windows CI is now blocking.** Green across many consecutive runs since
+  the Npcap SDK and delay-load fixes; a red Windows build now fails the
+  workflow instead of being advisory.
+
+### Fixed
+- **A multi-millisecond host stall no longer triggers a catch-up burst.**
+  The RT loop's deadline marched in fixed steps, so after a long stall
+  (Npcap/DPC latency; 31ms observed in field logs) it fired all the missed
+  cycles back-to-back. The drive's SYNC0 latch samples the last target it
+  received, so the burst collapsed many cycles of commanded motion into one
+  multi-millimetre latched step at full tracking speed - and many frames
+  per SYNC0 interval is the same per-frame sync-error mechanism the
+  DC-aligned pump cadence exists to prevent. A stall of more than two
+  cycles now resyncs the cadence to the present and logs the skipped
+  cycles; the axes hold briefly (the same policy as a bad frame) instead of
+  lunging. Ordinary jitter still catches up normally.
+- **The per-second `ferr`/`cmd` DIAG lines now carry the loop rate**
+  (`hz=`), so a log alone is enough to interpret step sizes - the missing
+  rate previously led to clamp saturation being misread as a limit
+  violation.
+- **Qt window opens readable and remembers its size.** First run opens at
+  430x780 (the old 390x682 predates several UI additions and opened with
+  the panel contracted); afterwards the window restores whatever size and
+  position it last had, saved on a confirmed quit.
+
 ## [0.9.2] - 2026-08-19
 
 Multi-drive init made reliable, a coordinate-frame fix that makes it
