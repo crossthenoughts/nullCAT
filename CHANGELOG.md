@@ -31,6 +31,33 @@ middle number carries breaking changes and the last carries fixes.
   workflow instead of being advisory.
 
 ### Fixed
+- **The park/unpark motion hitch: Windows 11 was coarsening the RT timer
+  whenever nullCAT lost window focus.** Windows 11 silently ignores a
+  background process's 1ms timer request, honouring it only for the
+  foreground window - and the operator is focused on SimHub or the game at
+  exactly the moments the rig parks and unparks. The effective timer
+  snapped to the 15.625ms default quantum, one RT sleep overshot by a full
+  quantum (field logs show ~15.5ms stalls, the quantum signature to the
+  microsecond, clustered on park/unpark events), and the loop's catch-up
+  burst turned the lost cycles into a visible step mid-move. The process
+  now opts out via PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION, so
+  the 1ms timer holds while unfocused; together with the stall resync
+  below, a residual stall becomes a brief hold instead of a lurch.
+- **The PDO watchdog write is retried, and a persistent failure is loud.**
+  One session showed 9 intermittent single-datagram failures configuring
+  the watchdog - the mechanism that makes a drive drop torque if the host
+  crashes - leaving those drives holding position indefinitely on a host
+  crash, flagged only by a one-line warning. The two registers are now
+  written together with 3 attempts, and a drive that still fails gets an
+  ERROR naming the consequence (hardware e-stop is the only remaining stop
+  for that axis).
+- **The init shepherd spreads its nudges across the whole OP window.** The
+  first cut nudged every 100ms and spent all 10 nudges inside the first
+  1.1s; a multi-slave stall then sat un-nudged for the remaining 4s of the
+  window. Nudges now fire every 500ms, spanning the full 5s. (Field logs
+  also show that when SEVERAL slaves stall together the condition is
+  bus/host-wide rather than per-slave hesitation - the per-slave nudge
+  trail is what characterises those.)
 - **A multi-millisecond host stall no longer triggers a catch-up burst.**
   The RT loop's deadline marched in fixed steps, so after a long stall
   (Npcap/DPC latency; 31ms observed in field logs) it fired all the missed

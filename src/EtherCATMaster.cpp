@@ -1321,15 +1321,35 @@ InitResult EtherCATMaster::stageSafeOpEntry(ecx_contextt* ctx)
 
         for (int i = 1; i <= m_slaveCount; ++i)
         {
-            int r1 = ecx_FPWR(&ctx->port, ctx->slavelist[i].configadr,
-                              0x0400, sizeof(wdDivider), &wdDivider, EC_TIMEOUTRET);
-            int r2 = ecx_FPWR(&ctx->port, ctx->slavelist[i].configadr,
-                              0x0410, sizeof(wdTime),    &wdTime,    EC_TIMEOUTRET);
-            if (r1 > 0 && r2 > 0)
+            // Retried: these are single FPWR datagrams on a host that
+            // demonstrably loses them (field logs: 9 intermittent failures in
+            // one session, alternating WHICH of the two writes failed, so a
+            // slave could end up half-configured). Same lost-datagram class as
+            // the OP request the shepherd re-sends. Both registers are written
+            // together on every attempt so a success is never split across
+            // attempts. This is the safety watchdog -- the thing that makes a
+            // drive drop torque when the host dies -- so persistent failure is
+            // an ERROR, not a shrug.
+            bool wdOk = false;
+            for (int attempt = 1; attempt <= 3 && !wdOk; ++attempt)
+            {
+                int r1 = ecx_FPWR(&ctx->port, ctx->slavelist[i].configadr,
+                                  0x0400, sizeof(wdDivider), &wdDivider, EC_TIMEOUTRET);
+                int r2 = ecx_FPWR(&ctx->port, ctx->slavelist[i].configadr,
+                                  0x0410, sizeof(wdTime),    &wdTime,    EC_TIMEOUTRET);
+                wdOk = (r1 > 0 && r2 > 0);
+                if (wdOk && attempt > 1)
+                    LOG_INFO(strf("  Slave %d: PDO watchdog set on retry %d", i, attempt));
+                else if (!wdOk && attempt < 3)
+                    LOG_WARNING(strf("  Slave %d: PDO watchdog write failed (r1=%d r2=%d) -- retrying",
+                        i, r1, r2));
+            }
+            if (wdOk)
                 LOG_INFO(strf("  Slave %d: PDO watchdog set to %dms (%d ticks)", i, m_pdoWatchdogMs, wdTime));
             else
-                LOG_WARNING(strf("  Slave %d: PDO watchdog write failed (r1=%d r2=%d) -- "
-                    "drive will hold position indefinitely on host crash", i, r1, r2));
+                LOG_ERROR(strf("  Slave %d: PDO watchdog write FAILED after 3 attempts -- "
+                    "this drive will HOLD POSITION INDEFINITELY if the host crashes. "
+                    "The hardware e-stop is the only remaining stop for this axis.", i));
         }
     }
     else
@@ -1939,11 +1959,20 @@ InitResult EtherCATMaster::stageOPTransition(ecx_contextt* ctx)
             // on the next round once clean); a slave parked at plain SAFE_OP
             // gets a per-slave OP re-request, bounded and logged. Register
             // writes only (no mailbox traffic to disturb the 1ms pump), never
-            // touches SYNC0, and the first nudge waits until ~200ms so the
-            // broadcast keeps a fair window -- a healthy boot logs nothing.
+            // touches SYNC0 -- a healthy boot logs nothing.
             // A slave below SafeOp, or one out of nudges, still fails init
             // exactly as before: this shepherds hesitation, not faults.
-            if (i + 1 >= 200)
+            //
+            // Paced at 500ms so the 10-nudge budget SPANS THE WHOLE 5s WINDOW
+            // (nudges at 0.5s, 1.0s, ... 5.0s). The first cut nudged on every
+            // 100ms round: field logs showed a multi-slave stall burning all
+            // 10 nudges between 0.2s and 1.1s and then sitting passive for
+            // the remaining 4s -- exactly the slow-recovery case where a late
+            // nudge is the useful one. The 500ms first nudge also gives the
+            // broadcast a fair window. (A stall of SEVERAL slaves at once is
+            // a bus/host-wide condition the shepherd may not cure -- the
+            // per-slave nudge trail is what characterises it.)
+            if ((i + 1) % 500 == 0)
             {
                 for (int j = 1; j <= m_slaveCount; ++j)
                 {

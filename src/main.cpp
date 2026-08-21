@@ -54,9 +54,26 @@ int main(int argc, char* argv[])
     // Disable Windows 11 Efficiency Mode / power throttling for this process.
     // MMCSS handles the RT thread, but this ensures the main + web threads
     // aren't throttled by the scheduler's EcoQoS policy.
+    //
+    // IGNORE_TIMER_RESOLUTION: Windows 11 silently IGNORES a background
+    // process's timeBeginPeriod(1) -- the request the RT loop's hybrid
+    // sleep/busy-wait depends on -- honouring it only while the process owns
+    // the foreground window. The moment focus moves to SimHub or the game
+    // (i.e. exactly when the operator parks/unparks), the effective timer
+    // snaps to the 15.625ms default quantum and one Sleep() overshoots by a
+    // full quantum. Field logs show the signature to the microsecond:
+    // ~15.5-15.6ms RT stalls clustered on park/unpark events. This flag opts
+    // out of that behaviour so timeBeginPeriod holds while unfocused
+    // (StateMask 0 = disable the throttling policy). Complements the
+    // ForegroundKeeper, which defends against the same policy family by
+    // other means.
     PROCESS_POWER_THROTTLING_STATE pts = {};
     pts.Version     = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
-    pts.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
+#ifndef PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION
+#define PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION 0x4
+#endif
+    pts.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED
+                    | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
     pts.StateMask   = 0;  // 0 = disable throttling
     SetProcessInformation(GetCurrentProcess(),
         ProcessPowerThrottling, &pts, sizeof(pts));
