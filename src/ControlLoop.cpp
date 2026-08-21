@@ -477,6 +477,34 @@ void ControlLoopWorker::run()
         if (dcLock.enabled()) periodCounts = dcLock.update(dcLockPhase);
         PlatformRT::advancePeriod(nextCycleTime, periodCounts);
 
+        // Overrun resync. advancePeriod() marches the deadline in fixed steps
+        // and waitUntil() returns immediately while behind, so after a long
+        // host stall (Npcap/DPC latency; 31ms observed in the field) the loop
+        // would fire the missed cycles BACK-TO-BACK. Two reasons that burst is
+        // worse than skipping: the drive's SYNC0 latch samples the LAST target
+        // it received, so N burst cycles of commanded motion collapse into one
+        // multi-mm latched step at full tracking speed (field logs show the
+        // matching following-error spikes); and many frames per SYNC0 interval
+        // is the exact per-frame sync-error mechanism the DC-aligned pump
+        // cadence exists to prevent (ErC1.1 class). If the deadline has fallen
+        // more than 2 full cycles behind, snap it to now and accept the missed
+        // cycles as lost -- the axis holds briefly (exactly the bad-frame
+        // policy) instead of lunging. Ordinary jitter under 2 cycles still
+        // catches up normally, preserving the long-term cadence.
+        {
+            const double behindUs = PlatformRT::elapsedMicros(now, nextCycleTime);
+            const double cycleUs  = 1e6 / std::max(1, m_config.controlLoopHz);
+            if (behindUs > 2.0 * cycleUs)
+            {
+                const int lost = static_cast<int>(behindUs / cycleUs);
+                nextCycleTime = now;
+                PlatformRT::advancePeriod(nextCycleTime, periodCounts);
+                RT_LOG_WARNING("ControlLoop: %.1fms stall -- resynced cadence, "
+                               "%d cycle(s) skipped (axes held; no catch-up burst).",
+                               behindUs / 1000.0, lost);
+            }
+        }
+
         // Soft stats reset (matched set): clear guard stats + peak following-error
         // together, in-loop, without dropping drives. Consumed once per request.
         if (m_statsResetRequested.exchange(false, std::memory_order_acq_rel))
@@ -891,8 +919,9 @@ void ControlLoopWorker::run()
                              m_config.drives[i].mode == "pp");
                 if (!isPP && maxFollowingError[i] > 0.01)
                 {
-                    RT_DIAG("DIAG | ferr | drive=%d | max_mm=%.3f",
-                        driveCache[i]->getSlaveIndex(), maxFollowingError[i]);
+                    RT_DIAG("DIAG | ferr | drive=%d | max_mm=%.3f | hz=%d",
+                        driveCache[i]->getSlaveIndex(), maxFollowingError[i],
+                        m_config.controlLoopHz);
                 }
                 maxFollowingError[i] = 0.0;
 
@@ -900,9 +929,9 @@ void ControlLoopWorker::run()
                 // or a large maxVelStep, = setpoint dither / low-send-rate staircase
                 // (a command-cleanliness signal).
                 if (cmdReversals[i] > 0 || cmdMaxVelStep[i] > 1)
-                    RT_DIAG("DIAG | cmd | drive=%d | reversals_per_s=%d | maxStep=%d | maxVelStep=%d",
+                    RT_DIAG("DIAG | cmd | drive=%d | reversals_per_s=%d | maxStep=%d | maxVelStep=%d | hz=%d",
                         driveCache[i]->getSlaveIndex(), cmdReversals[i],
-                        cmdMaxStep[i], cmdMaxVelStep[i]);
+                        cmdMaxStep[i], cmdMaxVelStep[i], m_config.controlLoopHz);
                 cmdReversals[i]  = 0;
                 cmdMaxStep[i]    = 0;
                 cmdMaxVelStep[i] = 0;
