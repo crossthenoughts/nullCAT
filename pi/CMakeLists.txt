@@ -46,6 +46,7 @@ add_executable(nullcat-pi
     ${SRC}/A6Drive.cpp
     ${SRC}/TelemetryInput.cpp
     ${SRC}/MotionController.cpp
+    ${SRC}/CommissioningMode.cpp
     ${SRC}/ControlLoop.cpp
     ${SRC}/StatusModel.cpp
     ${SRC}/DriveProvisioner.cpp
@@ -122,6 +123,7 @@ add_executable(provision
     ${SRC}/A6Drive.cpp
     ${SRC}/TelemetryInput.cpp
     ${SRC}/MotionController.cpp
+    ${SRC}/CommissioningMode.cpp
     ${SRC}/ControlLoop.cpp
     ${SRC}/StatusModel.cpp
     ${SRC}/DriveProvisioner.cpp
@@ -181,6 +183,7 @@ add_test(NAME TestStatusModel COMMAND TestStatusModel)
 add_executable(TestTorquePath
     ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestTorquePath.cpp
     ${SRC}/MotionController.cpp
+    ${SRC}/CommissioningMode.cpp
     ${SRC}/A6Drive.cpp
     ${SRC}/Logging.cpp)
 target_include_directories(TestTorquePath PRIVATE ${SRC})
@@ -219,6 +222,7 @@ add_test(NAME TestWkcMonitor COMMAND TestWkcMonitor)
 add_executable(TestCommandContract
     ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestCommandContract.cpp
     ${SRC}/MotionController.cpp
+    ${SRC}/CommissioningMode.cpp
     ${SRC}/A6Drive.cpp
     ${SRC}/Logging.cpp)
 target_include_directories(TestCommandContract PRIVATE ${SRC})
@@ -238,6 +242,7 @@ add_executable(TestHttpContract
     ${SRC}/A6Drive.cpp
     ${SRC}/TelemetryInput.cpp
     ${SRC}/MotionController.cpp
+    ${SRC}/CommissioningMode.cpp
     ${SRC}/ControlLoop.cpp
     ${SRC}/StatusModel.cpp
     ${SRC}/DriveProvisioner.cpp
@@ -272,6 +277,7 @@ if(NULLCAT_FULL_TESTS)
     set(FULLTEST_CORE
         ${SRC}/A6Drive.cpp
         ${SRC}/MotionController.cpp
+        ${SRC}/CommissioningMode.cpp
         ${SRC}/Config.cpp
         ${SRC}/Logging.cpp
         ${SRC}/DriveFaultMonitor.cpp)

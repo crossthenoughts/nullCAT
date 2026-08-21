@@ -25,9 +25,11 @@
 #include "HomingSequence.h"
 #include "SpscQueue.h"
 #include "CommandConditioner.h"
+#include "CommissioningMode.h"
 #include <array>
 #include <atomic>
 #include <string>
+#include <mutex>
 #include <shared_mutex>
 
 // ---- Command types routed through the SPSC queue (UI → RT) ----
@@ -61,7 +63,8 @@ enum class AxisMotionState
     BLENDING,
     ONLINE,
     PARKING,
-    ESTOPPING
+    ESTOPPING,
+    TESTING      // commissioning excitation (CommissioningMode drives the axis)
 };
 
 // Snapshot of UI-visible motion state published by the RT thread at the end of
@@ -173,6 +176,17 @@ public:
     // top of process(), eliminating data races on m_axisState[]/m_runtime[].
     // Returns false (and logs a warning) if the queue is full.
     bool enqueueCommand(MotionCommand cmd);
+
+    // ---- Commissioning test mode (UI thread entry; RT services it) ----
+    // The plan is copied under a lock and picked up at the top of the next
+    // process() cycle, where the runtime rails are checked (all excited axes
+    // homed + PARKED, no rehome pending, no e-stop, telemetry quiet). A
+    // refusal shows up in getCommissioningStatus().reason. Returns false only
+    // if a test is already active or pending.
+    bool requestCommissioningStart(const CommissioningPlan& plan);
+    void requestCommissioningStop();
+    CommissioningStatus getCommissioningStatus() const
+    { return m_commissioning.getStatus(); }
 
     // ---- UI-safe state snapshot ----
     // Call from the UI thread. Returns a consistent copy of all UI-visible
@@ -322,6 +336,18 @@ private:
     // Commands from UI thread, drained at top of process() on RT thread.
     // 32 slots is more than sufficient -- typical burst is 1 command per user action.
     SpscQueue<MotionCommand, 32> m_cmdQueue;
+
+    // ---- Commissioning test mode state ----
+    // Plan handoff: UI writes m_pendingTestPlan under the lock and sets the
+    // request bit; the RT thread copies it out in serviceCommissioning().
+    CommissioningMode    m_commissioning;
+    std::mutex           m_testPlanLock;
+    CommissioningPlan    m_pendingTestPlan;
+    std::atomic<uint8_t> m_testRequest{0};       // bit0 = start, bit1 = stop
+    double m_testOffsets[MAX_DRIVES] = {};       // engine output this cycle
+    bool   m_testWasActive = false;              // completion edge detection
+    double m_secsSinceTelemetry = 1e9;           // telemetry-quiet entry rail
+    void serviceCommissioning(A6Drive** drives, int numHwDrives);
 
     // UI-read status snapshot. Written by RT thread at end of process(),
     // read by UI thread via getMotionStatus(). std::shared_mutex protects the copy.

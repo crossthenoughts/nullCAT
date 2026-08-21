@@ -83,6 +83,7 @@ bool isMeaningfulMotion(AxisMotionState m)
     case AxisMotionState::PARKED:
     case AxisMotionState::PARKING:
     case AxisMotionState::UNPARKING:
+    case AxisMotionState::TESTING:  // commissioning: show "TESTING", not "OP ENABLED"
         return true;
     default:                       // ONLINE, BLENDING, ESTOPPING -> electrical
         return false;
@@ -94,6 +95,7 @@ Indicator motionBucket(AxisMotionState m)
     switch (m)
     {
     case AxisMotionState::HOMING:    return Indicator::BUSY;
+    case AxisMotionState::TESTING:   return Indicator::RUNNING;
     case AxisMotionState::PARKED:
     case AxisMotionState::PARKING:
     case AxisMotionState::UNPARKING: return Indicator::IDLE;

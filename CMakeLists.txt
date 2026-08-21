@@ -105,6 +105,7 @@ set(SOURCES
     src/A6Drive.cpp
     src/TelemetryInput.cpp
     src/MotionController.cpp
+    src/CommissioningMode.cpp
     src/ControlLoop.cpp
     src/StatusModel.cpp
     src/DriveProvisioner.cpp
@@ -341,6 +342,7 @@ enable_testing()
 set(TEST_CORE_SOURCES
     src/A6Drive.cpp
     src/MotionController.cpp
+    src/CommissioningMode.cpp
     src/Config.cpp
     src/Logging.cpp
     src/DriveFaultMonitor.cpp
@@ -443,6 +445,9 @@ add_motion_test(TestRTLogging tests/TestRTLogging.cpp)
 
 # ---- A6 fault decode tables (0x203F panel codes / 0x603F candidates) ----
 add_motion_test(TestFaultCodes tests/TestFaultCodes.cpp)
+
+# ---- Commissioning excitation engine + identification metrics ----
+add_motion_test(TestCommissioning tests/TestCommissioning.cpp)
 
 # ---- Build 72: TestInitSequence - EtherCATMaster init sequence (sim mode) ----
 #
@@ -599,6 +604,7 @@ if(WIN32 AND SOEM_LIBRARY)
         src/Config.cpp
         src/Logging.cpp
         src/MotionController.cpp
+        src/CommissioningMode.cpp
         src/DriveFaultMonitor.cpp
     )
 
@@ -646,6 +652,7 @@ if(WIN32 AND SOEM_LIBRARY)
         src/Config.cpp
         src/Logging.cpp
         src/MotionController.cpp
+        src/CommissioningMode.cpp
         src/DriveFaultMonitor.cpp
     )
 
@@ -693,6 +700,7 @@ if(WIN32 AND SOEM_LIBRARY)
         src/Config.cpp
         src/Logging.cpp
         src/MotionController.cpp
+        src/CommissioningMode.cpp
         src/DriveFaultMonitor.cpp
         src/ControlLoop.cpp
         src/TelemetryInput.cpp
@@ -743,6 +751,7 @@ if(WIN32 AND SOEM_LIBRARY)
         src/Config.cpp
         src/Logging.cpp
         src/MotionController.cpp
+        src/CommissioningMode.cpp
         src/DriveFaultMonitor.cpp
         src/ControlLoop.cpp
         src/TelemetryInput.cpp
@@ -794,6 +803,7 @@ if(WIN32 AND SOEM_LIBRARY)
         src/Config.cpp
         src/Logging.cpp
         src/MotionController.cpp
+        src/CommissioningMode.cpp
         src/DriveFaultMonitor.cpp
         src/ControlLoop.cpp
         src/TelemetryInput.cpp
@@ -844,6 +854,7 @@ if(WIN32 AND SOEM_LIBRARY)
         src/Config.cpp
         src/Logging.cpp
         src/MotionController.cpp
+        src/CommissioningMode.cpp
         src/DriveFaultMonitor.cpp
         src/ControlLoop.cpp
         src/TelemetryInput.cpp

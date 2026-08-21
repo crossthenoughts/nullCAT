@@ -17,6 +17,10 @@
 #include "Logging.h"
 #include "StatusModel.h"   // shared canonical status (additive emit)
 #include "A6FaultCodes.h"  // decoded fault names on the drive cards
+#include "CommissioningMode.h"  // test-mode plan builders (/api/test/*)
+#include <QJsonDocument>   // /api/test/start body parsing
+#include <QJsonObject>
+#include <QJsonArray>
 #include "SdoWorker.h"     // IGBT temp readout for the drive cards (OP-time round-robin poll)
 #include <vector>
 
@@ -941,6 +945,154 @@ bool WebServer::start()
             m_master->resetAllFaults();
             m_loop->clearFaultLockout(-1);
             okResp(res);
+        });
+
+        // ---- Commissioning test mode ----
+        // The browser sends a compact spec (mode + axis selections + params);
+        // the plan is built HERE with the CommissioningMode builders so amp
+        // percentages, mixing weights, and note parsing have one C++
+        // implementation (unit-tested), not a JS twin. The RT thread applies
+        // its own entry rails (homed/PARKED/telemetry-quiet) when it picks
+        // the plan up -- a 200 here means "queued", not "running"; poll
+        // /api/test/status for the verdict.
+        postCmd("/api/test/start", [this, okResp, errResp](const httplib::Request& req, httplib::Response& res)
+        {
+            if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
+            if (!(m_loop && m_loop->isRunning()))
+            { errResp(res, "Control loop not running -- initialize and start first."); return; }
+
+            QJsonParseError pe;
+            const QJsonDocument doc = QJsonDocument::fromJson(
+                QByteArray(req.body.c_str(), (int)req.body.size()), &pe);
+            if (pe.error != QJsonParseError::NoError || !doc.isObject())
+            { errResp(res, "Invalid JSON body."); return; }
+            const QJsonObject o = doc.object();
+
+            // Axis metadata: kind + stroke from config, selection + cycle
+            // roles (front/rear, left/right) from the request.
+            CommissioningAxisMeta meta[MAX_DRIVES] = {};
+            const int n = m_config
+                ? std::min((int)m_config->drives.size(), (int)MAX_DRIVES) : 0;
+            for (int i = 0; i < n; ++i)
+            {
+                const DriveConfig& dc = m_config->drives[i];
+                meta[i].kind = (dc.mode == "torque" || dc.axisType == "belt") ? 2
+                             : (dc.axisType == "linear_horizontal") ? 1 : 0;
+                meta[i].halfStrokeMm = dc.strokeMm / 2.0;
+            }
+            for (const QJsonValue& v : o.value("axes").toArray())
+            {
+                const QJsonObject a = v.toObject();
+                const int i = a.value("i").toInt(-1);
+                if (i < 0 || i >= n) continue;
+                meta[i].selected  = a.value("sel").toBool(false);
+                meta[i].frontRear = (int8_t)a.value("fr").toInt(0);
+                meta[i].leftRight = (int8_t)a.value("lr").toInt(0);
+            }
+
+            const std::string mode = o.value("mode").toString().toStdString();
+            CommissioningPlan plan;
+            int built = -1;
+            if (mode == "cycle")
+            {
+                CommissioningCycleParams p;
+                p.enPitch  = o.value("enPitch").toBool(true);
+                p.enRoll   = o.value("enRoll").toBool(true);
+                p.enHeave  = o.value("enHeave").toBool(true);
+                p.enHoriz  = o.value("enHoriz").toBool(true);
+                p.pitchPct = o.value("pitchPct").toDouble(30.0);
+                p.rollPct  = o.value("rollPct").toDouble(30.0);
+                p.heavePct = o.value("heavePct").toDouble(40.0);
+                p.horizPct = o.value("horizPct").toDouble(30.0);
+                p.freqHz   = o.value("freqHz").toDouble(0.2);
+                p.cycles   = o.value("cycles").toInt(2);
+                built = CommissioningMode::buildCycle(p, meta, n, plan);
+            }
+            else if (mode == "tone")
+            {
+                built = CommissioningMode::buildTone(
+                    o.value("freqHz").toDouble(25.0),
+                    o.value("pct").toDouble(2.0),
+                    o.value("durationSec").toDouble(5.0), meta, n, plan);
+            }
+            else if (mode == "sweep")
+            {
+                built = CommissioningMode::buildSweep(
+                    o.value("f0").toDouble(5.0),
+                    o.value("f1").toDouble(50.0),
+                    o.value("stepHz").toDouble(2.5),
+                    o.value("dwellSec").toDouble(2.0),
+                    o.value("pct").toDouble(2.0), meta, n, plan);
+            }
+            else if (mode == "song")
+            {
+                built = CommissioningMode::buildSong(
+                    o.value("notes").toString().toStdString().c_str(),
+                    o.value("beatSec").toDouble(0.55),
+                    o.value("pct").toDouble(2.0), meta, n, plan);
+            }
+            else { errResp(res, "Unknown test mode."); return; }
+
+            if (built < 0) { errResp(res, "Invalid test parameters (check note names)."); return; }
+            if (built == 0)
+            { errResp(res, "No testable axes selected (belts are not testable; "
+                           "cycle needs front/rear + left/right roles)."); return; }
+            if (!m_motion->requestCommissioningStart(plan))
+            { errResp(res, "A test is already running."); return; }
+            okResp(res);
+        });
+
+        postCmd("/api/test/stop", [this, okResp, errResp](const httplib::Request&, httplib::Response& res)
+        {
+            if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
+            m_motion->requestCommissioningStop();
+            okResp(res);
+        });
+
+        svr.Get("/api/test/status", [this](const httplib::Request&, httplib::Response& res)
+        {
+            if (!m_motion)
+            { res.set_content("{\"active\":false}", "application/json"); return; }
+            const CommissioningStatus st = m_motion->getCommissioningStatus();
+            std::string s = "{\"active\":" + jsonBool(st.active)
+                + ",\"done\":"    + jsonBool(st.done)
+                + ",\"aborted\":" + jsonBool(st.aborted)
+                + ",\"phase\":"   + jsonStr(st.phase)
+                + ",\"reason\":"  + jsonStr(st.reason)
+                + ",\"title\":"   + jsonStr(st.title)
+                + ",\"segIdx\":"      + std::to_string(st.segIdx)
+                + ",\"numSegments\":" + std::to_string(st.numSegments)
+                + ",\"progressPct\":" + strf("%.1f", st.progressPct)
+                + ",\"results\":[";
+            for (int r = 0; r < st.resultCount; ++r)
+            {
+                const CommissioningSegResult& sr = st.results[r];
+                if (r) s += ",";
+                s += "{\"label\":" + jsonStr(sr.label)
+                   + ",\"freqHz\":" + strf("%.2f", sr.freqHz) + ",\"axes\":[";
+                bool first = true;
+                for (int i = 0; i < MAX_DRIVES; ++i)
+                {
+                    const CommissioningAxisResult& ar = sr.axis[i];
+                    if (!ar.tested) continue;
+                    if (!first) s += ",";
+                    first = false;
+                    const double ratio = (ar.cmdAmpMm > 1e-6)
+                        ? ar.actAmpMm / ar.cmdAmpMm : 0.0;
+                    s += "{\"i\":" + std::to_string(i)
+                       + ",\"cmdAmp\":"   + strf("%.3f", ar.cmdAmpMm)
+                       + ",\"actAmp\":"   + strf("%.3f", ar.actAmpMm)
+                       + ",\"ratio\":"    + strf("%.3f", ratio)
+                       + ",\"phaseDeg\":" + strf("%.1f", ar.phaseDeg)
+                       + ",\"ferrRms\":"  + strf("%.3f", ar.ferrRmsMm)
+                       + ",\"ferrPeak\":" + strf("%.3f", ar.ferrPeakMm)
+                       + ",\"trqRms\":"   + strf("%.1f", ar.trqRmsPct)
+                       + ",\"derated\":"  + jsonBool(ar.derated) + "}";
+                }
+                s += "]}";
+            }
+            s += "]}";
+            res.set_content(s, "application/json");
         });
 
         // ---- Toggle endpoints: ONE physical button per stateful pair

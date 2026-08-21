@@ -63,6 +63,8 @@ function applyState(s){
 
   buildDriveCards(s.drives||[], running);
   driveCount.textContent = (s.numDrives ?? (s.drives||[]).length)+' axes';
+  // commissioning panel needs the axis list + loop state
+  tstDrives = s.drives||[]; tstLoopRunning = running; refreshTestButtons();
 
   document.body.classList.toggle('estop-active', estop);
   // Logo keys on the shared-model aggregate: estop > fault > running > offline -> the
@@ -297,6 +299,8 @@ btn.shutdown.onclick=()=>{ if(confirm('Shut down the Pi?\n\nIt will power OFF - 
 function toggle(panel, arrow){ const c=panel.classList.toggle('collapsed'); arrow.textContent=c?'▸':'▾'; }
 $('cfgHead').onclick=()=>{ const wasCollapsed=$('cfgPanel').classList.contains('collapsed'); toggle($('cfgPanel'),$('cfgArrow')); if(wasCollapsed) loadConfig(); };
 $('provHead').onclick=()=>toggle($('provPanel'),$('provArrow'));
+$('testHead').onclick=()=>{ const was=$('testPanel').classList.contains('collapsed');
+  toggle($('testPanel'),$('testArrow')); if(was){ buildTestAxes(); pollTestStatus(); } };
 // Button bindings: collapsed by default. It is a commissioning-time task, and
 // left expanded its full-width panel pushed the config Save bar off screen.
 { const h=$('bindHead'); if(h) h.onclick=()=>toggle($('bindBody'),$('bindArrow')); }
@@ -683,6 +687,158 @@ setInterval(pollLogs,500);
 
 /* ---- wheel-guard: scrolling must not nudge a focused number field (Qt parity) ---- */
 window.addEventListener('wheel', ()=>{ const a=document.activeElement; if(a&&a.tagName==='INPUT'&&a.type==='number') a.blur(); }, {passive:true});
+
+/* ============================================================
+   Commissioning tests. Selections + cycle mixing roles (front/rear,
+   left/right) live in the browser (localStorage) - they are commissioning
+   inputs, not rig config. The server builds the actual plan (one C++
+   implementation of percentages, weights, note parsing) and the RT thread
+   applies its own entry rails; a Start that 200s can still be refused
+   there, which shows up in the status line.
+   ============================================================ */
+let tstDrives=[], tstLoopRunning=false, tstActive=false;
+const TSTKEY='nullcat.test.axes';
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function tstPrefs(){ try{ return JSON.parse(localStorage.getItem(TSTKEY))||{}; }catch(_){ return {}; } }
+function tstSavePrefs(p){ try{ localStorage.setItem(TSTKEY,JSON.stringify(p)); }catch(_){} }
+function tstGuessRole(name){ // best-effort default from the axis name; user-overridable
+  const n=(name||'').toLowerCase();
+  let fr=0, lr=0;
+  if(/\bfl\b|front.?left/.test(n)){fr=1;lr=1;} else if(/\bfr\b|front.?right/.test(n)){fr=1;lr=-1;}
+  else if(/\brl\b|rear.?left|back.?left/.test(n)){fr=-1;lr=1;} else if(/\brr\b|rear.?right|back.?right/.test(n)){fr=-1;lr=-1;}
+  else { if(/front/.test(n))fr=1; else if(/rear|back/.test(n))fr=-1;
+         if(/left/.test(n))lr=1; else if(/right/.test(n))lr=-1; }
+  return {fr,lr};
+}
+function buildTestAxes(){
+  const host=$('testAxes'); if(!host) return;
+  host.textContent='';
+  const prefs=tstPrefs();
+  tstDrives.forEach((d,i)=>{
+    if(d.mode==='torque'||d.axisType==='belt') return;   // belts are never testable
+    const vert = d.axisType!=='linear_horizontal';
+    const p = prefs[i] || Object.assign({sel:true}, vert?tstGuessRole(d.name):{fr:0,lr:0});
+    const row=document.createElement('div'); row.className='taxis'; row.dataset.i=i;
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=p.sel!==false; cb.className='tsel';
+    const nm=document.createElement('span'); nm.className='tname'; nm.textContent=d.name||('Drive '+(i+1));
+    const tg=document.createElement('span'); tg.className='ttag'; tg.textContent=vert?'VERT':'HORIZ';
+    row.appendChild(cb); row.appendChild(nm); row.appendChild(tg);
+    const mkSel=(cls,opts,val)=>{ const s=document.createElement('select'); s.className=cls;
+      opts.forEach(([v,t])=>{ const o=document.createElement('option'); o.value=v; o.textContent=t; s.appendChild(o); });
+      s.value=String(val); return s; };
+    if(vert){
+      row.appendChild(mkSel('tfr',[[0,'f/r —'],[1,'Front'],[-1,'Rear']],p.fr|0));
+      row.appendChild(mkSel('tlr',[[0,'l/r —'],[1,'Left'],[-1,'Right']],p.lr|0));
+    } else {
+      row.appendChild(document.createElement('span'));
+      row.appendChild(document.createElement('span'));
+    }
+    row.addEventListener('change',()=>{
+      const pr=tstPrefs();
+      pr[i]={ sel:cb.checked,
+              fr:vert?parseInt(row.querySelector('.tfr').value,10):0,
+              lr:vert?parseInt(row.querySelector('.tlr').value,10):0 };
+      tstSavePrefs(pr);
+    });
+    host.appendChild(row);
+  });
+  if(!host.children.length){
+    const n=document.createElement('div'); n.className='test-note';
+    n.textContent='No testable axes (belt axes are excluded).';
+    host.appendChild(n);
+  }
+}
+function tstAxesPayload(){
+  const out=[];
+  document.querySelectorAll('#testAxes .taxis').forEach(row=>{
+    const i=parseInt(row.dataset.i,10);
+    const fr=row.querySelector('.tfr'), lr=row.querySelector('.tlr');
+    out.push({ i, sel:row.querySelector('.tsel').checked,
+               fr:fr?parseInt(fr.value,10):0, lr:lr?parseInt(lr.value,10):0 });
+  });
+  return out;
+}
+document.querySelectorAll('#testModes input[name=tmode]').forEach(r=>{
+  r.addEventListener('change',()=>{
+    ['cycle','tone','sweep','song'].forEach(m=>{ $('tp-'+m).hidden = m!==r.value; });
+  });
+});
+const numv=(id,def)=>{ const v=parseFloat($(id).value); return isFinite(v)?v:def; };
+async function postJson(ep,body){
+  clearCmdErr();
+  try{
+    const r=await fetch(API+ep,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    let j=null; try{ j=await r.json(); }catch(_){}
+    if(j && j.ok===false){ showCmdErr(j.error||'refused'); return false; }
+    if(!r.ok){ showCmdErr('HTTP '+r.status); return false; }
+    return true;
+  }catch(e){ showCmdErr('no response from the controller'); return false; }
+}
+$('btnTestStart').onclick=async()=>{
+  const mode=document.querySelector('#testModes input[name=tmode]:checked').value;
+  const body={ mode, axes:tstAxesPayload() };
+  if(mode==='cycle'){
+    body.enPitch=$('tcPitch').checked;  body.pitchPct=numv('tcPitchPct',30);
+    body.enRoll=$('tcRoll').checked;    body.rollPct=numv('tcRollPct',30);
+    body.enHeave=$('tcHeave').checked;  body.heavePct=numv('tcHeavePct',40);
+    body.enHoriz=$('tcHoriz').checked;  body.horizPct=numv('tcHorizPct',30);
+    body.freqHz=numv('tcFreq',0.2);     body.cycles=numv('tcCycles',2);
+  } else if(mode==='tone'){
+    body.freqHz=numv('ttFreq',25); body.pct=numv('ttPct',2); body.durationSec=numv('ttDur',5);
+  } else if(mode==='sweep'){
+    body.f0=numv('tsF0',5); body.f1=numv('tsF1',50); body.stepHz=numv('tsStep',2.5);
+    body.dwellSec=numv('tsDwell',2); body.pct=numv('tsPct',2);
+  } else if(mode==='song'){
+    body.notes=$('tgNotes').value; body.beatSec=numv('tgBeat',0.55); body.pct=numv('tgPct',2);
+  }
+  if(await postJson('/api/test/start',body)){ tstActive=true; refreshTestButtons(); pollTestStatus(); }
+};
+$('btnTestStop').onclick=()=>postCmd('/api/test/stop');
+function refreshTestButtons(){
+  const st=$('btnTestStart'), sp=$('btnTestStop');
+  if(st) st.disabled = !tstLoopRunning || tstActive;
+  if(sp) sp.disabled = !tstActive;
+}
+function renderTestResults(j){
+  const host=$('testResults'); if(!host) return;
+  if(!j.results || !j.results.length){ host.hidden=true; host.textContent=''; return; }
+  const nameOf=i=>esc((tstDrives[i]&&tstDrives[i].name)||('Drive '+(i+1)));
+  let h='<table><tr><th>segment</th><th>Hz</th><th>axis</th><th>cmd mm</th><th>act mm</th>'
+       +'<th>ratio</th><th>phase°</th><th>ferr rms</th><th>ferr pk</th><th>trq σ%</th></tr>';
+  j.results.forEach(r=>{
+    r.axes.forEach((a,k)=>{
+      h+='<tr><td>'+(k===0?esc(r.label):'')+'</td><td>'+(k===0?r.freqHz.toFixed(2):'')+'</td>'
+        +'<td>'+nameOf(a.i)+(a.derated?' <span class="drtd">drtd</span>':'')+'</td>'
+        +'<td>'+a.cmdAmp.toFixed(3)+'</td><td>'+a.actAmp.toFixed(3)+'</td>'
+        +'<td>'+a.ratio.toFixed(3)+'</td><td>'+a.phaseDeg.toFixed(1)+'</td>'
+        +'<td>'+a.ferrRms.toFixed(3)+'</td><td>'+a.ferrPeak.toFixed(3)+'</td>'
+        +'<td>'+a.trqRms.toFixed(1)+'</td></tr>';
+    });
+  });
+  host.innerHTML=h+'</table>'; host.hidden=false;
+}
+async function pollTestStatus(){
+  if($('testPanel').classList.contains('collapsed') && !tstActive) return;
+  try{
+    const r=await fetch(API+'/api/test/status'); if(!r.ok) return;
+    const j=await r.json();
+    tstActive=!!j.active; refreshTestButtons();
+    const el=$('testStatus');
+    if(j.active){
+      el.textContent=j.title+' · '+j.phase
+        +(j.phase==='running'?(' · segment '+(j.segIdx+1)+'/'+j.numSegments):'')
+        +' · '+j.progressPct.toFixed(0)+'%';
+    } else if(j.aborted && j.reason){
+      el.textContent='aborted: '+j.reason;
+    } else if(j.reason){
+      el.textContent=j.reason;              // RT-side refusal
+    } else if(j.done){
+      el.textContent=(j.title?j.title+' ':'')+'complete';
+    } else el.textContent='';
+    renderTestResults(j);
+  }catch(_){}
+}
+setInterval(pollTestStatus,1000);
 
 /* ---- boot ---- */
 updateConn(); pollStatus(); setInterval(pollStatus, 500); pollLogs();

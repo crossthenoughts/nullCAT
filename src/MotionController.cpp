@@ -272,6 +272,173 @@ void MotionController::drainCommands(A6Drive** /*drives*/, int /*numHwDrives*/)
     }
 }
 
+// ============================================================
+// Commissioning test mode
+// ============================================================
+
+bool MotionController::requestCommissioningStart(const CommissioningPlan& plan)
+{
+    if (m_commissioning.active() ||
+        (m_testRequest.load(std::memory_order_acquire) & 0x1))
+        return false;
+    {
+        std::lock_guard<std::mutex> lk(m_testPlanLock);
+        m_pendingTestPlan = plan;
+    }
+    m_testRequest.fetch_or(0x1, std::memory_order_release);
+    return true;
+}
+
+void MotionController::requestCommissioningStop()
+{
+    m_testRequest.fetch_or(0x2, std::memory_order_release);
+}
+
+void MotionController::serviceCommissioning(A6Drive** drives, int numHwDrives)
+{
+    const uint8_t req = m_testRequest.exchange(0, std::memory_order_acq_rel);
+
+    if (req & 0x2)
+    {
+        if (m_commissioning.active())
+        {
+            RT_LOG_INFO("MotionController: Commissioning test stopped by user.");
+            m_commissioning.abort("stopped by user");
+        }
+    }
+
+    if ((req & 0x1) && !m_commissioning.active())
+    {
+        CommissioningPlan plan;
+        {
+            std::lock_guard<std::mutex> lk(m_testPlanLock);
+            plan = m_pendingTestPlan;
+        }
+
+        // ---- Entry rails. Every axis the plan excites must be homed and
+        // PARKED; no rehome pending; no e-stop; telemetry stream quiet. ----
+        const char* refusal = nullptr;
+        char refusalBuf[96];
+        bool excite[MAX_DRIVES] = {};
+        for (int s = 0; s < plan.numSegments && s < MAX_TEST_SEGMENTS; ++s)
+            for (int i = 0; i < m_numDrives && i < MAX_DRIVES; ++i)
+                if (plan.seg[s].ampMm[i] != 0.0) excite[i] = true;
+
+        bool anyExcited = false;
+        for (int i = 0; i < m_numDrives; ++i) anyExcited = anyExcited || excite[i];
+
+        if (plan.numSegments <= 0 || !anyExcited)
+            refusal = "empty plan (no axes selected?)";
+        else if (m_emergencyStop.load(std::memory_order_acquire))
+            refusal = "e-stop active";
+        else if (m_needsRehome)
+            refusal = "rehome required -- home all axes first";
+        else if (m_secsSinceTelemetry < 2.0)
+            refusal = "telemetry stream active -- stop the game/SimHub feed first";
+        else
+        {
+            for (int i = 0; i < m_numDrives; ++i)
+            {
+                if (!excite[i]) continue;
+                const AxisConfig& ac = m_axisConfig[i];
+                if (ac.torqueMode || ac.ppMode)
+                {
+                    std::snprintf(refusalBuf, sizeof(refusalBuf),
+                        "axis %d is a %s axis -- not testable", i + 1,
+                        ac.torqueMode ? "belt/torque" : "PP");
+                    refusal = refusalBuf;
+                    break;
+                }
+                if (!m_runtime[i].homed)
+                {
+                    std::snprintf(refusalBuf, sizeof(refusalBuf),
+                        "axis %d not homed", i + 1);
+                    refusal = refusalBuf;
+                    break;
+                }
+                if (m_axisState[i] != AxisMotionState::PARKED)
+                {
+                    std::snprintf(refusalBuf, sizeof(refusalBuf),
+                        "axis %d not parked (state %s)", i + 1,
+                        getAxisStateName(i).c_str());
+                    refusal = refusalBuf;
+                    break;
+                }
+            }
+        }
+
+        if (refusal)
+        {
+            RT_LOG_WARNING("MotionController: Commissioning start refused: %s", refusal);
+            m_commissioning.setRefusal(refusal);
+        }
+        else
+        {
+            CommissioningAxisLimits limits[MAX_DRIVES];
+            for (int i = 0; i < m_numDrives; ++i)
+            {
+                const AxisConfig& ac = m_axisConfig[i];
+                limits[i].enabled = excite[i];
+                // Usable half-range about centre: the excitation must fit on
+                // BOTH sides of centerPos inside [minPos, maxPos].
+                limits[i].halfStrokeMm = std::min(ac.centerPos - ac.minPos,
+                                                  ac.maxPos - ac.centerPos);
+                limits[i].maxVelMmS    = ac.maxVelocityMmS;
+                limits[i].maxAccelMmS2 = ac.maxAccelMmS2;
+                limits[i].startOffsetMm = m_runtime[i].currentPos - ac.centerPos;
+            }
+            m_commissioning.start(plan, limits, m_numDrives, m_cycleTimeSec);
+            for (int i = 0; i < m_numDrives; ++i)
+            {
+                if (!excite[i]) continue;
+                m_axisState[i] = AxisMotionState::TESTING;
+                m_runtime[i].onlineCond.seedState(m_runtime[i].currentPos, 0.0);
+            }
+            RT_LOG_INFO("MotionController: Commissioning test '%s' started "
+                        "(%d segment(s)).", plan.title, plan.numSegments);
+        }
+    }
+
+    // ---- Per-cycle service of an armed engine ----
+    if (m_commissioning.active())
+    {
+        // Cancel rail: if any excited axis was taken out of TESTING by a
+        // fault park, e-stop, or user park, the engine must not keep
+        // commanding -- the axes are no longer listening.
+        for (int i = 0; i < m_numDrives; ++i)
+        {
+            if (m_commissioning.axisEnabled(i) &&
+                m_axisState[i] != AxisMotionState::TESTING)
+            {
+                RT_LOG_WARNING("MotionController: Commissioning cancelled -- "
+                               "axis %d left TESTING.", i + 1);
+                m_commissioning.cancel("axes taken over (fault/e-stop/park)");
+                break;
+            }
+        }
+    }
+
+    const bool stepped = m_commissioning.active()
+                       ? m_commissioning.step(m_testOffsets) : false;
+    if (!stepped)
+        std::memset(m_testOffsets, 0, sizeof(m_testOffsets));
+
+    // Completion edge: engine finished (Done) -> park the TESTING axes via
+    // the normal park machinery (parkMode=center holds, endstop moves aside).
+    if (m_testWasActive && !m_commissioning.active())
+    {
+        bool anyTesting = false;
+        for (int i = 0; i < m_numDrives; ++i)
+            anyTesting = anyTesting || (m_axisState[i] == AxisMotionState::TESTING);
+        if (anyTesting)
+        {
+            RT_LOG_INFO("MotionController: Commissioning test finished -- parking.");
+            startPark();
+        }
+    }
+    m_testWasActive = m_commissioning.active();
+}
+
 void MotionController::resetFilters()
 {
     for (int i = 0; i < MAX_DRIVES; ++i)
@@ -367,6 +534,7 @@ std::string MotionController::getAxisStateName(int i) const
     case AxisMotionState::ONLINE:    return "ONLINE";
     case AxisMotionState::PARKING:   return "PARKING";
     case AxisMotionState::ESTOPPING: return "E-STOP";
+    case AxisMotionState::TESTING:   return "TESTING";
     default:                         return "UNKNOWN";
     }
 }
@@ -464,7 +632,8 @@ void MotionController::startPark()
         // then false-latch on a mid-stroke gravity-hold and drop the axis.
         if (state == AxisMotionState::ONLINE ||
             state == AxisMotionState::UNPARKING ||
-            state == AxisMotionState::BLENDING)
+            state == AxisMotionState::BLENDING ||
+            state == AxisMotionState::TESTING)
         {
             AxisRuntime& rt = m_runtime[i];
             AxisConfig& ac = m_axisConfig[i];
@@ -917,6 +1086,16 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
     // commands (StartHoming, StartPark) happen here on the RT thread.
     drainCommands(drives, numHwDrives);
 
+    // Telemetry-quiet tracking for the commissioning entry rail: a test must
+    // not start while a game/SimHub stream is live (the two would fight).
+    if (telemetryFrameUsable(telemetryData))
+        m_secsSinceTelemetry = 0.0;
+    else if (m_secsSinceTelemetry < 1e9)
+        m_secsSinceTelemetry += m_cycleTimeSec;
+
+    // Commissioning test mode: start/stop requests, engine step, completion.
+    serviceCommissioning(drives, numHwDrives);
+
     output.numDrives = m_numDrives;
     const bool estopNow = m_emergencyStop.load(std::memory_order_acquire);
     output.emergencyStop = estopNow;
@@ -1358,6 +1537,29 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
                 RT_LOG_INFO("MotionController: Axis %d E-STOP complete -- held at pos=%.3f",
                     i + 1, rt.currentPos);
             }
+            break;
+        }
+
+        case AxisMotionState::TESTING:
+        {
+            // Commissioning excitation. The engine's offset rides on centre
+            // and goes through stepBypass DIRECTLY -- deterministic excitation
+            // (Filter/Interpolate smoothing would attenuate the very tones
+            // being measured) with the full guard chain (velocity clamp,
+            // accel clamp, braking guard) still live. Metrics + the
+            // following-error abort rail run on the guarded command vs the
+            // measured position, so what is scored is what the drive was
+            // actually asked to do.
+            const double want = ac.centerPos + m_testOffsets[i];
+            const double brakeEps = 4.0 / ac.countsPerMm;
+            outPos = rt.onlineCond.stepBypass(want, m_cycleTimeSec, m_cycleTimeSec,
+                                              ac.maxVelocityMmS, ac.maxAccelMmS2,
+                                              brakeEps);
+            A6Drive* drive = (drives && i < numHwDrives) ? drives[i] : nullptr;
+            const double actual = drive ? drive->getActualPosition() : outPos;
+            m_commissioning.recordSample(i, outPos - ac.centerPos,
+                                         actual - ac.centerPos,
+                                         drive ? drive->getTorquePercent() : 0.0);
             break;
         }
         }

@@ -259,6 +259,68 @@ sudo ./provision eth0 &lt;slave&gt; --verify    # confirm everything persisted</
     </div>
   </section>
 
+  <!-- ===== commissioning tests (inline collapsible) ===== -->
+  <div class="sec sec-toggle" id="testHead">
+    <span class="arrow" id="testArrow">▸</span>
+    <span class="t">Commissioning Tests</span><span class="c">motion cycle · vibration · sweep · song</span>
+    <span class="rule"></span>
+  </div>
+  <section class="panel collapsed" id="testPanel">
+    <div class="test-body">
+      <div class="test-note">
+        Runs only while the loop is running, every tested axis is <b>homed and parked</b>,
+        and no telemetry is streaming. Amplitudes auto-derate to each axis's stroke /
+        velocity / acceleration budgets (derated results are flagged), the normal guard
+        chain stays live, and a sustained following error aborts the test and re-parks.
+        Belt axes are never tested.
+      </div>
+
+      <div class="test-axes" id="testAxes"></div>
+
+      <div class="test-modes" id="testModes">
+        <label><input type="radio" name="tmode" value="cycle" checked> Motion cycle</label>
+        <label><input type="radio" name="tmode" value="tone"> Tone</label>
+        <label><input type="radio" name="tmode" value="sweep"> Sweep</label>
+        <label><input type="radio" name="tmode" value="song"> Song</label>
+      </div>
+
+      <div class="test-params" id="tp-cycle">
+        <span class="tp"><label><input type="checkbox" id="tcPitch" checked> pitch</label><input type="number" id="tcPitchPct" value="30" min="1" max="90">%</span>
+        <span class="tp"><label><input type="checkbox" id="tcRoll" checked> roll</label><input type="number" id="tcRollPct" value="30" min="1" max="90">%</span>
+        <span class="tp"><label><input type="checkbox" id="tcHeave" checked> heave</label><input type="number" id="tcHeavePct" value="40" min="1" max="90">%</span>
+        <span class="tp"><label><input type="checkbox" id="tcHoriz" checked> horizontal</label><input type="number" id="tcHorizPct" value="30" min="1" max="90">%</span>
+        <span class="tp">rate <input type="number" id="tcFreq" value="0.2" min="0.05" max="1" step="0.05"> Hz</span>
+        <span class="tp">cycles <input type="number" id="tcCycles" value="2" min="1" max="10"></span>
+      </div>
+      <div class="test-params" id="tp-tone" hidden>
+        <span class="tp">freq <input type="number" id="ttFreq" value="25" min="0.5" max="80" step="0.5"> Hz</span>
+        <span class="tp">amp <input type="number" id="ttPct" value="2" min="0.1" max="90" step="0.1">%</span>
+        <span class="tp">duration <input type="number" id="ttDur" value="5" min="1" max="60"> s</span>
+      </div>
+      <div class="test-params" id="tp-sweep" hidden>
+        <span class="tp">from <input type="number" id="tsF0" value="5" min="0.5" max="80" step="0.5"> Hz</span>
+        <span class="tp">to <input type="number" id="tsF1" value="50" min="0.5" max="80" step="0.5"> Hz</span>
+        <span class="tp">step <input type="number" id="tsStep" value="2.5" min="0.5" max="20" step="0.5"> Hz</span>
+        <span class="tp">dwell <input type="number" id="tsDwell" value="2" min="1" max="10"> s</span>
+        <span class="tp">amp <input type="number" id="tsPct" value="2" min="0.1" max="90" step="0.1">%</span>
+      </div>
+      <div class="test-params" id="tp-song" hidden>
+        <textarea id="tgNotes" rows="2" spellcheck="false">e1 e1 g1 e1 d1 c1 b0:2</textarea>
+        <span class="tp">beat <input type="number" id="tgBeat" value="0.55" min="0.1" max="2" step="0.05"> s</span>
+        <span class="tp">amp <input type="number" id="tgPct" value="2" min="0.1" max="90" step="0.1">%</span>
+        <span class="c">notes c0-b8, # / b, ":beats" for length, "r" = rest · actuators speak ~20-60 Hz (octaves 0-1)</span>
+      </div>
+
+      <div class="test-run">
+        <button id="btnTestStart" class="btn btn-start btn-sm" type="button" disabled>Start test</button>
+        <button id="btnTestStop" class="btn btn-stop btn-sm" type="button" disabled>Abort</button>
+        <span class="cfg-note" id="testStatus"></span>
+      </div>
+
+      <div class="test-results" id="testResults" hidden></div>
+    </div>
+  </section>
+
   <!-- ===== activity log (inline collapsible) ===== -->
   <div class="sec">
     <span class="arrow" id="logArrow">▾</span>

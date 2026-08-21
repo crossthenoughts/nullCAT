@@ -7,6 +7,24 @@ middle number carries breaking changes and the last carries fixes.
 ## [Unreleased]
 
 ### Added
+- **Commissioning test mode: exercise and measure the rig without a game
+  attached.** A new web-UI panel (Commissioning Tests) runs four test
+  types through the normal guarded motion path: a motion cycle (pitch /
+  roll / heave on role-assigned vertical axes, then each horizontal axis
+  solo), a single vibration tone, a stepped frequency sweep, and a note
+  sequence ("song" - basslines in octaves 0-1 sit in the actuators'
+  20-60Hz voice). Every segment is measured: commanded vs actual
+  amplitude at the excitation frequency (Goertzel), phase lag, RMS/peak
+  following error, and torque ripple - so a sweep produces Bode points
+  (bandwidth, resonances) for the current drive tune, and before/after
+  sweeps turn tuning changes into a measured comparison instead of a
+  feel test. Safety is enforced, not advisory: tests only start with the
+  loop running, every tested axis homed and parked, and the telemetry
+  stream quiet; belt and PP axes are never testable; amplitudes derate
+  automatically to stroke/velocity/acceleration budgets (flagged in the
+  results); all excitation is ramp-enveloped so motion cannot step; the
+  guard chain stays live; and a sustained following error aborts the run
+  and re-parks the rig. See Docs/COMMISSIONING.md.
 - **Drive faults are now decoded to their exact A6 Er codes.** Previously a
   fault logged only the raw 0x603F bus code, which is a coarse CiA402 class
   shared by many distinct faults (0xFF00 alone covers six different Er
