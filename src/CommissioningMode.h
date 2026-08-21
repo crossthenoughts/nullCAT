@@ -42,9 +42,14 @@
 
 struct CommissioningSegment
 {
+    // kind 0 = enveloped sine (all ramped tests). kind 1 = step-and-hold:
+    // the raw offset jumps to ampMm and holds -- the guard chain turns the
+    // jump into the steepest SAFE profile, and the step metrics (overshoot,
+    // rise, settling) are measured against that guarded command.
+    uint8_t kind       = 0;
     double freqHz      = 1.0;
     double durationSec = 2.0;
-    double rampSec     = 0.3;              // raised-cosine ramp in AND out
+    double rampSec     = 0.3;              // raised-cosine ramp in AND out (sine only)
     double ampMm[MAX_DRIVES] = {};         // signed: negative = antiphase
     char   label[24]   = {};               // "pitch", "12.5 Hz", "e1", ...
 };
@@ -99,12 +104,21 @@ struct CommissioningAxisResult
     double ferrRmsMm = 0.0;
     double ferrPeakMm= 0.0;
     double trqRmsPct = 0.0;                // torque ripple about its mean
+    // Sine rows: torque amplitude AT the excitation frequency (DC-removed
+    // projection). trqAmpPct / (actAmpMm*(2*pi*f)^2) is the load/inertia
+    // indicator -- flat across a sweep = mass-dominated, a peak = resonance.
+    double trqAmpPct = 0.0;
+    // Step rows: classical step metrics vs the held target.
+    double overshootPct = 0.0;
+    double riseMs    = 0.0;                // 10% -> 90% of target
+    double settleMs  = 0.0;                // last time outside the 2% band
 };
 
 struct CommissioningSegResult
 {
-    char   label[24] = {};
-    double freqHz    = 0.0;
+    char    label[24] = {};
+    uint8_t kind      = 0;                 // mirrors CommissioningSegment::kind
+    double  freqHz    = 0.0;
     CommissioningAxisResult axis[MAX_DRIVES];
 };
 
@@ -174,6 +188,10 @@ public:
                           double dwellSec, double pct,
                           const CommissioningAxisMeta* meta, int numAxes,
                           CommissioningPlan& out);
+    // Step-and-hold on every selected non-belt axis (overshoot/rise/settle).
+    static int buildStep(double pct, double holdSec,
+                         const CommissioningAxisMeta* meta, int numAxes,
+                         CommissioningPlan& out);
     // notes: whitespace-separated tokens "e1", "g1:2" (duration in beats),
     // "r"/"-" = rest. Note names c..b with # or b accidentals, octave digit.
     static int buildSong(const char* notes, double beatSec, double pct,
@@ -222,6 +240,16 @@ private:
         double trqSum = 0, trqSqSum = 0;
         long   trqN = 0;
         bool   derated = false;
+        // Torque projection at the segment frequency (direct DFT bin with a
+        // rotating phasor, so the strong static torque -- gravity hold on a
+        // vertical axis -- can be removed via the DC bin at finish).
+        double tRe = 0, tIm = 0, oRe = 0, oIm = 0;
+        double cosK = 1, sinK = 0, cw = 1, sw = 0;
+        // Step metrics runtime
+        double maxP = 0;                    // max progress actual/target
+        double t10 = -1, t90 = -1;          // rise-time crossings
+        double lastOob = 0;                 // last time outside the settle band
+        double lastAct = 0;                 // final actual (settle accuracy)
     };
     AxisAcc m_acc[MAX_DRIVES];
 

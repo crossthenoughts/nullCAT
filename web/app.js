@@ -760,7 +760,7 @@ function tstAxesPayload(){
 }
 document.querySelectorAll('#testModes input[name=tmode]').forEach(r=>{
   r.addEventListener('change',()=>{
-    ['cycle','tone','sweep','song'].forEach(m=>{ $('tp-'+m).hidden = m!==r.value; });
+    ['cycle','tone','sweep','step','song'].forEach(m=>{ $('tp-'+m).hidden = m!==r.value; });
   });
 });
 const numv=(id,def)=>{ const v=parseFloat($(id).value); return isFinite(v)?v:def; };
@@ -788,6 +788,8 @@ $('btnTestStart').onclick=async()=>{
   } else if(mode==='sweep'){
     body.f0=numv('tsF0',5); body.f1=numv('tsF1',50); body.stepHz=numv('tsStep',2.5);
     body.dwellSec=numv('tsDwell',2); body.pct=numv('tsPct',2);
+  } else if(mode==='step'){
+    body.pct=numv('tpPct',5); body.holdSec=numv('tpHold',3);
   } else if(mode==='song'){
     body.notes=$('tgNotes').value; body.beatSec=numv('tgBeat',0.55); body.pct=numv('tgPct',2);
   }
@@ -803,16 +805,28 @@ function renderTestResults(j){
   const host=$('testResults'); if(!host) return;
   if(!j.results || !j.results.length){ host.hidden=true; host.textContent=''; return; }
   const nameOf=i=>esc((tstDrives[i]&&tstDrives[i].name)||('Drive '+(i+1)));
+  const anyStep=j.results.some(r=>r.kind===1);
+  const anySine=j.results.some(r=>r.kind!==1);
   let h='<table><tr><th>segment</th><th>Hz</th><th>axis</th><th>cmd mm</th><th>act mm</th>'
-       +'<th>ratio</th><th>phase°</th><th>ferr rms</th><th>ferr pk</th><th>trq σ%</th></tr>';
+       +'<th>ratio</th><th>phase°</th><th>ferr rms</th><th>ferr pk</th><th>trq σ%</th>'
+       +(anySine?'<th>trq@f%</th><th>trq/acc</th>':'')
+       +(anyStep?'<th>os%</th><th>rise ms</th><th>settle ms</th>':'')
+       +'</tr>';
   j.results.forEach(r=>{
+    const step=r.kind===1;
     r.axes.forEach((a,k)=>{
-      h+='<tr><td>'+(k===0?esc(r.label):'')+'</td><td>'+(k===0?r.freqHz.toFixed(2):'')+'</td>'
+      h+='<tr><td>'+(k===0?esc(r.label):'')+'</td><td>'+(k===0&&!step?r.freqHz.toFixed(2):'')+'</td>'
         +'<td>'+nameOf(a.i)+(a.derated?' <span class="drtd">drtd</span>':'')+'</td>'
         +'<td>'+a.cmdAmp.toFixed(3)+'</td><td>'+a.actAmp.toFixed(3)+'</td>'
-        +'<td>'+a.ratio.toFixed(3)+'</td><td>'+a.phaseDeg.toFixed(1)+'</td>'
+        +'<td>'+a.ratio.toFixed(3)+'</td><td>'+(step?'':a.phaseDeg.toFixed(1))+'</td>'
         +'<td>'+a.ferrRms.toFixed(3)+'</td><td>'+a.ferrPeak.toFixed(3)+'</td>'
-        +'<td>'+a.trqRms.toFixed(1)+'</td></tr>';
+        +'<td>'+a.trqRms.toFixed(1)+'</td>';
+      if(anySine) h+='<td>'+(step||a.trqAmp==null?'':a.trqAmp.toFixed(2))+'</td>'
+                    +'<td>'+(step||a.trqPerAcc==null?'':a.trqPerAcc.toFixed(3))+'</td>';
+      if(anyStep) h+='<td>'+(step?a.osPct.toFixed(1):'')+'</td>'
+                    +'<td>'+(step?a.riseMs.toFixed(0):'')+'</td>'
+                    +'<td>'+(step?a.settleMs.toFixed(0):'')+'</td>';
+      h+='</tr>';
     });
   });
   host.innerHTML=h+'</table>'; host.hidden=false;

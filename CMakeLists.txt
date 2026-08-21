@@ -449,6 +449,9 @@ add_motion_test(TestFaultCodes tests/TestFaultCodes.cpp)
 # ---- Commissioning excitation engine + identification metrics ----
 add_motion_test(TestCommissioning tests/TestCommissioning.cpp)
 
+# ---- Commissioning TESTING state machine through MotionController ----
+add_motion_test(TestCommissioningFlow tests/TestCommissioningFlow.cpp)
+
 # ---- Build 72: TestInitSequence - EtherCATMaster init sequence (sim mode) ----
 #
 # Unlike the other test targets, this one links EtherCATMaster.cpp which

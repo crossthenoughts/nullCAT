@@ -133,8 +133,6 @@ public:
     virtual bool stepFaultReset();
     bool isFaultResetPending() const { return m_faultResetPending; }
     void startFaultReset();
-    uint16_t readErrorCode(ecx_contextt* ctx);
-
     // Precise fault identity: SDO-read 0x203F (UInt32; low 16 bits = the
     // panel/Er code, e.g. 0x871 = Er87.1). Blocking mailbox transaction --
     // recovery thread only, NEVER the RT loop. Returns 0 on failure.

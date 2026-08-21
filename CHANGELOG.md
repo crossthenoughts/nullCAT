@@ -25,6 +25,14 @@ middle number carries breaking changes and the last carries fixes.
   results); all excitation is ramp-enveloped so motion cannot step; the
   guard chain stays live; and a sustained following error aborts the run
   and re-parks the rig. See Docs/COMMISSIONING.md.
+- **Commissioning: step-response test and a load/inertia indicator.** A
+  fifth test type jumps each axis to a held target (the guard chain sets
+  the slew) and measures overshoot, 10-90% rise time, and 2%-band
+  settling time - the classic before/after probe for gain changes. Sine
+  segments additionally report the torque amplitude at the excitation
+  frequency (static gravity-hold removed) and torque-per-acceleration,
+  so a sweep now shows where the load stops behaving like pure mass -
+  resonances show up as a peak in that column.
 - **Drive faults are now decoded to their exact A6 Er codes.** Previously a
   fault logged only the raw 0x603F bus code, which is a coarse CiA402 class
   shared by many distinct faults (0xFF00 alone covers six different Er

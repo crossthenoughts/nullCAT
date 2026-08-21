@@ -281,6 +281,7 @@ sudo ./provision eth0 &lt;slave&gt; --verify    # confirm everything persisted</
         <label><input type="radio" name="tmode" value="cycle" checked> Motion cycle</label>
         <label><input type="radio" name="tmode" value="tone"> Tone</label>
         <label><input type="radio" name="tmode" value="sweep"> Sweep</label>
+        <label><input type="radio" name="tmode" value="step"> Step</label>
         <label><input type="radio" name="tmode" value="song"> Song</label>
       </div>
 
@@ -303,6 +304,11 @@ sudo ./provision eth0 &lt;slave&gt; --verify    # confirm everything persisted</
         <span class="tp">step <input type="number" id="tsStep" value="2.5" min="0.5" max="20" step="0.5"> Hz</span>
         <span class="tp">dwell <input type="number" id="tsDwell" value="2" min="1" max="10"> s</span>
         <span class="tp">amp <input type="number" id="tsPct" value="2" min="0.1" max="90" step="0.1">%</span>
+      </div>
+      <div class="test-params" id="tp-step" hidden>
+        <span class="tp">amp <input type="number" id="tpPct" value="5" min="0.5" max="90" step="0.5">%</span>
+        <span class="tp">hold <input type="number" id="tpHold" value="3" min="1" max="20"> s</span>
+        <span class="c">jump to +amp and hold - the guard chain sets the slew; measures overshoot / rise / settling</span>
       </div>
       <div class="test-params" id="tp-song" hidden>
         <textarea id="tgNotes" rows="2" spellcheck="false">e1 e1 g1 e1 d1 c1 b0:2</textarea>

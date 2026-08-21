@@ -327,7 +327,25 @@ void MotionController::serviceCommissioning(A6Drive** drives, int numHwDrives)
         bool anyExcited = false;
         for (int i = 0; i < m_numDrives; ++i) anyExcited = anyExcited || excite[i];
 
-        if (plan.numSegments <= 0 || !anyExcited)
+        // The axis-kind rail comes FIRST: it is stateless, and "belt not
+        // testable" is a more useful refusal than the rehome/park rails a
+        // belt axis would otherwise trip.
+        for (int i = 0; i < m_numDrives && !refusal; ++i)
+        {
+            if (!excite[i]) continue;
+            const AxisConfig& ac = m_axisConfig[i];
+            if (ac.torqueMode || ac.ppMode)
+            {
+                std::snprintf(refusalBuf, sizeof(refusalBuf),
+                    "axis %d is a %s axis -- not testable", i + 1,
+                    ac.torqueMode ? "belt/torque" : "PP");
+                refusal = refusalBuf;
+            }
+        }
+
+        if (refusal)
+            ;   // keep the axis-kind refusal
+        else if (plan.numSegments <= 0 || !anyExcited)
             refusal = "empty plan (no axes selected?)";
         else if (m_emergencyStop.load(std::memory_order_acquire))
             refusal = "e-stop active";
@@ -340,15 +358,6 @@ void MotionController::serviceCommissioning(A6Drive** drives, int numHwDrives)
             for (int i = 0; i < m_numDrives; ++i)
             {
                 if (!excite[i]) continue;
-                const AxisConfig& ac = m_axisConfig[i];
-                if (ac.torqueMode || ac.ppMode)
-                {
-                    std::snprintf(refusalBuf, sizeof(refusalBuf),
-                        "axis %d is a %s axis -- not testable", i + 1,
-                        ac.torqueMode ? "belt/torque" : "PP");
-                    refusal = refusalBuf;
-                    break;
-                }
                 if (!m_runtime[i].homed)
                 {
                     std::snprintf(refusalBuf, sizeof(refusalBuf),

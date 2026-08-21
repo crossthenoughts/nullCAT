@@ -1031,6 +1031,12 @@ bool WebServer::start()
                     o.value("beatSec").toDouble(0.55),
                     o.value("pct").toDouble(2.0), meta, n, plan);
             }
+            else if (mode == "step")
+            {
+                built = CommissioningMode::buildStep(
+                    o.value("pct").toDouble(5.0),
+                    o.value("holdSec").toDouble(3.0), meta, n, plan);
+            }
             else { errResp(res, "Unknown test mode."); return; }
 
             if (built < 0) { errResp(res, "Invalid test parameters (check note names)."); return; }
@@ -1069,6 +1075,7 @@ bool WebServer::start()
                 const CommissioningSegResult& sr = st.results[r];
                 if (r) s += ",";
                 s += "{\"label\":" + jsonStr(sr.label)
+                   + ",\"kind\":"   + std::to_string((int)sr.kind)
                    + ",\"freqHz\":" + strf("%.2f", sr.freqHz) + ",\"axes\":[";
                 bool first = true;
                 for (int i = 0; i < MAX_DRIVES; ++i)
@@ -1087,7 +1094,26 @@ bool WebServer::start()
                        + ",\"ferrRms\":"  + strf("%.3f", ar.ferrRmsMm)
                        + ",\"ferrPeak\":" + strf("%.3f", ar.ferrPeakMm)
                        + ",\"trqRms\":"   + strf("%.1f", ar.trqRmsPct)
-                       + ",\"derated\":"  + jsonBool(ar.derated) + "}";
+                       + ",\"derated\":"  + jsonBool(ar.derated);
+                    if (sr.kind == 1)
+                    {
+                        s += ",\"osPct\":"    + strf("%.1f", ar.overshootPct)
+                           + ",\"riseMs\":"   + strf("%.0f", ar.riseMs)
+                           + ",\"settleMs\":" + strf("%.0f", ar.settleMs);
+                    }
+                    else
+                    {
+                        s += ",\"trqAmp\":" + strf("%.2f", ar.trqAmpPct);
+                        // Load/inertia indicator: torque amplitude per unit of
+                        // measured acceleration amplitude (% rated per m/s^2).
+                        // Flat across a sweep = mass-dominated; a peak marks a
+                        // resonance worth a drive-side notch.
+                        const double wf = 2.0 * 3.14159265358979 * sr.freqHz;
+                        const double accel = ar.actAmpMm / 1000.0 * wf * wf;
+                        if (accel > 1e-6)
+                            s += ",\"trqPerAcc\":" + strf("%.3f", ar.trqAmpPct / accel);
+                    }
+                    s += "}";
                 }
                 s += "]}";
             }

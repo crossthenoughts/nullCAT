@@ -57,6 +57,11 @@ The refusal reason appears in the panel status line.
 - **Tone** - a single sine at a chosen frequency/amplitude/duration.
 - **Sweep** - a ladder of tones from A to B Hz in fixed steps, dwelling on
   each. This is the Bode-plot generator (see below).
+- **Step** - the raw target jumps to +amp and holds. The guard chain sets
+  the actual slew (maxVelocity/maxAccel), and the axis is measured against
+  the held target: overshoot %, 10-90% rise time, and settling time into
+  the 2% band. The classic before/after probe for gain changes: rising
+  overshoot = too hot, long settle without overshoot = too soft.
 - **Song** - a note sequence. Notes `c0`-`b8` with `#`/`b`, `:n` for a
   length in beats, `r` for a rest, e.g. `e1 e1 g1 e1 d1 c1 b0:2`.
   Actuators speak roughly 20-60 Hz, so basslines in octaves 0-1 work best.
@@ -68,11 +73,14 @@ segment (ramps excluded):
 
 | column | meaning |
 |---|---|
-| cmd mm / act mm | commanded vs measured amplitude at the segment frequency (Goertzel) |
-| ratio | act/cmd. 1.0 = perfect tracking; falling ratio = approaching bandwidth |
+| cmd mm / act mm | commanded vs measured amplitude at the segment frequency (Goertzel). Step rows: held target vs final settled value |
+| ratio | act/cmd. 1.0 = perfect tracking; falling ratio = approaching bandwidth. Step rows: settle accuracy |
 | phase° | response phase relative to command; more negative = more lag |
 | ferr rms / pk | following error over the segment (mm) |
 | trq σ% | torque ripple (std dev about its mean) - a hunting/vibration indicator |
+| trq@f% | torque amplitude AT the excitation frequency, static hold removed |
+| trq/acc | trq@f per unit of measured acceleration (% rated per m/s²) - the load/inertia indicator: flat across a sweep = mass-dominated, a peak marks a resonance |
+| os% / rise ms / settle ms | step rows only: overshoot, 10-90% rise, settling into the 2% band |
 
 A sweep's rows ARE Bode points: the frequency where ratio drops to ~0.7
 is the axis bandwidth at the current tune; a ratio bump above 1.0 with a

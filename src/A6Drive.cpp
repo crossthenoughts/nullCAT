@@ -362,26 +362,6 @@ bool A6Drive::stepFaultReset()
     return false;
 }
 
-uint16_t A6Drive::readErrorCode(ecx_contextt* ctx)
-{
-#ifndef SOEM_AVAILABLE
-    return 0;
-#else
-    if (!ctx) return 0;
-    uint16_t errorCode = 0;
-    int size = sizeof(errorCode);
-    int wkc = ecx_SDOread(ctx, (uint16)m_slaveIndex, 0x603F, 0x00,
-        FALSE, &size, &errorCode, 700000);
-    if (wkc > 0)
-    {
-        LOG_ERROR(strf("A6Drive[%d]: Error code from 0x603F = 0x%04x", m_slaveIndex, errorCode));
-        return errorCode;
-    }
-    LOG_WARNING(strf("A6Drive[%d]: Could not read error code (wkc=%d)", m_slaveIndex, wkc));
-    return 0;
-#endif
-}
-
 uint32_t A6Drive::readPanelCode(ecx_contextt* ctx)
 {
 #ifndef SOEM_AVAILABLE

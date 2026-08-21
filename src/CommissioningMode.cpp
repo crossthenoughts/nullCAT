@@ -64,8 +64,13 @@ void CommissioningMode::start(const CommissioningPlan& plan,
         {
             if (!m_limits[i].enabled) { sg.ampMm[i] = 0.0; continue; }
             double cap = 0.9 * m_limits[i].halfStrokeMm;
-            cap = std::min(cap, 0.8 * m_limits[i].maxVelMmS / w);
-            cap = std::min(cap, 0.8 * m_limits[i].maxAccelMmS2 / (w * w));
+            if (sg.kind == 0)
+            {
+                // Sine: rate budgets scale with frequency. Steps skip these --
+                // the guard chain slews the jump at maxVel/maxAccel by itself.
+                cap = std::min(cap, 0.8 * m_limits[i].maxVelMmS / w);
+                cap = std::min(cap, 0.8 * m_limits[i].maxAccelMmS2 / (w * w));
+            }
             // Clamp ONTO the cap; enterSegment() recomputes the same cap and
             // flags amplitudes sitting on it as derated for the results.
             if (std::fabs(sg.ampMm[i]) > cap)
@@ -177,11 +182,23 @@ bool CommissioningMode::step(double* outOffsetMm)
         }
         const CommissioningSegment& sg = m_plan.seg[m_segIdx];
         m_t += m_dt;
-        const double env = envelope(m_t, sg.durationSec, sg.rampSec);
-        const double s   = std::sin(2.0 * PI * sg.freqHz * m_t);
-        for (int i = 0; i < m_numAxes; ++i)
-            if (m_limits[i].enabled)
-                outOffsetMm[i] = sg.ampMm[i] * env * s;
+        if (sg.kind == 1)
+        {
+            // Step-and-hold: raw target jumps to the amplitude and stays.
+            // The guard chain downstream turns this into the steepest safe
+            // profile; metrics measure the axis against the held target.
+            for (int i = 0; i < m_numAxes; ++i)
+                if (m_limits[i].enabled)
+                    outOffsetMm[i] = sg.ampMm[i];
+        }
+        else
+        {
+            const double env = envelope(m_t, sg.durationSec, sg.rampSec);
+            const double s   = std::sin(2.0 * PI * sg.freqHz * m_t);
+            for (int i = 0; i < m_numAxes; ++i)
+                if (m_limits[i].enabled)
+                    outOffsetMm[i] = sg.ampMm[i] * env * s;
+        }
 
         if (m_t >= sg.durationSec)
         {
@@ -192,9 +209,14 @@ bool CommissioningMode::step(double* outOffsetMm)
             }
             else
             {
-                // Normal completion: offsets are already 0 (envelope).
-                std::memset(m_returnFrom, 0, sizeof(m_returnFrom));
-                m_returnT = 0.3;
+                // Normal completion. Sine segments end at zero offset via the
+                // envelope, but a held STEP ends at its amplitude -- so always
+                // return from wherever the outputs actually are.
+                std::memcpy(m_returnFrom, m_lastOut, sizeof(m_returnFrom));
+                double maxAbs = 0.0;
+                for (int i = 0; i < m_numAxes; ++i)
+                    maxAbs = std::max(maxAbs, std::fabs(m_returnFrom[i]));
+                m_returnT = clampd(maxAbs / 20.0, 0.3, 3.0);
                 m_t = 0.0;
                 m_phase = Phase::Returning;
             }
@@ -264,15 +286,40 @@ void CommissioningMode::recordSample(int axis, double appliedOffsetMm,
         m_ferrOverCycles[axis] = 0;
     }
 
-    // ---- Segment metrics (hold window only) ----
+    // ---- Segment metrics ----
     if (m_phase != Phase::Running || m_segIdx >= m_plan.numSegments) return;
     const CommissioningSegment& sg = m_plan.seg[m_segIdx];
+    AxisAcc& a = m_acc[axis];
+
+    if (sg.kind == 1)
+    {
+        // Step metrics run over the WHOLE hold (no ramps to exclude).
+        a.n++;
+        a.ferrSq  += ferr * ferr;
+        a.ferrPeak = std::max(a.ferrPeak, ferr);
+        a.trqSum  += torquePct;
+        a.trqSqSum+= torquePct * torquePct;
+        a.trqN++;
+        const double A = sg.ampMm[axis];
+        if (A != 0.0)
+        {
+            const double p = actualOffsetMm / A;        // sign-normalised progress
+            a.maxP = std::max(a.maxP, p);
+            if (a.t10 < 0.0 && p >= 0.1) a.t10 = m_t;
+            if (a.t90 < 0.0 && p >= 0.9) a.t90 = m_t;
+            const double band = std::max(0.02 * std::fabs(A), 0.05);
+            if (std::fabs(actualOffsetMm - A) > band) a.lastOob = m_t;
+            a.lastAct = actualOffsetMm;
+        }
+        return;
+    }
+
+    // Sine metrics: steady window only (envelope ramps excluded).
     double ramp = sg.rampSec;
     if (2.0 * ramp > sg.durationSec) ramp = sg.durationSec / 2.0;
     if (m_t < ramp || m_t > sg.durationSec - ramp) return;
 
-    AxisAcc& a = m_acc[axis];
-    // Goertzel recurrence for both channels
+    // Goertzel recurrence for both position channels
     {
         double s = appliedOffsetMm + a.coeff * a.cS1 - a.cS2;
         a.cS2 = a.cS1; a.cS1 = s;
@@ -285,6 +332,17 @@ void CommissioningMode::recordSample(int axis, double appliedOffsetMm,
     a.trqSum  += torquePct;
     a.trqSqSum+= torquePct * torquePct;
     a.trqN++;
+    // Torque projection onto the excitation frequency (rotating phasor).
+    // The DC bin (oRe/oIm) is accumulated alongside so the static holding
+    // torque can be subtracted at finish -- without it, gravity hold on a
+    // vertical axis would swamp the ripple estimate.
+    a.tRe += torquePct * a.cosK;
+    a.tIm += torquePct * a.sinK;
+    a.oRe += a.cosK;
+    a.oIm += a.sinK;
+    const double nc = a.cosK * a.cw - a.sinK * a.sw;
+    a.sinK = a.sinK * a.cw + a.cosK * a.sw;
+    a.cosK = nc;
 }
 
 // ============================================================
@@ -303,14 +361,19 @@ void CommissioningMode::enterSegment(int idx)
         m_acc[i] = AxisAcc{};
         m_acc[i].w     = w;
         m_acc[i].coeff = 2.0 * std::cos(w);
+        m_acc[i].cw    = std::cos(w);
+        m_acc[i].sw    = std::sin(w);
         // Derated flag: recompute the cap the same way start() did and mark
         // axes whose amplitude sits ON the cap (start() clamped them there).
         if (i < m_numAxes && m_limits[i].enabled && sg.ampMm[i] != 0.0)
         {
             const double wf = 2.0 * PI * std::max(0.01, sg.freqHz);
             double cap = 0.9 * m_limits[i].halfStrokeMm;
-            cap = std::min(cap, 0.8 * m_limits[i].maxVelMmS / wf);
-            cap = std::min(cap, 0.8 * m_limits[i].maxAccelMmS2 / (wf * wf));
+            if (sg.kind == 0)
+            {
+                cap = std::min(cap, 0.8 * m_limits[i].maxVelMmS / wf);
+                cap = std::min(cap, 0.8 * m_limits[i].maxAccelMmS2 / (wf * wf));
+            }
             m_acc[i].derated = std::fabs(std::fabs(sg.ampMm[i]) - cap) < 1e-9;
         }
     }
@@ -322,6 +385,7 @@ void CommissioningMode::finishSegment()
     const CommissioningSegment& sg = m_plan.seg[m_segIdx];
     CommissioningSegResult& r = m_resWork[m_resCount];
     std::memcpy(r.label, sg.label, sizeof(r.label));
+    r.kind   = sg.kind;
     r.freqHz = sg.freqHz;
     for (int i = 0; i < MAX_DRIVES; ++i)
     {
@@ -331,6 +395,29 @@ void CommissioningMode::finishSegment()
         ar.tested  = (sg.ampMm[i] != 0.0);
         ar.derated = m_acc[i].derated;
         const AxisAcc& a = m_acc[i];
+        if (sg.kind == 1 && ar.tested)
+        {
+            // Step metrics. cmd/act carry the held target and the final
+            // resting value, so the ratio column reads as settle accuracy.
+            ar.cmdAmpMm     = std::fabs(sg.ampMm[i]);
+            ar.actAmpMm     = std::fabs(a.lastAct);
+            ar.overshootPct = std::max(0.0, (a.maxP - 1.0) * 100.0);
+            ar.riseMs       = (a.t10 >= 0.0 && a.t90 >= 0.0)
+                            ? (a.t90 - a.t10) * 1000.0 : 0.0;
+            ar.settleMs     = a.lastOob * 1000.0;
+            if (a.n > 0)
+            {
+                ar.ferrRmsMm  = std::sqrt(a.ferrSq / (double)a.n);
+                ar.ferrPeakMm = a.ferrPeak;
+            }
+            if (a.trqN > 0)
+            {
+                const double mean = a.trqSum / (double)a.trqN;
+                const double ms   = a.trqSqSum / (double)a.trqN - mean * mean;
+                ar.trqRmsPct = ms > 0.0 ? std::sqrt(ms) : 0.0;
+            }
+            continue;
+        }
         if (a.n > 8)
         {
             const double cw = std::cos(a.w), sw = std::sin(a.w);
@@ -354,6 +441,11 @@ void CommissioningMode::finishSegment()
             const double mean = a.trqSum / (double)a.trqN;
             const double ms   = a.trqSqSum / (double)a.trqN - mean * mean;
             ar.trqRmsPct = ms > 0.0 ? std::sqrt(ms) : 0.0;
+            // Torque amplitude at the excitation frequency, static component
+            // removed: subtract the mean's projection onto the same bin.
+            const double tRe = a.tRe - mean * a.oRe;
+            const double tIm = a.tIm - mean * a.oIm;
+            ar.trqAmpPct = 2.0 / (double)a.trqN * std::sqrt(tRe * tRe + tIm * tIm);
         }
     }
     m_resCount++;
@@ -569,6 +661,31 @@ int CommissioningMode::buildSweep(double f0Hz, double f1Hz, double stepHz,
         if (!any) return 0;
         out.seg[out.numSegments++] = sg;
     }
+    return out.numSegments;
+}
+
+int CommissioningMode::buildStep(double pct, double holdSec,
+                                 const CommissioningAxisMeta* meta, int numAxes,
+                                 CommissioningPlan& out)
+{
+    out = CommissioningPlan{};
+    std::snprintf(out.title, sizeof(out.title), "step response");
+    CommissioningSegment sg;
+    sg.kind = 1;
+    sg.freqHz = 0.0;                       // no excitation frequency
+    sg.durationSec = clampd(holdSec, 1.0, 20.0);
+    sg.rampSec = 0.0;
+    setLabel(sg, "step");
+    bool any = false;
+    numAxes = std::min(numAxes, MAX_DRIVES);
+    for (int i = 0; i < numAxes; ++i)
+    {
+        if (!meta[i].selected || meta[i].kind == 2) continue;
+        sg.ampMm[i] = clampd(pct, 0.0, 100.0) / 100.0 * meta[i].halfStrokeMm;
+        any = any || sg.ampMm[i] != 0.0;
+    }
+    if (!any) return 0;
+    out.seg[out.numSegments++] = sg;
     return out.numSegments;
 }
 

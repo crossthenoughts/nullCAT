@@ -310,6 +310,141 @@ int main()
               && st.results[1].axis[0].phaseDeg == 0.0, "rest row is clean zeros");
     }
 
+    // ================= step response =================
+    {
+        rigMeta(meta);
+        CommissioningPlan plan;
+        int n = CommissioningMode::buildStep(5.0, 3.0, meta, 6, plan);
+        CHECK(n == 1, "step: one segment");
+        CHECK(plan.seg[0].kind == 1, "step kind set");
+        CHECK(std::fabs(plan.seg[0].ampMm[0] - 0.05 * 50.0) < 1e-9, "step amp 5%");
+        CHECK(plan.seg[0].ampMm[5] == 0.0, "step: belt silent");
+
+        // First-order plant: y(t) = A(1 - e^-t/tau), tau = -dt/ln(1-a).
+        // Analytic: no overshoot; rise(10-90) = tau*(ln10 - ln(10/9));
+        // settle into the 2% band (A=10 -> band 0.2mm) = tau*ln(50).
+        CommissioningMode eng;
+        CommissioningPlan p2;
+        p2.numSegments = 1;
+        p2.seg[0].kind = 1;
+        p2.seg[0].durationSec = 2.0;
+        p2.seg[0].rampSec = 0.0;
+        p2.seg[0].ampMm[0] = 10.0;
+        std::snprintf(p2.seg[0].label, sizeof(p2.seg[0].label), "step");
+        CommissioningAxisLimits lim[MAX_DRIVES];
+        defaultLimits(lim, 1);
+        eng.start(p2, lim, 1, DT);
+
+        const double a = 0.2;
+        const double tau = -DT / std::log(1.0 - a);
+        double y = 0.0;
+        double out[MAX_DRIVES];
+        double prevOut = 0.0, maxDelta = 0.0, lastOut = 1e9;
+        bool inReturn = false;
+        int guard = 0;
+        while (eng.step(out) && ++guard < 500000)
+        {
+            y = a * out[0] + (1.0 - a) * y;
+            eng.recordSample(0, out[0], y, 0.0);
+            // continuity matters in the RETURN (the step itself is meant to jump)
+            if (inReturn) maxDelta = std::max(maxDelta, std::fabs(out[0] - prevOut));
+            if (out[0] >= 9.99) inReturn = true;   // held at target; return follows
+            prevOut = out[0];
+            lastOut = out[0];
+        }
+        CommissioningStatus st = eng.getStatus();
+        CHECK(st.resultCount == 1 && !st.aborted, "step run completed");
+        CHECK(st.results[0].kind == 1, "result row carries step kind");
+        const CommissioningAxisResult& ar = st.results[0].axis[0];
+        CHECK(ar.overshootPct < 0.5, "first-order plant: no overshoot");
+        const double expRise   = tau * (std::log(10.0) - std::log(10.0 / 9.0)) * 1000.0;
+        const double expSettle = tau * std::log(10.0 / 0.2) * 1000.0;
+        char msg[96];
+        std::snprintf(msg, sizeof(msg), "rise %.0fms vs analytic %.0fms", ar.riseMs, expRise);
+        CHECK(std::fabs(ar.riseMs - expRise) < 2.0 * DT * 1000.0 + 0.5, msg);
+        std::snprintf(msg, sizeof(msg), "settle %.0fms vs analytic %.0fms", ar.settleMs, expSettle);
+        CHECK(std::fabs(ar.settleMs - expSettle) < 2.0 * DT * 1000.0 + 0.5, msg);
+        CHECK(std::fabs(ar.cmdAmpMm - 10.0) < 1e-9, "cmd column carries the target");
+        CHECK(std::fabs(ar.actAmpMm - 10.0) < 0.2, "act column carries the settled value");
+        // held-step return path: eased, not snapped (the completion-path fix)
+        CHECK(std::fabs(lastOut) < 0.05, "return reached zero after the held step");
+        CHECK(maxDelta < 1.0, "held-step return had no command step");
+    }
+
+    // ================= overshoot detection =================
+    {
+        CommissioningMode eng;
+        CommissioningPlan p;
+        p.numSegments = 1;
+        p.seg[0].kind = 1;
+        p.seg[0].durationSec = 1.0;
+        p.seg[0].ampMm[0] = 10.0;
+        CommissioningAxisLimits lim[MAX_DRIVES];
+        defaultLimits(lim, 1);
+        eng.start(p, lim, 1, DT);
+        double out[MAX_DRIVES];
+        int k = -1, guard = 0;
+        while (eng.step(out) && ++guard < 500000)
+        {
+            // Scripted response, keyed to the step's arrival (out jumps to 10
+            // when Running starts -- centering must see act=0 or the ferr
+            // rail rightly aborts): ramp up, overshoot to 12, settle to 10.
+            if (k < 0 && out[0] > 9.99) k = 0;
+            double act = (k < 0)  ? 0.0
+                       : (k < 40) ? 10.0 * k / 40.0
+                       : (k < 80) ? 12.0
+                       : 10.0;
+            eng.recordSample(0, out[0], act, 0.0);
+            if (k >= 0) ++k;
+        }
+        CommissioningStatus st = eng.getStatus();
+        CHECK(std::fabs(st.results[0].axis[0].overshootPct - 20.0) < 0.5,
+              "20% overshoot measured");
+    }
+
+    // ================= torque projection (DC-removed) =================
+    {
+        // Sine run with torque = strong static hold + small ripple AT f.
+        // The projection must report the ripple amplitude, not the 30% hold.
+        CommissioningMode eng;
+        CommissioningPlan p;
+        p.numSegments = 2;
+        for (int s = 0; s < 2; ++s)
+        {
+            p.seg[s].freqHz = 8.0;
+            p.seg[s].durationSec = 3.0;
+            p.seg[s].rampSec = 0.3;
+            p.seg[s].ampMm[0] = 2.0;
+        }
+        std::snprintf(p.seg[0].label, sizeof(p.seg[0].label), "ripple");
+        std::snprintf(p.seg[1].label, sizeof(p.seg[1].label), "dc-only");
+        CommissioningAxisLimits lim[MAX_DRIVES];
+        defaultLimits(lim, 1);
+        eng.start(p, lim, 1, DT);
+        double out[MAX_DRIVES];
+        double t = 0.0;
+        int guard = 0;
+        while (eng.step(out) && ++guard < 500000)
+        {
+            t += DT;
+            // Timeline: centering is exactly 1.0s (zero start offset clamps to
+            // the 1s floor), so segment 0 spans t in [1,4] and segment 1 [4,7].
+            // Ripple through all of segment 0, pure DC through segment 1.
+            const double trq = (t <= 4.0)
+                ? 30.0 + 2.0 * std::sin(2.0 * 3.14159265358979 * 8.0 * t + 0.7)
+                : 30.0;
+            eng.recordSample(0, out[0], out[0], trq);
+        }
+        CommissioningStatus st = eng.getStatus();
+        CHECK(st.resultCount == 2, "two torque segments");
+        char msg[96];
+        std::snprintf(msg, sizeof(msg), "trq@f %.2f%% vs injected 2.0%% (DC 30%% removed)",
+                      st.results[0].axis[0].trqAmpPct);
+        CHECK(std::fabs(st.results[0].axis[0].trqAmpPct - 2.0) < 0.4, msg);
+        CHECK(st.results[1].axis[0].trqAmpPct < 0.3,
+              "pure DC torque projects to ~0 at f");
+    }
+
     // ================= external cancel =================
     {
         CommissioningMode eng;
