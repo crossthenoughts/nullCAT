@@ -168,12 +168,23 @@ NULLCAT,<axis1>,<axis2>,...,<axisN>
 - **Header (required):** everything before the **first comma** must spell
   `NULLCAT` - case-insensitive, embedded whitespace ignored (`null cat ,`
   parses). Anything else, or a packet with no comma, is rejected whole.
-- **Values:** comma-separated **decimal** numbers (`32767`, `1.5`, `-0.3`,
+- **Values:** comma-separated **decimal** numbers (`32767`, `48000`,
   scientific notation all fine - C `strtod` rules). Bare hexadecimal like
   `7FFF` does NOT parse (a leading digit is read as decimal, letters are
-  garbage) - configure the sender for decimal output. 16-bit unsigned
-  center-at-32767 is the tested scaling (SimHub's *Decimal (string)* /
-  16-bit mode).
+  garbage) - configure the sender for decimal output.
+- **Scaling: 16-bit unsigned, and ONLY that.** `0..65535` with `32767` =
+  axis centre; full scale spans the axis's configured `strokeMm` (so the
+  same wire value moves a 230mm surge proportionally further than a 100mm
+  heave). This is SimHub's *Decimal (string)* / 16-bit mode. Out-of-range
+  values are clamped to the ends of travel. Before 0.9.3 an undocumented
+  heuristic guessed "values under 500 are millimetres"; that guess is gone -
+  small numbers now mean what 16-bit says they mean (near the low end of
+  travel), so a sender emitting raw mm offsets must be reconfigured.
+- **All-zeros frames are ignored:** a frame where *every* value is exactly
+  `0` is treated as no telemetry (feeding the normal telemetry-loss standby)
+  rather than as a command to slam every axis to one end - some telemetry
+  tools emit all-zeros while idling at a menu. A frame with any nonzero
+  value is a real command, including genuine zeros on individual axes.
 - **Axis order:** value 1 feeds your first configured axis (chain order),
   value 2 the second, and so on. At most **10** values are read; extras
   are ignored.

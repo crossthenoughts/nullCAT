@@ -77,8 +77,8 @@ static TelemetryData sim(double raw, bool valid = true)
     TelemetryData sd{};
     sd.valid        = valid;
     sd.numPositions = 2;
-    sd.positions[0] = 0.5;   // vertical mid-stroke
-    sd.positions[1] = raw;   // belt demand
+    sd.positions[0] = 32767.0;   // vertical mid-stroke (16-bit centre)
+    sd.positions[1] = raw;       // belt demand (0..65535; tests use ~0 = min tension)
     sd.packetType   = TelemetryPacketType::Motion;
     return sd;
 }

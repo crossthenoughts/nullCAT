@@ -71,8 +71,14 @@ static TelemetryData sim(double raw, bool valid = true)
 {
     TelemetryData sd{};
     sd.valid        = valid;
-    sd.numPositions = 1;
+    // Two channels: the belt under test reads [0]; [1] carries a 16-bit
+    // centre value the way every real frame carries position channels. A
+    // single-channel frame with raw=0 would be ALL-zero, which the engine
+    // deliberately treats as no-data (idle-tool signature) -- these tests
+    // mean "belt demand zero", not "tool idle".
+    sd.numPositions = 2;
     sd.positions[0] = raw;
+    sd.positions[1] = 32767.0;
     sd.packetType   = TelemetryPacketType::Motion;
     return sd;
 }

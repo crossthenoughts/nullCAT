@@ -60,14 +60,19 @@ static AppConfig makeTrajectoryConfig(double maxVelMmS     = 200.0,
     return cfg;
 }
 
-// Build a TelemetryData packet mapping axisValue (mm relative to center) to positions[0].
-// The MC interprets values ≤ 500 as raw mm offset from centerPos; values > 500 as 16-bit 0–65535.
-static TelemetryData makeMotionPacket(double rawMm)
+// Build a TelemetryData packet commanding an offset (mm relative to center)
+// as a 16-bit wire value -- the ONLY scaling the engine accepts since 0.9.3:
+// 0..65535 with 32767 = centerPos, full scale = half a stroke. The fixtures
+// in this file all use strokeMm=100, so mm-from-centre maps as
+// 32767 * (1 + mm/50). Offsets beyond +-50mm produce out-of-range wire
+// values; the engine clamps the resulting target to [0, strokeMm], which is
+// exactly what the clamping test exercises.
+static TelemetryData makeMotionPacket(double mmFromCenter)
 {
     TelemetryData d;
     d.valid        = true;
     d.numPositions = 1;
-    d.positions[0] = rawMm;
+    d.positions[0] = 32767.0 * (1.0 + mmFromCenter / 50.0);
     d.packetType   = TelemetryPacketType::Motion;
     return d;
 }
@@ -208,7 +213,8 @@ private slots:
         A6Drive* drives[1] = { &mock };
         MotionOutput out{};
 
-        // Command far beyond maxPos (raw=500 maps to raw mm mode since ≤500)
+        // Command far beyond maxPos: +500mm from centre is an out-of-range
+        // 16-bit wire value; the engine clamps the target to maxPos.
         TelemetryData cmd = makeMotionPacket(500.0);  // clamped at maxPos=100
 
         for (int i = 0; i < 500; ++i)
@@ -221,6 +227,51 @@ private slots:
                 qPrintable(QString("Position %1mm outside [0, %2mm] at cycle %3")
                     .arg(pos, 0, 'f', 3).arg(strokeMm, 0, 'f', 1).arg(i)));
         }
+    }
+
+    // ---- All-zeros frame is no-data, not a command ----
+    // In 16-bit, 0 means full deflection to one end -- but a frame where
+    // EVERY channel is exactly 0 is the signature of a telemetry tool idling
+    // at menu, not a motion command. Reading it literally would slam the
+    // whole rig to one end of stroke. The engine treats such a frame as
+    // no-data: the axis holds (stale-telemetry phase 1) instead of moving.
+    // A frame with ANY nonzero channel remains a real command, including a
+    // genuine single-axis zero alongside live channels.
+    void allZerosFrame_isNoData_notFullDeflection()
+    {
+        AppConfig cfg = makeTrajectoryConfig();
+        MotionController mc;
+        mc.configure(cfg);
+
+        MockA6Drive mock;
+        mock.configure(1, 0.0, 0.5);
+        mock.setHardstop(50.0, false, 50.0);   // inline fixture (see above)
+
+        int c = driveToOnline(mc, &mock, 5000);
+        QVERIFY2(c > 0, "Did not reach ONLINE");
+
+        A6Drive* drives[1] = { &mock };
+        MotionOutput out{};
+
+        // Track at centre on real frames first.
+        TelemetryData centre = makeMotionPacket(0.0);   // wire 32767
+        for (int i = 0; i < 300; ++i) { mock.updateStatus(); mc.process(centre, out, drives, 1); }
+        const double before = out.positions[0];
+        QVERIFY2(std::abs(before - 50.0) < 0.5,
+            qPrintable(QString("setup: expected ~centre, got %1").arg(before)));
+
+        // Now feed all-zero frames for one second of cycles. A literal 16-bit
+        // reading would command 0mm (full one end); no-data must hold.
+        TelemetryData zeros;
+        zeros.valid        = true;
+        zeros.numPositions = 1;
+        zeros.positions[0] = 0.0;
+        zeros.packetType   = TelemetryPacketType::Motion;
+        for (int i = 0; i < 100; ++i) { mock.updateStatus(); mc.process(zeros, out, drives, 1); }
+
+        QVERIFY2(std::abs(out.positions[0] - before) < 0.5,
+            qPrintable(QString("all-zeros frame moved the axis: %1 -> %2 (must hold)")
+                .arg(before).arg(out.positions[0])));
     }
 
     // ---- TF-4-4: velCap honoured during BLENDING ----

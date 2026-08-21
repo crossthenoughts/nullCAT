@@ -151,8 +151,11 @@ static double settledBeltTorque(MotionController& mc)
 
     TelemetryData sd{};
     sd.valid        = true;
-    sd.numPositions = 1;
+    // Belt demand zero, plus a 16-bit centre on a second channel so the frame
+    // is not ALL-zero (the engine treats an all-zero frame as no-data).
+    sd.numPositions = 2;
     sd.positions[0] = 0.0;
+    sd.positions[1] = 32767.0;
     sd.packetType   = TelemetryPacketType::Motion;
 
     MotionOutput out{};

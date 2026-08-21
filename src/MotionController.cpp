@@ -21,6 +21,31 @@
 
 static constexpr double TELEMETRY_CENTER = 32767.0;
 
+// The wire contract (Docs/CONFIG_REFERENCE.md) defines an axis value as
+// 16-bit unsigned, 0..65535 with centre 32767 -- and that is the ONLY
+// scaling. Until 0.9.3 a per-frame heuristic guessed "any channel above 500
+// means 16-bit, otherwise the values are millimetres": unspecced (present
+// since the initial commit, predating the contract), re-decided every frame
+// (a channel hovering around 500 teleported the target between opposite
+// stroke ends on consecutive frames), and cross-channel (one odd channel
+// flipped the interpretation of every axis). Removed: values are 16-bit,
+// full stop.
+//
+// One deliberate carve-out replaces the accidental protection the mm branch
+// used to provide: a frame where EVERY channel is exactly 0 is treated as
+// no-data rather than as a command. In 16-bit, 0 is full deflection to one
+// end -- but no real motion frame commands every axis and belt to zero
+// simultaneously, while some telemetry tools DO emit all-zeros at menu/idle.
+// Reading such a frame literally would slam the whole rig to one end;
+// treating it as no-data feeds the existing stale-telemetry standby instead.
+static bool telemetryFrameUsable(const TelemetryData& t)
+{
+    if (!t.valid || t.numPositions <= 0) return false;
+    for (int j = 0; j < t.numPositions; ++j)
+        if (t.positions[j] != 0.0) return true;   // any nonzero channel = real frame
+    return false;
+}
+
 // Belt tensioner mapping: telemetry raw 0..65535 -> torqueMin..torqueMax (% of rated),
 // clamped. Unidirectional -- the belt never commands below torqueMin while tracking.
 static inline double beltTension(double raw, double minPct, double maxPct)
@@ -1038,7 +1063,7 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
                 // across blendDuration, so the belt never snaps taut on enable.
                 rt.blendElapsed += m_cycleTimeSec;
                 double bf = std::max(0.0, std::min(1.0, rt.blendElapsed / rt.blendDuration));
-                bool haveData = telemetryData.valid && i < telemetryData.numPositions
+                bool haveData = telemetryFrameUsable(telemetryData) && i < telemetryData.numPositions
                                 && std::isfinite(telemetryData.positions[i]);
                 double tension = haveData
                     ? beltTension(telemetryData.positions[i], ac.torqueMinPct, ac.torqueMaxPct)
@@ -1073,27 +1098,17 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
             // replay", no bang-bang oscillation, and no separate ONLINE handoff
             // (the same filter just continues once the cap reaches full).
             double targetMm = rt.currentPos;   // hold if no data
-            bool haveData = telemetryData.valid && i < telemetryData.numPositions
+            bool haveData = telemetryFrameUsable(telemetryData) && i < telemetryData.numPositions
                             && std::isfinite(telemetryData.positions[i]);
             if (haveData)
             {
                 rt.onlineHadData = true;
                 double raw = telemetryData.positions[i];
-                bool is16bit = false;
-                for (int j = 0; j < telemetryData.numPositions; ++j)
-                    if (telemetryData.positions[j] > 500.0) { is16bit = true; break; }
-
-                if (is16bit)
-                {
-                    double norm = (raw - TELEMETRY_CENTER) / TELEMETRY_CENTER;
-                    targetMm = ac.centerPos + norm * (ac.strokeMm / 2.0);
-                    if (ac.telemetryInvert)
-                        targetMm = ac.centerPos - (targetMm - ac.centerPos);
-                }
-                else
-                {
-                    targetMm = ac.centerPos + (ac.telemetryInvert ? -raw : raw);
-                }
+                // 16-bit only (the wire contract): 0..65535, centre 32767 = centerPos.
+                double norm = (raw - TELEMETRY_CENTER) / TELEMETRY_CENTER;
+                targetMm = ac.centerPos + norm * (ac.strokeMm / 2.0);
+                if (ac.telemetryInvert)
+                    targetMm = ac.centerPos - (targetMm - ac.centerPos);
                 if (ac.spikeFilterEnabled)
                     targetMm = applySpikeFilter(i, targetMm);
                 targetMm = std::max(ac.minPos, std::min(ac.maxPos, targetMm));
@@ -1147,7 +1162,7 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
                 //   phase 2 (..to)   -> ease to torqueMin (neutral taut standby)
                 //   phase 3 (>=to)   -> PARKING (ramp tension to 0 = slack)
                 double tension;
-                bool haveData = telemetryData.valid && i < telemetryData.numPositions
+                bool haveData = telemetryFrameUsable(telemetryData) && i < telemetryData.numPositions
                                 && std::isfinite(telemetryData.positions[i]);
                 if (haveData)
                 {
@@ -1223,29 +1238,18 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
             // NaN/Inf guard: a non-finite raw sample is treated as "no data" --
             // we never feed garbage into the command stream.
             double targetMm = rt.currentPos;  // hold if no data
-            bool haveData = telemetryData.valid && i < telemetryData.numPositions
+            bool haveData = telemetryFrameUsable(telemetryData) && i < telemetryData.numPositions
                             && std::isfinite(telemetryData.positions[i]);
             if (haveData)
             {
                 rt.onlineStaleSec = 0.0;
                 rt.onlineHadData = true;
                 double raw = telemetryData.positions[i];
-
-                bool is16bit = false;
-                for (int j = 0; j < telemetryData.numPositions; ++j)
-                    if (telemetryData.positions[j] > 500.0) { is16bit = true; break; }
-
-                if (is16bit)
-                {
-                    double norm = (raw - TELEMETRY_CENTER) / TELEMETRY_CENTER;
-                    targetMm = ac.centerPos + norm * (ac.strokeMm / 2.0);
-                    if (ac.telemetryInvert)
-                        targetMm = ac.centerPos - (targetMm - ac.centerPos);
-                }
-                else
-                {
-                    targetMm = ac.centerPos + (ac.telemetryInvert ? -raw : raw);
-                }
+                // 16-bit only (the wire contract): 0..65535, centre 32767 = centerPos.
+                double norm = (raw - TELEMETRY_CENTER) / TELEMETRY_CENTER;
+                targetMm = ac.centerPos + norm * (ac.strokeMm / 2.0);
+                if (ac.telemetryInvert)
+                    targetMm = ac.centerPos - (targetMm - ac.centerPos);
 
                 if (ac.spikeFilterEnabled)
                     targetMm = applySpikeFilter(i, targetMm);
