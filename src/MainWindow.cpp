@@ -22,6 +22,7 @@
 #include <QFrame>
 #include <QCloseEvent>
 #include <QMessageBox>
+#include <QSettings>
 #include <QScrollBar>
 #include <QFont>
 #include <QColor>
@@ -39,8 +40,18 @@ MainWindow::MainWindow(QWidget* parent)
     setWindowTitle("nullCAT - EtherCAT Motion");
     // Narrow instrument-panel window - readouts on top, run-deck pinned to
     // the bottom via a stretch.
-    setMinimumSize(370, 580);
-    resize(390, 682);   // ~collapsed-content height; the log fold grows/shrinks it
+    setMinimumSize(370, 620);
+    // Default open size, used on FIRST run only: sized so the full collapsed
+    // panel (which has grown since the original 682 was chosen - Park button
+    // et al.) is readable without a manual resize. Every later run restores
+    // whatever size the user last had (saved in closeEvent), so a resize
+    // sticks instead of being needed on every launch.
+    resize(430, 780);
+    {
+        QSettings settings;
+        const QByteArray geo = settings.value("ui/mainWindowGeometry").toByteArray();
+        if (!geo.isEmpty()) restoreGeometry(geo);
+    }
 
     buildUI();
 
@@ -1519,6 +1530,14 @@ void MainWindow::closeEvent(QCloseEvent* event)
         "Stop control loop and shut down EtherCAT before exiting?",
         QMessageBox::Yes | QMessageBox::Cancel);
     if (ret != QMessageBox::Yes) { event->ignore(); return; }
+
+    // Persist the window size/position so the next launch opens where the
+    // user left it (restored in the constructor). Saved only on a confirmed
+    // quit -- a cancelled close changes nothing.
+    {
+        QSettings settings;
+        settings.setValue("ui/mainWindowGeometry", saveGeometry());
+    }
 
     // Clear all callbacks before stopping -- prevents stale UI updates
     // from the control loop or logger after the window is destroyed.
