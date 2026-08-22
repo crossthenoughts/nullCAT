@@ -28,6 +28,16 @@ middle number carries breaking changes and the last carries fixes.
   cycle on contention -- status is best-effort, the loop never waits.
 
 ### Added
+- **Rotary lever axis type (`rotary_lever`)** - first-class support for
+  crank-arm actuators (lever 6DOF / hexapod rigs, geared rotary axes).
+  The engineering unit is degrees at the lever shaft: the config editor
+  and drive cards show arc travel, deg/s, deg/s2 and counts/degree; the
+  gear ratio list extends to 100:1 (hand-edited values such as "63:1"
+  are shown and preserved, never clobbered); the internal
+  pitch-equals-360 convention is forced and hidden. Save-time clamps are
+  rotary-aware, so a lever config survives the web editor. The motion
+  path, homing, guards, and commissioning are unit-agnostic and needed
+  no changes - see Docs/PLAN_ROTARY_HEXAPOD.md for the wider plan.
 - **Commissioning results now land in the log** as one TESTRESULT line per
   axis per segment (amplitudes, ratio, phase, following error, torque
   metrics, step overshoot/rise/settle), so rig logs carry the measured

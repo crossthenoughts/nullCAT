@@ -18,7 +18,7 @@ let lastRecvMs=0, jpeak=0, ecatMode='init', parkBtnMode='park', beltsSlack=false
 const SPARK_N=60; const jbuf=new Float32Array(SPARK_N); let jhead=0, jfill=0;
 const peaks={};   // per-drive sticky {vel,trq}
 
-const TYPE={ linear_vertical:'VERT', linear_horizontal:'HORIZ', belt:'BELT' };
+const TYPE={ linear_vertical:'VERT', linear_horizontal:'HORIZ', belt:'BELT', rotary_lever:'ROT' };
 const hex4=(v)=> '0x'+(((v|0)&0xFFFF)>>>0).toString(16).toUpperCase().padStart(4,'0');
 // (DS402 statusword decode + the local status derivation moved to the shared
 //  StatusModel; the web consumes /api/status `ind`/`aggregate`. hex4() is still
@@ -183,6 +183,17 @@ function buildDriveCards(drives, loopRunning){
     // (CSS .torque .pos-only) and show the mode instead. TRQ % stays (the useful readout).
     const isTorque = d.mode==='torque';
     card.classList.toggle('torque', isTorque);
+    // Rotary lever: metric row labels read in degrees. Swapped once per
+    // kind change (dataset flag), not per poll.
+    const rotCard = d.axisType==='rotary_lever' ? '1':'0';
+    if(card.dataset.rot!==rotCard){
+      card.dataset.rot=rotCard;
+      const rot = rotCard==='1';
+      const lbl=(sel,lin,deg)=>{ const el=card.querySelector(sel); if(el){ const mk=el.parentElement.querySelector('.mk'); if(mk) mk.textContent=rot?deg:lin; } };
+      lbl('.mv.pos','Pos mm','Pos °'); lbl('.mv.tgt','Tgt mm','Tgt °');
+      lbl('.mv.vel','Vel mm/s','Vel °/s'); lbl('.mv.acc','Accel mm/s²','Accel °/s²');
+      lbl('.mv.ferr','Follow err mm','Follow err °');
+    }
     if(isTorque){
       card.querySelector('.dcfg').textContent = 'torque · CST';
       // Torque telemetry rows (see WebServer: cmdTrq/rms/rpm/igbtC/guard).
@@ -197,6 +208,10 @@ function buildDriveCards(drives, loopRunning){
       const gEl=set('.guardv', GUARD[d.guard]||' - ');
       if(gEl) gEl.style.color = d.guard==='relaxed' ? 'var(--warn)'
                               : d.guard ? 'var(--danger)' : 'var(--ink-soft)';
+    }
+    else if(d.axisType==='rotary_lever'){
+      const arc = (typeof d.strokeMm==='number')? d.strokeMm.toFixed(0)+'°':' - ';
+      card.querySelector('.dcfg').textContent = d.reductionRatio? arc+' · '+d.reductionRatio : arc;
     }
     else {
       const stroke = (typeof d.strokeMm==='number')? d.strokeMm.toFixed(0)+'mm':' - ';
@@ -503,9 +518,13 @@ async function loadConfig(){
 function clampDriveFields(){
   if(!cfgObj||!cfgObj.drives) return 0; let n=0;
   for(const d of cfgObj.drives){ for(const f of AXIS_SPEC){
+    // axisApplicable also skips fields hidden for this axis kind (e.g. the
+    // pitch field on a rotary axis, which is pinned to 360 internally --
+    // clamping it to the linear 50mm max would wreck the degree scaling).
     if(f.type!=='num'||!axisApplicable(f,d)) continue;
     let v=+d[f.k]; if(!isFinite(v)) continue;
-    const emin=f.dynMin?f.dynMin(d,cfgObj):f.min, emax=f.dynMax?f.dynMax(d,cfgObj):f.max;
+    const e=effSpec(f,d);
+    const emin=f.dynMin?f.dynMin(d,cfgObj):e.min, emax=f.dynMax?f.dynMax(d,cfgObj):e.max;
     if(emin!=null&&v<emin) v=emin; if(emax!=null&&v>emax) v=emax;
     if(v!==d[f.k]){ d[f.k]=v; n++; }
   }} return n;
@@ -552,23 +571,35 @@ async function saveConfig(){
 // pos:true  = position/homing param -> hidden in TORQUE (CST) mode (a belt in CSP mode
 //             still needs rotation, ratio, stroke, homing, so gate on mode not on type).
 // belt:true = shown only for axisType 'belt'. torque:true = only in torque mode.
+// Rotary lever axes (crank-arm 6DOF etc): the engineering unit is degrees at
+// the lever shaft. Internally that is expressed by ballscrewPitch=360 ("360
+// units per output rev"), forced automatically when the type is selected and
+// hidden from the editor (hideRot). Per-field `rot:{...}` overrides supply
+// the degree labels/ranges; any 'mm' in a unit string is displayed as
+// degrees for rotary axes automatically.
 const AXIS_SPEC=[
   {k:'name',label:'Name',type:'text'},
-  {k:'axisType',label:'Type',type:'select',opts:['linear_vertical','linear_horizontal','belt']},
-  {k:'invertDir',label:'Foldback',type:'bool',pos:true},
+  {k:'axisType',label:'Type',type:'select',opts:['linear_vertical','linear_horizontal','rotary_lever','belt']},
+  {k:'invertDir',label:'Foldback',type:'bool',pos:true,rot:{label:'Invert direction'}},
   {k:'mode',label:'Drive mode',type:'select',opts:['csp','pp','torque']},
-  {k:'strokeMm',label:'Stroke',type:'num',min:1,max:2000,step:0.1,unit:'mm',pos:true},
-  {k:'ballscrewPitch',label:'Screw pitch',type:'num',min:0.5,max:50,step:0.01,unit:'mm/rev',pos:true},
+  {k:'strokeMm',label:'Stroke',type:'num',min:1,max:2000,step:0.1,unit:'mm',pos:true,
+     rot:{label:'Arc travel',max:360}},
+  {k:'ballscrewPitch',label:'Screw pitch',type:'num',min:0.5,max:50,step:0.01,unit:'mm/rev',pos:true,hideRot:true},
   {k:'encoderCountsPerRev',label:'Enc counts/rev',type:'num',min:1,max:100000000,step:1,text:true,pos:true},
   // Reduction shown in torque mode too: the strap sees motor torque x ratio, so it is
   // part of the SAFETY picture there (strap-side note + validation cap use it).
-  {k:'reductionRatio',label:'Reduction',type:'select',opts:['1:1','1.5:1','2:1','3:1','4:1']},
+  // Rotary rigs use gearboxes: extended ratio list (a value already in the
+  // file that is not listed is injected into the dropdown, never clobbered).
+  {k:'reductionRatio',label:'Reduction',type:'select',opts:['1:1','1.5:1','2:1','3:1','4:1'],
+     rot:{label:'Gear ratio',opts:['1:1','3:1','5:1','10:1','15:1','20:1','30:1','40:1','50:1','80:1','100:1']}},
   {k:'homeDirection',label:'Home stop (neg=retracted)',type:'select',opts:['negative','positive'],pos:true},
   {k:'parkMode',label:'Park position',type:'select',opts:['center','endstop'],pos:true},
-  {k:'homingBackoffMm',label:'Home backoff',type:'num',min:0.1,max:20,step:0.01,unit:'mm',pos:true},
+  {k:'homingBackoffMm',label:'Home backoff',type:'num',min:0.1,max:20,step:0.01,unit:'mm',pos:true,
+     rot:{max:45}},
   {k:'homingSpeed',label:'Home speed',type:'num',min:1,max:5000,step:1,unit:'cmd',pos:true},
   {k:'homingTorquePct',label:'Home torque',type:'num',min:5,max:100,step:1,unit:'%',pos:true},
   {k:'maxVelocityMmS',label:'Max vel',type:'num',min:1,max:10000,step:1,unit:'mm/s',pos:true},
+  // (rotary: mm/s reads as deg/s via the automatic unit swap; ranges shared)
   {k:'maxAccelerationMmS2',label:'Max accel',type:'num',min:1,max:100000,step:1,unit:'mm/s²',pos:true},
   {k:'followingErrorWindowMm',label:'Following-err window',type:'num',min:0,max:10000,step:0.1,unit:'mm',pos:true},
   {k:'trackingWnHz',label:'Filter knee',type:'num',min:5,dynMax:(d,c)=>Math.min(125,Math.floor((c.controlLoopHz||2000)/2)),step:0.5,unit:'Hz',csp:true,filterOnly:true},
@@ -587,7 +618,17 @@ const AXIS_SPEC=[
   {k:'beltRelaxerPct',label:'Relaxer band',type:'num',min:20,max:100,step:1,unit:'%',torque:true},
 ];
 function condMode(){ return (cfgObj&&cfgObj.conditioningMode)||'bypass'; }
-function axisApplicable(f,d){ if(f.pos&&d.mode==='torque')return false; if(f.belt&&d.axisType!=='belt')return false; if(f.torque&&d.mode!=='torque')return false; if(f.csp&&d.mode!=='csp')return false; if(f.filterOnly&&condMode()!=='filter')return false; return true; }
+const isRot=d=>d&&d.axisType==='rotary_lever';
+// Effective field spec for this drive: rotary overrides win, and any 'mm'
+// in a unit string displays as degrees on a rotary axis.
+function effSpec(f,d){
+  const r=(isRot(d)&&f.rot)||{};
+  const unit=r.unit??(isRot(d)&&f.unit?f.unit.replace(/mm/g,'°'):f.unit);
+  return { label:r.label??f.label, unit,
+           min:r.min??f.min, max:r.max??f.max, step:r.step??f.step,
+           opts:r.opts??f.opts };
+}
+function axisApplicable(f,d){ if(f.hideRot&&isRot(d))return false; if(f.pos&&d.mode==='torque')return false; if(f.belt&&d.axisType!=='belt')return false; if(f.torque&&d.mode!=='torque')return false; if(f.csp&&d.mode!=='csp')return false; if(f.filterOnly&&condMode()!=='filter')return false; return true; }
 function populateAxisEditor(){
   const sel=$('axisSel'); if(!sel) return; const drives=(cfgObj&&cfgObj.drives)||[];
   sel.innerHTML = drives.length ? drives.map((d,i)=>`<option value="${i}">Axis ${i} - ${d.name||('Drive '+i)}</option>`).join('') : '<option value="-1">no drives in config</option>';
@@ -598,19 +639,25 @@ function renderAxisFields(i){
   if(!d){ host.innerHTML='<p class="cfg-note">No drive at this index.</p>'; return; }
   let h='';
   for(const f of AXIS_SPEC){ if(!axisApplicable(f,d)) continue; const v=d[f.k];
-    if(f.type==='bool') h+=`<label class="frow"><span>${f.label}</span><input type="checkbox" data-k="${f.k}" ${v?'checked':''}></label>`;
-    else if(f.type==='select') h+=`<label class="frow"><span>${f.label}</span><select data-k="${f.k}">${f.opts.map(o=>`<option ${o===v?'selected':''}>${o}</option>`).join('')}</select></label>`;
-    else if(f.type==='text') h+=`<label class="frow"><span>${f.label}</span><input type="text" data-k="${f.k}" value="${v??''}"></label>`;
+    const e=effSpec(f,d);
+    if(f.type==='bool') h+=`<label class="frow"><span>${e.label}</span><input type="checkbox" data-k="${f.k}" ${v?'checked':''}></label>`;
+    else if(f.type==='select'){
+      // A file value not in the option list is injected, never clobbered
+      // (e.g. a hand-edited 63:1 gear ratio must display and survive).
+      const opts=(v!=null&&v!==''&&!e.opts.includes(v))?[v,...e.opts]:e.opts;
+      h+=`<label class="frow"><span>${e.label}</span><select data-k="${f.k}">${opts.map(o=>`<option ${o===v?'selected':''}>${o}</option>`).join('')}</select></label>`;
+    }
+    else if(f.type==='text') h+=`<label class="frow"><span>${e.label}</span><input type="text" data-k="${f.k}" value="${v??''}"></label>`;
     else { const it=f.text?'text':'number';   // f.text → no spinner arrows (e.g. encoder)
-      const emin=f.dynMin?f.dynMin(d,cfgObj):f.min, emax=f.dynMax?f.dynMax(d,cfgObj):f.max;
-      h+=`<label class="frow"><span>${f.label}</span><input type="${it}" inputmode="decimal" data-k="${f.k}" data-num="1" value="${v??''}"${(!f.text&&emin!=null)?` min="${emin}"`:''}${(!f.text&&emax!=null)?` max="${emax}"`:''}${(!f.text&&f.step!=null)?` step="${f.step}"`:''}>${f.unit?`<span class="u">${f.unit}</span>`:''}</label>`; }
+      const emin=f.dynMin?f.dynMin(d,cfgObj):e.min, emax=f.dynMax?f.dynMax(d,cfgObj):e.max;
+      h+=`<label class="frow"><span>${e.label}</span><input type="${it}" inputmode="decimal" data-k="${f.k}" data-num="1" value="${v??''}"${(!f.text&&emin!=null)?` min="${emin}"`:''}${(!f.text&&emax!=null)?` max="${emax}"`:''}${(!f.text&&e.step!=null)?` step="${e.step}"`:''}>${e.unit?`<span class="u">${e.unit}</span>`:''}</label>`; }
   }
   // Filter-knee consequences, live next to the knob (Filter mode only).
   if(d.mode==='csp' && condMode()==='filter' && typeof d.trackingWnHz==='number' && d.maxAccelerationMmS2){
     const wn=2*Math.PI*d.trackingWnHz;
     h+=`<div class="cfg-note" style="grid-column:1/-1">filter knee ${d.trackingWnHz} Hz → group delay ≈ ${(2/wn*1000).toFixed(1)} ms, no-overshoot regime |err| &lt; ${(d.maxAccelerationMmS2/(wn*wn)).toFixed(2)} mm (braking clamp covers larger)</div>`; }
   if(d.mode!=='torque'&&typeof d.encoderCountsPerRev==='number'&&d.ballscrewPitch){ const rf=parseFloat((d.reductionRatio||'1:1').split(':')[0])||1;
-    h+=`<div class="cfg-note" style="grid-column:1/-1">counts/mm = ${(d.encoderCountsPerRev*rf/d.ballscrewPitch).toFixed(1)}${rf!==1?' (incl. '+d.reductionRatio+')':''} (recomputed on save)</div>`; }
+    h+=`<div class="cfg-note" style="grid-column:1/-1">counts/${isRot(d)?'°':'mm'} = ${(d.encoderCountsPerRev*rf/d.ballscrewPitch).toFixed(1)}${rf!==1?' (incl. '+d.reductionRatio+')':''} (recomputed on save)</div>`; }
   // Torque mode: strap-side ceiling = motor torque x reduction. Re-derive torqueMax when
   // the ratio changes; config validation rejects maxPct x ratio > 300% of rated.
   if(d.mode==='torque'){ const rf=parseFloat((d.reductionRatio||'1:1').split(':')[0])||1;
@@ -619,6 +666,10 @@ function renderAxisFields(i){
   host.innerHTML=h;
   host.querySelectorAll('[data-k]').forEach(el=>{ el.onchange=()=>{ const k=el.dataset.k, dd=cfgObj.drives[i];
     dd[k] = el.type==='checkbox'?el.checked : el.dataset.num?(+el.value) : el.value;
+    // Rotary lever: degrees ARE the engineering unit, expressed internally
+    // as 360 "units" per output rev. Forced here so the user never sees or
+    // maintains the convention (the pitch field is hidden for rotary).
+    if(k==='axisType'&&dd.axisType==='rotary_lever') dd.ballscrewPitch=360;
     // re-render so the filter-knee note tracks accel/vel/knee/mode changes
     if(['axisType','mode','trackingWnHz','maxAccelerationMmS2','maxVelocityMmS','torqueMaxPct','reductionRatio'].includes(k)) renderAxisFields(i); }; });
   refreshDirtyUI();   // re-apply amber markers on the freshly rendered fields
@@ -721,7 +772,8 @@ function buildTestAxes(){
     const row=document.createElement('div'); row.className='taxis'; row.dataset.i=i;
     const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=p.sel!==false; cb.className='tsel';
     const nm=document.createElement('span'); nm.className='tname'; nm.textContent=d.name||('Drive '+(i+1));
-    const tg=document.createElement('span'); tg.className='ttag'; tg.textContent=vert?'VERT':'HORIZ';
+    const tg=document.createElement('span'); tg.className='ttag';
+    tg.textContent=d.axisType==='rotary_lever'?'ROT':(vert?'VERT':'HORIZ');
     row.appendChild(cb); row.appendChild(nm); row.appendChild(tg);
     const mkSel=(cls,opts,val)=>{ const s=document.createElement('select'); s.className=cls;
       opts.forEach(([v,t])=>{ const o=document.createElement('option'); o.value=v; o.textContent=t; s.appendChild(o); });

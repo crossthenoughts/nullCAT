@@ -347,6 +347,7 @@ std::string WebServer::buildStatusJson() const
             s += ",\"invertDir\":"      + jsonBool(dc.invertDir);
             s += ",\"strokeMm\":"       + jsonDouble(dc.strokeMm, 1);
             s += ",\"ballscrewPitch\":" + jsonDouble(dc.ballscrewPitch, 2);
+            s += ",\"reductionRatio\":" + jsonStr(dc.reductionRatio);  // rotary card shows the gear ratio
             s += ",\"maxAccel\":"       + jsonDouble(dc.maxAccelerationMmS2, 0); // Amax, for the accel bar
         }
 
