@@ -172,11 +172,15 @@ NULLCAT,<axis1>,<axis2>,...,<axisN>
   scientific notation all fine - C `strtod` rules). Bare hexadecimal like
   `7FFF` does NOT parse (a leading digit is read as decimal, letters are
   garbage) - configure the sender for decimal output.
-- **Scaling: 16-bit unsigned, and ONLY that.** `0..65535` with `32767` =
-  axis centre; full scale spans the axis's configured `strokeMm` (so the
-  same wire value moves a 230mm surge proportionally further than a 100mm
-  heave). This is SimHub's *Decimal (string)* / 16-bit mode. Out-of-range
-  values are clamped to the ends of travel. Before 0.9.3 an undocumented
+- **Scaling: 16-bit UNSIGNED decimal, and ONLY that.** `0..65535` with
+  `32767` = axis centre; full scale spans the axis's configured `strokeMm`
+  (so the same wire value moves a 230mm surge proportionally further than
+  a 100mm heave). This is SimHub's *Decimal (string)* / 16-bit mode; in
+  tools offering a signed/unsigned choice (FlyPT Mover), pick UNSIGNED -
+  signed values parse without an error and every axis then sits
+  mis-centred against an endstop. Sanity check: an idle rig should be
+  sending values near `32767` on every channel. Out-of-range values are
+  clamped to the ends of travel. Before 0.9.3 an undocumented
   heuristic guessed "values under 500 are millimetres"; that guess is gone -
   small numbers now mean what 16-bit says they mean (near the low end of
   travel), so a sender emitting raw mm offsets must be reconfigured.

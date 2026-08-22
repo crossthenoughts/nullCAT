@@ -204,8 +204,11 @@ In SimHub on the game PC:
    ![SimHub Generic UDP output page](media/simhub-udp-output.png)
 
 3. Click **Edit UDP commands**. Under **Protocol settings**:
-   - **Axis output format:** *Decimal (string)*
-   - **Axis resolution (Bit range):** *16*
+   - **Axis output format:** *Decimal (string)* - **UNSIGNED** decimal. Signed
+     16-bit would parse without an error and then every axis would sit
+     mis-centred against an endstop.
+   - **Axis resolution (Bit range):** *16* - unsigned range `0..65535`,
+     centre `32767`.
    - **Number of assignable axis:** leave at *10*.
 
    ![SimHub protocol settings](media/simhub-protocol-settings.png)
@@ -314,7 +317,7 @@ starts with the Pi, so there is nothing to launch.
 | Web UI does not load | `systemctl status nullcat-pi` over SSH; the service log is in `pi/build/logs/app.log` in your clone. |
 | "No EtherCAT slaves found" at Initialize | Drives powered? Chain plugged into the **onboard** port? First drive's IN port (not OUT)? |
 | A drive panel shows an `Er` code | Look it up in [DriveFacts.md](DriveFacts.md); many clear with **RESET FAULT**. |
-| TELEMETRY stays idle with SimHub running | SimHub motion output enabled? Target IP `192.168.50.1`, port `4444`? Telemetry cable plugged into the **USB adapter** on the Pi (not the onboard port) and the PC end set to `192.168.50.2` (step 6)? Command format exactly as in step 7 (Decimal, 16-bit, `NULLCAT,` prefix)? |
+| TELEMETRY stays idle with SimHub running | SimHub motion output enabled? Target IP `192.168.50.1`, port `4444`? Telemetry cable plugged into the **USB adapter** on the Pi (not the onboard port) and the PC end set to `192.168.50.2` (step 6)? Command format exactly as in step 7 (Decimal, 16-bit **UNSIGNED**, `NULLCAT,` prefix)? A rig sitting at rest should be sending values near `32767`; near-zero or negative fields mean signed output was picked. |
 | Motion feels wrong / too aggressive | Revisit axis speeds and stroke in the Configuration section; start lower. |
 | Build ran out of memory | Re-run the installer; it resumes where it left off and builds with one job per GB of RAM automatically. |
 | Anything unexplained | The dashboard's activity log narrates everything; the full log with timestamps is `pi/build/logs/app.log`. Read the last screenful, or attach it when asking for help. |

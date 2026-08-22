@@ -168,8 +168,11 @@ In SimHub:
    ![SimHub Generic UDP output page](media/simhub-udp-output.png)
 
 3. Click **Edit UDP commands**. Under **Protocol settings**:
-   - **Axis output format:** *Decimal (string)*
-   - **Axis resolution (Bit range):** *16*
+   - **Axis output format:** *Decimal (string)* - **UNSIGNED** decimal. Signed
+     16-bit would parse without an error and then every axis would sit
+     mis-centred against an endstop.
+   - **Axis resolution (Bit range):** *16* - unsigned range `0..65535`,
+     centre `32767`.
    - **Number of assignable axis:** leave at *10*.
 
    ![SimHub protocol settings](media/simhub-protocol-settings.png)
@@ -237,7 +240,7 @@ Belts slack/tension around getting in and out.
 | *"No slaves found"* at Initialize | Running as admin? NIC Name matches the adapter's **Description** in `ipconfig /all` (not the connection name)? Cables in the right ports (IN vs OUT)? Drives powered on? |
 | Initialize finds drives but fails entering OP | Drive power, cable seating mid-chain, drive panel showing an error code |
 | A drive panel shows an `Er` code | Look it up in [DriveFacts.md](DriveFacts.md); many clear with **Reset Faults** |
-| TELEMETRY stuck on *Listening…* | SimHub motion enabled? Sending UDP to `127.0.0.1:4444`? Port matches Settings? Command format exactly as in step 8 (Decimal, 16-bit, `NULLCAT,` prefix)? |
+| TELEMETRY stuck on *Listening…* | SimHub motion enabled? Sending UDP to `127.0.0.1:4444`? Port matches Settings? Command format exactly as in step 8 (Decimal, 16-bit **UNSIGNED**, `NULLCAT,` prefix)? A rig sitting at rest should be sending values near `32767`; near-zero or negative fields mean signed output was picked. |
 | Motion feels wrong / too aggressive | Revisit axis speeds and stroke in the web UI; start lower |
 | Anything unexplained | `logs\app.log` next to the exe narrates everything with timestamps. Read the last screenful, or attach it when asking for help |
 
