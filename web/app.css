@@ -258,3 +258,6 @@ body.estop-active{ box-shadow:inset 0 0 0 4px var(--danger); }
 .test-results th{ text-transform:uppercase; letter-spacing:.05em; font-size:.6rem; color:var(--ink-soft); }
 .test-results td:first-child,.test-results th:first-child{ text-align:left; }
 .test-results .drtd{ color:var(--warn); }
+.test-verdict{ margin-top:8px; border:1.5px solid var(--hair); border-radius:8px; padding:8px 12px; max-width:78ch; }
+.test-verdict .tv-h{ font-family:var(--mono); font-size:.6rem; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-soft); margin-bottom:4px; }
+.test-verdict .tv-l{ font-size:.78rem; line-height:1.5; }

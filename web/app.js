@@ -829,7 +829,65 @@ function renderTestResults(j){
       h+='</tr>';
     });
   });
-  host.innerHTML=h+'</table>'; host.hidden=false;
+  host.innerHTML=h+'</table>'+renderTestAssessment(j); host.hidden=false;
+}
+/* Plain-language read-out of the numbers, so the table is useful without a
+   controls background. Heuristics only - each verdict names the evidence. */
+function renderTestAssessment(j){
+  const byAxis={};
+  j.results.forEach(r=>r.axes.forEach(a=>{
+    (byAxis[a.i]=byAxis[a.i]||{sine:[],step:[]})[r.kind===1?'step':'sine'].push(Object.assign({f:r.freqHz},a));
+  }));
+  const nameOf=i=>esc((tstDrives[i]&&tstDrives[i].name)||('Drive '+(+i+1)));
+  const lines=[];
+  Object.keys(byAxis).forEach(i=>{
+    const ax=byAxis[i], out=[];
+    const sw=ax.sine.filter(s=>s.cmdAmp>1e-4).sort((a,b)=>a.f-b.f);
+    if(sw.length>=3){
+      // bandwidth: first frequency where the response falls below 0.707x
+      let bw=null;
+      for(const s of sw){ if(s.ratio<0.707){ bw=s.f; break; } }
+      out.push(bw?('tracks well to ~'+bw.toFixed(0)+' Hz, falls off above that')
+                 :('tracks the whole sweep (usable to at least '+sw[sw.length-1].f.toFixed(0)+' Hz)'));
+      // resonance: response bigger than commanded
+      const res=sw.filter(s=>s.ratio>1.15).sort((a,b)=>b.ratio-a.ratio)[0];
+      if(res) out.push('RESONANCE near '+res.f.toFixed(1)+' Hz (response '
+        +res.ratio.toFixed(2)+'x command) - worth trying a drive notch filter there');
+      // low-frequency deficit = lash/compliance, not bandwidth
+      if(sw[0].f<=5 && sw[0].ratio<0.9)
+        out.push('weak tracking even at '+sw[0].f.toFixed(1)+' Hz (ratio '
+          +sw[0].ratio.toFixed(2)+') - check backlash / belt tension / mechanical compliance');
+      // hunting: torque ripple without matching motion
+      const hunt=sw.filter(s=>s.trqRms>8&&s.ratio<0.9)[0];
+      if(hunt) out.push('torque works hard for little motion at '+hunt.f.toFixed(1)
+        +' Hz (ripple '+hunt.trqRms.toFixed(0)+'%) - possible hunting/lash');
+      if(sw.some(s=>s.derated))
+        out.push('high-frequency amplitudes were auto-reduced to fit accel limits - expected physics, not a fault');
+    }
+    ax.step.forEach(st=>{
+      if(st.osPct>15)      out.push('step overshoot '+st.osPct.toFixed(0)+'% - tune is HOT (reduce gain/stiffness)');
+      else if(st.osPct>5)  out.push('step overshoot '+st.osPct.toFixed(0)+'% - firm but acceptable');
+      else if(st.settleMs>400) out.push('no overshoot but slow settling ('+st.settleMs.toFixed(0)+'ms) - tune is soft (more gain available)');
+      else out.push('step response well damped (overshoot '+st.osPct.toFixed(1)+'%, settled in '+st.settleMs.toFixed(0)+'ms)');
+    });
+    if(out.length) lines.push('<b>'+nameOf(i)+'</b>: '+out.join('; '));
+  });
+  // cross-axis: an axis notably softer than its peers is mechanics, not tune
+  const bws=Object.keys(byAxis).map(i=>{
+    const sw=byAxis[i].sine.filter(s=>s.cmdAmp>1e-4).sort((a,b)=>a.f-b.f);
+    if(sw.length<3) return null;
+    for(const s of sw){ if(s.ratio<0.707) return {i,bw:s.f}; }
+    return {i,bw:sw[sw.length-1].f};
+  }).filter(Boolean);
+  if(bws.length>=2){
+    const best=Math.max.apply(null,bws.map(b=>b.bw));
+    bws.filter(b=>b.bw<0.6*best).forEach(b=>
+      lines.push('<b>'+nameOf(b.i)+'</b> is notably softer than its peers ('
+        +b.bw.toFixed(0)+' Hz vs '+best.toFixed(0)+' Hz) - compare its mechanics/tune to the others'));
+  }
+  if(!lines.length) return '';
+  return '<div class="test-verdict"><div class="tv-h">What this means</div>'
+       +lines.map(l=>'<div class="tv-l">'+l+'</div>').join('')+'</div>';
 }
 async function pollTestStatus(){
   if($('testPanel').classList.contains('collapsed') && !tstActive) return;

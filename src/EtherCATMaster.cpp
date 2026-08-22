@@ -1833,15 +1833,46 @@ InitResult EtherCATMaster::stageOPTransition(ecx_contextt* ctx)
     // >= 2 cycles in the past, i.e. pulses stopped advancing) is re-armed.
     // FPRD/FPWR register access only (no mailbox/SDO), init thread, one-shot.
     // The per-slave verdict is logged so each boot self-verifies.
+    // 2208 field lesson (9 consecutive failed inits): a re-armed slave that
+    // was immediately asked for OP refused it in 27 of 27 slave-instances,
+    // while every untouched slave reached OP every time. Two defects drove
+    // that: (1) the FPRD wkc was never checked, so a dropped read produced
+    // +/-(DC epoch) garbage margins and false re-arms of healthy syncs; and
+    // (2) after a genuine re-arm the OP request went out inside SOEM's
+    // ~100ms pre-start window -- zero pulses seen since the re-arm, so the
+    // drive's SafeOp->OP sync check could only fail (silently: AL code 0,
+    // parked in SAFE-OP). The re-arm now settles before OP: wait out the
+    // start delay, verify the pulse unit actually began advancing DCSTART0,
+    // and run a short 1ms frame pump so the drive sees a stable pulse train
+    // plus cyclic data again -- the same environment the 4s pre-OP pump
+    // gives a first-time arm.
+    bool anyRearmed = false;
+    bool rearmed[EC_MAXSLAVE] = {};
     for (int i = 1; i <= m_slaveCount; ++i)
     {
         if (!ctx->slavelist[i].hasdc) continue;
         uint16_t cfgAddr = ctx->slavelist[i].configadr;
         uint8_t  dcAct = 0;
         int64_t startPre = 0, sysPre = 0;
-        ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSYNCACT, 1, &dcAct,    EC_TIMEOUTRET);
-        ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSTART0,  8, &startPre, EC_TIMEOUTRET);
-        ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSYSTIME, 8, &sysPre,   EC_TIMEOUTRET);
+        int wkcA = ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSYNCACT, 1, &dcAct,    EC_TIMEOUTRET);
+        int wkcS = ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSTART0,  8, &startPre, EC_TIMEOUTRET);
+        int wkcT = ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSYSTIME, 8, &sysPre,   EC_TIMEOUTRET);
+        if (wkcA <= 0 || wkcS <= 0 || wkcT <= 0)
+        {
+            // One retry; if a read still fails, do NOT act on garbage --
+            // leave the slave alone (acting on a bad read is how healthy
+            // syncs got yanked in the 2208 session).
+            wkcA = ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSYNCACT, 1, &dcAct,    EC_TIMEOUTRET);
+            wkcS = ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSTART0,  8, &startPre, EC_TIMEOUTRET);
+            wkcT = ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSYSTIME, 8, &sysPre,   EC_TIMEOUTRET);
+            if (wkcA <= 0 || wkcS <= 0 || wkcT <= 0)
+            {
+                LOG_WARNING(strf(
+                    "  Slave %d: SYNC0 health reads failed (wkc %d/%d/%d) -- left untouched",
+                    i, wkcA, wkcS, wkcT));
+                continue;
+            }
+        }
         const int64_t marginPre = startPre - sysPre;
 
         const bool armed = (dcAct == 0x03);
@@ -1855,12 +1886,51 @@ InitResult EtherCATMaster::stageOPTransition(ecx_contextt* ctx)
         }
 
         ecx_dcsync0(ctx, (uint16)i, TRUE, s_dcSyncNs, s_dcSyncOffsetNs);
-        int64_t startPost = 0, sysPost = 0;
-        ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSTART0,  8, &startPost, EC_TIMEOUTRET);
-        ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSYSTIME, 8, &sysPost,   EC_TIMEOUTRET);
+        anyRearmed = true;
+        if (i < EC_MAXSLAVE) rearmed[i] = true;
         LOG_WARNING(strf(
-            "  Slave %d: SYNC0 DEAD before OP (0x0981=0x%02x margin pre=%lld ns) -- re-armed, margin post=%lld ns",
-            i, dcAct, (long long)marginPre, (long long)(startPost - sysPost)));
+            "  Slave %d: SYNC0 %s before OP (0x0981=0x%02x margin pre=%lld ns) -- re-armed, settling before OP request",
+            i, armed ? "STUCK (armed, pulses never advanced)" : "NOT ARMED",
+            dcAct, (long long)marginPre));
+    }
+
+    if (anyRearmed)
+    {
+        // Wait out SOEM's SyncDelay (~100ms) so the new start time passes,
+        // then verify each re-armed pulse unit actually started: a live
+        // SYNC0's DCSTART0 advances to the next pulse, so the margin must
+        // now read sub-cycle. A slave still showing its programmed start is
+        // hardware-wedged -- no OP request pattern will fix it; say so.
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        for (int i = 1; i <= m_slaveCount && i < EC_MAXSLAVE; ++i)
+        {
+            if (!rearmed[i]) continue;
+            uint16_t cfgAddr = ctx->slavelist[i].configadr;
+            int64_t startPost = 0, sysPost = 0;
+            ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSTART0,  8, &startPost, EC_TIMEOUTRET);
+            ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSYSTIME, 8, &sysPost,   EC_TIMEOUTRET);
+            const int64_t m = startPost - sysPost;
+            if (m > -2 * (int64_t)s_dcSyncNs && m < 2 * (int64_t)s_dcSyncNs)
+                LOG_INFO(strf("  Slave %d: SYNC0 revived after re-arm (margin=%lld ns)",
+                    i, (long long)m));
+            else
+                LOG_ERROR(strf("  Slave %d: SYNC0 STILL DEAD after re-arm (margin=%lld ns) -- "
+                    "pulse unit wedged; expect OP refusal. Power-cycle the drive.",
+                    i, (long long)m));
+        }
+
+        // Short settle pump: ~700ms of 1ms frames so the drives' sync
+        // supervision sees pulses + cyclic data together before OP.
+        LOG_INFO("EtherCATMaster: settling re-armed SYNC0 with a 700ms frame pump before OP request...");
+        PlatformRT::Timestamp pt = PlatformRT::now();
+        for (int k = 0; k < 700; ++k)
+        {
+            PlatformRT::advancePeriod(pt, ticksPer1Ms);
+            uint32_t ex = 0;
+            safeSendReceive(ctx, &ex);
+            if (ex != 0) break;
+            PlatformRT::waitUntil(pt);
+        }
     }
 
     // --- Request OP, keep pumping at 1ms for 5 seconds ---

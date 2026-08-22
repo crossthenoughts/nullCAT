@@ -12,6 +12,7 @@
 // No SOEM / Qt / hardware. Run with: ctest -R Commissioning
 // ============================================================
 #include "CommissioningMode.h"
+#include "Logging.h"
 #include <cstdio>
 #include <cstring>
 #include <cmath>
@@ -58,6 +59,9 @@ static void defaultLimits(CommissioningAxisLimits* l, int n)
 
 int main()
 {
+    // Silence the engine's TESTRESULT lines during the suite.
+    Logger::instance().setMinLevel(LogLevel::LVL_CRITICAL);
+
     // ================= note parsing =================
     {
         double beats = 0.0;

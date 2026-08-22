@@ -909,8 +909,11 @@ void ControlLoopWorker::run()
             stats.wkcErrors = static_cast<int>(wkcMonitor.getTotalErrors());
             stats.running = true;
             {
-                std::unique_lock<std::shared_mutex> lock(m_statusLock);
-                m_stats = stats;
+                // try_lock: RT thread must never wait on a lock a preempted
+                // UI/web reader may hold (no priority inheritance). Stats
+                // are re-published next second if this attempt is skipped.
+                std::unique_lock<std::shared_mutex> lock(m_statusLock, std::try_to_lock);
+                if (lock.owns_lock()) m_stats = stats;
             }
             if (m_onStatsUpdated) m_onStatsUpdated(stats);
 
@@ -1159,8 +1162,9 @@ void ControlLoopWorker::updateDriveStatuses()
         if (publishThisCycle)
         {
             {
-                std::unique_lock<std::shared_mutex> lock(m_statusLock);
-                m_driveStatus[i] = ds;
+                // try_lock: same no-wait rule as the stats publish above.
+                std::unique_lock<std::shared_mutex> lock(m_statusLock, std::try_to_lock);
+                if (lock.owns_lock()) m_driveStatus[i] = ds;
             }
             if (m_onDriveStatus) m_onDriveStatus(i, ds);
         }

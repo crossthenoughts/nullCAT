@@ -6,7 +6,38 @@ middle number carries breaking changes and the last carries fixes.
 
 ## [Unreleased]
 
+### Fixed
+- **Init flakiness root-caused: the pre-OP SYNC0 guard was sabotaging its
+  own boots.** Field logs (2208 session, 9 failed inits in a row) showed a
+  perfect correlation: every slave the guard "re-armed" refused OP; every
+  slave left alone reached OP. Two defects: register reads were not
+  wkc-checked, so a dropped read produced garbage margins and false
+  re-arms of healthy syncs; and after a re-arm the OP request went out
+  inside the ~100ms window before the new SYNC0 start, so the drive's
+  SafeOp-to-OP sync check could only fail. Reads are now verified (never
+  act on garbage), a re-arm is followed by a wait for the new start, a
+  verification that the pulse unit actually began advancing, and a 700ms
+  settle pump before OP is requested. A wedged pulse unit is now named in
+  the log with power-cycle advice instead of burning 5s of futile nudges.
+- **Residual park/unpark hitching: RT status publishes no longer wait on
+  reader-held locks.** With the Windows 11 timer fix in, the remaining
+  4-11ms stalls (~1/s, tracking the UI poll cadence) matched a priority
+  inversion: the RT thread published status under a lock that a preempted
+  web/UI reader could hold, and Windows locks have no priority
+  inheritance. All RT-side status publishes are now try-lock and skip the
+  cycle on contention -- status is best-effort, the loop never waits.
+
 ### Added
+- **Commissioning results now land in the log** as one TESTRESULT line per
+  axis per segment (amplitudes, ratio, phase, following error, torque
+  metrics, step overshoot/rise/settle), so rig logs carry the measured
+  data for later analysis, not just start/finish markers.
+- **"What this means" read-out under the commissioning results**: plain-
+  language per-axis verdicts derived from the numbers - usable bandwidth,
+  resonances worth a notch filter, lash/compliance hints, hot vs soft
+  step response, and axes notably softer than their peers.
+- The default song is now the full Seven Nation Army riff with its proper
+  rhythm and tempo.
 - **Commissioning test mode: exercise and measure the rig without a game
   attached.** A new web-UI panel (Commissioning Tests) runs four test
   types through the normal guarded motion path: a motion cycle (pitch /

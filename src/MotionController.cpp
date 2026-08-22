@@ -556,7 +556,14 @@ MotionStatus MotionController::getMotionStatus() const
 
 void MotionController::publishStatus()
 {
-    std::unique_lock<std::shared_mutex> lock(m_statusLock);
+    // try_lock, never wait: this runs on the RT thread every cycle, and the
+    // readers (web poll, Qt timer) hold the shared lock WITHOUT priority
+    // inheritance -- if Windows preempts a reader mid-hold, a blocking RT
+    // writer stalls for the reader's whole preemption (the 4-11ms
+    // "stall -- resynced" cluster in the 2208 logs, ~1/s, tracking the UI
+    // poll cadence). Status is best-effort: skip this cycle, publish next.
+    std::unique_lock<std::shared_mutex> lock(m_statusLock, std::try_to_lock);
+    if (!lock.owns_lock()) return;
     m_statusSnapshot.numDrives   = m_numDrives;
     m_statusSnapshot.needsRehome = m_needsRehome;
     for (int i = 0; i < m_numDrives; ++i)

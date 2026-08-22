@@ -3,10 +3,13 @@
 // ============================================================
 // CommissioningMode.cpp - excitation engine + identification metrics.
 // See CommissioningMode.h for the design contract. No SOEM, no Qt, no
-// logging, no allocation on the RT path.
+// allocation on the RT path. The one logging site is finishSegment's
+// TESTRESULT lines (RT-safe queue, once per axis per segment) so rig logs
+// carry the measured data, not just start/finish markers.
 // ============================================================
 
 #include "CommissioningMode.h"
+#include "Logging.h"   // RT-safe TESTRESULT lines (rig logs carry the data)
 #include <cmath>
 #include <cstring>
 #include <cstdio>
@@ -416,6 +419,10 @@ void CommissioningMode::finishSegment()
                 const double ms   = a.trqSqSum / (double)a.trqN - mean * mean;
                 ar.trqRmsPct = ms > 0.0 ? std::sqrt(ms) : 0.0;
             }
+            RT_LOG_INFO("TESTRESULT step axis=%d target=%.3f final=%.3f os=%.1f%% "
+                        "rise=%.0fms settle=%.0fms ferr_pk=%.3f trq_sd=%.1f%%",
+                        i + 1, ar.cmdAmpMm, ar.actAmpMm, ar.overshootPct,
+                        ar.riseMs, ar.settleMs, ar.ferrPeakMm, ar.trqRmsPct);
             continue;
         }
         if (a.n > 8)
@@ -446,6 +453,17 @@ void CommissioningMode::finishSegment()
             const double tRe = a.tRe - mean * a.oRe;
             const double tIm = a.tIm - mean * a.oIm;
             ar.trqAmpPct = 2.0 / (double)a.trqN * std::sqrt(tRe * tRe + tIm * tIm);
+        }
+        if (ar.tested)
+        {
+            RT_LOG_INFO("TESTRESULT seg='%s' f=%.2fHz axis=%d cmd=%.3f act=%.3f "
+                        "ratio=%.3f phase=%.1fdeg ferr_rms=%.3f ferr_pk=%.3f "
+                        "trq_sd=%.1f%% trq_f=%.2f%%%s",
+                        r.label, sg.freqHz, i + 1, ar.cmdAmpMm, ar.actAmpMm,
+                        (ar.cmdAmpMm > 1e-6) ? ar.actAmpMm / ar.cmdAmpMm : 0.0,
+                        ar.phaseDeg, ar.ferrRmsMm, ar.ferrPeakMm,
+                        ar.trqRmsPct, ar.trqAmpPct,
+                        ar.derated ? " (derated)" : "");
         }
     }
     m_resCount++;
