@@ -353,6 +353,16 @@ private:
     // read by UI thread via getMotionStatus(). std::shared_mutex protects the copy.
     mutable std::shared_mutex m_statusLock;
     MotionStatus           m_statusSnapshot;
+    // Alloc-free steady-state publishing: the snapshot's state-name strings
+    // are rebuilt ONLY when the state (or homing sub-state) changes. A
+    // per-cycle rebuild allocated ~10 strings/cycle on the RT thread, and
+    // the process heap lock has no priority inheritance -- a GUI thread
+    // alloc storm (exactly what park/unpark clicks trigger: log pane, card
+    // repaints) could stall the RT loop inside malloc (2208B: 4-14ms stall
+    // bursts trailing every park/unpark event).
+    AxisMotionState m_pubState[MAX_DRIVES] = {};
+    int             m_pubHomingSub[MAX_DRIVES] = {};
+    bool            m_pubNameInit[MAX_DRIVES] = {};
     static constexpr double ESTOP_RAMP_SEC = 0.5;
     // Stale-telemetry response (after at least one frame): hold in place for
     // ONLINE_STALE_HOLD_SEC to ride out brief dropouts/stutters, then ease to

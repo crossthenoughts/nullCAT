@@ -1028,7 +1028,7 @@ bool WebServer::start()
             {
                 built = CommissioningMode::buildSong(
                     o.value("notes").toString().toStdString().c_str(),
-                    o.value("beatSec").toDouble(0.48),
+                    o.value("beatSec").toDouble(0.24),
                     o.value("pct").toDouble(2.0), meta, n, plan);
             }
             else if (mode == "step")

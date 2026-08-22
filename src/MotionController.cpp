@@ -569,7 +569,18 @@ void MotionController::publishStatus()
     for (int i = 0; i < m_numDrives; ++i)
     {
         m_statusSnapshot.axisState    [i] = m_axisState[i];
-        m_statusSnapshot.axisStateName[i] = getAxisStateName(i);
+        // Rebuild the display string only on a state change -- see the
+        // m_pubState comment in the header (RT heap-lock avoidance).
+        const AxisMotionState st = m_axisState[i];
+        const int sub = (st == AxisMotionState::HOMING)
+                      ? (int)m_homing[i].getState() : -1;
+        if (!m_pubNameInit[i] || st != m_pubState[i] || sub != m_pubHomingSub[i])
+        {
+            m_statusSnapshot.axisStateName[i] = getAxisStateName(i);
+            m_pubState[i]     = st;
+            m_pubHomingSub[i] = sub;
+            m_pubNameInit[i]  = true;
+        }
         m_statusSnapshot.homed        [i] = m_runtime[i].homed;
         const auto gs = m_runtime[i].onlineCond.getGuardStats();   // CSP accel diag for the cards
         m_statusSnapshot.accelWinPeakMms2[i] = gs.accelWinPeakMms2;

@@ -37,7 +37,15 @@ middle number carries breaking changes and the last carries fixes.
   resonances worth a notch filter, lash/compliance hints, hot vs soft
   step response, and axes notably softer than their peers.
 - The default song is now the full Seven Nation Army riff with its proper
-  rhythm and tempo.
+  rhythm and tempo, written on an eighth-note grid with explicit rests
+  between the plucks so the notes articulate instead of running together.
+- **Steady-state RT publishing no longer allocates.** The status
+  snapshot's state-name strings rebuilt every cycle on the RT thread;
+  the process heap lock has no priority inheritance, so GUI-thread
+  allocation storms (log pane and card repaints on park/unpark clicks)
+  could stall the loop inside malloc - matching the 2208B stall bursts
+  that trailed every park/unpark event. Names now rebuild only when a
+  state changes.
 - **Commissioning test mode: exercise and measure the rig without a game
   attached.** A new web-UI panel (Commissioning Tests) runs four test
   types through the normal guarded motion path: a motion cycle (pitch /
