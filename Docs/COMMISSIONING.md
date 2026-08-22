@@ -63,8 +63,12 @@ The refusal reason appears in the panel status line.
   the 2% band. The classic before/after probe for gain changes: rising
   overshoot = too hot, long settle without overshoot = too soft.
 - **Song** - a note sequence. Notes `c0`-`b8` with `#`/`b`, `:n` for a
-  length in beats, `r` for a rest, e.g. `e1 e1 g1 e1 d1 c1 b0:2`.
-  Actuators speak roughly 20-60 Hz, so basslines in octaves 0-1 work best.
+  length in beats, `r` for a rest, e.g. `a0:2.5 r:0.5 a0:0.75 r:0.25 c1`.
+  Actuators speak best around 20-33 Hz (higher notes come out as buzz on a
+  typical tune - see your own sweep results), so write basslines in
+  octaves 0-1 and keep the low end above `c0`. The default is "5 Council
+  Action Committee" by The Brown Stripe, whose resemblance to any famous
+  riff is entirely coincidental and, on current evidence, legally safe.
 
 ## Reading the results table
 

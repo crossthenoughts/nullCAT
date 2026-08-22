@@ -36,9 +36,13 @@ middle number carries breaking changes and the last carries fixes.
   language per-axis verdicts derived from the numbers - usable bandwidth,
   resonances worth a notch filter, lash/compliance hints, hot vs soft
   step response, and axes notably softer than their peers.
-- The default song is now the full Seven Nation Army riff with its proper
-  rhythm and tempo, written on an eighth-note grid with explicit rests
-  between the plucks so the notes articulate instead of running together.
+- The default song is now the complete two-phrase statement of "5 Council
+  Action Committee" by The Brown Stripe (any resemblance to other riffs is
+  aspirational): eighth-note grid, explicit rests between plucks, main
+  phrase answered by the bounce variant, and the whole thing transposed
+  into the 20-33Hz band the actuators can actually reproduce - the sweep
+  data showed the original octave (31-49Hz) came out as undifferentiated
+  buzz.
 - **Steady-state RT publishing no longer allocates.** The status
   snapshot's state-name strings rebuilt every cycle on the RT thread;
   the process heap lock has no priority inheritance, so GUI-thread
