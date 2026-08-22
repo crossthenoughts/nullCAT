@@ -601,8 +601,10 @@ const AXIS_SPEC=[
   {k:'maxVelocityMmS',label:'Max vel',type:'num',min:1,max:10000,step:1,unit:'mm/s',pos:true},
   // (rotary: mm/s reads as deg/s via the automatic unit swap; ranges shared)
   {k:'maxAccelerationMmS2',label:'Max accel',type:'num',min:1,max:100000,step:1,unit:'mm/s²',pos:true},
+  // Rotary cap = the axis's own arc: a window wider than the travel can
+  // never trip, so the limit is geometry, not opinion. Linear keeps 10000.
   {k:'followingErrorWindowMm',label:'Following-err window',type:'num',min:0,max:10000,step:0.1,unit:'mm',pos:true,
-     rot:{max:90}},   // 100 "units" would be 100 DEGREES on a lever - never trips
+     dynMax:(d)=>isRot(d)?(+d.strokeMm||360):10000},
   {k:'trackingWnHz',label:'Filter knee',type:'num',min:5,dynMax:(d,c)=>Math.min(125,Math.floor((c.controlLoopHz||2000)/2)),step:0.5,unit:'Hz',csp:true,filterOnly:true},
   {k:'unparkTimeSec',label:'Unpark time',type:'num',min:0.5,max:30,step:0.1,unit:'s'},
   {k:'parkTimeSec',label:'Park time',type:'num',min:0.5,max:30,step:0.1,unit:'s'},
@@ -671,11 +673,12 @@ function renderAxisFields(i){
     // as 360 "units" per output rev. Forced here so the user never sees or
     // maintains the convention (the pitch field is hidden for rotary).
     // The linear ferr-window default (100) would read as 100 DEGREES on a
-    // lever - beyond most arcs, so the drive protection would never trip.
-    // Seed a sane degree default on type switch; explicit values <= 90 keep.
+    // lever, wider than most arcs - protection that never trips. Seed a
+    // sane degree default on type switch (a value > 45 is clearly a
+    // linear-era leftover); the arc-based dynMax governs from there.
     if(k==='axisType'&&dd.axisType==='rotary_lever'){
       dd.ballscrewPitch=360;
-      if(!(dd.followingErrorWindowMm<=90)) dd.followingErrorWindowMm=20;
+      if(!(dd.followingErrorWindowMm<=45)) dd.followingErrorWindowMm=20;
     }
     // re-render so the filter-knee note tracks accel/vel/knee/mode changes
     if(['axisType','mode','trackingWnHz','maxAccelerationMmS2','maxVelocityMmS','torqueMaxPct','reductionRatio'].includes(k)) renderAxisFields(i); }; });
