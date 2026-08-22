@@ -209,7 +209,10 @@ In SimHub on the game PC:
      mis-centred against an endstop.
    - **Axis resolution (Bit range):** *16* - unsigned range `0..65535`,
      centre `32767`.
-   - **Number of assignable axis:** leave at *10*.
+   - **Number of assignable axis:** leave at *10*. (Convenience, not a
+     requirement: the parser takes as many fields as you send - a 5-axis
+     rig can send 5. Never leave an EMPTY field between commas, though:
+     gaps compact and shift every later axis by one.)
 
    ![SimHub protocol settings](media/simhub-protocol-settings.png)
 
