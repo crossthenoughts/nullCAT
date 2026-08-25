@@ -4,28 +4,31 @@ Notable changes to nullCAT. Format follows [Keep a Changelog](https://keepachang
 versioning is [Semantic Versioning](https://semver.org/) - while on `0.x`, the
 middle number carries breaking changes and the last carries fixes.
 
-## [Unreleased]
+## [0.9.3] - 2026-08-25
 
-### Fixed
-- **Init flakiness root-caused: the pre-OP SYNC0 guard was sabotaging its
-  own boots.** Field logs (2208 session, 9 failed inits in a row) showed a
-  perfect correlation: every slave the guard "re-armed" refused OP; every
-  slave left alone reached OP. Two defects: register reads were not
-  wkc-checked, so a dropped read produced garbage margins and false
-  re-arms of healthy syncs; and after a re-arm the OP request went out
-  inside the ~100ms window before the new SYNC0 start, so the drive's
-  SafeOp-to-OP sync check could only fail. Reads are now verified (never
-  act on garbage), a re-arm is followed by a wait for the new start, a
-  verification that the pulse unit actually began advancing, and a 700ms
-  settle pump before OP is requested. A wedged pulse unit is now named in
-  the log with power-cycle advice instead of burning 5s of futile nudges.
-- **Residual park/unpark hitching: RT status publishes no longer wait on
-  reader-held locks.** With the Windows 11 timer fix in, the remaining
-  4-11ms stalls (~1/s, tracking the UI poll cadence) matched a priority
-  inversion: the RT thread published status under a lock that a preempted
-  web/UI reader could hold, and Windows locks have no priority
-  inheritance. All RT-side status publishes are now try-lock and skip the
-  cycle on contention -- status is best-effort, the loop never waits.
+### Improved
+- **Init reliability, substantially.** Field logs (nine failed inits in a
+  row) showed a perfect correlation: every slave the pre-OP SYNC0 guard
+  "re-armed" refused OP; every slave left alone reached OP. Two defects:
+  register reads were not wkc-checked, so a dropped read produced garbage
+  margins and false re-arms of healthy syncs; and after a re-arm the OP
+  request went out inside the ~100ms window before the new SYNC0 start,
+  so the drive's SafeOp-to-OP sync check could only fail. Reads are now
+  verified (never act on garbage), a re-arm is followed by a wait for the
+  new start, a verification that the pulse unit actually began advancing,
+  and a 700ms settle pump before OP is requested. Field results are much
+  better but not yet a guaranteed first-try OP; the new per-slave verdict
+  lines ("revived" vs "STILL DEAD after re-arm" with power-cycle advice)
+  identify what remains.
+- **Park/unpark hitching, further reduced.** Two RT-thread waits were
+  removed on top of the Windows 11 timer fix below: status publishes no
+  longer block on a lock a preempted web/UI reader may hold (Windows
+  locks have no priority inheritance; publishes are now try-lock,
+  skip-on-contention), and the publish path no longer allocates in steady
+  state (state-name strings rebuild only on a state change, so the RT
+  loop can no longer stall inside the process heap lock during GUI
+  allocation storms - which is exactly what a park/unpark click
+  triggers). Field results: better, subtler, not yet fully gone.
 
 ### Added
 - **Rotary lever axis type (`rotary_lever`)** - first-class support for
@@ -53,13 +56,6 @@ middle number carries breaking changes and the last carries fixes.
   into the 20-33Hz band the actuators can actually reproduce - the sweep
   data showed the original octave (31-49Hz) came out as undifferentiated
   buzz.
-- **Steady-state RT publishing no longer allocates.** The status
-  snapshot's state-name strings rebuilt every cycle on the RT thread;
-  the process heap lock has no priority inheritance, so GUI-thread
-  allocation storms (log pane and card repaints on park/unpark clicks)
-  could stall the loop inside malloc - matching the 2208B stall bursts
-  that trailed every park/unpark event. Names now rebuild only when a
-  state changes.
 - **Commissioning test mode: exercise and measure the rig without a game
   attached.** A new web-UI panel (Commissioning Tests) runs four test
   types through the normal guarded motion path: a motion cycle (pitch /
@@ -341,7 +337,7 @@ headless daemon share one motion core.
   bindings), a compact Qt desktop panel on Windows, and an optional GPIO control
   panel on the Pi.
 
-[Unreleased]: https://github.com/crossthenoughts/nullCAT/compare/v0.9.2...main
+[0.9.3]: https://github.com/crossthenoughts/nullCAT/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/crossthenoughts/nullCAT/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/crossthenoughts/nullCAT/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/crossthenoughts/nullCAT/releases/tag/v0.9.0
