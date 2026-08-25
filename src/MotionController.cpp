@@ -102,8 +102,9 @@ void MotionController::configure(const AppConfig& config)
         ac.homingSpeed = dc.homingSpeed;
         ac.homingTorquePct = dc.homingTorquePct;
         ac.homeDirection = dc.homeDirection;
-        ac.torqueMode    = (dc.mode == "torque");
-        ac.ppMode        = (dc.mode == "pp");
+        ac.caps          = axisCaps(dc.axisType, dc.mode);
+        ac.torqueMode    = ac.caps.torqueMode;
+        ac.ppMode        = ac.caps.ppMode;
         ac.trackingWnHz             = dc.trackingWnHz;
         ac.torqueMinPct  = dc.torqueMinPct;
         ac.torqueMaxPct  = dc.torqueMaxPct;
@@ -120,7 +121,7 @@ void MotionController::configure(const AppConfig& config)
                            ? (dc.encoderCountsPerRev / dc.countsPerMm) : 10.0;
         ac.blendMaxVelocityMmS = config.blendMaxVelocityMmS;
 
-        bool isBelt = (dc.axisType == "belt");
+        bool isBelt = ac.caps.beltType;
         if (ac.torqueMode)
         {
             // Ratio visibility: the strap sees motor torque x reduction. Config
@@ -476,7 +477,7 @@ bool MotionController::allAxesHomed() const
 {
     for (int i = 0; i < m_numDrives; ++i)
     {
-        if (m_axisConfig[i].axisType == "belt") continue;
+        if (!m_axisConfig[i].caps.homes) continue;
         if (!m_runtime[i].homed) return false;
     }
     return true;
@@ -486,7 +487,7 @@ bool MotionController::allAxesReady() const
 {
     for (int i = 0; i < m_numDrives; ++i)
     {
-        if (m_axisConfig[i].axisType == "belt") continue;
+        if (!m_axisConfig[i].caps.homes) continue;
         if (m_axisState[i] != AxisMotionState::ONLINE &&
             m_axisState[i] != AxisMotionState::BLENDING) return false;
     }
@@ -509,7 +510,7 @@ void MotionController::startHoming(int axisIndex)
     for (int i = start; i < end; ++i)
     {
         if (i >= m_numDrives) break;
-        if (m_axisConfig[i].axisType == "belt")
+        if (!m_axisConfig[i].caps.homes)
         {
             RT_LOG_INFO("MotionController: Axis %d is belt type -- skipping homing.", i + 1);
             m_runtime[i].homed = true;
@@ -665,7 +666,7 @@ void MotionController::startPark()
             AxisRuntime& rt = m_runtime[i];
             AxisConfig& ac = m_axisConfig[i];
 
-            if (ac.axisType == "belt")
+            if (!ac.caps.positionPark)
             {
                 // Ease tension to 0 over parkTime (ramp driven in the PARKING case from
                 // rt.lastTension) instead of dropping torque in one step.
@@ -831,9 +832,8 @@ void MotionController::startSeatHoming(A6Drive** drives, int numHwDrives,
         // sim, or already-faulted axes are skipped -- they de-energize as today and never
         // block allSeatAxesAtStop(). Homing is NOT required first: seat-mode homing is a
         // raw, torque-bounded descent in the configured home direction, no reference needed.
-        if (ac.axisType != "linear_vertical") continue;
-        if (ac.torqueMode || ac.ppMode)       continue;
-        if (!d || d->isFault())               continue;
+        if (!ac.caps.seatable)  continue;
+        if (!d || d->isFault()) continue;
 
         // Bus-health guard: on a partially degraded bus ControlLoop passes a
         // per-drive eligibility mask (slave confirmed in OP) -- a seat pass on

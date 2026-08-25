@@ -26,6 +26,7 @@
 #include "SpscQueue.h"
 #include "CommandConditioner.h"
 #include "CommissioningMode.h"
+#include "AxisKind.h"
 #include <array>
 #include <atomic>
 #include <string>
@@ -220,6 +221,7 @@ public:
 private:
     struct AxisConfig
     {
+        AxisCaps caps;            // classification authority (see AxisKind.h)
         double  strokeMm          = 100.0;
         bool        invertDir     = false;
         // Effective telemetry polarity: invertDir (linkage reversal) XOR

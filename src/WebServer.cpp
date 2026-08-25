@@ -18,6 +18,7 @@
 #include "StatusModel.h"   // shared canonical status (additive emit)
 #include "A6FaultCodes.h"  // decoded fault names on the drive cards
 #include "CommissioningMode.h"  // test-mode plan builders (/api/test/*)
+#include "AxisKind.h"           // axis classification authority
 #include <QJsonDocument>   // /api/test/start body parsing
 #include <QJsonObject>
 #include <QJsonArray>
@@ -977,8 +978,7 @@ bool WebServer::start()
             for (int i = 0; i < n; ++i)
             {
                 const DriveConfig& dc = m_config->drives[i];
-                meta[i].kind = (dc.mode == "torque" || dc.axisType == "belt") ? 2
-                             : (dc.axisType == "linear_horizontal") ? 1 : 0;
+                meta[i].kind = (uint8_t)axisCaps(dc.axisType, dc.mode).commissioningKind;
                 meta[i].halfStrokeMm = dc.strokeMm / 2.0;
             }
             for (const QJsonValue& v : o.value("axes").toArray())

@@ -452,6 +452,9 @@ add_motion_test(TestCommissioning tests/TestCommissioning.cpp)
 # ---- Commissioning TESTING state machine through MotionController ----
 add_motion_test(TestCommissioningFlow tests/TestCommissioningFlow.cpp)
 
+# ---- Axis classification authority (golden vs legacy string compares) ----
+add_motion_test(TestAxisKind tests/TestAxisKind.cpp)
+
 # ---- Build 72: TestInitSequence - EtherCATMaster init sequence (sim mode) ----
 #
 # Unlike the other test targets, this one links EtherCATMaster.cpp which

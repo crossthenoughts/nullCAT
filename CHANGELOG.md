@@ -103,6 +103,14 @@ middle number carries breaking changes and the last carries fixes.
   DC sync the way the old temperature polling did.
 
 ### Changed
+- **Axis classification centralised (internal, behaviour-identical).**
+  Every "what kind of axis is this" decision - homing exemption, park
+  style, deinit-seat eligibility, commissioning role, display unit - now
+  goes through one capability map (`AxisKind.h`) instead of scattered
+  string compares. A golden test (`TestAxisKind`) pins every field
+  against the legacy expressions across the full type x mode matrix, so
+  existing rigs classify byte-identically and the future device family
+  (H-shifter, active brake) becomes one added row, not a codebase sweep.
 - **Telemetry is 16-bit only; the millimetre-guessing heuristic is gone.**
   The wire contract has always documented one scaling (0..65535, centre
   32767, full scale = the axis's configured stroke), but an unspecced

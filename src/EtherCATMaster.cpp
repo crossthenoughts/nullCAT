@@ -13,6 +13,7 @@
 // ============================================================
 
 #include "EtherCATMaster.h"
+#include "AxisKind.h"
 #include "A6FaultCodes.h"
 #include "SdoWorker.h"
 #include "Logging.h"
@@ -667,7 +668,8 @@ InitResult EtherCATMaster::initialize(const std::string& nicName)
             drive->setLimits(-2.0 * cfg.strokeMm, 2.0 * cfg.strokeMm);
             drive->setName(cfg.name);
             drive->setCommandSyncCycles(m_commandSyncCycles);
-            double initPos = (cfg.axisType == "belt") ? 0.0 : cfg.homingBackoffMm;
+            double initPos = axisCaps(cfg.axisType, cfg.mode).homes
+                           ? cfg.homingBackoffMm : 0.0;
             drive->setSimPosition(initPos);
             drive->setSimTarget(initPos);
             m_drives.push_back(std::move(drive));
