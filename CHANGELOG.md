@@ -40,7 +40,7 @@ middle number carries breaking changes and the last carries fixes.
   pitch-equals-360 convention is forced and hidden. Save-time clamps are
   rotary-aware, so a lever config survives the web editor. The motion
   path, homing, guards, and commissioning are unit-agnostic and needed
-  no changes - see Docs/PLAN_ROTARY_HEXAPOD.md for the wider plan.
+  no changes.
 - **Commissioning results now land in the log** as one TESTRESULT line per
   axis per segment (amplitudes, ratio, phase, following error, torque
   metrics, step overshoot/rise/settle), so rig logs carry the measured
