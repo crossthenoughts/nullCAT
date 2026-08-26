@@ -199,6 +199,7 @@ inline void LOG_CRITICAL(const std::string& msg) { Logger::instance().critical(m
 // RT-safe variants: printf-style, zero heap allocation.
 // Use only from the RT thread. See Logger::pushRT() for semantics.
 // MSVC: ##__VA_ARGS__ suppresses the trailing comma when no args are supplied.
+#define RT_LOG_DEBUG(fmt, ...)   Logger::instance().pushRT(LogLevel::LVL_DEBUG,   fmt, ##__VA_ARGS__)
 #define RT_LOG_INFO(fmt, ...)    Logger::instance().pushRT(LogLevel::LVL_INFO,    fmt, ##__VA_ARGS__)
 #define RT_LOG_WARNING(fmt, ...) Logger::instance().pushRT(LogLevel::LVL_WARNING, fmt, ##__VA_ARGS__)
 #define RT_LOG_ERROR(fmt, ...)   Logger::instance().pushRT(LogLevel::LVL_ERROR,   fmt, ##__VA_ARGS__)

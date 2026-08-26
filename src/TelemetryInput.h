@@ -112,6 +112,10 @@ private:
     static constexpr int RECV_BUF_SIZE = 4096;
     char m_recvBuf[RECV_BUF_SIZE] = {};
 
+    // Receive-thread only. Counts consecutive parse failures for the
+    // rate-limited reject log (fires at 1, 101, ...); reset on a clean parse.
+    int m_parseFailCount = 0;
+
     std::atomic<int64_t> m_lastMotionPacketMs{0};
 
     // UDP-rate diagnostic: receive-thread-only counters + published atomics.

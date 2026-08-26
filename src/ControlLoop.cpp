@@ -556,7 +556,11 @@ void ControlLoopWorker::run()
         TelemetryData telemetryData;
         if (m_telemetry)
         {
-            while (m_telemetry->receive()) {}
+            // Bounded drain: each queued datagram costs one recvfrom+parse on
+            // this thread, so a flooding sender must not own the cycle. 32 per
+            // cycle (16k pkt/s at 500 Hz) clears any real burst and works off a
+            // post-stall socket backlog within a few cycles.
+            for (int drained = 0; drained < 32 && m_telemetry->receive(); ++drained) {}
 
             if (m_telemetry->hasData())
             {
@@ -784,16 +788,21 @@ void ControlLoopWorker::run()
                             else
                                 drive->setTargetPosition(pos);
 
-                            double actualPos = drive->getActualPosition();
-                            double followErr = std::abs(actualPos - pos);
-                            if (followErr > maxFollowingError[i])
-                                maxFollowingError[i] = followErr;        // per-second diag window
-                            if (followErr > m_peakFollowingError[i])
-                                m_peakFollowingError[i] = followErr;     // latched for the card (soft-reset)
-
-                            // Command-dither fingerprint: track the commanded count
-                            // (0x607A) reversals, max step, and velocity discontinuity.
+                            // Position-axis diagnostics only: on a torque drive
+                            // `pos` is a frozen placeholder while the driver
+                            // drags the shaft, so ferr and dither numbers there
+                            // are noise dressed as data.
+                            if (!drive->isTorqueMode())
                             {
+                                double actualPos = drive->getActualPosition();
+                                double followErr = std::abs(actualPos - pos);
+                                if (followErr > maxFollowingError[i])
+                                    maxFollowingError[i] = followErr;        // per-second diag window
+                                if (followErr > m_peakFollowingError[i])
+                                    m_peakFollowingError[i] = followErr;     // latched for the card (soft-reset)
+
+                                // Command-dither fingerprint: track the commanded count
+                                // (0x607A) reversals, max step, and velocity discontinuity.
                                 int32_t cnt = (int32_t)std::llround(pos * drive->getCountsPerMm());
                                 if (cmdSeen[i])
                                 {

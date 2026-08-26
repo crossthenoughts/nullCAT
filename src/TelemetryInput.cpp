@@ -215,7 +215,8 @@ bool TelemetryInput::receive()
         if (err == EWOULDBLOCK || err == EAGAIN)
             return false;  // No data available - normal for non-blocking
 #endif
-        LOG_WARNING(strf("TelemetryInput: recvfrom() error: %d", err));
+        // receive() runs on the RT thread: RT_LOG_*, never LOG_*(strf(...)).
+        RT_LOG_WARNING("TelemetryInput: recvfrom() error: %d", err);
         return false;
     }
 
@@ -227,14 +228,20 @@ bool TelemetryInput::receive()
     TelemetryData parsed;
     if (!parsePacket(m_recvBuf, bytes, parsed))
     {
-        // Limit logged length to 80 chars
-        int logLen = std::min(bytes, 80);
-        char tmp[81];
-        memcpy(tmp, m_recvBuf, logLen);
-        tmp[logLen] = '\0';
-        LOG_DEBUG(strf("TelemetryInput: Failed to parse packet: '%s'", tmp));
+        // RT thread: no strf/heap, and rate-limited (first, then every 100th)
+        // so a stray sender aimed at this port cannot flood the log ring.
+        if (m_parseFailCount++ % 100 == 0)
+        {
+            // Limit logged length to 80 chars
+            int logLen = std::min(bytes, 80);
+            char tmp[81];
+            memcpy(tmp, m_recvBuf, logLen);
+            tmp[logLen] = '\0';
+            RT_LOG_DEBUG("TelemetryInput: Failed to parse packet: '%s'", tmp);
+        }
         return false;
     }
+    m_parseFailCount = 0;
 
     {
         std::lock_guard<std::mutex> lock(m_dataMutex);
