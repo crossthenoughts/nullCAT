@@ -6,7 +6,21 @@ middle number carries breaking changes and the last carries fixes.
 
 ## [0.9.4] - unreleased
 
+### Added
+- Hexapod support, first slice: per-axis signed mixing weights for the
+  commissioning motion cycle (leg pairings need cosines the corner roles
+  can't express), per-axis homing (`/api/home` `{"axis":N}` plus buttons
+  in the test panel - coupled legs home one at a time), a six-lever
+  example config, and Docs/HEXAPOD_SETUP.md.
+
 ### Fixed
+- Commissioning offsets now follow axis polarity the way telemetry does,
+  so mirrored lever pairs heave together instead of differentially.
+  Uninverted rigs are unchanged.
+- Rotary units are honest end to end: engine and homing logs print
+  degrees on levers, commissioning result rows are unit-tagged, and the
+  following-error abort rail scales to each axis's travel (linear
+  defaults unchanged).
 - Rotary axes: the following-error window is now capped to the axis arc
   server-side, not only in the web editor. A hand-edited rig.json can no
   longer disable drive-side runaway protection on a lever.
