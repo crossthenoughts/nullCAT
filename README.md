@@ -70,6 +70,8 @@ platforms. **Looking for beta testers with A6-EC hardware.** See
 - Build (Windows): open the top-level CMakeLists with Qt 6 + MSVC; Npcap
   SDK required.
 - Configuration reference: [Docs/CONFIG_REFERENCE.md](Docs/CONFIG_REFERENCE.md)
+- Hexapod bring-up (rotary levers or linear struts):
+  [Docs/HEXAPOD_SETUP.md](Docs/HEXAPOD_SETUP.md)
 - HTTP/WS command contract: [Docs/COMMAND_CONTRACT.md](Docs/COMMAND_CONTRACT.md)
 - Dedicated-controller deployment (NUC/laptop):
   [Docs/NUC_DEPLOYMENT.md](Docs/NUC_DEPLOYMENT.md)
