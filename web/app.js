@@ -788,7 +788,20 @@ function buildTestAxes(){
     const mkSel=(cls,opts,val)=>{ const s=document.createElement('select'); s.className=cls;
       opts.forEach(([v,t])=>{ const o=document.createElement('option'); o.value=v; o.textContent=t; s.appendChild(o); });
       s.value=String(val); return s; };
-    if(vert){
+    const customW = !!tstPrefs()._cw;
+    if(vert && customW){
+      // Explicit mixing weights: label + numeric input per movement,
+      // seeded from the saved weights or the legacy roles (heave = 1).
+      row.classList.add('cw');
+      const w = Array.isArray(p.w) ? p.w : [p.fr|0, p.lr|0, 1];
+      const mkW=(cls,lbl,val)=>{
+        const l=document.createElement('span'); l.className='twl'; l.textContent=lbl;
+        const inp=document.createElement('input'); inp.type='number'; inp.className='tw '+cls;
+        inp.min=-1; inp.max=1; inp.step=0.05; inp.value=String(val);
+        row.appendChild(l); row.appendChild(inp);
+      };
+      mkW('twp','P',w[0]); mkW('twr','R',w[1]); mkW('twh','H',w[2]);
+    } else if(vert){
       row.appendChild(mkSel('tfr',[[0,'f/r —'],[1,'Front'],[-1,'Rear']],p.fr|0));
       row.appendChild(mkSel('tlr',[[0,'l/r —'],[1,'Left'],[-1,'Right']],p.lr|0));
     } else {
@@ -797,9 +810,13 @@ function buildTestAxes(){
     }
     row.addEventListener('change',()=>{
       const pr=tstPrefs();
+      const wv=id=>{ const e=row.querySelector('.'+id); const v=e?parseFloat(e.value):NaN;
+                     return isFinite(v)?Math.max(-1,Math.min(1,v)):0; };
+      const prev=pr[i]||{};
       pr[i]={ sel:cb.checked,
-              fr:vert?parseInt(row.querySelector('.tfr').value,10):0,
-              lr:vert?parseInt(row.querySelector('.tlr').value,10):0 };
+              fr:row.querySelector('.tfr')?parseInt(row.querySelector('.tfr').value,10):(prev.fr|0),
+              lr:row.querySelector('.tlr')?parseInt(row.querySelector('.tlr').value,10):(prev.lr|0),
+              w:row.querySelector('.twp')?[wv('twp'),wv('twr'),wv('twh')]:prev.w };
       tstSavePrefs(pr);
     });
     host.appendChild(row);
@@ -815,10 +832,25 @@ function tstAxesPayload(){
   document.querySelectorAll('#testAxes .taxis').forEach(row=>{
     const i=parseInt(row.dataset.i,10);
     const fr=row.querySelector('.tfr'), lr=row.querySelector('.tlr');
-    out.push({ i, sel:row.querySelector('.tsel').checked,
-               fr:fr?parseInt(fr.value,10):0, lr:lr?parseInt(lr.value,10):0 });
+    const ax={ i, sel:row.querySelector('.tsel').checked,
+               fr:fr?parseInt(fr.value,10):0, lr:lr?parseInt(lr.value,10):0 };
+    const wp=row.querySelector('.twp');
+    if(wp){
+      const wv=id=>{ const e=row.querySelector('.'+id); const v=e?parseFloat(e.value):NaN;
+                     return isFinite(v)?Math.max(-1,Math.min(1,v)):0; };
+      ax.w=[wv('twp'),wv('twr'),wv('twh')];   // presence switches the server off the roles
+    }
+    out.push(ax);
   });
   return out;
+}
+{ const cw=$('tCustomW');
+  if(cw){
+    cw.checked=!!tstPrefs()._cw;
+    cw.addEventListener('change',()=>{
+      const pr=tstPrefs(); pr._cw=cw.checked?1:0; tstSavePrefs(pr); buildTestAxes();
+    });
+  }
 }
 document.querySelectorAll('#testModes input[name=tmode]').forEach(r=>{
   r.addEventListener('change',()=>{

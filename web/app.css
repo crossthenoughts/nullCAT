@@ -246,6 +246,10 @@ body.estop-active{ box-shadow:inset 0 0 0 4px var(--danger); }
 .taxis .ttag{ font-family:var(--mono); font-size:.56rem; letter-spacing:.06em; text-transform:uppercase;
   color:var(--ink-soft); border:1.5px solid var(--hair); border-radius:5px; padding:.08rem .3rem; }
 .taxis select{ font-size:.74rem; padding:1px 3px; }
+.taxis input.tw{ width:56px; font-size:.74rem; padding:1px 3px; }
+.taxis.cw{ grid-template-columns:auto 1fr auto repeat(6,auto); }
+.taxis .twl{ font-family:var(--mono); font-size:.6rem; color:var(--ink-soft); }
+.test-cw{ display:block; font-size:.78rem; color:var(--ink-soft); max-width:70ch; }
 .test-modes{ display:flex; gap:16px; font-size:.82rem; flex-wrap:wrap; }
 .test-params{ display:flex; gap:14px; flex-wrap:wrap; align-items:center; font-size:.8rem; }
 .test-params .tp{ display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }

@@ -82,6 +82,15 @@ struct CommissioningAxisMeta
     double  halfStrokeMm = 50.0;
     int8_t  frontRear    = 0;              // +1 front, -1 rear, 0 unknown (cycle mixing)
     int8_t  leftRight    = 0;              // +1 left,  -1 right, 0 unknown
+    // Signed mixing weights for the cycle movements, clamped to [-1, 1] by
+    // buildCycle. With useWeights set they replace the role pair entirely:
+    // pitch uses wPitch, roll wRoll, heave wHeave. Legacy role clients
+    // (useWeights=false) are bit-identical to before: pitch = frontRear,
+    // roll = leftRight, heave = +1. Needed because a hexapod's paired-leg
+    // geometry projects pitch/roll/heave onto each leg as cosines that the
+    // +/-1 corner roles cannot express.
+    bool   useWeights = false;
+    double wPitch = 0.0, wRoll = 0.0, wHeave = 0.0;
 };
 
 struct CommissioningCycleParams
