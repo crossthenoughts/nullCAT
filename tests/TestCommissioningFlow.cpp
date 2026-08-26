@@ -19,6 +19,7 @@
 #include "../src/Config.h"
 #include "../src/Logging.h"
 #include <cstring>
+#include <cmath>
 
 // Single vertical CSP axis, foldback frame, endstop park (parkPos = 1.5mm)
 // so commissioning entry starts ~48.5mm from centre and Centering is real.
@@ -215,6 +216,54 @@ private slots:
                  qPrintable(QString("ratio %1").arg(ar.actAmpMm / ar.cmdAmpMm)));
         // Completing a test must NOT demand a rehome (nothing faulted).
         QVERIFY(!mc.needsRehome());
+    }
+
+    // ---- Polarity: test offsets are platform-frame, like telemetry ----
+    // The same plan on a foldback (inverted) and an inline axis must move the
+    // ENGINEERING position in opposite directions -- that is what makes
+    // mirrored lever pairs heave together at the platform. Entry must also
+    // stay continuous on both frames (the centering path is captured in the
+    // same frame the offsets are emitted in; a frame mismatch would rush the
+    // axis toward the mirrored position on test entry).
+    void polarityFollowsAxisFrame()
+    {
+        auto runSeg = [](bool invert, double& firstHalfSum, double& maxEarlyPos) -> bool
+        {
+            MockA6Drive mock; mock.configure(1, 0.0, 1.0);
+            if (invert) mock.setHardstop(-2.0, true, 50.0);   // foldback: low-raw stop
+            else        mock.setHardstop(2.0, false, 50.0);   // inline: high-raw stop
+            AppConfig cfg = makeCfg();
+            cfg.drives[0].invertDir = invert;
+            MotionController mc; mc.configure(cfg);
+            if (!homeAndPark(mc, mock)) return false;
+            if (!mc.requestCommissioningStart(tonePlan())) return false;
+            if (!runToState(mc, mock, AxisMotionState::TESTING, 50)) return false;
+            firstHalfSum = 0.0; maxEarlyPos = 0.0;
+            // Centering is deterministic (~1.94 s = 194 cycles at 100 Hz);
+            // cycles 196..219 sit inside the first positive half-wave of the
+            // 2 Hz tone, ramp included.
+            for (int c = 0; c < 220; ++c)
+            {
+                cycleOnce(mc, mock);
+                const double pos = mock.getActualPosition();
+                if (c < 20)   maxEarlyPos = std::max(maxEarlyPos, pos);
+                if (c >= 196) firstHalfSum += pos - 50.0;
+            }
+            return true;
+        };
+        double sumInline = 0, earlyInline = 0, sumFold = 0, earlyFold = 0;
+        QVERIFY(runSeg(false, sumInline, earlyInline));
+        QVERIFY(runSeg(true,  sumFold,  earlyFold));
+        QVERIFY2(std::fabs(sumInline) > 1.0 && std::fabs(sumFold) > 1.0,
+                 qPrintable(QString("first-half-wave motion too small: %1 / %2")
+                            .arg(sumInline).arg(sumFold)));
+        QVERIFY2(sumInline * sumFold < 0.0,
+                 "inverted axis must mirror the platform offset in the engineering frame");
+        // Entry continuity: centering eases away from park (~1.5 mm); a frame
+        // mismatch would rush toward ~98.5 mm at guard-chain speed.
+        QVERIFY2(earlyInline < 15.0 && earlyFold < 15.0,
+                 qPrintable(QString("commissioning entry stepped: %1 / %2")
+                            .arg(earlyInline).arg(earlyFold)));
     }
 
     // ---- Cancel path: user park during a test cancels cleanly ----

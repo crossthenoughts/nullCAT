@@ -395,7 +395,13 @@ void MotionController::serviceCommissioning(A6Drive** drives, int numHwDrives)
                                                   ac.maxPos - ac.centerPos);
                 limits[i].maxVelMmS    = ac.maxVelocityMmS;
                 limits[i].maxAccelMmS2 = ac.maxAccelMmS2;
-                limits[i].startOffsetMm = m_runtime[i].currentPos - ac.centerPos;
+                // Platform frame, like telemetry: the engine's offsets are
+                // multiplied by the same polarity on the way out (TESTING
+                // case), so its centering path must start from the offset
+                // measured in that frame -- otherwise an inverted axis would
+                // step to the mirrored position on test entry.
+                limits[i].startOffsetMm = (ac.telemetryInvert ? -1.0 : 1.0)
+                                        * (m_runtime[i].currentPos - ac.centerPos);
             }
             m_commissioning.start(plan, limits, m_numDrives, m_cycleTimeSec);
             for (int i = 0; i < m_numDrives; ++i)
@@ -1577,15 +1583,22 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
             // following-error abort rail run on the guarded command vs the
             // measured position, so what is scored is what the drive was
             // actually asked to do.
-            const double want = ac.centerPos + m_testOffsets[i];
+            // Test offsets are PLATFORM-frame, like telemetry: the same
+            // polarity composition (invertDir XOR extended-stop homing) maps
+            // them into the engineering frame, so mirrored lever pairs heave
+            // together instead of differentially. Metrics are fed in the
+            // platform frame too (both cmd and act through the same sign, so
+            // amplitude/phase/ferr are unchanged on uninverted axes).
+            const double pol = ac.telemetryInvert ? -1.0 : 1.0;
+            const double want = ac.centerPos + pol * m_testOffsets[i];
             const double brakeEps = 4.0 / ac.countsPerMm;
             outPos = rt.onlineCond.stepBypass(want, m_cycleTimeSec, m_cycleTimeSec,
                                               ac.maxVelocityMmS, ac.maxAccelMmS2,
                                               brakeEps);
             A6Drive* drive = (drives && i < numHwDrives) ? drives[i] : nullptr;
             const double actual = drive ? drive->getActualPosition() : outPos;
-            m_commissioning.recordSample(i, outPos - ac.centerPos,
-                                         actual - ac.centerPos,
+            m_commissioning.recordSample(i, pol * (outPos - ac.centerPos),
+                                         pol * (actual - ac.centerPos),
                                          drive ? drive->getTorquePercent() : 0.0);
             break;
         }
