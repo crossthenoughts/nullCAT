@@ -860,6 +860,72 @@ private slots:
                  "allAxesHomed() must stay false with two axes unhomed");
     }
 
+    // ---- Stage C golden pin: belt command path, byte-identical ----
+    // Captured on the pre-re-key code (torqueMode gating), this drives the
+    // full belt lifecycle deterministically (no mocks, no clocks) and pins
+    // exact doubles. The belt-is-a-belt re-key (caps.beltType && torqueMode)
+    // must leave every one of these bits unchanged.
+    void beltPath_goldenSequence_stageC()
+    {
+        AppConfig cfg = makeAxisConfig("belt", "torque", "endstop", 100.0, 1.5,
+                                       5.0, 50.0);
+        MotionController mc;
+        mc.configure(cfg);
+        mc.startHoming();                       // belt: skip-homing, marks homed
+
+        MotionOutput out{};
+        TelemetryData empty{};
+        double sum = 0.0;
+        double sample[6] = {};
+        int cycle = 0;
+        auto run = [&](int n, const TelemetryData& td)
+        {
+            for (int c = 0; c < n; ++c, ++cycle)
+            {
+                mc.process(td, out, nullptr, 0);
+                sum += out.torques[0];
+                if (cycle == 60)  sample[0] = out.torques[0];   // blend-in
+                if (cycle == 140) sample[1] = out.torques[0];   // online ramp
+                if (cycle == 249) sample[2] = out.torques[0];   // online peak
+                if (cycle == 350) sample[3] = out.torques[0];   // stale hold/ease
+                if (cycle == 560) sample[4] = out.torques[0];   // slacking
+                if (cycle == 610) sample[5] = out.torques[0];   // e-stop
+            }
+        };
+
+        run(50, empty);                          // settle PARKED (slack)
+        mc.tensionBelts();
+        TelemetryData td{};
+        td.valid = true; td.numPositions = 1;
+        td.packetType = TelemetryPacketType::Motion;
+        for (int c = 0; c < 200; ++c, ++cycle)   // ramping telemetry, 5000..54750
+        {
+            td.positions[0] = 5000.0 + 250.0 * c;
+            mc.process(td, out, nullptr, 0);
+            sum += out.torques[0];
+            if (cycle == 60)  sample[0] = out.torques[0];
+            if (cycle == 140) sample[1] = out.torques[0];
+            if (cycle == 249) sample[2] = out.torques[0];
+        }
+        run(300, empty);                         // telemetry loss ladder
+        mc.slackBelts();
+        run(50, empty);
+        mc.setEmergencyStop(true);
+        run(20, empty);
+
+        // Golden string captured pre-change: sum then samples 0..5, each at
+        // 17 significant digits (round-trips IEEE doubles exactly, so string
+        // equality IS bit equality).
+        QStringList got;
+        got << QString::number(sum, 'g', 17);
+        for (int k = 0; k < 6; ++k) got << QString::number(sample[k], 'g', 17);
+        const QString actual = got.join(" ");
+        const QString expected =
+            "14074.14282444492 10.149919890135042 23.883039597161822 "
+            "42.594415197985811 42.594415197985811 0 0";
+        QVERIFY2(actual == expected, qPrintable("golden drift, actual: " + actual));
+    }
+
     // ---- Rotary lever end to end: homes, parks at centre, arc-scaled 16-bit ----
     // First test anywhere to run the full motion path on a rotary_lever axis.
     // The engine is unit-blind (everything is "units"), so what this pins is
