@@ -11,6 +11,7 @@
 // implementation detail.
 // ============================================================
 #include "Config.h"
+#include "AxisKind.h"
 
 #include <QString>
 #include <QFile>
@@ -636,6 +637,21 @@ std::vector<std::string> AppConfig::validate() const
 
         if (d.followingErrorWindowMm < 0.0)
             errors.push_back(pfx + "followingErrorWindowMm must be >= 0");
+
+        // Rotary levers: 0x6065 is the drive-side runaway protection, and on a
+        // geared lever the engineering unit is degrees. A window wider than the
+        // axis's own arc can never trip (the linear default of 100 becomes
+        // ~1.8M counts at 50:1), so the protection is disabled in practice.
+        // Server-side twin of the web editor's arc cap (app.js dynMax) --
+        // geometry, not a magic number.
+        if (axisCaps(d.axisType, d.mode).rotary && d.strokeMm > 0.0
+            && d.followingErrorWindowMm > d.strokeMm)
+            errors.push_back(pfx + "followingErrorWindowMm (" +
+                             std::to_string(d.followingErrorWindowMm) +
+                             " deg) exceeds the axis arc (" +
+                             std::to_string(d.strokeMm) + " deg) -- a rotary "
+                             "window wider than its own travel disables "
+                             "drive-side runaway protection");
 
         // Linear/homing/tracking requirements apply only to position axes. The
         // web UI hides all of these fields for torque mode (app.js axisApplicable:

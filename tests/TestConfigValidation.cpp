@@ -119,6 +119,40 @@ private slots:
         QVERIFY2(found, "Expected backoff >= stroke error");
     }
 
+    // Rotary lever: a following-error window wider than the arc means the
+    // drive-side runaway protection (0x6065) can never trip. Server-side twin
+    // of the web editor's arc cap - must be rejected, not silently written.
+    void rotaryFerrWindow_overArc_error()
+    {
+        AppConfig cfg = validConfig();
+        cfg.drives[0].axisType = "rotary_lever";
+        cfg.drives[0].strokeMm = 40.0;                 // arc, degrees
+        cfg.drives[0].followingErrorWindowMm = 100.0;  // linear default: unsafe here
+        auto errors = cfg.validate();
+        QVERIFY(!errors.empty());
+        bool found = false;
+        for (const auto& e : errors)
+            if (e.find("followingErrorWindow") != std::string::npos
+                && e.find("arc") != std::string::npos)
+                found = true;
+        QVERIFY2(found, "Expected rotary ferr-window arc error");
+    }
+
+    // Rotary window within the arc passes; a linear axis keeps the wide
+    // default untouched (the cap is rotary geometry, not a general clamp).
+    void rotaryFerrWindow_withinArc_ok()
+    {
+        AppConfig cfg = validConfig();
+        cfg.drives[0].axisType = "rotary_lever";
+        cfg.drives[0].strokeMm = 40.0;
+        cfg.drives[0].followingErrorWindowMm = 20.0;
+        QVERIFY2(cfg.validate().empty(), "Rotary window within arc must pass");
+
+        AppConfig lin = validConfig();                 // linear_vertical
+        lin.drives[0].followingErrorWindowMm = 100.0;
+        QVERIFY2(lin.validate().empty(), "Linear axis keeps the wide default");
+    }
+
     // homingTorquePct = 0 (must be >= 1)
     void homingTorquePct_zero_error()
     {
