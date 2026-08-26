@@ -103,6 +103,28 @@ private slots:
         QCOMPARE(hs.getFrameSign(), 1.0);
     }
 
+    // ---- Rotary lever homes like any position axis (degrees throughout) ----
+    // The machinery is unit-agnostic by construction; this pins that a
+    // rotary_lever config actually exercises it (no test constructed one
+    // before 0.9.4) and that search/backoff arithmetic holds on a short arc.
+    void rotaryLeverHomingCompletes()
+    {
+        MockA6Drive mock;
+        mock.configure(1, 0.0, 0.05);                 // 0.05 deg/cycle chase
+        mock.setHardstop(-20.0, /*isMinLimit=*/true, 50.0);
+
+        DriveConfig cfg = makeConfig("negative", 40.0, 400.0, 2.0);
+        cfg.axisType = "rotary_lever";                // logs read deg
+        HomingSequence hs;
+        hs.configure(cfg, 0.01);
+        hs.start(&mock);
+
+        HomingSequence::State s = runUntilDone(hs, &mock, 3500);
+        QCOMPARE((int)s, (int)HomingSequence::State::Complete);
+        QVERIFY(std::abs(hs.getHomeOffset() - (-18.0)) < 0.2);   // stop + backoff
+        QVERIFY(std::abs(hs.getHardstopPos() - (-20.0)) < 0.2);
+    }
+
     // ---- Inline axis: retract = raw POSITIVE ----
     // invertDir=false must search raw-positive and hand back a reversed frame
     // sign, so engineering still increases away from the (high-raw) stop. On

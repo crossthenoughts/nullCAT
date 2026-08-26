@@ -287,6 +287,40 @@ private slots:
         QCOMPARE(d.countsPerMm, 42.0);
     }
 
+    void o3b_reduction_ratio_edge_cases()
+    {
+        // Malformed ratios fall back to 1.0 (never 0, never negative) --
+        // a geared lever's counts/degree depends on this parse.
+        DriveConfig d;
+        d.encoderCountsPerRev = 131072.0;
+        d.ballscrewPitch      = 360.0;      // rotary convention: counts/deg
+
+        d.reductionRatio = "50:1";
+        Config::recomputeDerivedFields(d);
+        QVERIFY2(qAbs(d.countsPerMm - 131072.0 * 50.0 / 360.0) < 0.01,
+                 qPrintable(QString("50:1 counts/deg wrong: %1").arg(d.countsPerMm)));
+
+        const char* fallbackToOne[] = { "abc", "0:1", "-3:1", "", ":1" };
+        for (const char* r : fallbackToOne)
+        {
+            d.reductionRatio = r;
+            d.countsPerMm    = -1.0;
+            Config::recomputeDerivedFields(d);
+            QVERIFY2(qAbs(d.countsPerMm - 131072.0 / 360.0) < 0.01,
+                     qPrintable(QString("ratio '%1' must fall back to 1.0").arg(r)));
+        }
+
+        // A REVERSED ratio ("1:50") silently reads as 1.0 - documented
+        // behaviour, pinned here so any future change is deliberate.
+        d.reductionRatio = "1:50";
+        Config::recomputeDerivedFields(d);
+        QVERIFY(qAbs(d.countsPerMm - 131072.0 / 360.0) < 0.01);
+
+        d.reductionRatio = "1.5:1";
+        Config::recomputeDerivedFields(d);
+        QVERIFY(qAbs(d.countsPerMm - 131072.0 * 1.5 / 360.0) < 0.01);
+    }
+
     void o4_a6drive_single_arg_scaling()
     {
         // setScaling takes a single counts/mm argument.

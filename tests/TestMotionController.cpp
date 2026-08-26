@@ -860,6 +860,61 @@ private slots:
                  "allAxesHomed() must stay false with two axes unhomed");
     }
 
+    // ---- Rotary lever end to end: homes, parks at centre, arc-scaled 16-bit ----
+    // First test anywhere to run the full motion path on a rotary_lever axis.
+    // The engine is unit-blind (everything is "units"), so what this pins is
+    // that a degree-native config flows through unchanged: centre = arc/2 and
+    // full-scale telemetry spans the ARC, not a millimetre assumption.
+    void rotaryLever_homesAndTracksInDegrees()
+    {
+        AppConfig cfg = makeAxisConfig("rotary_lever", "csp", "center", 40.0, 2.0);
+        cfg.drives[0].maxVelocityMmS = 60.0;        // deg/s
+        cfg.drives[0].countsPerMm    = 18204.4;     // 131072 x 50:1 / 360 deg
+
+        MockA6Drive mock;
+        mock.configure(1, 0.0, 0.5);
+        mock.setHardstop(-20.0, /*isMinLimit=*/true, 50.0);
+        MotionController mc; mc.configure(cfg);
+        mc.startHoming();
+
+        A6Drive* drives[1] = { &mock };
+        TelemetryData empty{};
+        MotionOutput out{};
+        bool online = false;
+        for (int i = 0; i < 8000 && !online; ++i)
+        {
+            mock.updateStatus();
+            mc.process(empty, out, drives, 1);
+            if (mc.isAxisHomed(0)) mock.setTargetPosition(out.positions[0]);
+            online = (mc.getAxisState(0) == AxisMotionState::ONLINE);
+        }
+        QVERIFY2(online, "rotary axis never reached ONLINE");
+        for (int i = 0; i < 1500; ++i)
+        {
+            mock.updateStatus(); mc.process(empty, out, drives, 1);
+            mock.setTargetPosition(out.positions[0]);
+        }
+        QVERIFY2(std::abs(out.positions[0] - 20.0) < 0.5,
+                 qPrintable(QString("centre must be arc/2 = 20 deg, got %1")
+                            .arg(out.positions[0])));
+
+        // Full-scale 16-bit spans the arc. The foldback fixture's
+        // telemetryInvert mirrors the response, so 65535 commands the
+        // RETRACTED end (0 deg) -- the frame composition, also pinned.
+        TelemetryData td{};
+        td.valid = true; td.numPositions = 1;
+        td.positions[0] = 65535.0;
+        td.packetType = TelemetryPacketType::Motion;
+        for (int i = 0; i < 3000; ++i)
+        {
+            mock.updateStatus(); mc.process(td, out, drives, 1);
+            mock.setTargetPosition(out.positions[0]);
+        }
+        QVERIFY2(std::abs(out.positions[0] - 0.0) < 1.0,
+                 qPrintable(QString("full-scale on the inverted axis must reach "
+                                    "0 deg (arc end), got %1").arg(out.positions[0])));
+    }
+
     // ---- TF-3-2: Fault on one axis while others ONLINE ----
     // One drive faults mid-ONLINE. MotionController must set needsRehome=true
     // and park all axes. The faulted drive recovering alone is not enough --
