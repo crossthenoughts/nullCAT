@@ -43,16 +43,34 @@ or build the axes in the web editor (add one leg, fill it in, then
   de-energised. Verify yours does, or fit a drive-managed brake, before
   trusting the platform to stay put at power-off.
 
-## First homing: one leg at a time
+## Homing a coupled platform
 
-Six coupled legs torque-searching simultaneously can trip each other's
-thresholds (the platform couples them mechanically). Home legs
-individually the first time: the **Commissioning Tests** panel has a
-per-axis **Home** button beside each axis row (`POST /api/home` with
-`{"axis": N}` for scripts). Watch each leg search toward its intended
-stop; a leg that searches the wrong way needs its `invertDir` flipped.
-Once every leg's direction is verified, the normal all-axes homing on
-loop start is fine.
+A hexapod's legs are not independent axes: the platform couples them,
+and self-locking gearboxes mean the stationary legs have no compliance.
+**Never drive one leg through a large arc with the platform attached** -
+the mechanism binds at the joint limits, and a torque search that binds
+either false-trips (homing to a position that is not the stop) or
+strains the joints. Three regimes:
+
+- **Direction verification, first bring-up: pushrods disconnected.**
+  Use the per-axis **Home** button beside each axis row in the
+  Commissioning Tests panel (`POST /api/home` with `{"axis": N}` for
+  scripts) with the leg unloaded. Watch the first few degrees of the
+  search; a leg that turns the wrong way needs `invertDir` flipped, then
+  stop the search. Unloaded there may be no true hardstop - letting it
+  run until the stroke guard aborts is harmless.
+- **Actual homing, platform attached: all legs together** - the normal
+  homing on loop start. Every leg searches the same travel direction, so
+  the platform sinks toward its all-retracted pose (a legal pose by
+  construction). Watch the first run: coupling can trip a neighbour's
+  threshold early as legs arrive at their stops at different moments.
+  An unlevel platform at park or inconsistent home offsets are the
+  symptoms; a slightly higher `homingTorquePct` or a slower
+  `homingSpeed` is the fix.
+- **Single-leg re-home near park (for example after a fault): safe with
+  the platform attached**, because the remaining search distance is only
+  the backoff couple of degrees. This is the per-axis button's
+  with-platform use.
 
 ## Commissioning a hexapod
 

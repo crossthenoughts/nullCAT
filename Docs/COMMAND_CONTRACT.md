@@ -61,9 +61,10 @@ Notes:
 - `/api/home` accepts an optional JSON body `{"axis": N}` (1-based, chain
   order) to home a single axis; no body, an unparseable body, or `axis: 0`
   homes all axes. Out-of-range `axis` is refused at the HTTP layer. Built
-  for hexapods: coupled legs torque-searching simultaneously can trip on
-  each other, so legs home one at a time (buttons in the Commissioning
-  Tests panel). The bindable `home` token remains home-all.
+  for hexapod bring-up: per-leg direction checks with the pushrods
+  disconnected, and near-park single-leg re-homes. A full solo sweep on a
+  coupled platform binds the mechanism - see HEXAPOD_SETUP.md's homing
+  section. The bindable `home` token remains home-all.
 - `clear-lockout` is deliberately NOT a separate endpoint: `/api/reset-fault`
   is the one-button recovery (drive fault reset THEN software lockout clear).
 - `/api/estop` is convenience on top of the HARDWARE latch (the safety

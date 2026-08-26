@@ -808,11 +808,12 @@ function buildTestAxes(){
       row.appendChild(document.createElement('span'));
       row.appendChild(document.createElement('span'));
     }
-    // Per-axis home: hexapod legs are coupled, so six simultaneous torque
-    // searches can trip on each other -- home them one at a time from here.
+    // Per-axis home. Hexapod use: direction checks with the pushrods
+    // DISCONNECTED, and near-park single-leg re-homes. A full solo sweep
+    // on a coupled platform binds (see HEXAPOD_SETUP.md).
     const hb=document.createElement('button'); hb.type='button';
     hb.className='thome'; hb.textContent='Home';
-    hb.title='Home this axis alone (coupled hexapod legs: one at a time)';
+    hb.title='Home this axis alone (direction checks unloaded; near-park re-homes)';
     hb.addEventListener('click',e=>{ e.preventDefault(); postJson('/api/home',{axis:i+1}); });
     row.appendChild(hb);
     row.addEventListener('change',()=>{

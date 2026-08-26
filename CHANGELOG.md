@@ -10,7 +10,8 @@ middle number carries breaking changes and the last carries fixes.
 - Hexapod support, first slice: per-axis signed mixing weights for the
   commissioning motion cycle (leg pairings need cosines the corner roles
   can't express), per-axis homing (`/api/home` `{"axis":N}` plus buttons
-  in the test panel - coupled legs home one at a time), a six-lever
+  in the test panel - for unloaded direction checks and near-park
+  re-homes; attached platforms home all legs together), a six-lever
   example config, and Docs/HEXAPOD_SETUP.md.
 
 ### Fixed
