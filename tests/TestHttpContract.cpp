@@ -57,11 +57,11 @@ static std::string get(const char* path)
     return r ? r->body : std::string();
 }
 
-static std::string post(const char* path)
+static std::string post(const char* path, const char* body = "")
 {
     httplib::Client cli(HOST, PORT);
     cli.set_read_timeout(5, 0);
-    auto r = cli.Post(path, "", "application/json");
+    auto r = cli.Post(path, body, "application/json");
     return r ? r->body : std::string();
 }
 
@@ -214,6 +214,14 @@ int main()
               "park-toggle immediately again: cooldown refuses");
         check(waitStatus("\"parked\":true", 10000), "park-toggle: rig parks");
     }
+
+    // ---- per-axis home body ({"axis":N}, 1-based; no body = all axes) ----
+    check(has(post("/api/home", "{\"axis\":1}"), "\"ok\":true"),
+          "home axis 1: accepted (belt rig: engine skips, belts never home)");
+    check(has(post("/api/home", "{\"axis\":7}"), "\"ok\":false"),
+          "home axis 7: out of range, refused at the HTTP layer");
+    check(has(post("/api/home", "not json"), "\"ok\":true"),
+          "home with junk body: falls back to home-all (accepted)");
 
 
     // ---- e-stop; tension ACCEPTED but silently refused (contract fact #1/#2) ----

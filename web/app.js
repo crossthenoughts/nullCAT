@@ -808,6 +808,13 @@ function buildTestAxes(){
       row.appendChild(document.createElement('span'));
       row.appendChild(document.createElement('span'));
     }
+    // Per-axis home: hexapod legs are coupled, so six simultaneous torque
+    // searches can trip on each other -- home them one at a time from here.
+    const hb=document.createElement('button'); hb.type='button';
+    hb.className='thome'; hb.textContent='Home';
+    hb.title='Home this axis alone (coupled hexapod legs: one at a time)';
+    hb.addEventListener('click',e=>{ e.preventDefault(); postJson('/api/home',{axis:i+1}); });
+    row.appendChild(hb);
     row.addEventListener('change',()=>{
       const pr=tstPrefs();
       const wv=id=>{ const e=row.querySelector('.'+id); const v=e?parseFloat(e.value):NaN;

@@ -45,7 +45,7 @@ in the same commit.
 | De-initialize | `/api/deinit` | refused if not initialized / busy | seat pass runs bus-health guard (may SKIP seat, still de-inits) | `masterOp:false` | yes |
 | Start loop | `/api/start` | needs master operational; ok if already running | - | `loopRunning:true` | yes |
 | Stop loop | `/api/stop` | none (no-op when stopped) | parks axes as part of stop | `loopRunning:false`, `parked:true` | yes |
-| Home | `/api/home` | needs motion controller | ignored per-axis unless axis eligible (belt axes never home) | `homing:true` → `needsRehome:false` | yes |
+| Home | `/api/home` (optional body `{"axis":N}`) | needs motion controller; out-of-range `axis` refused | ignored per-axis unless axis eligible (belt axes never home) | `homing:true` → `needsRehome:false` | yes |
 | Park | `/api/park` | needs motion controller | per-axis state machine | `parked:true` | yes |
 | Unpark | `/api/unpark` | needs motion controller | **position axes only**: belts NEVER tension via unpark, auto or explicit; requires homed axes | `parked:false` | yes |
 | Slack belts | `/api/belts/slack` | needs motion controller | torque axes only; allowed in any non-fault state | `beltsSlack:true` | yes |
@@ -58,6 +58,12 @@ in the same commit.
 | Power off | `/api/shutdown` | private client address only | - | - | **never bindable** |
 
 Notes:
+- `/api/home` accepts an optional JSON body `{"axis": N}` (1-based, chain
+  order) to home a single axis; no body, an unparseable body, or `axis: 0`
+  homes all axes. Out-of-range `axis` is refused at the HTTP layer. Built
+  for hexapods: coupled legs torque-searching simultaneously can trip on
+  each other, so legs home one at a time (buttons in the Commissioning
+  Tests panel). The bindable `home` token remains home-all.
 - `clear-lockout` is deliberately NOT a separate endpoint: `/api/reset-fault`
   is the one-button recovery (drive fault reset THEN software lockout clear).
 - `/api/estop` is convenience on top of the HARDWARE latch (the safety

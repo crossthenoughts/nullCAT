@@ -797,6 +797,69 @@ private slots:
                 qPrintable(QString("Axis %1 not individually homed").arg(ax)));
     }
 
+    // ---- Per-axis homing: startHoming(i) touches only that axis ----
+    // The hexapod flow homes coupled legs one at a time (six simultaneous
+    // torque searches can trip on each other); /api/home {"axis":N} rides
+    // this path, so pin that a single-axis home never disturbs its peers.
+    void singleAxisHoming_touchesOnlyThatAxis()
+    {
+        AppConfig cfg;
+        cfg.controlLoopHz = 100;
+        cfg.numDrives     = 3;
+        for (int ax = 0; ax < 3; ++ax)
+        {
+            DriveConfig dc;
+            dc.slaveIndex           = ax + 1;
+            dc.axisType             = "linear_vertical";
+            dc.strokeMm             = 100.0;
+            dc.homingSpeed          = 1000.0;
+            dc.homingBackoffMm      = 1.5;
+            dc.homingTorquePct      = 25;
+            dc.homeDirection        = "negative";
+            dc.invertDir            = true;
+            dc.parkMode             = "endstop";
+            dc.maxVelocityMmS       = 200.0;
+            dc.maxAccelerationMmS2  = 2000.0;
+            dc.unparkTimeSec        = 0.1;
+            dc.parkTimeSec          = 0.1;
+            dc.countsPerMm          = 100.0;
+            dc.ballscrewPitch       = 5.0;
+            cfg.drives.push_back(dc);
+        }
+        MotionController mc;
+        mc.configure(cfg);
+
+        MockA6Drive m0, m1, m2;
+        m0.configure(1, 0.0, 0.5);  m0.setHardstop(-50.0, true, 50.0);
+        m1.configure(2, 0.0, 0.5);  m1.setHardstop(-50.0, true, 50.0);
+        m2.configure(3, 0.0, 0.5);  m2.setHardstop(-50.0, true, 50.0);
+        A6Drive* drives[3] = { &m0, &m1, &m2 };
+        TelemetryData empty{};
+        MotionOutput out{};
+
+        mc.startHoming(1);
+        mc.process(empty, out, drives, 3);
+        // State names read "HOMING[SubState]" -- match on the prefix.
+        const auto homing = [&mc](int ax)
+        { return mc.getAxisStateName(ax).rfind("HOMING", 0) == 0; };
+        QVERIFY2(homing(1), "axis 1 must enter HOMING");
+        QVERIFY2(!homing(0), "axis 0 must not home when axis 1 was requested");
+        QVERIFY2(!homing(2), "axis 2 must not home when axis 1 was requested");
+
+        bool homed1 = false;
+        for (int cycle = 0; cycle < 5000 && !homed1; ++cycle)
+        {
+            m0.updateStatus(); m1.updateStatus(); m2.updateStatus();
+            mc.process(empty, out, drives, 3);
+            homed1 = mc.isAxisHomed(1);
+        }
+        QVERIFY2(homed1, "axis 1 never completed its solo homing");
+        QVERIFY(!mc.isAxisHomed(0));
+        QVERIFY(!mc.isAxisHomed(2));
+        QVERIFY2(!mc.allAxesHomed(),
+                 "allAxesHomed() must stay false with two axes unhomed");
+    }
+
     // ---- TF-3-2: Fault on one axis while others ONLINE ----
     // One drive faults mid-ONLINE. MotionController must set needsRehome=true
     // and park all axes. The faulted drive recovering alone is not enough --

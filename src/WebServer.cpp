@@ -883,12 +883,32 @@ bool WebServer::start()
             okResp(res);
         });
 
-        postCmd("/api/home", [this, okResp, errResp](const httplib::Request&, httplib::Response& res)
+        postCmd("/api/home", [this, okResp, errResp](const httplib::Request& req, httplib::Response& res)
         {
             if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
             MotionCommand cmd;
             cmd.type   = MotionCommand::Type::StartHoming;
-            cmd.intVal = -1;
+            cmd.intVal = -1;                    // default: all axes
+            // Optional {"axis": N} homes one axis (1-based, chain order).
+            // Hexapods need this: six coupled legs torque-searching at once
+            // can trip each other's thresholds, so legs home one at a time.
+            if (!req.body.empty())
+            {
+                QJsonParseError pe;
+                const QJsonDocument doc = QJsonDocument::fromJson(
+                    QByteArray(req.body.c_str(), (int)req.body.size()), &pe);
+                if (pe.error == QJsonParseError::NoError && doc.isObject())
+                {
+                    const int axis = doc.object().value("axis").toInt(0);
+                    if (axis != 0)
+                    {
+                        const int n = m_config ? (int)m_config->drives.size() : 0;
+                        if (axis < 1 || axis > n)
+                        { errResp(res, "axis out of range."); return; }
+                        cmd.intVal = axis - 1;
+                    }
+                }
+            }
             m_motion->enqueueCommand(cmd);
             okResp(res);
         });

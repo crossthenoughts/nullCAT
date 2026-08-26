@@ -240,14 +240,15 @@ body.estop-active{ box-shadow:inset 0 0 0 4px var(--danger); }
 .test-body{ padding:4px 0 12px; display:flex; flex-direction:column; gap:10px; }
 .test-note{ font-size:.78rem; color:var(--ink-soft); line-height:1.45; max-width:70ch; }
 .test-axes{ display:flex; flex-direction:column; gap:3px; }
-.taxis{ display:grid; grid-template-columns:auto 1fr auto auto auto; gap:8px; align-items:center;
+.taxis{ display:grid; grid-template-columns:auto 1fr auto auto auto auto; gap:8px; align-items:center;
   font-size:.8rem; padding:2px 0; }
 .taxis .tname{ font-weight:600; }
 .taxis .ttag{ font-family:var(--mono); font-size:.56rem; letter-spacing:.06em; text-transform:uppercase;
   color:var(--ink-soft); border:1.5px solid var(--hair); border-radius:5px; padding:.08rem .3rem; }
 .taxis select{ font-size:.74rem; padding:1px 3px; }
 .taxis input.tw{ width:56px; font-size:.74rem; padding:1px 3px; }
-.taxis.cw{ grid-template-columns:auto 1fr auto repeat(6,auto); }
+.taxis.cw{ grid-template-columns:auto 1fr auto repeat(7,auto); }
+.taxis .thome{ font-size:.68rem; padding:2px 8px; }
 .taxis .twl{ font-family:var(--mono); font-size:.6rem; color:var(--ink-soft); }
 .test-cw{ display:block; font-size:.78rem; color:var(--ink-soft); max-width:70ch; }
 .test-modes{ display:flex; gap:16px; font-size:.82rem; flex-wrap:wrap; }
