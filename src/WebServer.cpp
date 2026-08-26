@@ -281,10 +281,10 @@ std::string WebServer::buildStatusJson() const
     // and a physical toggle button can never disagree about parked/slack.
     const status::MotionAggregates magg =
         status::deriveMotionAggregates(ms.axisState, ms.numDrives);
-    bool torqueMask[MAX_DRIVES] = {};
-    const int nCfg = torqueModeMask(torqueMask);
+    bool beltMask[MAX_DRIVES] = {};
+    const int nCfg = beltAxisMask(beltMask);
     const status::BeltAggregates bagg =
-        status::deriveBeltAggregates(ms.axisState, ms.numDrives, torqueMask, nCfg);
+        status::deriveBeltAggregates(ms.axisState, ms.numDrives, beltMask, nCfg);
     const bool anyHoming = magg.anyHoming;
     const bool allParked = magg.allParked;
     const bool hasBelts  = bagg.hasBelts;
@@ -1226,10 +1226,10 @@ bool WebServer::start()
             MotionStatus ms = m_motion->getMotionStatus();
             // Single-source aggregates (StatusModel): identical
             // derivation to /api/status, pinned by TestStatusModel.
-            bool torqueMask[MAX_DRIVES] = {};
-            const int nCfg = torqueModeMask(torqueMask);
+            bool beltMask[MAX_DRIVES] = {};
+            const int nCfg = beltAxisMask(beltMask);
             const status::BeltAggregates agg =
-                status::deriveBeltAggregates(ms.axisState, ms.numDrives, torqueMask, nCfg);
+                status::deriveBeltAggregates(ms.axisState, ms.numDrives, beltMask, nCfg);
             const bool beltsSlack = agg.beltsSlack;
             if (!agg.hasBelts)    { errResp(res, "No torque axes on this rig."); return; }
             if (agg.transitional) { errResp(res, "Belt transitioning -- toggle ignored."); return; }

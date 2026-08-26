@@ -710,7 +710,13 @@ void MotionController::slackBelts()
 {
     for (int i = 0; i < m_numDrives; ++i)
     {
-        if (!m_axisConfig[i].torqueMode) continue;
+        // A belt is a belt-TYPED TORQUE axis (Stage C re-key). Mode alone
+        // must not grip an axis here: the 0.9.5 device family (shifter,
+        // active pedal) is torque-mode but must never be slacked/tensioned
+        // by the belts button. The degenerate mismatches (belt type without
+        // torque mode and vice versa) become no-ops, the safe direction.
+        if (!(m_axisConfig[i].caps.beltType && m_axisConfig[i].torqueMode))
+            continue;
         AxisMotionState& state = m_axisState[i];
         if (state == AxisMotionState::ONLINE ||
             state == AxisMotionState::BLENDING ||
@@ -733,7 +739,13 @@ void MotionController::tensionBelts()
     }
     for (int i = 0; i < m_numDrives; ++i)
     {
-        if (!m_axisConfig[i].torqueMode) continue;
+        // A belt is a belt-TYPED TORQUE axis (Stage C re-key). Mode alone
+        // must not grip an axis here: the 0.9.5 device family (shifter,
+        // active pedal) is torque-mode but must never be slacked/tensioned
+        // by the belts button. The degenerate mismatches (belt type without
+        // torque mode and vice versa) become no-ops, the safe direction.
+        if (!(m_axisConfig[i].caps.beltType && m_axisConfig[i].torqueMode))
+            continue;
         AxisMotionState& state = m_axisState[i];
         // PARKED = slack; PARKING = mid-slack (flip back, blend restarts from 0 --
         // the slew cap keeps the transition smooth either way).

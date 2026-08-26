@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "MainWindow.h"
+#include "AxisKind.h"
 #include "Logging.h"
 
 #ifdef _WIN32
@@ -1356,17 +1357,22 @@ void MainWindow::updateButtonStates()
     const status::MotionAggregates magg =
         status::deriveMotionAggregates(ms.axisState, ms.numDrives);
 
-    bool isTorque[MAX_DRIVES] = {};
+    // Belt mask: belt-typed torque axes only (Stage C re-key; matches
+    // WebServer::beltAxisMask so both surfaces derive identical aggregates).
+    bool isBelt[MAX_DRIVES] = {};
     int  numConfigured = 0;
     if (m_config)
     {
         const std::vector<DriveConfig>& drives = m_config->get().drives;
         numConfigured = std::min(static_cast<int>(drives.size()), MAX_DRIVES);
         for (int i = 0; i < numConfigured; ++i)
-            isTorque[i] = (drives[i].mode == "torque");
+        {
+            const AxisCaps c = axisCaps(drives[i].axisType, drives[i].mode);
+            isBelt[i] = c.beltType && c.torqueMode;
+        }
     }
     const status::BeltAggregates bagg = status::deriveBeltAggregates(
-        ms.axisState, ms.numDrives, isTorque, numConfigured);
+        ms.axisState, ms.numDrives, isBelt, numConfigured);
 
     const bool hasBelts   = bagg.hasBelts;
     const bool beltsSlack = bagg.beltsSlack;

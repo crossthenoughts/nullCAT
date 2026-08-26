@@ -91,6 +91,28 @@ int main()
     CHECK(u.homes && u.positionPark && !u.seatable && u.commissioningKind == 0,
           "unknown type = generic position axis, not seatable");
 
+    // ---- Stage C: the "is a belt" command/status predicate ----
+    // The belts controls (slack/tension, aggregates, Qt button) key on
+    // beltType && torqueMode. Across the whole matrix this equals the old
+    // mode-only gate everywhere EXCEPT the two degenerate mismatches, where
+    // the new predicate is false (a no-op, the safe direction): a torque
+    // axis of a non-belt type (the 0.9.5 shifter/pedal family) must never
+    // be gripped by the belts button, and a belt-typed position axis can't
+    // accept torque commands.
+    for (const char* t : { "linear_vertical", "linear_horizontal",
+                           "rotary_lever", "belt", "hexapod_strut" })
+        for (const char* m : { "csp", "pp", "torque" })
+        {
+            const AxisCaps c = axisCaps(t, m);
+            const bool isBelt = c.beltType && c.torqueMode;
+            const bool oldGate = (std::strcmp(m, "torque") == 0);
+            const bool matched = (std::strcmp(t, "belt") == 0) == oldGate;
+            if (matched)
+                CHECK(isBelt == oldGate, "belt predicate == legacy gate on matched combos");
+            else
+                CHECK(!isBelt, "mismatched type/mode is never a belt (safe no-op)");
+        }
+
     std::printf("TestAxisKind: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

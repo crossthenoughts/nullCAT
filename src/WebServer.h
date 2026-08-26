@@ -30,6 +30,7 @@
 // ============================================================
 
 #include "MotionController.h"
+#include "AxisKind.h"
 #include "ControlLoop.h"
 #include "EtherCATMaster.h"
 #include "Config.h"
@@ -106,15 +107,22 @@ public:
     // list of maybes.
     std::string lastRefusal() const;
 
-    // Per-drive torque-mode mask from config, consumed by the StatusModel
-    // aggregate derivations (buildStatusJson + belts-toggle).
+    // Per-drive BELT mask from config, consumed by the StatusModel
+    // aggregate derivations (buildStatusJson + belts-toggle). A belt is a
+    // belt-typed torque axis (Stage C re-key): torque mode alone must not
+    // classify an axis as a belt, or the 0.9.5 device family (shifter,
+    // pedal) would be gripped by the belts controls.
     // Returns the number of config drives written (clamped to MAX_DRIVES).
-    int torqueModeMask(bool out[]) const
+    int beltAxisMask(bool out[]) const
     {
         int n = m_config ? static_cast<int>(m_config->drives.size()) : 0;
         if (n > MAX_DRIVES) n = MAX_DRIVES;
         for (int i = 0; i < n; ++i)
-            out[i] = (m_config->drives[i].mode == "torque");
+        {
+            const AxisCaps c = axisCaps(m_config->drives[i].axisType,
+                                        m_config->drives[i].mode);
+            out[i] = c.beltType && c.torqueMode;
+        }
         return n;
     }
 
