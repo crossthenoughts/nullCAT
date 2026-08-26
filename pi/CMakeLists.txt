@@ -295,7 +295,15 @@ if(NULLCAT_FULL_TESTS)
     endmacro()
     foreach(T TestHomingSequence TestMotionController TestFaultRecovery
               TestDriveFaultMonitor TestTrajectory TestConfigValidation
-              TestConfigTwoFile TestRTLogging TestLogControls TestTrackingFilter)
+              TestConfigTwoFile TestRTLogging TestLogControls TestTrackingFilter
+              TestAxisKind TestFaultCodes TestCommissioning
+              TestCommissioningFlow TestB222O)
         add_logic_test(${T})
     endforeach()
+
+    # TestTrackingFilter's Regression() case requires bit-identical FP: with
+    # fused multiply-add the exact-ZOH comparison drifts and the zero-tolerance
+    # check flakes (see the REQUIRED note at the top of the test). GCC/Clang
+    # flag; this tree never sees MSVC.
+    target_compile_options(TestTrackingFilter PRIVATE -ffp-contract=off)
 endif()

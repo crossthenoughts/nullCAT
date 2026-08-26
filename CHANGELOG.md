@@ -4,6 +4,25 @@ Notable changes to nullCAT. Format follows [Keep a Changelog](https://keepachang
 versioning is [Semantic Versioning](https://semver.org/) - while on `0.x`, the
 middle number carries breaking changes and the last carries fixes.
 
+## [0.9.4] - unreleased
+
+### Fixed
+- Rotary axes: the following-error window is now capped to the axis arc
+  server-side, not only in the web editor. A hand-edited rig.json can no
+  longer disable drive-side runaway protection on a lever.
+
+### Changed
+- RT loop hardening: the telemetry drain is bounded per cycle, rejected UDP
+  packets no longer allocate on the RT thread, and following-error/dither
+  diagnostics no longer run against torque axes (their numbers there were
+  noise).
+
+### Internal
+- Five logic test suites (axis classification, fault codes, commissioning
+  engine and flow, config roundtrip) now also build and run on the Linux CI
+  job; the tracking-filter suite gains the -ffp-contract=off flag its
+  bit-identity regression requires.
+
 ## [0.9.3] - 2026-08-25
 
 ### Improved
