@@ -34,6 +34,10 @@ middle number carries breaking changes and the last carries fixes.
   noise).
 
 ### Internal
+- Belt classification re-keyed: the belts commands and status aggregates
+  now key on "belt-typed torque axis" instead of torque mode alone.
+  Behaviour-identical (pinned by a bit-exact golden-sequence test);
+  groundwork for future torque devices that are not belts.
 - Five logic test suites (axis classification, fault codes, commissioning
   engine and flow, config roundtrip) now also build and run on the Linux CI
   job; the tracking-filter suite gains the -ffp-contract=off flag its
