@@ -72,6 +72,7 @@ struct CommissioningAxisLimits
     double maxVelMmS     = 200.0;
     double maxAccelMmS2  = 2000.0;
     double startOffsetMm = 0.0;            // currentPos - centerPos at entry
+    char   unit[4]       = "mm";           // display unit ("deg" on rotary levers)
 };
 
 // ---- Axis metadata for the plan builders (UI thread only) ----
@@ -233,7 +234,13 @@ private:
     double m_returnFrom[MAX_DRIVES] = {};   // offsets captured at abort
     double m_lastOut[MAX_DRIVES] = {};      // last emitted offsets
 
-    // Following-error rail
+    // Following-error rail. The plan-level ferrAbortMm is tuned for
+    // 100mm-class linear strokes; m_ferrAbort[] is the per-axis effective
+    // threshold, capped at 20% of the axis's usable half-range (floored at
+    // 2.0 so noise cannot abort). A default linear axis (half-range 50)
+    // keeps exactly the plan value; a 40-deg lever rails at 4 deg instead
+    // of a quarter of its arc.
+    double m_ferrAbort[MAX_DRIVES] = {};
     int    m_ferrOverCycles[MAX_DRIVES] = {};
     static constexpr int    FERR_SUSTAIN_CYCLES = 25;   // 50ms @ 500Hz
     static constexpr double FERR_HARD_FACTOR    = 2.0;  // instant abort at 2x

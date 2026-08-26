@@ -18,6 +18,7 @@
 // ============================================================
 
 #include "A6Drive.h"
+#include "AxisKind.h"
 #include "Config.h"
 #include "Logging.h"
 
@@ -73,6 +74,7 @@ public:
         m_cycleTimeSec = cycleTimeSec;
         m_state = State::Idle;
         m_dirSign = searchSign(cfg.invertDir, cfg.homeDirection);
+        m_unit = axisCaps(cfg.axisType, cfg.mode).unit;   // "mm" / "deg" for logs
         m_seatMode = false;   // normal homing unless start(seatMode=true) is used
         // Abort torque search if travel exceeds 1.5x configured stroke. The
         // stroke itself is kept so a timeout can report how far the search got
@@ -101,8 +103,8 @@ public:
         m_lastCommandedPos = m_startPos;
         m_lastCommandedValid = false;
         LOG_INFO(strf("HomingSequence[%d]: Starting CSP torque homing. "
-            "backoff=%.2fmm speed=%.1fmm/s torqueThreshold=%d%% dir=%s",
-            drive->getSlaveIndex(), m_backoffMm, m_speedMmS,
+            "backoff=%.2f%s speed=%.1f%s/s torqueThreshold=%d%% dir=%s",
+            drive->getSlaveIndex(), m_backoffMm, m_unit, m_speedMmS, m_unit,
             m_torquePct, m_homeDir.c_str()));
     }
 
@@ -326,8 +328,8 @@ public:
                         m_elapsed = 0.0;
                         m_state = State::Backoff;
 
-                        LOG_INFO(strf("HomingSequence[%d]: Backing off %.2fmm to %.3f",
-                            drive->getSlaveIndex(), m_backoffMm, m_backoffTarget));
+                        LOG_INFO(strf("HomingSequence[%d]: Backing off %.2f%s to %.3f",
+                            drive->getSlaveIndex(), m_backoffMm, m_unit, m_backoffTarget));
                     }
                 }
             }
@@ -341,8 +343,8 @@ public:
             {
                 double dist = std::abs(actualPos - m_startPos);
                 LOG_INFO(strf("HomingSequence[%d]: Searching... pos=%.3f "
-                    "torque=%.1f%% peak=%.1f%% distance=%.3fmm",
-                    drive->getSlaveIndex(), actualPos, torque, m_peakTorque, dist));
+                    "torque=%.1f%% peak=%.1f%% distance=%.3f%s",
+                    drive->getSlaveIndex(), actualPos, torque, m_peakTorque, dist, m_unit));
             }
 
             // Stroke guard -- abort if distance exceeds 1.5x configured stroke.
@@ -351,8 +353,8 @@ public:
             if (distTraveled > m_strokeLimitMm)
             {
                 LOG_ERROR(strf("HomingSequence[%d]: STROKE LIMIT exceeded during torque search "
-                    "(traveled=%.1fmm, limit=%.1fmm). Check homeDirection in config.",
-                    drive->getSlaveIndex(), distTraveled, m_strokeLimitMm));
+                    "(traveled=%.1f%s, limit=%.1f%s). Check homeDirection in config.",
+                    drive->getSlaveIndex(), distTraveled, m_unit, m_strokeLimitMm, m_unit));
                 m_state = State::FatalError;
             }
             else if (m_elapsed > HOMING_TIMEOUT_SEC)
@@ -364,11 +366,11 @@ public:
                 // "still crawling toward the stop" vs "never moved".
                 const double measuredMmS = (m_elapsed > 0.0) ? (distTraveled / m_elapsed) : 0.0;
                 LOG_ERROR(strf("HomingSequence[%d]: CSP torque search TIMEOUT after %.0fs -- "
-                    "travelled %.1fmm of %.1fmm stroke (%.2fmm/s measured; homingSpeed setting=%.0f). "
+                    "travelled %.1f%s of %.1f%s stroke (%.2f%s/s measured; homingSpeed setting=%.0f). "
                     "Peak torque=%.1f%% (threshold=%d%%). If it was still moving, raise homingSpeed; "
                     "if it barely moved, check motor connection, torque threshold, and homing direction.",
                     drive->getSlaveIndex(), HOMING_TIMEOUT_SEC,
-                    distTraveled, m_strokeMm, measuredMmS, m_speedMmS,
+                    distTraveled, m_unit, m_strokeMm, m_unit, measuredMmS, m_unit, m_speedMmS,
                     m_peakTorque, m_torquePct));
                 m_state = State::FatalError;
             }
@@ -405,9 +407,9 @@ public:
                 // After this, position 0.0 in offset coordinates = this physical location
                 m_homeOffset = drive->getActualPositionRaw();
 
-                LOG_INFO(strf("HomingSequence[%d]: Backoff complete. pos=%.3f (error=%.4fmm) "
+                LOG_INFO(strf("HomingSequence[%d]: Backoff complete. pos=%.3f (error=%.4f%s) "
                     "homeOffset=%.3f",
-                    drive->getSlaveIndex(), currentPos, remaining, m_homeOffset));
+                    drive->getSlaveIndex(), currentPos, remaining, m_unit, m_homeOffset));
 
                 LOG_INFO(strf("HomingSequence[%d]: COMPLETE. No mode switch required -- "
                     "CSP mode active from init. total_cycles=%d elapsed=%.2fs",
@@ -418,8 +420,8 @@ public:
 
             if (m_elapsed > BACKOFF_TIMEOUT_SEC)
             {
-                LOG_ERROR(strf("HomingSequence[%d]: Backoff TIMEOUT. pos=%.3f target=%.3f remaining=%.4fmm",
-                    drive->getSlaveIndex(), currentPos, m_backoffTarget, remaining));
+                LOG_ERROR(strf("HomingSequence[%d]: Backoff TIMEOUT. pos=%.3f target=%.3f remaining=%.4f%s",
+                    drive->getSlaveIndex(), currentPos, m_backoffTarget, remaining, m_unit));
                 m_state = State::FatalError;
             }
             break;
@@ -476,6 +478,7 @@ private:
     double  m_cycleTimeSec = 0.001;
     double  m_backoffMm = 1.5;
     double  m_speedMmS = 5.0;      // NOT true mm/s -- a per-cycle step multiplier (see homingStepMm)
+    const char* m_unit = "mm";     // display unit for logs ("deg" on rotary levers)
     double  m_strokeMm = 100.0;    // configured stroke, for timeout diagnostics
     int     m_torquePct = 25;
     std::string m_homeDir = "negative";

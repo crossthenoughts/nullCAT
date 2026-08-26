@@ -184,13 +184,14 @@ void MotionController::configure(const AppConfig& config)
         // log: parkMode selects parkPos (nothing else), and homingSpeed is a
         // per-cycle step multiplier rather than true mm/s (see homingStepMm),
         // so it is quoted as the raw setting.
+        const char* u = ac.caps.unit;   // "mm" / "deg": rotary logs read in degrees
         LOG_INFO(strf("MotionController: Axis %d '%s' type=%s "
-            "stroke=%.1fmm backoff=%.2fmm center=%.1fmm maxV=%.1fmm/s maxA=%.1fmm/s2 maxJ=%.1fmm/s3 "
-            "homeDir=%s parkMode=%s homingSpeed=%.0f (setting, not mm/s)",
+            "stroke=%.1f%s backoff=%.2f%s center=%.1f%s maxV=%.1f%s/s maxA=%.1f%s/s2 maxJ=%.1f%s/s3 "
+            "homeDir=%s parkMode=%s homingSpeed=%.0f (setting, not %s/s)",
             i + 1, dc.name.c_str(), dc.axisType.c_str(),
-            ac.strokeMm, ac.parkPos, ac.centerPos,
-            ac.maxVelocityMmS, ac.maxAccelMmS2, ac.maxJerkMmS3,
-            ac.homeDirection.c_str(), dc.parkMode.c_str(), ac.homingSpeed));
+            ac.strokeMm, u, ac.parkPos, u, ac.centerPos, u,
+            ac.maxVelocityMmS, u, ac.maxAccelMmS2, u, ac.maxJerkMmS3, u,
+            ac.homeDirection.c_str(), dc.parkMode.c_str(), ac.homingSpeed, u));
 
         // Conditioning mode + (Filter only) the derived knee consequences -- read
         // the cost of the numbers, not just the numbers. (CSP axes only.)
@@ -395,6 +396,8 @@ void MotionController::serviceCommissioning(A6Drive** drives, int numHwDrives)
                                                   ac.maxPos - ac.centerPos);
                 limits[i].maxVelMmS    = ac.maxVelocityMmS;
                 limits[i].maxAccelMmS2 = ac.maxAccelMmS2;
+                std::snprintf(limits[i].unit, sizeof(limits[i].unit),
+                              "%s", ac.caps.unit);
                 // Platform frame, like telemetry: the engine's offsets are
                 // multiplied by the same polarity on the way out (TESTING
                 // case), so its centering path must start from the offset

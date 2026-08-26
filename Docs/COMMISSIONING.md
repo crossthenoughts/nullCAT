@@ -42,9 +42,13 @@ The refusal reason appears in the panel status line.
   budget, not a rig problem.
 - **Guard chain live.** Commands go through the same velocity/accel clamps
   and braking guard as game telemetry.
-- **Following-error abort.** Command-vs-actual error above 10 mm sustained
-  for 50 ms (or 20 mm instantaneous) aborts the test and eases the rig
-  back to centre. Any drive fault or e-stop cancels it immediately.
+- **Following-error abort.** Command-vs-actual error sustained for 50 ms
+  (or double it instantaneously) aborts the test and eases the rig back
+  to centre. The threshold is per axis: 10 units, capped at 20% of the
+  axis's usable half-range, so a short rotary arc rails proportionally
+  (a 40 deg lever aborts at 4 deg, not a quarter of its travel). Units
+  follow the axis: mm on linear axes, degrees on rotary levers. Any
+  drive fault or e-stop cancels immediately.
 
 ## Test types
 
@@ -77,7 +81,7 @@ segment (ramps excluded):
 
 | column | meaning |
 |---|---|
-| cmd mm / act mm | commanded vs measured amplitude at the segment frequency (Goertzel). Step rows: held target vs final settled value |
+| cmd / act | commanded vs measured amplitude at the segment frequency (Goertzel), in the axis's unit (mm linear, degrees rotary). Step rows: held target vs final settled value |
 | ratio | act/cmd. 1.0 = perfect tracking; falling ratio = approaching bandwidth. Step rows: settle accuracy |
 | phase° | response phase relative to command; more negative = more lag |
 | ferr rms / pk | following error over the segment (mm) |

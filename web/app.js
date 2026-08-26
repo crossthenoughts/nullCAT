@@ -908,7 +908,9 @@ function renderTestResults(j){
   const nameOf=i=>esc((tstDrives[i]&&tstDrives[i].name)||('Drive '+(i+1)));
   const anyStep=j.results.some(r=>r.kind===1);
   const anySine=j.results.some(r=>r.kind!==1);
-  let h='<table><tr><th>segment</th><th>Hz</th><th>axis</th><th>cmd mm</th><th>act mm</th>'
+  // Units ride on the axis cell (mm vs ° differs per row on a mixed rig).
+  const unitOf=i=>(tstDrives[i]&&tstDrives[i].axisType==='rotary_lever')?'°':'mm';
+  let h='<table><tr><th>segment</th><th>Hz</th><th>axis</th><th>cmd</th><th>act</th>'
        +'<th>ratio</th><th>phase°</th><th>ferr rms</th><th>ferr pk</th><th>trq σ%</th>'
        +(anySine?'<th>trq@f%</th><th>trq/acc</th>':'')
        +(anyStep?'<th>os%</th><th>rise ms</th><th>settle ms</th>':'')
@@ -917,7 +919,8 @@ function renderTestResults(j){
     const step=r.kind===1;
     r.axes.forEach((a,k)=>{
       h+='<tr><td>'+(k===0?esc(r.label):'')+'</td><td>'+(k===0&&!step?r.freqHz.toFixed(2):'')+'</td>'
-        +'<td>'+nameOf(a.i)+(a.derated?' <span class="drtd">drtd</span>':'')+'</td>'
+        +'<td>'+nameOf(a.i)+' <span class="tunit">'+unitOf(a.i)+'</span>'
+        +(a.derated?' <span class="drtd">drtd</span>':'')+'</td>'
         +'<td>'+a.cmdAmp.toFixed(3)+'</td><td>'+a.actAmp.toFixed(3)+'</td>'
         +'<td>'+a.ratio.toFixed(3)+'</td><td>'+(step?'':a.phaseDeg.toFixed(1))+'</td>'
         +'<td>'+a.ferrRms.toFixed(3)+'</td><td>'+a.ferrPeak.toFixed(3)+'</td>'

@@ -55,6 +55,12 @@ void CommissioningMode::start(const CommissioningPlan& plan,
 
     m_plan.ferrAbortMm = clampd(m_plan.ferrAbortMm, 2.0, 25.0);
 
+    // Per-axis effective rail (see the member note): min(plan, 20% of the
+    // axis's usable half-range), floored at 2.
+    for (int i = 0; i < MAX_DRIVES; ++i)
+        m_ferrAbort[i] = std::min(m_plan.ferrAbortMm,
+                                  std::max(2.0, 0.2 * m_limits[i].halfStrokeMm));
+
     // ---- Amplitude derating: fit every segment inside the stroke,
     // velocity, and acceleration budgets of each axis. sin excitation:
     // vel_pk = A*2*pi*f, acc_pk = A*(2*pi*f)^2.
@@ -262,24 +268,26 @@ void CommissioningMode::recordSample(int axis, double appliedOffsetMm,
     if (m_phase == Phase::Idle || m_phase == Phase::Done) return;
 
     // ---- Following-error abort rail (active in every moving phase) ----
-    const double ferr = std::fabs(appliedOffsetMm - actualOffsetMm);
-    if (ferr > m_plan.ferrAbortMm * FERR_HARD_FACTOR)
+    const double ferr  = std::fabs(appliedOffsetMm - actualOffsetMm);
+    const double rail  = m_ferrAbort[axis];
+    const char*  unit  = m_limits[axis].unit;
+    if (ferr > rail * FERR_HARD_FACTOR)
     {
         char why[96];
         std::snprintf(why, sizeof(why),
-            "axis %d following error %.1fmm (hard limit %.1fmm)",
-            axis + 1, ferr, m_plan.ferrAbortMm * FERR_HARD_FACTOR);
+            "axis %d following error %.1f%s (hard limit %.1f%s)",
+            axis + 1, ferr, unit, rail * FERR_HARD_FACTOR, unit);
         abort(why);
         return;
     }
-    if (ferr > m_plan.ferrAbortMm)
+    if (ferr > rail)
     {
         if (++m_ferrOverCycles[axis] >= FERR_SUSTAIN_CYCLES)
         {
             char why[96];
             std::snprintf(why, sizeof(why),
-                "axis %d following error %.1fmm sustained (limit %.1fmm)",
-                axis + 1, ferr, m_plan.ferrAbortMm);
+                "axis %d following error %.1f%s sustained (limit %.1f%s)",
+                axis + 1, ferr, unit, rail, unit);
             abort(why);
             return;
         }

@@ -325,6 +325,46 @@ int main()
         CHECK(maxDelta < 1.0, "abort return had no command step");
     }
 
+    // ---- ferr rail is per axis: short ranges rail earlier, unit follows ----
+    {
+        CommissioningPlan plan;
+        plan.numSegments = 1;
+        plan.seg[0].freqHz = 1.0;
+        plan.seg[0].durationSec = 10.0;
+        plan.seg[0].rampSec = 0.3;
+        plan.seg[0].ampMm[0] = 8.0;
+        plan.ferrAbortMm = 10.0;
+        CommissioningAxisLimits lim[MAX_DRIVES];
+        double out[MAX_DRIVES];
+        int cycles;
+
+        // 20-unit half-range (a 40 deg lever): rail = min(10, 0.2*20) = 4,
+        // so a constant 5-unit ferr aborts, and the reason carries the unit.
+        CommissioningMode engShort;
+        defaultLimits(lim, 1);
+        lim[0].halfStrokeMm = 20.0;
+        std::snprintf(lim[0].unit, sizeof(lim[0].unit), "deg");
+        engShort.start(plan, lim, 1, DT);
+        cycles = 0;
+        while (engShort.step(out) && ++cycles < 500000)
+            engShort.recordSample(0, out[0], out[0] - 5.0, 0.0);
+        CHECK(engShort.getStatus().aborted,
+              "5-unit ferr aborts on a 20-half-range axis (rail=4)");
+        CHECK(std::strstr(engShort.getStatus().reason, "deg") != nullptr,
+              "abort reason carries the axis unit");
+
+        // Default 50-unit half-range: rail stays at the plan value (10),
+        // the same 5-unit ferr completes clean.
+        CommissioningMode engLong;
+        defaultLimits(lim, 1);
+        engLong.start(plan, lim, 1, DT);
+        cycles = 0;
+        while (engLong.step(out) && ++cycles < 500000)
+            engLong.recordSample(0, out[0], out[0] - 5.0, 0.0);
+        CHECK(!engLong.getStatus().aborted,
+              "5-unit ferr passes on a 50-half-range axis (rail=10)");
+    }
+
     // ================= multi-segment completion + rests =================
     {
         rigMeta(meta);
