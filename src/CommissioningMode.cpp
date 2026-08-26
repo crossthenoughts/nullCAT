@@ -595,21 +595,9 @@ int CommissioningMode::buildCycle(const CommissioningCycleParams& p,
             const CommissioningAxisMeta& m = meta[i];
             if (!m.selected || m.kind != 0) continue;   // verticals only
             double weight = 0.0;
-            if (m.useWeights)
-            {
-                // Explicit per-axis mixing weights (hexapods and any layout
-                // the corner roles cannot express).
-                if (mv.which == 0)      weight = m.wPitch;
-                else if (mv.which == 1) weight = m.wRoll;
-                else                    weight = m.wHeave;
-                weight = clampd(weight, -1.0, 1.0);
-            }
-            else
-            {
-                if (mv.which == 0)      weight = (double)m.frontRear;
-                else if (mv.which == 1) weight = (double)m.leftRight;
-                else                    weight = 1.0;    // heave: in phase
-            }
+            if (mv.which == 0)      weight = (double)m.frontRear;
+            else if (mv.which == 1) weight = (double)m.leftRight;
+            else                    weight = 1.0;        // heave: in phase
             if (weight == 0.0) continue;
             sg.ampMm[i] = mv.pct / 100.0 * m.halfStrokeMm * weight;
             any = true;

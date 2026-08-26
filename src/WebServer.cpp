@@ -1009,17 +1009,6 @@ bool WebServer::start()
                 meta[i].selected  = a.value("sel").toBool(false);
                 meta[i].frontRear = (int8_t)a.value("fr").toInt(0);
                 meta[i].leftRight = (int8_t)a.value("lr").toInt(0);
-                // Optional explicit mixing weights [wPitch, wRoll, wHeave]:
-                // presence switches this axis off the legacy corner roles
-                // (buildCycle clamps to [-1, 1]).
-                const QJsonArray w = a.value("w").toArray();
-                if (w.size() == 3)
-                {
-                    meta[i].useWeights = true;
-                    meta[i].wPitch = w.at(0).toDouble(0.0);
-                    meta[i].wRoll  = w.at(1).toDouble(0.0);
-                    meta[i].wHeave = w.at(2).toDouble(0.0);
-                }
             }
 
             const std::string mode = o.value("mode").toString().toStdString();
@@ -1074,8 +1063,7 @@ bool WebServer::start()
             if (built < 0) { errResp(res, "Invalid test parameters (check note names)."); return; }
             if (built == 0)
             { errResp(res, "No testable axes selected (belts are not testable; "
-                           "cycle needs front/rear + left/right roles or "
-                           "per-axis mixing weights)."); return; }
+                           "cycle needs front/rear + left/right roles)."); return; }
             if (!m_motion->requestCommissioningStart(plan))
             { errResp(res, "A test is already running."); return; }
             okResp(res);

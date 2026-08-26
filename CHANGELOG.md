@@ -7,12 +7,13 @@ middle number carries breaking changes and the last carries fixes.
 ## [0.9.4] - unreleased
 
 ### Added
-- Hexapod support, first slice: per-axis signed mixing weights for the
-  commissioning motion cycle (leg pairings need cosines the corner roles
-  can't express), per-axis homing (`/api/home` `{"axis":N}` plus buttons
-  in the test panel - for unloaded direction checks and near-park
-  re-homes; attached platforms home all legs together), a six-lever
-  example config, and Docs/HEXAPOD_SETUP.md.
+- Hexapod support, first slice: per-axis homing (`/api/home` `{"axis":N}`
+  plus buttons in the test panel - for unloaded direction checks and
+  near-park re-homes; attached platforms home all legs together), a
+  six-lever example config, and Docs/HEXAPOD_SETUP.md. The motion-cycle
+  test gives hexapod legs heave and per-leg excitation only: platform
+  pitch/roll needs the real leg geometry, so it stays with the motion
+  software that owns the kinematics.
 
 ### Fixed
 - Commissioning offsets now follow axis polarity the way telemetry does,

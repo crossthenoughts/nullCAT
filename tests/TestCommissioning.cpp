@@ -116,38 +116,23 @@ int main()
         CHECK(n2 == 2, "cycle without roles: heave + horiz only");
     }
 
-    // ---- cycle with explicit mixing weights (hexapod path) ----
+    // ---- role-less verticals ride heave only (the hexapod-leg contract) ----
+    // Free-form mixing weights were deliberately REMOVED in 0.9.4: platform
+    // pitch/roll on a coupled hexapod is kinematics nullCAT does not do, and
+    // a wrong hand-typed weight binds the mechanism. A lever leg therefore
+    // participates in heave (weight 1, in phase) and nothing else.
     {
-        CommissioningAxisMeta mw[MAX_DRIVES];
-        rigMeta(mw);
-        // Paired-leg cosine weights the +/-1 corner roles cannot express.
-        for (int i = 0; i < 4; ++i) mw[i].useWeights = true;
-        mw[0].wPitch =  0.5;  mw[0].wRoll =  0.866; mw[0].wHeave = 1.0;
-        mw[1].wPitch =  0.5;  mw[1].wRoll = -0.866; mw[1].wHeave = 1.0;
-        mw[2].wPitch = -1.0;  mw[2].wRoll =  0.0;   mw[2].wHeave = 1.0;
-        mw[3].wPitch = -1.0;  mw[3].wRoll =  0.0;   mw[3].wHeave = 1.0;
+        CommissioningAxisMeta mh[MAX_DRIVES];
+        rigMeta(mh);
+        for (int i = 0; i < 4; ++i) { mh[i].frontRear = 0; mh[i].leftRight = 0; }
         CommissioningPlan plan;
         CommissioningCycleParams p;
-        const int n = CommissioningMode::buildCycle(p, mw, 6, plan);
-        CHECK(n == 4, "weighted cycle: 4 segments");
-        CHECK(std::fabs(plan.seg[0].ampMm[0] - 0.30 * 50.0 * 0.5) < 1e-9,
-              "pitch amp scales by wPitch");
-        CHECK(plan.seg[0].ampMm[2] < 0, "negative wPitch = antiphase");
-        CHECK(plan.seg[1].ampMm[2] == 0.0, "zero wRoll drops the axis from roll");
-        CHECK(std::fabs(plan.seg[1].ampMm[1] + 0.30 * 50.0 * 0.866) < 1e-9,
-              "roll amp scales by signed wRoll");
-        // Out-of-range weights clamp to [-1, 1].
-        mw[0].wHeave = 5.0;
-        CommissioningMode::buildCycle(p, mw, 6, plan);
-        CHECK(std::fabs(plan.seg[2].ampMm[0] - 0.40 * 50.0) < 1e-9,
-              "weights clamp to [-1,1]");
-        // useWeights is per axis and overrides that axis's roles.
-        CommissioningAxisMeta ml[MAX_DRIVES];
-        rigMeta(ml);
-        ml[0].useWeights = true;      // roles say Front (+1); weight says -1
-        ml[0].wPitch = -1.0; ml[0].wHeave = 1.0;
-        CommissioningMode::buildCycle(p, ml, 6, plan);
-        CHECK(plan.seg[0].ampMm[0] < 0, "weights override roles per axis");
+        const int n = CommissioningMode::buildCycle(p, mh, 6, plan);
+        CHECK(n == 2, "role-less rig: heave + horiz only, no pitch/roll");
+        CHECK(std::strcmp(plan.seg[0].label, "heave") == 0, "seg0 = heave");
+        CHECK(std::fabs(plan.seg[0].ampMm[0] - 0.40 * 50.0) < 1e-9
+              && plan.seg[0].ampMm[0] == plan.seg[0].ampMm[3],
+              "heave: all verticals in phase at full weight");
     }
     {
         rigMeta(meta);
