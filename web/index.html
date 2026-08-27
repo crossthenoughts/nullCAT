@@ -268,8 +268,9 @@ sudo ./provision eth0 &lt;slave&gt; --verify    # confirm everything persisted</
   <section class="panel collapsed" id="testPanel">
     <div class="test-body">
       <div class="test-note">
-        Runs only while the loop is running, every tested axis is <b>homed and parked</b>,
-        and no telemetry is streaming. Amplitudes auto-derate to each axis's stroke /
+        Runs only while the <b>loop is running</b> and the rig is
+        <b>parked</b> (press <b>Park All</b> on the dashboard first; do not
+        stop the loop) with no telemetry streaming. Amplitudes auto-derate to each axis's stroke /
         velocity / acceleration budgets (derated results are flagged), the normal guard
         chain stays live, and a sustained following error aborts the test and re-parks.
         Belt axes are never tested.

@@ -363,14 +363,16 @@ void MotionController::serviceCommissioning(A6Drive** drives, int numHwDrives)
                 if (!m_runtime[i].homed)
                 {
                     std::snprintf(refusalBuf, sizeof(refusalBuf),
-                        "axis %d not homed", i + 1);
+                        "rig not homed -- Start Loop homes automatically "
+                        "(axis %d not homed)", i + 1);
                     refusal = refusalBuf;
                     break;
                 }
                 if (m_axisState[i] != AxisMotionState::PARKED)
                 {
                     std::snprintf(refusalBuf, sizeof(refusalBuf),
-                        "axis %d not parked (state %s)", i + 1,
+                        "rig not parked -- press Park All, keep the loop "
+                        "running, then start the test (axis %d is %s)", i + 1,
                         getAxisStateName(i).c_str());
                     refusal = refusalBuf;
                     break;
