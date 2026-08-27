@@ -1127,6 +1127,318 @@ double MotionController::stepTrajectory(TrajectoryState& traj, const AxisConfig&
 }
 
 // ============================================================
+// Per-family step functions (Stage D decomposition)
+//
+// Verbatim extractions from the old process() switch -- expression order
+// preserved on purpose: the golden-sequence pins in TestMotionController
+// hold these bit-identical to the pre-decomposition monolith.
+// ============================================================
+
+bool MotionController::axisFrameUsable(int i, const TelemetryData& td) const
+{
+    return telemetryFrameUsable(td) && i < td.numPositions
+        && std::isfinite(td.positions[i]);
+}
+
+double MotionController::decodeTargetMm(int i, double raw)
+{
+    AxisConfig& ac = m_axisConfig[i];
+    // 16-bit only (the wire contract): 0..65535, centre 32767 = centerPos.
+    double norm = (raw - TELEMETRY_CENTER) / TELEMETRY_CENTER;
+    double targetMm = ac.centerPos + norm * (ac.strokeMm / 2.0);
+    if (ac.telemetryInvert)
+        targetMm = ac.centerPos - (targetMm - ac.centerPos);
+    if (ac.spikeFilterEnabled)
+        targetMm = applySpikeFilter(i, targetMm);
+    return std::max(ac.minPos, std::min(ac.maxPos, targetMm));
+}
+
+double MotionController::stepBeltBlending(int i, AxisMotionState& state,
+    const TelemetryData& telemetryData, MotionOutput& output,
+    A6Drive** drives, int numHwDrives)
+{
+    AxisConfig& ac = m_axisConfig[i];
+    AxisRuntime& rt = m_runtime[i];
+
+    // Runaway guards armed from the first tensioning cycle (a snapped belt
+    // can spin up during the blend just as well as ONLINE).
+    if (beltGuardTripped(i, (drives && i < numHwDrives) ? drives[i] : nullptr, output))
+        return rt.currentPos;
+
+    // Belt: tension blends in over the same window a position axis uses to
+    // ease from center into live tracking -- torque ramps 0 -> live tension
+    // across blendDuration, so the belt never snaps taut on enable.
+    rt.blendElapsed += m_cycleTimeSec;
+    double bf = std::max(0.0, std::min(1.0, rt.blendElapsed / rt.blendDuration));
+    bool haveData = axisFrameUsable(i, telemetryData);
+    double tension = haveData
+        ? beltTension(telemetryData.positions[i], ac.torqueMinPct, ac.torqueMaxPct)
+        : ac.torqueMinPct;
+    if (haveData) rt.onlineHadData = true;
+    // Store the RAMPED value so the ONLINE slew cap starts from what was
+    // actually commanded at the blend seam (no step at handoff). Velocity
+    // fold applies during the blend too -- a slack lunge doesn't wait for
+    // ONLINE.
+    rt.lastTension    = beltVelocityFold(i, bf * tension);
+    output.torques[i] = rt.lastTension;
+    if (bf >= 1.0)
+    {
+        state = AxisMotionState::ONLINE;
+        rt.onlineStaleSec = 0.0;
+        // Guards stay armed straight through -- they were seeded at
+        // tension-up (BLENDING entry); resetting here would discard the
+        // net-travel reference mid-session.
+        RT_LOG_INFO("MotionController: Axis %d (belt) blend complete -- ONLINE.", i + 1);
+    }
+    return rt.currentPos;
+}
+
+double MotionController::stepPositionBlending(int i, AxisMotionState& state,
+    const TelemetryData& telemetryData)
+{
+    AxisConfig& ac = m_axisConfig[i];
+    AxisRuntime& rt = m_runtime[i];
+
+    rt.blendElapsed += m_cycleTimeSec;
+    double blendFactor = rt.blendElapsed / rt.blendDuration;
+
+    // BLENDING runs the SAME tracking filter as ONLINE, with the velocity
+    // cap ramped from blendMaxVelocity up to maxVelocity over the blend.
+    // Seeded at the blend-start position (center) on entry, the rig glides
+    // smoothly from center into live tracking -- no crossfade "miniature
+    // replay", no bang-bang oscillation, and no separate ONLINE handoff
+    // (the same filter just continues once the cap reaches full).
+    double targetMm = rt.currentPos;   // hold if no data
+    bool haveData = axisFrameUsable(i, telemetryData);
+    if (haveData)
+    {
+        rt.onlineHadData = true;
+        targetMm = decodeTargetMm(i, telemetryData.positions[i]);
+    }
+
+    double bf = std::max(0.0, std::min(1.0, blendFactor));
+    double velCap = ac.blendMaxVelocityMmS
+                  + bf * (ac.maxVelocityMmS - ac.blendMaxVelocityMmS);
+    if (velCap < 1.0) velCap = 1.0;
+
+    // Same selected conditioning mode as ONLINE, but with the ramped blend
+    // velocity cap -- so the unpark ease-in works in every mode and the
+    // BLENDING->ONLINE seam is seamless (same conditioner, cap reaches full).
+    double outPos = conditionCommand(rt.onlineCond, targetMm,
+                                     telemetryData.nominalFrameSec, velCap, ac);
+    outPos = std::max(ac.minPos, std::min(ac.maxPos, outPos));
+
+    if (blendFactor >= 1.0)
+    {
+        // Cap has reached full -- this IS ONLINE now. The same filter
+        // continues next cycle; nothing to re-seed, no discontinuity.
+        state = AxisMotionState::ONLINE;
+        rt.onlineStaleSec = 0.0;
+        RT_LOG_INFO("MotionController: Axis %d blend complete -- ONLINE.", i + 1);
+    }
+    return outPos;
+}
+
+double MotionController::stepBeltOnline(int i, AxisMotionState& state,
+    const TelemetryData& telemetryData, MotionOutput& output,
+    A6Drive** drives, int numHwDrives)
+{
+    AxisConfig& ac = m_axisConfig[i];
+    AxisRuntime& rt = m_runtime[i];
+
+    // Runaway guards (overspeed persistence + net-travel cap) -- see
+    // beltGuardTripped(). Armed continuously from tension-up through ONLINE.
+    if (beltGuardTripped(i, (drives && i < numHwDrives) ? drives[i] : nullptr, output))
+        return rt.currentPos;
+
+    // Unidirectional belt tensioner with the SAME staged standby as a
+    // position axis (so a telemetry loss settles instead of holding torque
+    // forever):
+    //   live frame       -> tension tracks telemetry (min..max)
+    //   phase 1 (<HOLD)  -> hold last tension (ride out a stutter)
+    //   phase 2 (..to)   -> ease to torqueMin (neutral taut standby)
+    //   phase 3 (>=to)   -> PARKING (ramp tension to 0 = slack)
+    double tension;
+    bool haveData = axisFrameUsable(i, telemetryData);
+    if (haveData)
+    {
+        rt.onlineStaleSec = 0.0;
+        rt.onlineHadData  = true;
+        tension = beltTension(telemetryData.positions[i], ac.torqueMinPct, ac.torqueMaxPct);
+    }
+    else if (rt.onlineHadData)
+    {
+        rt.onlineStaleSec += m_cycleTimeSec;
+        if (rt.onlineStaleSec >= ac.onlineHoldTimeoutSec)
+        {
+            rt.interpElapsed  = 0.0;
+            rt.interpDuration = ac.parkTimeSec;
+            state             = AxisMotionState::PARKING;   // ramps tension -> 0
+            output.torques[i] = rt.lastTension;
+            RT_LOG_WARNING("MotionController: Axis %d (belt) telemetry stale "
+                ">%.0fs -- easing slack.", i + 1, ac.onlineHoldTimeoutSec);
+            return rt.currentPos;
+        }
+        tension = (rt.onlineStaleSec > ONLINE_STALE_HOLD_SEC)
+                ? ac.torqueMinPct      // phase 2: ease to neutral taut
+                : rt.lastTension;      // phase 1: hold last
+    }
+    else
+    {
+        tension = ac.torqueMinPct;     // never had a frame -- min taut, waiting
+    }
+
+    // ---- Relaxer (force/thermal-domain, optional): sustained near-max
+    // dwell is not a legitimate racing signal -- braking zones last
+    // seconds. Ease to min until demand drops; also pre-empts the drive's
+    // i2t overload fault (which would park the whole rig mid-session).
+    if (ac.beltRelaxerSec > 0.0)
+    {
+        const double band = ac.torqueMaxPct * ac.beltRelaxerPct / 100.0;
+        if (tension >= band) rt.beltDwellSec += m_cycleTimeSec;
+        else if (tension < ac.torqueMaxPct * (ac.beltRelaxerPct - 10.0) / 100.0)
+        { rt.beltDwellSec = 0.0; if (rt.beltRelaxed) { rt.beltRelaxed = false;
+            RT_LOG_INFO("MotionController: Axis %d (belt) relaxer released.", i + 1); } }
+        if (!rt.beltRelaxed && rt.beltDwellSec >= ac.beltRelaxerSec)
+        { rt.beltRelaxed = true;
+            RT_LOG_WARNING("MotionController: Axis %d (belt) tension >=%.0f%% of max for %.0fs "
+                           "-- relaxing to min until demand drops.", i + 1, ac.beltRelaxerPct, ac.beltRelaxerSec); }
+        if (rt.beltRelaxed) tension = ac.torqueMinPct;
+    }
+
+    // ---- Slew cap (command-domain): safety envelope on d(tension)/dt,
+    // NOT an effect shaper -- 3000%/s passes every legitimate haptic
+    // (30Hz +-5% ripple needs ~940%/s) while stretching a garbage frame's
+    // instant 0->300% step over ~100ms. The e-stop path bypasses this
+    // (it breaks out above and commands 0 immediately).
+    {
+        const double maxStep = ac.beltSlewPctPerSec * m_cycleTimeSec;
+        tension = std::max(rt.lastTension - maxStep,
+                           std::min(rt.lastTension + maxStep, tension));
+    }
+
+    // ---- Velocity fold (motion-domain, master-side): AFTER the slew so
+    // the safety fold is never rate-limited downward. Recovery is gentle
+    // by construction: lastTension stores the folded value, so as speed
+    // drops the slew cap governs the ramp back up.
+    tension = beltVelocityFold(i, tension);
+
+    rt.lastTension    = tension;
+    output.torques[i] = tension;
+    return rt.currentPos;
+}
+
+double MotionController::stepPositionOnline(int i, AxisMotionState& state,
+    const TelemetryData& telemetryData)
+{
+    AxisConfig& ac = m_axisConfig[i];
+    AxisRuntime& rt = m_runtime[i];
+
+    // Decode the telemetry target (shared by CSP and PP paths below).
+    // NaN/Inf guard: a non-finite raw sample is treated as "no data" --
+    // we never feed garbage into the command stream.
+    double targetMm = rt.currentPos;  // hold if no data
+    bool haveData = axisFrameUsable(i, telemetryData);
+    if (haveData)
+    {
+        rt.onlineStaleSec = 0.0;
+        rt.onlineHadData = true;
+        targetMm = decodeTargetMm(i, telemetryData.positions[i]);
+    }
+    else if (rt.onlineHadData)
+    {
+        // Telemetry dropped AFTER it was flowing -- staged standby, not an
+        // instant park (a paused sim / menu / alt-tab / telemetry stutter must
+        // not eject us from ONLINE). Only arms once a frame has been seen, so
+        // a freshly-started loop with telemetry not yet connected just holds.
+        //   phase 1 (< HOLD_SEC):        hold in place, ride out the hiccup
+        //   phase 2 (HOLD_SEC..timeout): ease to center (level standby)
+        //   phase 3 (>= onlineHoldTimeout): park
+        // Any returning frame resumes ONLINE tracking seamlessly (the filter
+        // slews from wherever it is, braking-clamped). targetMm defaults to
+        // rt.currentPos (phase 1 hold) unless overridden below.
+        rt.onlineStaleSec += m_cycleTimeSec;
+        if (rt.onlineStaleSec >= ac.onlineHoldTimeoutSec)
+        {
+            rt.interpStart    = rt.currentPos;
+            rt.interpTarget   = ac.parkPos;
+            rt.interpElapsed  = 0.0;
+            rt.interpDuration = ac.parkTimeSec;
+            state             = AxisMotionState::PARKING;
+            RT_LOG_WARNING("MotionController: Axis %d telemetry stale "
+                ">%.0fs -- parking.", i + 1, ac.onlineHoldTimeoutSec);
+            return rt.currentPos;
+        }
+        else if (rt.onlineStaleSec > ONLINE_STALE_HOLD_SEC)
+        {
+            targetMm = ac.centerPos;   // ease smoothly to neutral standby
+        }
+    }
+
+    double outPos;
+    if (ac.ppMode)
+    {
+        // PP mode UNCHANGED: the drive has its own profiler. Without this
+        // cap a large telemetry jump (source active at session start with the
+        // axis mid-stroke) makes the drive profiler target full stroke in
+        // one go -- a violent full-range move. Cap the advance to
+        // maxVelocityMmS * cycleTime; the drive smooths on top.
+        double maxStep = ac.maxVelocityMmS * m_cycleTimeSec;
+        double delta = targetMm - rt.currentPos;
+        outPos = (std::abs(delta) > maxStep)
+            ? rt.currentPos + std::copysign(maxStep, delta)
+            : targetMm;
+    }
+    else
+    {
+        // CSP command conditioning: dispatch through the selected mode
+        // (Bypass / Interpolate / Filter) into the shared guard chain. At
+        // full velocity (maxVelocity) in ONLINE. Counts are formed only at
+        // the PDO write (downstream).
+        outPos = conditionCommand(rt.onlineCond, targetMm,
+                                  telemetryData.nominalFrameSec, ac.maxVelocityMmS, ac);
+        outPos = std::max(ac.minPos, std::min(ac.maxPos, outPos));
+    }
+    return outPos;
+}
+
+double MotionController::stepBeltParking(int i, AxisMotionState& state,
+    MotionOutput& output)
+{
+    AxisRuntime& rt = m_runtime[i];
+
+    // Belt: ease tension from its park-entry value (rt.lastTension) to 0
+    // over parkTime, then PARKED (slack).
+    rt.interpElapsed += m_cycleTimeSec;
+    double t = std::min(1.0, rt.interpElapsed / rt.interpDuration);
+    output.torques[i] = (1.0 - t) * rt.lastTension;
+    if (t >= 1.0)
+    {
+        state = AxisMotionState::PARKED;
+        rt.lastTension = 0.0;
+        RT_LOG_INFO("MotionController: Axis %d (belt) PARKED (slack).", i + 1);
+    }
+    return rt.currentPos;
+}
+
+double MotionController::stepPositionParking(int i, AxisMotionState& state)
+{
+    AxisConfig& ac = m_axisConfig[i];
+    AxisRuntime& rt = m_runtime[i];
+
+    rt.interpElapsed += m_cycleTimeSec;
+    double t = std::min(1.0, rt.interpElapsed / rt.interpDuration);
+    double outPos = interpolate(rt.interpStart, rt.interpTarget, t);
+    if (t >= 1.0)
+    {
+        state = AxisMotionState::PARKED;
+        outPos = ac.parkPos;
+        RT_LOG_INFO("MotionController: Axis %d PARKED.", i + 1);
+    }
+    return outPos;
+}
+
+// ============================================================
 // process() -- main cyclic function
 // ============================================================
 void MotionController::process(const TelemetryData& telemetryData, MotionOutput& output,
@@ -1279,90 +1591,9 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
                 outPos = rt.currentPos;
                 break;
             }
-
-            if (ac.torqueMode)
-            {
-                // Runaway guards armed from the first tensioning cycle (a snapped belt
-                // can spin up during the blend just as well as ONLINE).
-                if (beltGuardTripped(i, (drives && i < numHwDrives) ? drives[i] : nullptr, output))
-                { outPos = rt.currentPos; break; }
-
-                // Belt: tension blends in over the same window a position axis uses to
-                // ease from center into live tracking -- torque ramps 0 -> live tension
-                // across blendDuration, so the belt never snaps taut on enable.
-                rt.blendElapsed += m_cycleTimeSec;
-                double bf = std::max(0.0, std::min(1.0, rt.blendElapsed / rt.blendDuration));
-                bool haveData = telemetryFrameUsable(telemetryData) && i < telemetryData.numPositions
-                                && std::isfinite(telemetryData.positions[i]);
-                double tension = haveData
-                    ? beltTension(telemetryData.positions[i], ac.torqueMinPct, ac.torqueMaxPct)
-                    : ac.torqueMinPct;
-                if (haveData) rt.onlineHadData = true;
-                // Store the RAMPED value so the ONLINE slew cap starts from what was
-                // actually commanded at the blend seam (no step at handoff). Velocity
-                // fold applies during the blend too -- a slack lunge doesn't wait for
-                // ONLINE.
-                rt.lastTension    = beltVelocityFold(i, bf * tension);
-                output.torques[i] = rt.lastTension;
-                outPos            = rt.currentPos;
-                if (bf >= 1.0)
-                {
-                    state = AxisMotionState::ONLINE;
-                    rt.onlineStaleSec = 0.0;
-                    // Guards stay armed straight through -- they were seeded at
-                    // tension-up (BLENDING entry); resetting here would discard the
-                    // net-travel reference mid-session.
-                    RT_LOG_INFO("MotionController: Axis %d (belt) blend complete -- ONLINE.", i + 1);
-                }
-                break;
-            }
-
-            rt.blendElapsed += m_cycleTimeSec;
-            double blendFactor = rt.blendElapsed / rt.blendDuration;
-
-            // BLENDING runs the SAME tracking filter as ONLINE, with the velocity
-            // cap ramped from blendMaxVelocity up to maxVelocity over the blend.
-            // Seeded at the blend-start position (center) on entry, the rig glides
-            // smoothly from center into live tracking -- no crossfade "miniature
-            // replay", no bang-bang oscillation, and no separate ONLINE handoff
-            // (the same filter just continues once the cap reaches full).
-            double targetMm = rt.currentPos;   // hold if no data
-            bool haveData = telemetryFrameUsable(telemetryData) && i < telemetryData.numPositions
-                            && std::isfinite(telemetryData.positions[i]);
-            if (haveData)
-            {
-                rt.onlineHadData = true;
-                double raw = telemetryData.positions[i];
-                // 16-bit only (the wire contract): 0..65535, centre 32767 = centerPos.
-                double norm = (raw - TELEMETRY_CENTER) / TELEMETRY_CENTER;
-                targetMm = ac.centerPos + norm * (ac.strokeMm / 2.0);
-                if (ac.telemetryInvert)
-                    targetMm = ac.centerPos - (targetMm - ac.centerPos);
-                if (ac.spikeFilterEnabled)
-                    targetMm = applySpikeFilter(i, targetMm);
-                targetMm = std::max(ac.minPos, std::min(ac.maxPos, targetMm));
-            }
-
-            double bf = std::max(0.0, std::min(1.0, blendFactor));
-            double velCap = ac.blendMaxVelocityMmS
-                          + bf * (ac.maxVelocityMmS - ac.blendMaxVelocityMmS);
-            if (velCap < 1.0) velCap = 1.0;
-
-            // Same selected conditioning mode as ONLINE, but with the ramped blend
-            // velocity cap -- so the unpark ease-in works in every mode and the
-            // BLENDING->ONLINE seam is seamless (same conditioner, cap reaches full).
-            outPos = conditionCommand(rt.onlineCond, targetMm,
-                                      telemetryData.nominalFrameSec, velCap, ac);
-            outPos = std::max(ac.minPos, std::min(ac.maxPos, outPos));
-
-            if (blendFactor >= 1.0)
-            {
-                // Cap has reached full -- this IS ONLINE now. The same filter
-                // continues next cycle; nothing to re-seed, no discontinuity.
-                state = AxisMotionState::ONLINE;
-                rt.onlineStaleSec = 0.0;
-                RT_LOG_INFO("MotionController: Axis %d blend complete -- ONLINE.", i + 1);
-            }
+            outPos = ac.torqueMode
+                ? stepBeltBlending(i, state, telemetryData, output, drives, numHwDrives)
+                : stepPositionBlending(i, state, telemetryData);
             break;
         }
 
@@ -1376,200 +1607,17 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
                 break;
             }
 
-            if (ac.torqueMode)
-            {
-                // Runaway guards (overspeed persistence + net-travel cap) -- see
-                // beltGuardTripped(). Armed continuously from tension-up through ONLINE.
-                if (beltGuardTripped(i, (drives && i < numHwDrives) ? drives[i] : nullptr, output))
-                { outPos = rt.currentPos; break; }
-
-                // Unidirectional belt tensioner with the SAME staged standby as a
-                // position axis (so a telemetry loss settles instead of holding torque
-                // forever):
-                //   live frame       -> tension tracks telemetry (min..max)
-                //   phase 1 (<HOLD)  -> hold last tension (ride out a stutter)
-                //   phase 2 (..to)   -> ease to torqueMin (neutral taut standby)
-                //   phase 3 (>=to)   -> PARKING (ramp tension to 0 = slack)
-                double tension;
-                bool haveData = telemetryFrameUsable(telemetryData) && i < telemetryData.numPositions
-                                && std::isfinite(telemetryData.positions[i]);
-                if (haveData)
-                {
-                    rt.onlineStaleSec = 0.0;
-                    rt.onlineHadData  = true;
-                    tension = beltTension(telemetryData.positions[i], ac.torqueMinPct, ac.torqueMaxPct);
-                }
-                else if (rt.onlineHadData)
-                {
-                    rt.onlineStaleSec += m_cycleTimeSec;
-                    if (rt.onlineStaleSec >= ac.onlineHoldTimeoutSec)
-                    {
-                        rt.interpElapsed  = 0.0;
-                        rt.interpDuration = ac.parkTimeSec;
-                        state             = AxisMotionState::PARKING;   // ramps tension -> 0
-                        output.torques[i] = rt.lastTension;
-                        outPos            = rt.currentPos;
-                        RT_LOG_WARNING("MotionController: Axis %d (belt) telemetry stale "
-                            ">%.0fs -- easing slack.", i + 1, ac.onlineHoldTimeoutSec);
-                        break;
-                    }
-                    tension = (rt.onlineStaleSec > ONLINE_STALE_HOLD_SEC)
-                            ? ac.torqueMinPct      // phase 2: ease to neutral taut
-                            : rt.lastTension;      // phase 1: hold last
-                }
-                else
-                {
-                    tension = ac.torqueMinPct;     // never had a frame -- min taut, waiting
-                }
-
-                // ---- Relaxer (force/thermal-domain, optional): sustained near-max
-                // dwell is not a legitimate racing signal -- braking zones last
-                // seconds. Ease to min until demand drops; also pre-empts the drive's
-                // i2t overload fault (which would park the whole rig mid-session).
-                if (ac.beltRelaxerSec > 0.0)
-                {
-                    const double band = ac.torqueMaxPct * ac.beltRelaxerPct / 100.0;
-                    if (tension >= band) rt.beltDwellSec += m_cycleTimeSec;
-                    else if (tension < ac.torqueMaxPct * (ac.beltRelaxerPct - 10.0) / 100.0)
-                    { rt.beltDwellSec = 0.0; if (rt.beltRelaxed) { rt.beltRelaxed = false;
-                        RT_LOG_INFO("MotionController: Axis %d (belt) relaxer released.", i + 1); } }
-                    if (!rt.beltRelaxed && rt.beltDwellSec >= ac.beltRelaxerSec)
-                    { rt.beltRelaxed = true;
-                        RT_LOG_WARNING("MotionController: Axis %d (belt) tension >=%.0f%% of max for %.0fs "
-                                       "-- relaxing to min until demand drops.", i + 1, ac.beltRelaxerPct, ac.beltRelaxerSec); }
-                    if (rt.beltRelaxed) tension = ac.torqueMinPct;
-                }
-
-                // ---- Slew cap (command-domain): safety envelope on d(tension)/dt,
-                // NOT an effect shaper -- 3000%/s passes every legitimate haptic
-                // (30Hz +-5% ripple needs ~940%/s) while stretching a garbage frame's
-                // instant 0->300% step over ~100ms. The e-stop path bypasses this
-                // (it breaks out above and commands 0 immediately).
-                {
-                    const double maxStep = ac.beltSlewPctPerSec * m_cycleTimeSec;
-                    tension = std::max(rt.lastTension - maxStep,
-                                       std::min(rt.lastTension + maxStep, tension));
-                }
-
-                // ---- Velocity fold (motion-domain, master-side): AFTER the slew so
-                // the safety fold is never rate-limited downward. Recovery is gentle
-                // by construction: lastTension stores the folded value, so as speed
-                // drops the slew cap governs the ramp back up.
-                tension = beltVelocityFold(i, tension);
-
-                rt.lastTension    = tension;
-                output.torques[i] = tension;
-                outPos            = rt.currentPos;
-                break;
-            }
-
-            // Decode the telemetry target (shared by CSP and PP paths below).
-            // NaN/Inf guard: a non-finite raw sample is treated as "no data" --
-            // we never feed garbage into the command stream.
-            double targetMm = rt.currentPos;  // hold if no data
-            bool haveData = telemetryFrameUsable(telemetryData) && i < telemetryData.numPositions
-                            && std::isfinite(telemetryData.positions[i]);
-            if (haveData)
-            {
-                rt.onlineStaleSec = 0.0;
-                rt.onlineHadData = true;
-                double raw = telemetryData.positions[i];
-                // 16-bit only (the wire contract): 0..65535, centre 32767 = centerPos.
-                double norm = (raw - TELEMETRY_CENTER) / TELEMETRY_CENTER;
-                targetMm = ac.centerPos + norm * (ac.strokeMm / 2.0);
-                if (ac.telemetryInvert)
-                    targetMm = ac.centerPos - (targetMm - ac.centerPos);
-
-                if (ac.spikeFilterEnabled)
-                    targetMm = applySpikeFilter(i, targetMm);
-
-                targetMm = std::max(ac.minPos, std::min(ac.maxPos, targetMm));
-            }
-            else if (rt.onlineHadData)
-            {
-                // Telemetry dropped AFTER it was flowing -- staged standby, not an
-                // instant park (a paused sim / menu / alt-tab / telemetry stutter must
-                // not eject us from ONLINE). Only arms once a frame has been seen, so
-                // a freshly-started loop with telemetry not yet connected just holds.
-                //   phase 1 (< HOLD_SEC):        hold in place, ride out the hiccup
-                //   phase 2 (HOLD_SEC..timeout): ease to center (level standby)
-                //   phase 3 (>= onlineHoldTimeout): park
-                // Any returning frame resumes ONLINE tracking seamlessly (the filter
-                // slews from wherever it is, braking-clamped). targetMm defaults to
-                // rt.currentPos (phase 1 hold) unless overridden below.
-                rt.onlineStaleSec += m_cycleTimeSec;
-                if (rt.onlineStaleSec >= ac.onlineHoldTimeoutSec)
-                {
-                    rt.interpStart    = rt.currentPos;
-                    rt.interpTarget   = ac.parkPos;
-                    rt.interpElapsed  = 0.0;
-                    rt.interpDuration = ac.parkTimeSec;
-                    state             = AxisMotionState::PARKING;
-                    outPos            = rt.currentPos;
-                    RT_LOG_WARNING("MotionController: Axis %d telemetry stale "
-                        ">%.0fs -- parking.", i + 1, ac.onlineHoldTimeoutSec);
-                    break;
-                }
-                else if (rt.onlineStaleSec > ONLINE_STALE_HOLD_SEC)
-                {
-                    targetMm = ac.centerPos;   // ease smoothly to neutral standby
-                }
-            }
-
-            if (ac.ppMode)
-            {
-                // PP mode UNCHANGED: the drive has its own profiler. Without this
-                // cap a large telemetry jump (source active at session start with the
-                // axis mid-stroke) makes the drive profiler target full stroke in
-                // one go -- a violent full-range move. Cap the advance to
-                // maxVelocityMmS * cycleTime; the drive smooths on top.
-                double maxStep = ac.maxVelocityMmS * m_cycleTimeSec;
-                double delta = targetMm - rt.currentPos;
-                outPos = (std::abs(delta) > maxStep)
-                    ? rt.currentPos + std::copysign(maxStep, delta)
-                    : targetMm;
-            }
-            else
-            {
-                // CSP command conditioning: dispatch through the selected mode
-                // (Bypass / Interpolate / Filter) into the shared guard chain. At
-                // full velocity (maxVelocity) in ONLINE. Counts are formed only at
-                // the PDO write (downstream).
-                outPos = conditionCommand(rt.onlineCond, targetMm,
-                                          telemetryData.nominalFrameSec, ac.maxVelocityMmS, ac);
-                outPos = std::max(ac.minPos, std::min(ac.maxPos, outPos));
-            }
+            outPos = ac.torqueMode
+                ? stepBeltOnline(i, state, telemetryData, output, drives, numHwDrives)
+                : stepPositionOnline(i, state, telemetryData);
             break;
         }
 
         case AxisMotionState::PARKING:
         {
-            if (ac.torqueMode)
-            {
-                // Belt: ease tension from its park-entry value (rt.lastTension) to 0
-                // over parkTime, then PARKED (slack).
-                rt.interpElapsed += m_cycleTimeSec;
-                double t = std::min(1.0, rt.interpElapsed / rt.interpDuration);
-                output.torques[i] = (1.0 - t) * rt.lastTension;
-                outPos = rt.currentPos;
-                if (t >= 1.0)
-                {
-                    state = AxisMotionState::PARKED;
-                    rt.lastTension = 0.0;
-                    RT_LOG_INFO("MotionController: Axis %d (belt) PARKED (slack).", i + 1);
-                }
-                break;
-            }
-
-            rt.interpElapsed += m_cycleTimeSec;
-            double t = std::min(1.0, rt.interpElapsed / rt.interpDuration);
-            outPos = interpolate(rt.interpStart, rt.interpTarget, t);
-            if (t >= 1.0)
-            {
-                state = AxisMotionState::PARKED;
-                outPos = ac.parkPos;
-                RT_LOG_INFO("MotionController: Axis %d PARKED.", i + 1);
-            }
+            outPos = ac.torqueMode
+                ? stepBeltParking(i, state, output)
+                : stepPositionParking(i, state);
             break;
         }
 

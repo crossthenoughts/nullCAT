@@ -126,6 +126,27 @@ private:
     // (a safety fold must not be rate-limited downward).
     double beltVelocityFold(int i, double tension) const;
 
+    // ---- Per-family step functions (Stage D decomposition) ----------------
+    // process()'s per-axis switch keeps the family-agnostic frame (e-stop
+    // edges, HOMING, PARKED hold, UNPARKING, ESTOPPING, TESTING) and
+    // delegates BLENDING/ONLINE/PARKING to these. Each returns the cycle's
+    // commanded position and owns its family's state transitions. The
+    // family fork inside those cases is the seam future device families
+    // (shifter, pedal) extend -- one new stepXxx set per family, never
+    // more branches inside process().
+    bool   axisFrameUsable(int i, const TelemetryData& td) const;
+    // 16-bit wire value -> engineering units: the ONE decode authority
+    // (centre-32767 scaling, polarity, spike filter, travel clamp).
+    double decodeTargetMm(int i, double raw);
+    double stepBeltBlending(int i, AxisMotionState& state, const TelemetryData& td,
+                            MotionOutput& output, A6Drive** drives, int numHwDrives);
+    double stepPositionBlending(int i, AxisMotionState& state, const TelemetryData& td);
+    double stepBeltOnline(int i, AxisMotionState& state, const TelemetryData& td,
+                          MotionOutput& output, A6Drive** drives, int numHwDrives);
+    double stepPositionOnline(int i, AxisMotionState& state, const TelemetryData& td);
+    double stepBeltParking(int i, AxisMotionState& state, MotionOutput& output);
+    double stepPositionParking(int i, AxisMotionState& state);
+
 public:
 
     // Deinit-only soft shutdown ("seat on the stop"). Runs the REAL homing search in
