@@ -42,6 +42,11 @@ middle number carries breaking changes and the last carries fixes.
   noise).
 
 ### Internal
+- The motion controller's per-cycle monolith is decomposed into
+  per-family step functions with a single telemetry-decode authority.
+  Byte-identical by proof: three golden-sequence tests captured before
+  the change pass bit-exact after it. This is the seam future torque
+  device families plug into.
 - Belt classification re-keyed: the belts commands and status aggregates
   now key on "belt-typed torque axis" instead of torque mode alone.
   Behaviour-identical (pinned by a bit-exact golden-sequence test);
