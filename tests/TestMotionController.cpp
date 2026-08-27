@@ -926,6 +926,138 @@ private slots:
         QVERIFY2(actual == expected, qPrintable("golden drift, actual: " + actual));
     }
 
+    // ---- Stage D golden pin: position-axis lifecycle, byte-identical ----
+    // Same technique as the Stage C belt pin: deterministic full lifecycle
+    // (no mocks, no clocks), composite string at 17 significant digits =
+    // bit equality. Captured before the process() decomposition; the
+    // per-family extraction must leave every bit unchanged.
+    void positionPath_goldenSequence_stageD()
+    {
+        AppConfig cfg = makeAxisConfig("linear_vertical", "csp", "endstop",
+                                       100.0, 1.5);
+        cfg.drives[0].spikeFilterEnabled  = true;
+        cfg.drives[0].spikeMaxMm          = 5.0;
+        cfg.drives[0].onlineHoldTimeoutSec = 3.0;
+        MotionController mc;
+        mc.configure(cfg);
+        mc.startHoming();                       // null drives: instant home
+
+        MotionOutput out{};
+        TelemetryData empty{};
+        double sum = 0.0;
+        double sample[8] = {};
+        int cycle = 0;
+        auto tick = [&](const TelemetryData& td)
+        {
+            mc.process(td, out, nullptr, 0);
+            sum += out.positions[0];
+            switch (cycle)
+            {
+            case 30:  sample[0] = out.positions[0]; break;   // blend-in
+            case 120: sample[1] = out.positions[0]; break;   // tracking
+            case 250: sample[2] = out.positions[0]; break;   // spike aftermath
+            case 340: sample[3] = out.positions[0]; break;   // late tracking
+            case 500: sample[4] = out.positions[0]; break;   // stale hold
+            case 620: sample[5] = out.positions[0]; break;   // ease to centre
+            case 760: sample[6] = out.positions[0]; break;   // parked
+            case 800: sample[7] = out.positions[0]; break;   // e-stop hold
+            }
+            ++cycle;
+        };
+
+        for (int c = 0; c < 50; ++c) tick(empty);      // home + unpark + blend
+        TelemetryData td{};
+        td.valid = true; td.numPositions = 1;
+        td.packetType = TelemetryPacketType::Motion;
+        for (int c = 0; c < 200; ++c)                  // ramp 20000 -> 49850
+        { td.positions[0] = 20000.0 + 150.0 * c; tick(td); }
+        td.positions[0] = 64000.0; tick(td);           // single-frame spike
+        for (int c = 0; c < 100; ++c)                  // ramp resumes
+        { td.positions[0] = 50000.0 + 100.0 * c; tick(td); }
+        for (int c = 0; c < 430; ++c) tick(empty);     // stale: hold, ease, park
+        mc.setEmergencyStop(true);
+        for (int c = 0; c < 30; ++c) tick(empty);
+        mc.setEmergencyStop(false);                    // clears: re-home
+        for (int c = 0; c < 60; ++c) tick(empty);
+
+        QStringList got;
+        got << QString::number(sum, 'g', 17);
+        for (int k = 0; k < 8; ++k) got << QString::number(sample[k], 'g', 17);
+        const QString expected =
+            "21826.231531084239 50 53.815843524383901 23.903726310007027 "
+            "10.122989593188265 8.5970641193884063 50 1.5 1.5";
+        QVERIFY2(got.join(" ") == expected,
+                 qPrintable("golden drift, actual: " + got.join(" ")));
+    }
+
+    // ---- Stage D golden pin: mixed rig (CSP + PP + belt), byte-identical ----
+    void mixedRig_goldenSequence_stageD()
+    {
+        AppConfig cfg;
+        cfg.controlLoopHz       = 100;
+        cfg.numDrives           = 3;
+        cfg.blendTimeSec        = 0.1;
+        cfg.blendMaxVelocityMmS = 20.0;
+        const char* modes[3] = { "csp", "pp", "torque" };
+        const char* types[3] = { "linear_vertical", "linear_vertical", "belt" };
+        for (int ax = 0; ax < 3; ++ax)
+        {
+            DriveConfig dc;
+            dc.slaveIndex           = ax + 1;
+            dc.axisType             = types[ax];
+            dc.mode                 = modes[ax];
+            dc.invertDir            = true;
+            dc.parkMode             = "endstop";
+            dc.strokeMm             = 100.0;
+            dc.homingSpeed          = 400.0;
+            dc.homingBackoffMm      = 1.5;
+            dc.homingTorquePct      = 25;
+            dc.homeDirection        = "negative";
+            dc.maxVelocityMmS       = 200.0;
+            dc.maxAccelerationMmS2  = 2000.0;
+            dc.unparkTimeSec        = 0.1;
+            dc.parkTimeSec          = 0.1;
+            dc.countsPerMm          = 100.0;
+            dc.torqueMinPct         = 5.0;
+            dc.torqueMaxPct         = 50.0;
+            cfg.drives.push_back(dc);
+        }
+        MotionController mc;
+        mc.configure(cfg);
+        mc.startHoming();
+
+        MotionOutput out{};
+        TelemetryData empty{};
+        double sum = 0.0;
+        int cycle = 0;
+        auto tick = [&](const TelemetryData& td)
+        {
+            mc.process(td, out, nullptr, 0);
+            sum += out.positions[0] + out.positions[1] + out.torques[2];
+            ++cycle;
+        };
+
+        for (int c = 0; c < 60; ++c) tick(empty);      // home + unpark + blend
+        mc.tensionBelts();
+        TelemetryData td{};
+        td.valid = true; td.numPositions = 3;
+        td.packetType = TelemetryPacketType::Motion;
+        for (int c = 0; c < 250; ++c)
+        {
+            td.positions[0] = 25000.0 + 120.0 * c;     // CSP tracks
+            td.positions[1] = 45000.0 - 90.0 * c;      // PP rate-capped path
+            td.positions[2] = 10000.0 + 200.0 * c;     // belt tension ramp
+            tick(td);
+        }
+        mc.startPark();                                 // whole-rig park
+        for (int c = 0; c < 60; ++c) tick(empty);
+
+        const QString actual = QString::number(sum, 'g', 17);
+        const QString expected = "35270.691128116028";
+        QVERIFY2(actual == expected,
+                 qPrintable("golden drift, actual: " + actual));
+    }
+
     // ---- Rotary lever end to end: homes, parks at centre, arc-scaled 16-bit ----
     // First test anywhere to run the full motion path on a rotary_lever axis.
     // The engine is unit-blind (everything is "units"), so what this pins is
