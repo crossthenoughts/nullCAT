@@ -73,6 +73,7 @@ static void writeHostConfig(const AppConfig& c, QJsonObject& obj)
     obj["pdoWatchdogMs"]            = c.pdoWatchdogMs;
     obj["enableCapabilityScan"]     = c.enableCapabilityScan;
     obj["commandSyncCycles"]        = c.commandSyncCycles;
+    obj["sync0RecycleRounds"]       = c.sync0RecycleRounds;
     obj["wkcValidationCycles"]      = c.wkcValidationCycles;
     obj["wkcValidationThreshold"]   = c.wkcValidationThreshold;
     obj["logFile"]                  = QString::fromStdString(c.logFile);
@@ -119,6 +120,7 @@ static void readHostConfig(const QJsonObject& obj, AppConfig& c)
     if (obj.contains("pdoWatchdogMs"))            c.pdoWatchdogMs            = obj.value("pdoWatchdogMs").toInt(100);
     if (obj.contains("enableCapabilityScan"))     c.enableCapabilityScan     = obj.value("enableCapabilityScan").toBool(false);
     if (obj.contains("commandSyncCycles"))        c.commandSyncCycles        = obj.value("commandSyncCycles").toInt(10);
+    if (obj.contains("sync0RecycleRounds"))       c.sync0RecycleRounds       = obj.value("sync0RecycleRounds").toInt(2);
     if (obj.contains("wkcValidationCycles"))      c.wkcValidationCycles      = obj.value("wkcValidationCycles").toInt(50);
     if (obj.contains("wkcValidationThreshold"))   c.wkcValidationThreshold   = obj.value("wkcValidationThreshold").toDouble(0.9);
     if (obj.contains("logFile"))                  c.logFile                  = obj.value("logFile").toString("logs/app.log").toStdString();
@@ -622,6 +624,9 @@ std::vector<std::string> AppConfig::validate() const
 
     if (pdoWatchdogMs < 0)
         errors.push_back("pdoWatchdogMs must be >= 0");
+
+    if (sync0RecycleRounds < 0 || sync0RecycleRounds > 5)
+        errors.push_back("sync0RecycleRounds out of range [0, 5] (0 disables)");
 
     int checkDrives = std::min(numDrives, static_cast<int>(drives.size()));
     for (int i = 0; i < checkDrives; ++i)

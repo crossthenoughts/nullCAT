@@ -152,6 +152,7 @@ void EtherCATMaster::applyConfig(const AppConfig& cfg)
     setTempPollSec(cfg.tempPollSec);   // IGBT temp round-robin (0 = off)
     setEnableCapabilityScan(cfg.enableCapabilityScan);
     m_commandSyncCycles      = cfg.commandSyncCycles;
+    m_sync0RecycleRounds     = cfg.sync0RecycleRounds;
     m_wkcValidationCycles    = cfg.wkcValidationCycles;
     m_wkcValidationThreshold = cfg.wkcValidationThreshold;
 }
@@ -492,7 +493,7 @@ static void dumpPreConfigMapState(ecx_contextt* ctx, int slaveCount)
     }
 }
 
-struct ProbedRegs { bool has098E = false; bool has09AE = false; };
+struct ProbedRegs { bool has098E = false; };
 
 static ProbedRegs probeDiagRegisters(ecx_contextt* ctx, int slaveCount)
 {
@@ -506,11 +507,10 @@ static ProbedRegs probeDiagRegisters(ecx_contextt* ctx, int slaveCount)
         "DIAG | reg_probe | reg=0x098E | desc=sync_error_counter | slave=1 | result=%s",
         p.has098E ? "implemented" : "not_implemented"));
 
-    p.has09AE = (ecx_FPRD(&ctx->port, ctx->slavelist[1].configadr,
-                          0x09AE, sizeof(v), &v, EC_TIMEOUTRET) > 0);
-    Logger::instance().logDiag(strf(
-        "DIAG | reg_probe | reg=0x09AE | desc=sync0_counter | slave=1 | result=%s",
-        p.has09AE ? "implemented" : "not_implemented"));
+    // 0x09AE (SYNC0 counter) is deliberately NOT probed: on the A6-EC it
+    // reads as readable but never advances (2708 session: 2035 samples,
+    // all zero, including on slaves demonstrably pulsing) -- a dead
+    // instrument. DCSTART0 readback advance is the real liveness signal.
 
     return p;
 }
@@ -546,14 +546,6 @@ static bool samplePumpState(ecx_contextt* ctx, int slaveCount,
                      0x098E, sizeof(syncErr), &syncErr, EC_TIMEOUTRET);
             line += strf(" | sync_err=0x%04x", syncErr);
         }
-        if (probes.has09AE)
-        {
-            uint16_t sync0Cnt = 0;
-            ecx_FPRD(&ctx->port, ctx->slavelist[i].configadr,
-                     0x09AE, sizeof(sync0Cnt), &sync0Cnt, EC_TIMEOUTRET);
-            line += strf(" | sync0_cnt=0x%04x", sync0Cnt);
-        }
-
         Logger::instance().logDiag(line);
     }
     return allClean;
@@ -1898,28 +1890,103 @@ InitResult EtherCATMaster::stageOPTransition(ecx_contextt* ctx)
 
     if (anyRearmed)
     {
+        // Post-re-arm verdict, wkc-gated like the pre-check (2708 field
+        // lesson: the naked reads here produced +/-(DC epoch) garbage
+        // margins that verdicted a healthy slave STILL DEAD). Returns:
+        // +1 alive (sub-cycle margin), 0 dead (start frozen in the past),
+        // -1 verdict unavailable (reads failed twice or garbage magnitude).
+        auto sync0Verdict = [&](int i, int64_t* marginOut) -> int
+        {
+            uint16_t cfgAddr = ctx->slavelist[i].configadr;
+            int64_t startPost = 0, sysPost = 0;
+            for (int attempt = 0; attempt < 2; ++attempt)
+            {
+                int wS = ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSTART0,  8, &startPost, EC_TIMEOUTRET);
+                int wT = ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSYSTIME, 8, &sysPost,   EC_TIMEOUTRET);
+                if (wS > 0 && wT > 0 && startPost != 0 && sysPost != 0)
+                {
+                    const int64_t m = startPost - sysPost;
+                    *marginOut = m;
+                    // A real margin is within seconds of now; DC-epoch
+                    // magnitudes mean one read returned junk despite wkc.
+                    if (m > 1000000000LL || m < -1000000000LL) return -1;
+                    return (m > -2 * (int64_t)s_dcSyncNs) ? +1 : 0;
+                }
+            }
+            *marginOut = 0;
+            return -1;
+        };
+
         // Wait out SOEM's SyncDelay (~100ms) so the new start time passes,
         // then verify each re-armed pulse unit actually started: a live
         // SYNC0's DCSTART0 advances to the next pulse, so the margin must
         // now read sub-cycle. A slave still showing its programmed start is
-        // hardware-wedged -- no OP request pattern will fix it; say so.
+        // wedged -- but the 2708 session proved the wedge CLEARS through a
+        // disarm/re-arm state cycle (five manual Initialize retries did it
+        // by hand), so recycle in-attempt before giving up.
         std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        bool needsRecycle[EC_MAXSLAVE] = {};
+        int  deadCount = 0;
         for (int i = 1; i <= m_slaveCount && i < EC_MAXSLAVE; ++i)
         {
             if (!rearmed[i]) continue;
-            uint16_t cfgAddr = ctx->slavelist[i].configadr;
-            int64_t startPost = 0, sysPost = 0;
-            ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSTART0,  8, &startPost, EC_TIMEOUTRET);
-            ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSYSTIME, 8, &sysPost,   EC_TIMEOUTRET);
-            const int64_t m = startPost - sysPost;
-            if (m > -2 * (int64_t)s_dcSyncNs && m < 2 * (int64_t)s_dcSyncNs)
+            int64_t m = 0;
+            const int v = sync0Verdict(i, &m);
+            if (v > 0)
                 LOG_INFO(strf("  Slave %d: SYNC0 revived after re-arm (margin=%lld ns)",
                     i, (long long)m));
             else
-                LOG_ERROR(strf("  Slave %d: SYNC0 STILL DEAD after re-arm (margin=%lld ns) -- "
-                    "pulse unit wedged; expect OP refusal. Power-cycle the drive.",
-                    i, (long long)m));
+            {
+                LOG_WARNING(strf("  Slave %d: SYNC0 %s after re-arm (margin=%lld ns)",
+                    i, v == 0 ? "still dead" : "verdict unavailable (bad reads)",
+                    (long long)m));
+                needsRecycle[i] = true;
+                ++deadCount;
+            }
         }
+
+        // In-attempt recycle (sync0RecycleRounds in host.json; 0 disables):
+        // walk each unrecovered slave PreOP -> SYNC0 disarm -> re-arm ->
+        // SafeOP, then re-verdict. Bounded and narrated so an operator
+        // watching the log always knows what is happening and how long it
+        // can last (~0.5s per slave per round).
+        for (int round = 1; deadCount > 0 && round <= m_sync0RecycleRounds; ++round)
+        {
+            LOG_WARNING(strf("EtherCATMaster: SYNC0 recycle round %d/%d on %d slave(s) "
+                "(PreOP walk, disarm, re-arm, SafeOP)...",
+                round, m_sync0RecycleRounds, deadCount));
+            for (int i = 1; i <= m_slaveCount && i < EC_MAXSLAVE; ++i)
+            {
+                if (!needsRecycle[i]) continue;
+                ecx_dcsync0(ctx, (uint16)i, FALSE, 0, 0);
+                ctx->slavelist[i].state = EC_STATE_PRE_OP;
+                ecx_writestate(ctx, i);
+                ecx_statecheck(ctx, i, EC_STATE_PRE_OP, 100000);
+                ecx_dcsync0(ctx, (uint16)i, TRUE, s_dcSyncNs, s_dcSyncOffsetNs);
+                ctx->slavelist[i].state = EC_STATE_SAFE_OP;
+                ecx_writestate(ctx, i);
+                ecx_statecheck(ctx, i, EC_STATE_SAFE_OP, 100000);
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(150));
+            for (int i = 1; i <= m_slaveCount && i < EC_MAXSLAVE; ++i)
+            {
+                if (!needsRecycle[i]) continue;
+                int64_t m = 0;
+                if (sync0Verdict(i, &m) > 0)
+                {
+                    LOG_INFO(strf("  Slave %d: SYNC0 revived by recycle round %d (margin=%lld ns)",
+                        i, round, (long long)m));
+                    needsRecycle[i] = false;
+                    --deadCount;
+                }
+            }
+        }
+        for (int i = 1; i <= m_slaveCount && i < EC_MAXSLAVE; ++i)
+            if (needsRecycle[i])
+                LOG_ERROR(strf("  Slave %d: SYNC0 STILL DEAD after re-arm%s -- expect OP "
+                    "refusal. Retry Initialize (the recycle usually clears this); "
+                    "power-cycle the drive as a last resort.",
+                    i, m_sync0RecycleRounds > 0 ? " and recycle" : ""));
 
         // Short settle pump: ~700ms of 1ms frames so the drives' sync
         // supervision sees pulses + cyclic data together before OP.

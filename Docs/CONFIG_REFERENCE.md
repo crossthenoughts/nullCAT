@@ -51,6 +51,7 @@ ignored (the flat-file migration from pre-release builds was retired).
 | `pdoWatchdogMs` | int | `100` | Per-slave PDO watchdog timeout, ms. The drives de-energize themselves if frames stop for this long. |
 | `enableCapabilityScan` | bool | `false` | Runs ~24 SDO reads per drive during init. Useful on first bring-up, otherwise leave off. |
 | `commandSyncCycles` | int | `10` | Cycles to hold controlword 0x07 while syncing target to actual position before the 0x0F (Operation Enabled) transition. |
+| `sync0RecycleRounds` | int | `2` | Wedged-SYNC0 recovery during init: drives whose pulse unit fails to start after a cold power-on are cycled PreOP / disarm / re-arm / SafeOP and re-checked, up to this many rounds (about half a second per affected drive, narrated in the log). `0` disables; a failed init then advises retrying Initialize manually. Range 0 to 5. |
 | `wkcValidationCycles` | int | `50` | Post-OP working-counter validation window, cycles. |
 | `wkcValidationThreshold` | double | `0.9` | Fraction of the window that must return the expected WKC. |
 

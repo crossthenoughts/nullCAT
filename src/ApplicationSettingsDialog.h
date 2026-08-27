@@ -97,6 +97,7 @@ private:
     QCheckBox*       m_checkCapScan      = nullptr;
     QSpinBox*        m_spinDcSyncOffset  = nullptr;
     QSpinBox*        m_spinCmdSyncCycles = nullptr;
+    QSpinBox*        m_spinSync0Recycle  = nullptr;
     QSpinBox*        m_spinWkcCycles     = nullptr;
     QDoubleSpinBox*  m_spinWkcThreshold  = nullptr;
 

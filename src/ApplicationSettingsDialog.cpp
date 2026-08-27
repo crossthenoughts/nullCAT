@@ -237,6 +237,15 @@ void ApplicationSettingsDialog::buildUI()
         "PDO to actual position before transitioning to 0x0F.");
     fAdv->addRow("Command Sync Cycles:", m_spinCmdSyncCycles);
 
+    m_spinSync0Recycle = new QSpinBox();
+    m_spinSync0Recycle->setRange(0, 5);
+    m_spinSync0Recycle->setToolTip(
+        "Wedged-SYNC0 recovery rounds during init (PreOP walk, disarm, "
+        "re-arm). Each round takes about half a second per affected drive "
+        "and is narrated in the log. 0 disables; failed init then advises "
+        "a manual retry.");
+    fAdv->addRow("SYNC0 Recycle Rounds:", m_spinSync0Recycle);
+
     m_spinWkcCycles = new QSpinBox();
     m_spinWkcCycles->setRange(0, 10000);
     m_spinWkcCycles->setToolTip(
@@ -349,6 +358,7 @@ void ApplicationSettingsDialog::loadFromConfig()
     m_checkCapScan->setChecked(m_cfg.enableCapabilityScan);
     m_spinDcSyncOffset->setValue(m_cfg.dcSyncOffsetNs);
     m_spinCmdSyncCycles->setValue(m_cfg.commandSyncCycles);
+    m_spinSync0Recycle->setValue(m_cfg.sync0RecycleRounds);
     m_spinWkcCycles->setValue(m_cfg.wkcValidationCycles);
     m_spinWkcThreshold->setValue(m_cfg.wkcValidationThreshold);
 
@@ -382,6 +392,7 @@ void ApplicationSettingsDialog::saveToConfig()
     m_cfg.enableCapabilityScan    = m_checkCapScan->isChecked();
     m_cfg.dcSyncOffsetNs          = m_spinDcSyncOffset->value();
     m_cfg.commandSyncCycles       = m_spinCmdSyncCycles->value();
+    m_cfg.sync0RecycleRounds      = m_spinSync0Recycle->value();
     m_cfg.wkcValidationCycles     = m_spinWkcCycles->value();
     m_cfg.wkcValidationThreshold  = m_spinWkcThreshold->value();
 }

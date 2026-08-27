@@ -222,6 +222,13 @@ struct AppConfig
     // Cycles to hold controlword at 0x07 (SwitchedOn) while syncing
     // target PDO to actual position before transitioning to 0x0F (OperationEnabled).
     int    commandSyncCycles        = 10;
+    // In-attempt SYNC0 recycle: when the pre-OP guard verdicts a re-armed
+    // slave's pulse unit still dead, walk it PreOP -> disarm -> re-arm ->
+    // SafeOP and re-verdict, up to this many rounds (each ~0.5s, loudly
+    // logged). 0 disables. Field evidence (2708 session): the wedge clears
+    // through exactly this cycle, no power-cycle needed -- five manual
+    // Initialize retries did the same thing by hand.
+    int    sync0RecycleRounds       = 2;
 
     // Post-OP WKC validation window and pass threshold.
     int    wkcValidationCycles      = 50;

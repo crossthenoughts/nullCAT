@@ -273,6 +273,7 @@ private:
     int    m_pdoWatchdogMs  = 100;
     bool   m_enableCapabilityScan = false;    // off by default -- 24 SDO reads per drive
     int    m_commandSyncCycles      = 10;     // cycles to hold at 0x07 before 0x0F
+    int    m_sync0RecycleRounds     = 2;      // pre-OP wedged-SYNC0 recycle rounds (0 = off)
     int    m_wkcValidationCycles    = 50;     // post-OP WKC validation window
     double m_wkcValidationThreshold = 0.9;   // fraction of cycles requiring WKC==expected
 

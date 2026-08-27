@@ -26,6 +26,7 @@
     "_section_init": "EtherCAT init/bus reliability knobs -- master behaviour on THIS machine. enableCapabilityScan runs 24+ SDO reads per drive (first-time setup only). commandSyncCycles holds CW=0x07 before 0x0F at enable. wkcValidation* gate the post-OP working-counter check.",
     "enableCapabilityScan": false,
     "commandSyncCycles": 10,
+    "sync0RecycleRounds": 2,
     "wkcValidationCycles": 50,
     "wkcValidationThreshold": 0.9,
     "_section_foregroundKeeper": "Windows-only background-throttling defense (1x1 topmost window). Ignored on Linux.",
