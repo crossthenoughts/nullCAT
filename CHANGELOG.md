@@ -26,7 +26,9 @@ middle number carries breaking changes and the last carries fixes.
   loop running") instead of naming internal axis states.
 - Commissioning offsets now follow axis polarity the way telemetry does,
   so mirrored lever pairs heave together instead of differentially.
-  Uninverted rigs are unchanged.
+  Uninverted rigs are unchanged; on inverted axes test motion mirrors,
+  so before/after tuning comparisons should re-baseline on this version
+  (step direction affects vertical-axis results via gravity).
 - Rotary units are honest end to end: engine and homing logs print
   degrees on levers, commissioning result rows are unit-tagged, and the
   following-error abort rail scales to each axis's travel (linear
