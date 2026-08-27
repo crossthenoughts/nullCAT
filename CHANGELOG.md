@@ -16,6 +16,14 @@ middle number carries breaking changes and the last carries fixes.
   software that owns the kinematics.
 
 ### Fixed
+- Cold-start init: a drive whose SYNC0 pulse unit comes up wedged is now
+  recycled in-attempt (PreOP walk, disarm, re-arm - the cycle that field
+  retries performed by hand), narrated in the log and bounded by
+  `sync0RecycleRounds` (default 2, 0 disables). The post-re-arm health
+  reads are wkc-gated, so a dropped read can no longer declare a healthy
+  drive dead.
+- Commissioning refusals now say what to do ("press Park All, keep the
+  loop running") instead of naming internal axis states.
 - Commissioning offsets now follow axis polarity the way telemetry does,
   so mirrored lever pairs heave together instead of differentially.
   Uninverted rigs are unchanged.
