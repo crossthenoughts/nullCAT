@@ -119,7 +119,8 @@ int main(int argc, char* argv[])
 
     LOG_INFO("==========================================================");
     LOG_INFO("nullCAT starting...");
-    LOG_INFO(strf("Config loaded from: %s", cfgPath.toStdString().c_str()));
+    LOG_INFO(strf("Config: host.json + rig.json in %s",
+                  exeDir.toStdString().c_str()));
     LOG_INFO(strf("NIC: %s", cfg.nicName.empty() ? "(not set)" : cfg.nicName.c_str()));
     if (cfg.simulationMode)
     LOG_INFO("*** SIMULATION MODE ENABLED - no EtherCAT hardware required ***");

@@ -47,6 +47,17 @@ For reference, a representative startTime of 830919188750500000 ns (0x0B8804998A
 The lower 32 bits alone would be 102 ms ahead of t1, a valid start time even in the 32-bit domain,
 but the drive expects and uses the full 64-bit value.
 
+### 0x09AE SYNC0 counter: reads but never counts (verified)
+
+ESC register 0x09AE probes as readable on the A6-EC but never advances:
+2708 field session, 2035 pre-OP pump samples across five init attempts,
+all 0x0000 -- including on slaves that demonstrably pulsed (they accepted
+OP and held DC sync for 29 minutes with zero sync errors). Do not use it
+as a SYNC0 liveness signal. The working instrument is DCSTART0 (0x0990)
+readback advance: a live pulse unit advances it to the next upcoming
+pulse (small positive margin vs DCSYSTIME); a wedged one leaves the
+original programmed start frozen in the past.
+
 ### Sync quality (verified)
 
 ESC register 0x092C (DC System Time Difference) measures the offset between the slave's local clock and the master DC reference time. Encoding is sign-magnitude: bit 31 is a direction flag (1 = slave clock is behind master, 0 = slave ahead), bits 30:0 are the magnitude in nanoseconds. [Beckhoff ESC datasheet]
