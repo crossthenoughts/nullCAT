@@ -37,6 +37,8 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <regex>
+#include <cstdlib>
 #include <unistd.h>
 
 // ---- shutdown signalling ----
@@ -154,6 +156,24 @@ int main(int argc, char* argv[])
     webServer.setWebRoot(dir + "/web");
     webServer.setConfigPath(cfgPath);
     webServer.setTelemetry(&telemetry);
+
+    // Click-updater: launch the templated oneshot unit. The sudoers rule
+    // install.sh writes permits the service user exactly this one command;
+    // the version string is sanitized here again (defense in depth on top
+    // of the endpoint's check) before it touches a command line.
+    webServer.setUpdateStarter([](const std::string& version) -> std::string
+    {
+        static const std::regex kVer("^[0-9]+\\.[0-9]+\\.[0-9]+$");
+        if (!std::regex_match(version, kVer)) return "bad version string";
+        const std::string cmd =
+            "sudo systemctl start nullcat-update@" + version + ".service";
+        const int rc = std::system(cmd.c_str());
+        if (rc != 0)
+            return "failed to launch the updater (rc=" + std::to_string(rc) +
+                   ") -- is this an /opt/nullcat versioned install? "
+                   "(pre-0.9.5 installs: run install.sh once to adopt)";
+        return "";
+    });
     webServer.setPort(cfg.webPort > 0 ? cfg.webPort : 8080);
     webServer.setBindAddr(cfg.webBindAddr);
     webServer.setAllowedHosts(cfg.webAllowedHosts);

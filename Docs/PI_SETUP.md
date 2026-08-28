@@ -328,7 +328,20 @@ starts with the Pi, so there is nothing to launch.
 
 ## Updating
 
-Pre-1.0: `cd nullCAT && git pull && ./pi/os-setup/install.sh` (the
-rebuild is the slow part), then `sudo reboot` or
-`sudo systemctl restart nullcat-pi` if no OS-level files changed.
-Versioned releases and a proper update command are planned for v1.0.
+From 0.9.5 the controller updates itself. In the web UI's
+**Configuration** section, the **Software** block shows the running
+version: press **Check for updates**, and if a newer release exists,
+park the rig, stop EtherCAT, and press **Update**. The controller
+downloads the release, verifies it, and restarts into the new version;
+the page reconnects when it is done (typically under a minute on a
+decent connection). The two previous versions are kept on the Pi: an
+update whose new version fails to start rolls back automatically, and
+`journalctl -u 'nullcat-update@*'` narrates every step. A release that
+changes OS-level tuning refuses the quick path and tells you to run the
+full installer instead.
+
+Installs made before 0.9.5 need one final manual update to adopt the
+versioned layout: `cd nullCAT && git pull && ./pi/os-setup/install.sh`,
+then `sudo reboot`. The manual path keeps working after that too - the
+installer now lands each build as a version directory, so hand-built
+and click-updated versions live side by side.

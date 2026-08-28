@@ -110,6 +110,13 @@
         <div class="cfg-note" id="cf-condnote"></div>
         <div class="cfg-note" id="cf-udphint">UDP rate: - </div>
       </div>
+      <div class="cgrp" id="updBlock" hidden>
+        <div class="gt">Software</div>
+        <div class="cfg-note">Running <span id="updCur">-</span></div>
+        <div class="cfg-note" id="updNote">Updates need the rig parked and EtherCAT stopped.</div>
+        <button type="button" id="updCheck">Check for updates</button>
+        <button type="button" id="updGo" hidden>Update</button>
+      </div>
       <div class="cgrp">
         <div class="gt">Advanced / EtherCAT tuning</div>
         <label class="frow"><span>Command sync cycles</span><input id="cf-cmdsync" type="number"></label>

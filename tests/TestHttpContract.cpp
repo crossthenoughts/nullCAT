@@ -215,6 +215,11 @@ int main()
         check(waitStatus("\"parked\":true", 10000), "park-toggle: rig parks");
     }
 
+    // ---- update endpoint: refused without an updater hook (this harness
+    // sets none, exactly like the Windows build), never silently accepted ----
+    check(has(post("/api/update/start", "{\"version\":\"9.9.9\"}"), "\"ok\":false"),
+          "update/start without an updater hook: visibly refused");
+
     // ---- per-axis home body ({"axis":N}, 1-based; no body = all axes) ----
     check(has(post("/api/home", "{\"axis\":1}"), "\"ok\":true"),
           "home axis 1: accepted (belt rig: engine skips, belts never home)");

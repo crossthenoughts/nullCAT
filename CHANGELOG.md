@@ -6,6 +6,15 @@ middle number carries breaking changes and the last carries fixes.
 
 ## [0.9.5] - unreleased
 
+### Added
+- The Pi updates itself: a Software block in the web UI checks GitHub
+  for a newer release and updates on click (rig parked, EtherCAT
+  stopped). Releases now ship a prebuilt Pi tarball, installs live as
+  version directories under /opt/nullcat with config carried forward,
+  and a failed update rolls back automatically (two generations kept).
+  Installs made before 0.9.5 adopt the layout with one final manual
+  `git pull && ./pi/os-setup/install.sh`.
+
 ### Fixed
 - The drive-side following-error window (0x6065) is clamped to each
   axis's own travel at the init write - a window wider than the stroke

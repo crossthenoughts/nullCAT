@@ -34,6 +34,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <thread>
+#include <regex>
 #include <algorithm>
 
 // Local interface enumeration for the Host-header allowlist.
@@ -1341,6 +1342,36 @@ bool WebServer::start()
             if (!privateClientOnly(req, res)) return;
             res.set_content("{\"ok\":true}", "application/json");
             if (m_onExitRequested) m_onExitRequested(2);
+        });
+
+        // Pi click-updater. Never bindable; private clients only; refused
+        // outright while the bus or loop is up (park, stop, de-init first).
+        // The BROWSER does the is-there-a-newer-release check itself
+        // (GitHub's API is CORS-friendly); this endpoint only launches the
+        // systemd unit that performs the update. Progress is observed the
+        // blunt honest way: the service restarts under the updater and
+        // /api/meta answers with the new version when it is done.
+        postCmd("/api/update/start", [this, privateClientOnly, errResp](const httplib::Request& req, httplib::Response& res)
+        {
+            if (!privateClientOnly(req, res)) return;
+            if (!m_onUpdateStart)
+            { errResp(res, "Updates are not supported on this build (Windows updates ship as a release zip)."); return; }
+            if (m_master && m_master->isOperational())
+            { errResp(res, "Stop EtherCAT before updating."); return; }
+            if (m_loop && m_loop->isRunning())
+            { errResp(res, "Stop the control loop before updating."); return; }
+            QJsonParseError pe;
+            const QJsonDocument doc = QJsonDocument::fromJson(
+                QByteArray(req.body.c_str(), (int)req.body.size()), &pe);
+            const std::string version =
+                (pe.error == QJsonParseError::NoError && doc.isObject())
+                ? doc.object().value("version").toString().toStdString() : "";
+            static const std::regex kVer("^[0-9]+\\.[0-9]+\\.[0-9]+$");
+            if (!std::regex_match(version, kVer))
+            { errResp(res, "Bad or missing version."); return; }
+            const std::string err = m_onUpdateStart(version);
+            if (!err.empty()) { errResp(res, err.c_str()); return; }
+            res.set_content("{\"ok\":true}", "application/json");
         });
 
         // ---- WebSocket: 10Hz state push ----

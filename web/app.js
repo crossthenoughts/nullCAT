@@ -489,6 +489,7 @@ async function loadConfig(){
   try{
     const [mR,hR,rR]=await Promise.all([fetch(API+'/api/meta'),fetch(API+'/api/host'),fetch(API+'/api/rig')]);
     meta=mR.ok?await mR.json():{hostOwner:'web'};
+    updInit();
     const host=hR.ok?await hR.json():{};
     const g=(rR.ok?await rR.json():{}); const rig=g.global||{};
     cfgObj=Object.assign({},host,rig,{ drives:g.axes||[], numDrives:(g.axes||[]).length, _configVersion:g.configVersion||2 });
@@ -757,6 +758,54 @@ window.addEventListener('wheel', ()=>{ const a=document.activeElement; if(a&&a.t
    applies its own entry rails; a Start that 200s can still be refused
    there, which shows up in the status line.
    ============================================================ */
+/* ============================================================
+   Software update (Pi/headless only; hidden elsewhere). The BROWSER does
+   the release check - GitHub's API allows cross-origin reads - so the
+   controller needs no HTTPS stack and an offline rig just reports that it
+   cannot check. The server only launches the updater unit; progress is
+   observed by polling /api/meta until the NEW version answers.
+   ============================================================ */
+let updTarget=null;
+function updInit(){
+  const blk=$('updBlock'); if(!blk) return;
+  if(meta.platform!=='linux'){ blk.hidden=true; return; }
+  blk.hidden=false;
+  const c=$('updCur'); if(c) c.textContent='v'+(meta.version||'?');
+}
+const semLt=(a,b)=>{ const A=String(a).split('.').map(Number),B=String(b).split('.').map(Number);
+  for(let i=0;i<3;i++){ if((A[i]||0)<(B[i]||0))return true; if((A[i]||0)>(B[i]||0))return false; }
+  return false; };
+{ const c=$('updCheck'); if(c) c.onclick=async()=>{
+    const n=$('updNote'); n.textContent='checking...'; $('updGo').hidden=true; updTarget=null;
+    try{
+      const r=await fetch('https://api.github.com/repos/crossthenoughts/nullCAT/releases/latest');
+      if(!r.ok) throw 0;
+      const j=await r.json(); const latest=String(j.tag_name||'').replace(/^v/,'');
+      if(!/^\d+\.\d+\.\d+$/.test(latest)) throw 0;
+      if(semLt(meta.version,latest)){
+        updTarget=latest;
+        const g=$('updGo'); g.textContent='Update to v'+latest; g.hidden=false;
+        n.textContent='v'+latest+' is available. Park the rig and stop EtherCAT, then update.';
+      } else n.textContent='Up to date (latest release is v'+latest+').';
+    }catch(_){ n.textContent='Could not reach GitHub to check (offline?).'; }
+  }; }
+{ const g=$('updGo'); if(g) g.onclick=async()=>{
+    if(!updTarget) return;
+    if(!confirm('Update to v'+updTarget+' now? The controller restarts into the new '+
+                'version; the two previous versions are kept for rollback.')) return;
+    if(!await postJson('/api/update/start',{version:updTarget})) return;
+    g.hidden=true;
+    const n=$('updNote'); const target=updTarget;
+    n.textContent='Updating to v'+target+' -- the page reconnects when done...';
+    const t=setInterval(async()=>{
+      try{
+        const r=await fetch(API+'/api/meta'); if(!r.ok) return;
+        const m=await r.json();
+        if(m.version===target){ clearInterval(t); location.reload(); }
+      }catch(_){}
+    },3000);
+  }; }
+
 let tstDrives=[], tstLoopRunning=false, tstActive=false;
 const TSTKEY='nullcat.test.axes';
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

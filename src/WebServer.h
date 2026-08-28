@@ -92,6 +92,14 @@ public:
     // exitCode 2 = restart requested (watchdog relaunches after 500ms)
     void setOnExitRequested(std::function<void(int)> cb)  { m_onExitRequested     = std::move(cb); }
 
+    // Pi click-updater hook: launch the updater for a bare "x.y.z" version
+    // string (endpoint-sanitized; the hook must sanitize again). Returns ""
+    // on success or a human-readable error. Left unset on builds that
+    // update by other means (Windows: the release zip) -- the endpoint
+    // then refuses with a clear message.
+    void setUpdateStarter(std::function<std::string(const std::string&)> fn)
+    { m_onUpdateStart = std::move(fn); }
+
     bool start();
     void stop();
     bool isRunning() const { return m_running.load(); }
@@ -180,6 +188,7 @@ private:
     std::function<void()>        m_onStopRequested;
     std::function<void()>        m_onLedTest;
     std::function<void(int)> m_onExitRequested;
+    std::function<std::string(const std::string&)> m_onUpdateStart;
 
     // ---- Host-header allowlist (DNS-rebinding defense) ----
     // A request is served only when its Host header names this machine:

@@ -55,6 +55,7 @@ in the same commit.
 | Reset fault (+lockout) | `/api/reset-fault` | needs components | drive may refuse reset until thermal decay (Er40/41); retried by fault monitor | drive state via per-drive status; lockout cleared | yes |
 | Reset stats | `/api/resetstats` | needs loop | - | tuning metrics re-baseline | no (tuning, not operation) |
 | Restart service | `/api/restart` | private client address only | - | - | **never bindable** |
+| Software update (Pi) | `/api/update/start` (body `{"version":"x.y.z"}`) | private client only; refused while EtherCAT is operational or the loop runs; refused on builds without an updater (Windows) | the updater unit owns the outcome (health check + rollback) | `/api/meta` `version` changes when done | **never bindable** |
 | Power off | `/api/shutdown` | private client address only | - | - | **never bindable** |
 
 Notes:
