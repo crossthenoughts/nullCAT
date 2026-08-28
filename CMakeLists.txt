@@ -211,6 +211,9 @@ if(MSVC)
         NOMINMAX
         SOEM_AVAILABLE   # Tells A6Drive.cpp to compile SDO write calls
     )
+    # Single version source: PROJECT_VERSION reaches the code as a macro, so
+    # main.cpp and /api/meta can never drift from the project() line.
+    target_compile_definitions(nullCAT PRIVATE NULLCAT_VERSION="${PROJECT_VERSION}")
 endif()
 
 # This build links the Qt native config UI (MainWindow / ApplicationSettingsDialog),

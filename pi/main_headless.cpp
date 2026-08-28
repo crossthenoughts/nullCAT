@@ -74,6 +74,17 @@ static std::string exeDir()
 
 int main(int argc, char* argv[])
 {
+#ifndef NULLCAT_VERSION
+#define NULLCAT_VERSION "dev"
+#endif
+    // --version: print and exit. The updater's health check runs the new
+    // binary with this flag to prove it starts and is the version it staged.
+    if (argc > 1 && std::string(argv[1]) == "--version")
+    {
+        printf("%s\n", NULLCAT_VERSION);
+        return 0;
+    }
+
     const std::string dir = exeDir();
 
     // ---- config anchor: argv[1] override, else the executable's directory.

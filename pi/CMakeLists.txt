@@ -22,6 +22,18 @@ endif()
 
 set(SRC ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 
+# Single version source: parse the root (Windows) CMakeLists' project()
+# line rather than maintaining a second number here. The updater's health
+# check and /api/meta both depend on this being the truth.
+file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/../CMakeLists.txt _nullcat_ver_line
+     REGEX "^project\\(nullCAT VERSION")
+string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+" NULLCAT_VERSION "${_nullcat_ver_line}")
+if(NOT NULLCAT_VERSION)
+    message(FATAL_ERROR "Could not parse NULLCAT_VERSION from the root CMakeLists.txt")
+endif()
+message(STATUS "nullCAT version: ${NULLCAT_VERSION}")
+add_compile_definitions(NULLCAT_VERSION="${NULLCAT_VERSION}")
+
 find_package(Threads REQUIRED)
 
 # Qt6 - TRANSITIONAL dependency. Only Config.cpp uses it (Qt JSON). To be

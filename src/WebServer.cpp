@@ -721,8 +721,17 @@ bool WebServer::start()
             };
             const bool rigPend  = pendingSince("rig.json");
             const bool hostPend = pendingSince("host.json");
+#ifndef NULLCAT_VERSION
+#define NULLCAT_VERSION "dev"
+#endif
             res.set_content(std::string("{\"hostOwner\":\"") + hostOwner()
                             + "\",\"configVersion\":2"
+                            + ",\"version\":\"" NULLCAT_VERSION "\""
+#ifdef _WIN32
+                            + ",\"platform\":\"windows\""
+#else
+                            + ",\"platform\":\"linux\""
+#endif
                             + ",\"rigPendingRestart\":"  + (rigPend  ? "true" : "false")
                             + ",\"hostPendingRestart\":" + (hostPend ? "true" : "false")
                             + "}",
