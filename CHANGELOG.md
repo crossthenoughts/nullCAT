@@ -32,8 +32,9 @@ middle number carries breaking changes and the last carries fixes.
   (step direction affects vertical-axis results via gravity).
 - Rotary units are honest end to end: engine and homing logs print
   degrees on levers, commissioning result rows are unit-tagged, and the
-  following-error abort rail scales to each axis's travel (linear
-  defaults unchanged).
+  following-error abort rail scales to each axis's travel: min(10, 20%
+  of the usable half-range), so a default 100 mm linear axis keeps the
+  familiar 10 and shorter axes rail proportionally.
 - Rotary axes: the following-error window is now capped to the axis arc
   server-side, not only in the web editor. A hand-edited rig.json can no
   longer disable drive-side runaway protection on a lever.
