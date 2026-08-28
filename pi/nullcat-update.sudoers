@@ -1,0 +1,1 @@
+nullcat ALL=(root) NOPASSWD: /usr/bin/systemctl start nullcat-update@*.service

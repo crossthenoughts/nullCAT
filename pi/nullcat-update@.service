@@ -1,0 +1,21 @@
+# ============================================================
+# nullCAT-Pi updater - templated oneshot unit.
+#
+# Instance name = the version to apply:
+#   sudo systemctl start nullcat-update@0.9.6
+# The daemon's /api/update/start launches exactly this (via the sudoers
+# rule in nullcat-update.sudoers). Progress: journalctl -u nullcat-update@*.
+#
+# The updater script runs from the CURRENT version directory, so updating
+# nullCAT also updates the updater for next time.
+# ============================================================
+[Unit]
+Description=nullCAT update to v%i
+# Never run two updates at once, and never during shutdown.
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/nullcat/current/os-setup/nullcat-update.sh apply %i
+# Generous ceiling: download + unpack + restart + health/rollback ladder.
+TimeoutStartSec=600

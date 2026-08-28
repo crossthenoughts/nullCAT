@@ -88,7 +88,7 @@ ok "aarch64, ${FREE_GB}GB free, building with -j${JOBS} (${MEM_GB}GB RAM, ${CORE
 log "Installing packages (toolchain + RT kernel)"
 sudo apt-get update -qq
 sudo apt-get install -y --no-install-recommends \
-    build-essential cmake git pkg-config ethtool libcap2-bin \
+    build-essential cmake git pkg-config ethtool libcap2-bin curl \
     qt6-base-dev libgpiod-dev linux-image-rpi-v8-rt
 # linux-image-rpi-v8-rt: the stock Raspberry Pi PREEMPT_RT kernel. The
 # bootloader prefers it once installed; verify after reboot with uname -r.
@@ -315,15 +315,55 @@ sudo systemctl enable nullcat-irq-affinity.service >/dev/null 2>&1
 ok "nullcat-irq-affinity.service installed (housekeeping cores ${IRQ_HK_CPUS})"
 
 # ----------------------------------------------------------------------------
-# 10. nullCAT service, poweroff sudoers, mDNS advert
+# 10. Versioned install layout (/opt/nullcat) -- the click-updater's home
+#     Every install (source-built or tarball) lands as a version directory;
+#     the service runs /opt/nullcat/current, and the web UI's update button
+#     swaps that symlink between versions. Config (host/rig/buttons.json)
+#     lives INSIDE each version dir and is copied forward on every update.
+# ----------------------------------------------------------------------------
+log "Versioned install layout (/opt/nullcat)"
+NULLCAT_VERSION="$("${REPO_DIR}/pi/build/nullcat-pi" --version)"
+sudo mkdir -p /opt/nullcat/versions /opt/nullcat/staging
+# One staging authority: the release packaging script builds the same
+# layout a tarball ships, so source installs and click-updates are
+# byte-identical in structure.
+"${REPO_DIR}/deploy/package-release-pi.sh" "${NULLCAT_VERSION}" "${REPO_DIR}/pi/build"
+DEST="/opt/nullcat/versions/v${NULLCAT_VERSION}"
+sudo rm -rf "${DEST}"
+sudo tar -xzf "${REPO_DIR}/dist/nullCAT-v${NULLCAT_VERSION}-pi-aarch64.tar.gz" -C /opt/nullcat/versions
+sudo mv "/opt/nullcat/versions/nullCAT-v${NULLCAT_VERSION}-pi-aarch64" "${DEST}"
+# Config adoption: an existing versioned install's live config wins; a
+# pre-0.9.5 source install's build-dir config is picked up once.
+for f in host.json rig.json buttons.json; do
+    if sudo test -f "/opt/nullcat/current/${f}"; then
+        sudo cp -p "/opt/nullcat/current/${f}" "${DEST}/${f}"
+    elif [ -f "${REPO_DIR}/pi/build/${f}" ]; then
+        sudo cp -p "${REPO_DIR}/pi/build/${f}" "${DEST}/${f}"
+    fi
+done
+sudo chown -R "${RT_USER}:${RT_USER}" "${DEST}"
+sudo ln -sfn "${DEST}" /opt/nullcat/current.new
+sudo mv -Tf /opt/nullcat/current.new /opt/nullcat/current
+ok "v${NULLCAT_VERSION} installed at ${DEST} (current -> v${NULLCAT_VERSION})"
+
+# ----------------------------------------------------------------------------
+# 11. nullCAT service, updater unit, poweroff sudoers, mDNS advert
 # ----------------------------------------------------------------------------
 log "nullCAT service"
-# Unit generated from the repo template with THIS user and THIS checkout path.
+# Unit generated from the repo template with THIS user; the template's
+# /opt/nullcat/current paths are already correct for the versioned layout.
 sed -e "s|^User=.*|User=${RT_USER}|" \
     -e "s|^Group=.*|Group=${RT_USER}|" \
-    -e "s|^WorkingDirectory=.*|WorkingDirectory=${REPO_DIR}/pi/build|" \
-    -e "s|^ExecStart=.*|ExecStart=${REPO_DIR}/pi/build/nullcat-pi|" \
+    -e "s|^WorkingDirectory=.*|WorkingDirectory=/opt/nullcat/current|" \
+    -e "s|^ExecStart=.*|ExecStart=/opt/nullcat/current/nullcat-pi|" \
     "${REPO_DIR}/pi/nullcat-pi.service" | sudo tee /etc/systemd/system/nullcat-pi.service >/dev/null
+
+# Click-updater: templated oneshot unit + the sudoers rule that lets the
+# service user start it (the ONLY systemctl verb it is granted).
+sudo cp "${REPO_DIR}/pi/nullcat-update@.service" /etc/systemd/system/
+sed -e "s|^[a-zA-Z0-9_-]* |${RT_USER} |" "${REPO_DIR}/pi/nullcat-update.sudoers" \
+    | sudo tee /etc/sudoers.d/nullcat-update >/dev/null
+sudo chmod 440 /etc/sudoers.d/nullcat-update
 
 # Web-UI Shutdown button: the service user may power the system off.
 sed -e "s|^[a-zA-Z0-9_-]* |${RT_USER} |" "${REPO_DIR}/pi/nullcat-poweroff.sudoers" 2>/dev/null \

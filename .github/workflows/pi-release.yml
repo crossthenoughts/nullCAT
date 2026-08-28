@@ -1,0 +1,63 @@
+# Builds the Pi release tarball when a GitHub release is published and
+# attaches it as an asset. Runs the SAME Debian trixie arm64 container as
+# the ci.yml linux-arm64 job (what was tested is what ships), then
+# deploy/package-release-pi.sh stages the allowlist and checksums it.
+#
+# Flow: the maintainer publishes the release (Windows zip attached by
+# hand, as ever); this workflow adds nullCAT-vX.Y.Z-pi-aarch64.tar.gz and
+# its .sha256 a few minutes later. The on-Pi updater downloads exactly
+# these two files.
+name: pi-release
+
+on:
+  release:
+    types: [published]
+
+env:
+  SOEM_REV: b410bf6ef599d5c85302ea45cae5f55f8e9aa394   # keep in lockstep with ci.yml
+
+permissions:
+  contents: write   # asset upload
+
+jobs:
+  pi-tarball:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: docker/setup-qemu-action@v3
+        with: { platforms: arm64 }
+      - name: Build + test + package in Debian trixie arm64
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"
+          docker run --rm --platform linux/arm64 -v "$PWD:/src" -w /src debian:trixie bash -ec '
+            apt-get update -qq
+            apt-get install -y -qq build-essential cmake git qt6-base-dev libgpiod-dev
+            git config --global --add safe.directory "*"
+            git clone -q https://github.com/OpenEtherCATsociety/SOEM.git /root/SOEM
+            cd /root/SOEM && git checkout -q '"$SOEM_REV"'
+            cmake -S . -B build >/dev/null && cmake --build build -j2 >/dev/null
+            cd /src
+            cmake -S pi -B build-arm64 -DSOEM_ROOT=/root/SOEM
+            cmake --build build-arm64 -j2
+            cd build-arm64 && ctest --output-on-failure
+            cd /src && deploy/package-release-pi.sh '"$VERSION"' build-arm64
+          '
+      - name: Upload assets to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"
+          for f in "dist/nullCAT-v${VERSION}-pi-aarch64.tar.gz" \
+                   "dist/nullCAT-v${VERSION}-pi-aarch64.tar.gz.sha256"; do
+            curl -sf -X POST \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary @"$f" \
+              "https://uploads.github.com/repos/${{ github.repository }}/releases/${{ github.event.release.id }}/assets?name=$(basename "$f")"
+            echo " uploaded: $(basename "$f")"
+          done
