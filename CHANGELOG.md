@@ -4,7 +4,7 @@ Notable changes to nullCAT. Format follows [Keep a Changelog](https://keepachang
 versioning is [Semantic Versioning](https://semver.org/) - while on `0.x`, the
 middle number carries breaking changes and the last carries fixes.
 
-## [0.9.4] - unreleased
+## [0.9.4] - 2026-08-28
 
 ### Added
 - Hexapod support, first slice: per-axis homing (`/api/home` `{"axis":N}`
@@ -393,6 +393,7 @@ headless daemon share one motion core.
   bindings), a compact Qt desktop panel on Windows, and an optional GPIO control
   panel on the Pi.
 
+[0.9.4]: https://github.com/crossthenoughts/nullCAT/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/crossthenoughts/nullCAT/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/crossthenoughts/nullCAT/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/crossthenoughts/nullCAT/compare/v0.9.0...v0.9.1
