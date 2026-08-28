@@ -1981,11 +1981,16 @@ InitResult EtherCATMaster::stageOPTransition(ecx_contextt* ctx)
                 }
             }
         }
+        // 2808 field data: the PreOP-walk recycle revived 0 of its first 12
+        // slave-instances, while a FULL deinit/init (INIT walk + fresh DC
+        // config) cleared the same wedges every time. Deepening the recycle
+        // to an INIT walk is backlog; until then the honest advice is the
+        // fresh init.
         for (int i = 1; i <= m_slaveCount && i < EC_MAXSLAVE; ++i)
             if (needsRecycle[i])
                 LOG_ERROR(strf("  Slave %d: SYNC0 STILL DEAD after re-arm%s -- expect OP "
-                    "refusal. Retry Initialize (the recycle usually clears this); "
-                    "power-cycle the drive as a last resort.",
+                    "refusal. Stop EtherCAT and Initialize again (a fresh init "
+                    "usually clears this); power-cycle the drive as a last resort.",
                     i, m_sync0RecycleRounds > 0 ? " and recycle" : ""));
 
         // Short settle pump: ~700ms of 1ms frames so the drives' sync
