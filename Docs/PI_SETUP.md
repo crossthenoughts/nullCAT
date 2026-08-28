@@ -317,6 +317,7 @@ starts with the Pi, so there is nothing to launch.
 | `<hostname>.local` does not resolve | Give it a minute after boot; try the Pi's IP from your router's client list; some Android devices cannot resolve `.local` names. |
 | SSH warns "REMOTE HOST IDENTIFICATION HAS CHANGED" | Expected after reflashing the card (new install, new keys). `ssh-keygen -R <your-hostname>.local` on the PC, then connect again. |
 | `uname -r` has no `-rt` after reboot | Re-run the installer (it logs the RT kernel install and boot selection), then reboot again. |
+| An attached screen went blurry or dim after the install | Expected: the installer applies headless display tuning (the controller is operated through the web UI). Your original file is backed up as `config.txt.nullcat.bak`. To use a screen anyway: in `/boot/firmware/config.txt`, uncomment `dtoverlay=vc4-kms-v3d`, set `display_auto_detect=1`, remove `gpu_mem=16`, reboot. Keep the rest of the tuning. A display is outside the validated setup; if you later chase jitter or WKC oddities, try disabling it again. |
 | Web UI does not load | `systemctl status nullcat-pi` over SSH; the service log is in `pi/build/logs/app.log` in your clone. |
 | "No EtherCAT slaves found" at Initialize | Drives powered? Chain plugged into the **onboard** port? First drive's IN port (not OUT)? |
 | A drive panel shows an `Er` code | Look it up in [DriveFacts.md](DriveFacts.md); many clear with **RESET FAULT**. |
