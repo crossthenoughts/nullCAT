@@ -1621,12 +1621,24 @@ InitResult EtherCATMaster::stagePreOpPump(ecx_contextt* ctx)
         LOG_INFO("EtherCATMaster: Writing per-axis following-error window (0x6065)...");
         for (int i = 1; i <= m_slaveCount; ++i)
         {
-            double windowMm = 0.0, cpm = 0.0;
+            double windowMm = 0.0, cpm = 0.0, strokeMm = 0.0;
             for (const DriveConfig& dc : m_driveConfigs)
-                if (dc.slaveIndex == i) { windowMm = dc.followingErrorWindowMm; cpm = dc.countsPerMm; break; }
+                if (dc.slaveIndex == i) { windowMm = dc.followingErrorWindowMm; cpm = dc.countsPerMm; strokeMm = dc.strokeMm; break; }
 
             if (windowMm <= 0.0) { LOG_INFO(strf("  Slave %d: following-error window disabled (0)", i)); continue; }
             if (cpm <= 0.0)      { LOG_WARNING(strf("  Slave %d: no countsPerMm -- skipping 0x6065", i)); continue; }
+
+            // A window wider than the axis's own travel can never trip -- the
+            // same disabled-protection geometry the rotary validation rejects.
+            // Linear configs commonly carry the wide 100 default on shorter
+            // axes, so clamp at the write instead of failing them: the config
+            // keeps its value, the drive gets protection that can actually fire.
+            if (strokeMm > 0.0 && windowMm > strokeMm)
+            {
+                LOG_INFO(strf("  Slave %d: 0x6065 clamped to the axis travel (%.1f -> %.1f)",
+                    i, windowMm, strokeMm));
+                windowMm = strokeMm;
+            }
 
             uint32_t feCounts = static_cast<uint32_t>(windowMm * cpm);
             int sz = sizeof(feCounts);
@@ -1882,9 +1894,15 @@ InitResult EtherCATMaster::stageOPTransition(ecx_contextt* ctx)
         ecx_dcsync0(ctx, (uint16)i, TRUE, s_dcSyncNs, s_dcSyncOffsetNs);
         anyRearmed = true;
         if (i < EC_MAXSLAVE) rearmed[i] = true;
+        // DC-epoch-magnitude margins mean a register read returned junk
+        // despite a good wkc -- label them honestly instead of asserting a
+        // pulse-unit state we did not actually observe. The defensive re-arm
+        // still happens either way (the post verdict decides what is real).
+        const bool garbagePre = (marginPre > 1000000000LL || marginPre < -1000000000LL);
         LOG_WARNING(strf(
             "  Slave %d: SYNC0 %s before OP (0x0981=0x%02x margin pre=%lld ns) -- re-armed, settling before OP request",
-            i, armed ? "STUCK (armed, pulses never advanced)" : "NOT ARMED",
+            i, garbagePre ? "margin UNREADABLE (treating as stuck)"
+               : armed    ? "STUCK (armed, pulses never advanced)" : "NOT ARMED",
             dcAct, (long long)marginPre));
     }
 
@@ -1958,14 +1976,32 @@ InitResult EtherCATMaster::stageOPTransition(ecx_contextt* ctx)
             for (int i = 1; i <= m_slaveCount && i < EC_MAXSLAVE; ++i)
             {
                 if (!needsRecycle[i]) continue;
+                // Recycle v2 (2808 field data): the shallow PreOP walk revived
+                // 0 of 12 wedged pulse units, while a full deinit/init cleared
+                // every one. Mirror what the full cycle actually does, per
+                // slave: disarm, walk to INIT, then ecx_reconfig_slave (SOEM's
+                // canonical INIT->PreOP->mailbox->PDO-map->SafeOP rebuild), and
+                // arm SYNC0 fresh on the rebuilt DC state.
                 ecx_dcsync0(ctx, (uint16)i, FALSE, 0, 0);
-                ctx->slavelist[i].state = EC_STATE_PRE_OP;
+                ctx->slavelist[i].state = EC_STATE_INIT;
                 ecx_writestate(ctx, i);
-                ecx_statecheck(ctx, i, EC_STATE_PRE_OP, 100000);
+                ecx_statecheck(ctx, i, EC_STATE_INIT, 100000);
+                int rc = 0;
+                uint32_t ex = 0;
+                PlatformRT::safeCall([&]() {
+                    rc = ecx_reconfig_slave(ctx, (uint16)i, 200000);
+                }, &ex);
+                if (ex != 0 || rc <= 0)
+                {
+                    LOG_WARNING(strf(
+                        "  Slave %d: reconfig during recycle failed (rc=%d ex=0x%08x) -- leaving for the verdict",
+                        i, rc, ex));
+                    continue;
+                }
                 ecx_dcsync0(ctx, (uint16)i, TRUE, s_dcSyncNs, s_dcSyncOffsetNs);
                 ctx->slavelist[i].state = EC_STATE_SAFE_OP;
                 ecx_writestate(ctx, i);
-                ecx_statecheck(ctx, i, EC_STATE_SAFE_OP, 100000);
+                ecx_statecheck(ctx, i, EC_STATE_SAFE_OP, 200000);
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(150));
             for (int i = 1; i <= m_slaveCount && i < EC_MAXSLAVE; ++i)

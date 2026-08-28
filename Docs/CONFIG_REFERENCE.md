@@ -136,7 +136,7 @@ Top level: `configVersion`, `numDrives` (1 to 10, must match `axes[]`),
 | `maxVelocityMmS` | double | `200.0` | Per-axis velocity cap. |
 | `maxAccelerationMmS2` | double | `10000.0` | Acceleration cap. Also the source of the tracking filter's braking clamp. |
 | `maxJerkMmS3` | double | `60000.0` | Retired, ignored. Loaded and saved for round-trip compatibility only; its consumer (the blending s-curve planner's jerk stage) no longer constrains anything. Safe to leave at any value. |
-| `followingErrorWindowMm` | double | `100.0` | Per-axis drive-side following-error window, written to object 0x6065 during init (counts = mm x countsPerMm). 100 mm is deliberately wide to tolerate PDO noise without false trips. |
+| `followingErrorWindowMm` | double | `100.0` | Per-axis drive-side following-error window, written to object 0x6065 during init (counts = mm x countsPerMm). 100 mm is deliberately wide to tolerate PDO noise without false trips; since 0.9.5 the written value is additionally clamped to the axis's own travel (a window wider than the stroke could never trip, disabling the protection), logged when it happens. The config value itself is kept. |
 | `trackingWnHz` | double | `30.0` | The one feel knob for the ONLINE tracking filter (critically damped 2nd-order follower, only active in `filter` conditioning mode). Group delay is about `2/wn`: 10.6 ms at 30 Hz. Raise for tighter tracking, lower for more smoothing. Capped at 125 Hz. No overshoot at any amplitude: the guarantee comes from the braking-aware velocity clamp, not from jerk. |
 | `unparkTimeSec` | double | `3.0` | Unpark trajectory duration. |
 | `parkTimeSec` | double | `3.0` | Park trajectory duration. |

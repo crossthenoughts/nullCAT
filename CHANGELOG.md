@@ -4,6 +4,19 @@ Notable changes to nullCAT. Format follows [Keep a Changelog](https://keepachang
 versioning is [Semantic Versioning](https://semver.org/) - while on `0.x`, the
 middle number carries breaking changes and the last carries fixes.
 
+## [0.9.5] - unreleased
+
+### Fixed
+- The drive-side following-error window (0x6065) is clamped to each
+  axis's own travel at the init write - a window wider than the stroke
+  could never trip, silently disabling the protection. Configs are not
+  modified; the clamp is logged.
+- The wedged-SYNC0 recycle now performs the full per-slave rebuild
+  (INIT walk + reconfig + fresh arm) that field data showed actually
+  clears the wedge, instead of the shallow PreOP walk that did not.
+  Unreadable DC margins are labelled as such instead of asserting a
+  pulse state that was never observed.
+
 ## [0.9.4] - 2026-08-28
 
 ### Added
