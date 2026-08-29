@@ -393,6 +393,9 @@ public:
     // namespace already on disk, using the unified validator. The dir is taken
     // from anchorPath. Returns one string per error; empty = valid. Writes
     // nothing - used by the web /api/rig and /api/host endpoints before save.
+    // Parse a rig body's axes (already validated) - device live-apply path.
+    static bool parseRigBodyAxes(const std::string& rigJsonBody,
+                                 std::vector<DriveConfig>& out);
     static std::vector<std::string> validateRigBody(const std::string& anchorPath,
                                                     const std::string& rigJsonBody);
     static std::vector<std::string> validateHostBody(const std::string& anchorPath,

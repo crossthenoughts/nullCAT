@@ -286,6 +286,10 @@ std::string WebServer::buildStatusJson() const
     const int nCfg = beltAxisMask(beltMask);
     const status::BeltAggregates bagg =
         status::deriveBeltAggregates(ms.axisState, ms.numDrives, beltMask, nCfg);
+    bool devMask[MAX_DRIVES] = {};
+    deviceAxisMask(devMask);
+    const status::DeviceAggregates dagg =
+        status::deriveDeviceAggregates(ms.axisState, ms.numDrives, ms.homed, devMask, nCfg);
     const bool anyHoming = magg.anyHoming;
     const bool allParked = magg.allParked;
     const bool hasBelts  = bagg.hasBelts;
@@ -314,6 +318,10 @@ std::string WebServer::buildStatusJson() const
     s += "\"parked\":"       + jsonBool(allParked)            + ",";
     s += "\"hasBelts\":"     + jsonBool(hasBelts)             + ",";
     s += "\"beltsSlack\":"   + jsonBool(beltsSlack)           + ",";
+    // Device toggle state (shared derivation with /api/device-toggle).
+    s += "\"hasDevices\":"   + jsonBool(dagg.hasDevices)      + ",";
+    s += "\"devEngaged\":"   + jsonBool(dagg.anyEngaged)      + ",";
+    s += "\"devAllHomed\":"  + jsonBool(dagg.allHomed)        + ",";
     s += "\"numDrives\":"    + jsonInt(numDrives)             + ",";
     s += "\"slavesFound\":"  + jsonInt(slavesFound)           + ",";
     s += "\"loopHz\":"       + jsonDouble(stats.loopHz, 1)    + ",";
@@ -830,18 +838,18 @@ bool WebServer::start()
         // apply. Single writer per file: rig = web (both platforms); host =
         // web only on headless builds (refused here when natively owned).
         auto writeConfigNamespace = [this, errResp](const char* which,
-            const std::vector<std::string>& errs, const std::string& body, httplib::Response& res)
+            const std::vector<std::string>& errs, const std::string& body, httplib::Response& res) -> bool
         {
             if (!errs.empty())
             {
                 std::string m; for (auto& e : errs) m += (m.empty() ? "" : "; ") + e;
                 errResp(res, m);
-                return;
+                return false;
             }
             const std::string path = siblingFile(m_configPath, which);
             const std::string tmp  = path + ".tmp";
             { std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
-              if (!o) { errResp(res, "Cannot write temp file."); return; } o << body; }
+              if (!o) { errResp(res, "Cannot write temp file."); return false; } o << body; }
             // std::filesystem::rename is an atomic replace-if-exists on BOTH
             // platforms (MSVC -> MoveFileEx(MOVEFILE_REPLACE_EXISTING), Linux ->
             // rename(2)). Plain std::rename fails with EEXIST on the Windows CRT
@@ -850,16 +858,29 @@ bool WebServer::start()
             std::error_code ec;
             std::filesystem::rename(tmp, path, ec);
             if (ec)
-            { std::error_code ec2; std::filesystem::remove(tmp, ec2); errResp(res, "Save failed (rename)."); return; }
+            { std::error_code ec2; std::filesystem::remove(tmp, ec2); errResp(res, "Save failed (rename)."); return false; }
             LOG_INFO(std::string("WebServer: ") + which + " updated via web - restart to apply.");
             res.set_content("{\"ok\":true,\"restartRequired\":true}", "application/json");
+            return true;
         };
 
         // POST /api/rig - the web owns rig.json on both platforms.
         postCmd("/api/rig", [this, errResp, writeConfigNamespace](const httplib::Request& req, httplib::Response& res)
         {
             if (m_configPath.empty()) { errResp(res, "No config path configured."); return; }
-            writeConfigNamespace("rig.json", Config::validateRigBody(m_configPath, req.body), req.body, res);
+            if (!writeConfigNamespace("rig.json", Config::validateRigBody(m_configPath, req.body), req.body, res))
+                return;
+            // Device live-apply: stage each device axis's fresh params with
+            // the motion controller - they land the moment that device is
+            // (or next becomes) limp. Feel tuning never needs a restart.
+            if (m_motion)
+            {
+                std::vector<DriveConfig> axes;
+                if (Config::parseRigBodyAxes(req.body, axes))
+                    for (size_t i = 0; i < axes.size() && i < MAX_DRIVES; ++i)
+                        if (axisCaps(axes[i].axisType, axes[i].mode).isDevice())
+                            m_motion->stageDeviceParams((int)i, axes[i].device);
+            }
         });
 
         // POST /api/host - only honored on headless builds (hostOwner == "web").
@@ -1305,6 +1326,33 @@ bool WebServer::start()
             c.type = beltsSlack ? MotionCommand::Type::TensionBelts : MotionCommand::Type::SlackBelts;
             m_motion->enqueueCommand(c);
             resolvedResp(res, beltsSlack ? "belts/tension" : "belts/slack");
+        });
+
+        // The three-state device button: unhomed devices home (the press IS
+        // the deliberate authorization - devices never home with the rig),
+        // homed+limp engage, any engaged releases. One resolution for web,
+        // HID binds, and the GPIO panel via the shared StatusModel derivation.
+        postCmd("/api/device-toggle", [this, errResp, toggleReady, resolvedResp](const httplib::Request&, httplib::Response& res)
+        {
+            if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
+            static std::atomic<int64_t> last{0};
+            if (!toggleReady(last)) { errResp(res, "Toggle cooldown."); return; }
+            MotionStatus ms = m_motion->getMotionStatus();
+            bool devMask[MAX_DRIVES] = {};
+            const int nCfg = deviceAxisMask(devMask);
+            const status::DeviceAggregates agg =
+                status::deriveDeviceAggregates(ms.axisState, ms.numDrives, ms.homed, devMask, nCfg);
+            if (!agg.hasDevices)   { errResp(res, "No device axes on this rig."); return; }
+            if (agg.transitional)  { errResp(res, "Device transitioning -- toggle ignored."); return; }
+            if (!agg.anyEngaged && m_motion->isEmergencyStop())
+            { errResp(res, "E-stop active -- device engage refused."); return; }
+            MotionCommand c;
+            c.type   = agg.anyEngaged ? MotionCommand::Type::ReleaseDevice
+                                      : MotionCommand::Type::EngageDevice;
+            c.intVal = -1;
+            m_motion->enqueueCommand(c);
+            resolvedResp(res, agg.anyEngaged ? "device/release"
+                             : agg.allHomed  ? "device/engage" : "device/home");
         });
 
         // ---- Button bindings - save (hot-applies, no restart) and

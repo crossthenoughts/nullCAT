@@ -1472,11 +1472,21 @@ private slots:
 
         MotionController mc;
         mc.configure(cfg);
-        mc.startHoming();
 
+        // Home-ALL never grabs a device (a homing push must not surprise a
+        // hand on the lever at rig start / e-stop release).
+        mc.startHoming();
         TelemetryData empty{};
         A6Drive* drives[1] = { &mock };
         MotionOutput out{};
+        for (int n = 0; n < 100; ++n)
+        { out = MotionOutput{}; mc.process(empty, out, drives, 1); }
+        QVERIFY2(!mc.isAxisHomed(0), "home-all skips device axes");
+        QCOMPARE((int)mc.getAxisState(0), (int)AxisMotionState::PARKED);
+
+        // The deliberate engage press on an unhomed device IS the homing
+        // authorization: it stall-searches and ends LIMP (three-state button).
+        mc.engageDevices(-1);
         bool sawTorqueHomingName = false;
         int n = 0;
         for (; n < 3000; ++n)
@@ -1492,7 +1502,7 @@ private slots:
             }
             else if (mc.isAxisHomed(0)) break;
         }
-        QVERIFY2(mc.isAxisHomed(0), "device axis homed by stall search");
+        QVERIFY2(mc.isAxisHomed(0), "device axis homed by stall search on engage request");
         QVERIFY(sawTorqueHomingName);
         // Live lever position published for the web teach capture: the
         // lever sits at the homed stop, which maps to stopMinRev.
@@ -1538,12 +1548,13 @@ private slots:
         QCOMPARE((int)mc.getAxisState(0), (int)AxisMotionState::PARKED);
         QCOMPARE(out.torques[0], 0.0);
 
-        // Engage on an UNHOMED device is refused (home-frame field).
+        // Engage on an UNHOMED device starts a fresh home (the deliberate
+        // press is the authorization), it does NOT jump straight to force.
         mc.forceAxisParked(0);               // drops homed
         mc.engageDevices(-1);
         out = MotionOutput{};
         mc.process(empty, out, drives, 1);
-        QCOMPARE((int)mc.getAxisState(0), (int)AxisMotionState::PARKED);
+        QCOMPARE((int)mc.getAxisState(0), (int)AxisMotionState::HOMING);
     }
 
     // ---- 0.9.5 NULLCATX state layer through the full motion path ----
@@ -1585,7 +1596,7 @@ private slots:
 
         MotionController mc;
         mc.configure(cfg);
-        mc.startHoming();
+        mc.engageDevices(-1);   // unhomed: the press starts the stall search
         TelemetryData empty{};
         A6Drive* drives[1] = { &mock };
         MotionOutput out{};
@@ -1596,7 +1607,7 @@ private slots:
             mock.setSimCommandedTorque(out.torques[0]);
         }
         QVERIFY(mc.isAxisHomed(0));
-        mc.engageDevices(-1);
+        mc.engageDevices(-1);   // second press: engage
         // Hand holds the lever at the stop from here (no torque fed back).
         for (int n = 0; n < 100; ++n)
         { out = MotionOutput{}; mock.updateStatus(); mc.process(empty, out, drives, 1); }

@@ -321,6 +321,51 @@ int main()
             CHECK(b.hasBelts && b.beltsSlack,
                   "agg belt: torque axis beyond numStates counts as slack (quirk)");
         }
+
+        // ---- device aggregates (the three-state device toggle) ----
+        {   bool dv[2] = { false, false };
+            bool hm[2] = { true, true };
+            MS st[2] = { MS::ONLINE, MS::ONLINE };
+            DeviceAggregates d = deriveDeviceAggregates(st, 2, hm, dv, 2);
+            CHECK(!d.hasDevices, "agg dev: no device axes -> hasDevices false");
+        }
+        {   bool dv[2] = { false, true };
+            bool hm[2] = { true, false };
+            MS st[2] = { MS::ONLINE, MS::PARKED };
+            DeviceAggregates d = deriveDeviceAggregates(st, 2, hm, dv, 2);
+            CHECK(d.hasDevices && !d.anyEngaged && !d.allHomed && !d.transitional,
+                  "agg dev: unhomed limp device -> toggle resolves HOME");
+        }
+        {   bool dv[2] = { false, true };
+            bool hm[2] = { false, true };   // non-device homed state irrelevant
+            MS st[2] = { MS::ONLINE, MS::PARKED };
+            DeviceAggregates d = deriveDeviceAggregates(st, 2, hm, dv, 2);
+            CHECK(d.hasDevices && !d.anyEngaged && d.allHomed,
+                  "agg dev: homed limp device -> toggle resolves ENGAGE");
+        }
+        {   bool dv[1] = { true };
+            bool hm[1] = { true };
+            for (MS t : { MS::BLENDING, MS::ONLINE })
+            {
+                MS st[1] = { t };
+                CHECK(deriveDeviceAggregates(st, 1, hm, dv, 1).anyEngaged,
+                      "agg dev: live device -> toggle resolves RELEASE");
+            }
+            for (MS t : { MS::HOMING, MS::PARKING, MS::ESTOPPING })
+            {
+                MS st[1] = { t };
+                CHECK(deriveDeviceAggregates(st, 1, hm, dv, 1).transitional,
+                      "agg dev: transitional device state refuses toggle");
+            }
+        }
+        {   // device beyond the engine snapshot: no reference -> not allHomed
+            bool dv[2] = { false, true };
+            bool hm[1] = { true };
+            MS st[1] = { MS::PARKED };
+            DeviceAggregates d = deriveDeviceAggregates(st, 1, hm, dv, 2);
+            CHECK(d.hasDevices && !d.allHomed,
+                  "agg dev: device beyond numStates is unhomed");
+        }
     }
 
     std::printf("%d/%d checks passed.\n", g_pass, g_pass + g_fail);

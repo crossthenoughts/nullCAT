@@ -651,6 +651,22 @@ std::vector<std::string> Config::validateRigBody(const std::string& anchorPath,
     return c.validate();
 }
 
+// Parse a rig body's axes into DriveConfigs (no validation - callers run
+// this only on a body validateRigBody already accepted). Feeds the device
+// live-apply path: the web server stages each device axis's fresh params
+// with the motion controller after a successful save.
+bool Config::parseRigBodyAxes(const std::string& rigJsonBody,
+                              std::vector<DriveConfig>& out)
+{
+    QJsonParseError pe;
+    QJsonDocument doc = QJsonDocument::fromJson(
+        QString::fromStdString(rigJsonBody).toUtf8(), &pe);
+    if (pe.error != QJsonParseError::NoError || !doc.isObject()) return false;
+    out.clear();
+    loadAxesArray(doc.object().value("axes").toArray(), out);
+    return !out.empty();
+}
+
 std::vector<std::string> Config::validateHostBody(const std::string& anchorPath,
                                                   const std::string& hostJsonBody)
 {
@@ -688,6 +704,7 @@ bool Config::isBindableCommand(const std::string& cmd)
     // maps) but the wizard lists toggles.
     static const char* kBindable[] = {
         "init-toggle", "run-toggle", "park-toggle", "belts-toggle",
+        "device-toggle",
         "home", "estop", "reset-fault",
         "init", "deinit", "start", "stop", "park", "unpark",
         "belts/slack", "belts/tension",

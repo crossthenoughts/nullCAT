@@ -134,6 +134,18 @@ public:
         return n;
     }
 
+    // Per-drive DEVICE mask (shifter/pedal families), the device-toggle's
+    // twin of beltAxisMask.
+    int deviceAxisMask(bool out[]) const
+    {
+        int n = m_config ? static_cast<int>(m_config->drives.size()) : 0;
+        if (n > MAX_DRIVES) n = MAX_DRIVES;
+        for (int i = 0; i < n; ++i)
+            out[i] = axisCaps(m_config->drives[i].axisType,
+                              m_config->drives[i].mode).isDevice();
+        return n;
+    }
+
     // Platform-specific physical-button backend.
     // The web wizard's capture flow and the hot-apply notification route
     // through these; the WebServer itself stays platform-agnostic. Unset

@@ -883,8 +883,7 @@ function devRender(){
     h+=`<div class="frow"><span>Axis ${n} · ${d.name||TYPE[d.axisType]}</span>
       <span style="display:flex;gap:6px;align-items:center">
         <span id="devState-${n}" class="tag">-</span>
-        <button type="button" class="btn btn-sm btn-start" id="devEng-${n}">Engage</button>
-        <button type="button" class="btn btn-sm btn-stop" id="devRel-${n}">Release</button>
+        <button type="button" class="btn btn-sm btn-start" id="devTog-${n}">Home</button>
       </span></div>
       <div class="frow"><span>Preset</span>
       <span style="display:flex;gap:6px;align-items:center">
@@ -920,7 +919,7 @@ function devRender(){
       <button type="button" class="btn btn-sm btn-start" id="devT-${n}-gate">Add gate here</button>
       <button type="button" class="btn btn-sm btn-stop" id="devT-${n}-cg">Clear gates</button>
     </div>
-    <div class="cfg-note" style="grid-column:1/-1">Teach by hand: home the device (it rests limp), hold the lever at each end / neutral / gear slot and press the matching button, then Save. Values land in the fields above.</div>
+    <div class="cfg-note" style="grid-column:1/-1">The device homes only from its own button (never with the rig): first press homes and rests limp, next press engages. Feel and geometry edits apply LIVE while the device is limp - Save, feel, adjust; if it is engaged when you save, they land on release. Teach by hand: while limp, hold the lever at a position and press the matching capture button, then Save.</div>
       <div style="grid-column:1/-1;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">
         <div><div class="cfg-note">Centring spring</div><svg id="devSpring-${n}" class="devCurve"></svg></div>
         <div><div class="cfg-note">Detent profile</div><svg id="devDetent-${n}" class="devCurve"></svg></div>
@@ -931,8 +930,11 @@ function devRender(){
   hostEl.innerHTML=h;
   for(const {i} of list){
     const n=i+1;
-    const eng=$('devEng-'+n); if(eng) eng.onclick=()=>postJson('/api/device/engage',{axis:n});
-    const rel=$('devRel-'+n); if(rel) rel.onclick=()=>postJson('/api/device/release',{axis:n});
+    // The three-state device button: Home (unhomed - the press authorizes
+    // the gentle stall search, ends limp) -> Engage -> Release. The engage
+    // endpoint homes-or-engages per the device's state; release releases.
+    const tog=$('devTog-'+n); if(tog) tog.onclick=()=>{
+      postJson(tog.dataset.act==='release'?'/api/device/release':'/api/device/engage',{axis:n}); };
     const ap=$('devApply-'+n); if(ap) ap.onclick=()=>{
       const p=DEV_PRESETS[$('devPre-'+n).value]; if(!p||!cfgObj||!cfgObj.drives[i]) return;
       cfgObj.drives[i].device=JSON.parse(JSON.stringify(p));
@@ -1074,9 +1076,16 @@ function devPoll(s){
     else { delete devLive[n];
       const lv=$('devLive-'+n); if(lv) lv.textContent=d.homed===false?'(not homed)':'-'; }
     const online=/online|blending/i.test(st);
-    const eng=$('devEng-'+n), rel=$('devRel-'+n);
-    if(eng) eng.disabled=!running||estop||online;
-    if(rel) rel.disabled=!running||estop||!online;
+    const homing=/homing/i.test(st);
+    const tog=$('devTog-'+n);
+    if(tog){
+      tog.disabled=!running||estop||homing;
+      const act=online?'release':(d.homed?'engage':'home');
+      tog.dataset.act=act;
+      tog.textContent=homing?'Homing…':(act==='release'?'Release':act==='engage'?'Engage':'Home');
+      tog.classList.toggle('btn-stop',act==='release');
+      tog.classList.toggle('btn-start',act!=='release');
+    }
   }
 }
 

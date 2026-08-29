@@ -229,25 +229,47 @@ int main()
         return mc.enqueueCommand(c);
     };
 
-    // ---- EngageDevice before homing: refused (home-frame force field) ------
-    {
-        MotionController mc;
-        mc.configure(makeDeviceRigConfig());
-        runCycles(mc, sim(0.0), 50);
-        check(cmdAxis(mc, MotionCommand::Type::EngageDevice, -1), "EngageDevice enqueues");
-        runCycles(mc, sim(0.0), 100);
-        check(mc.getAxisState(DEV) == AxisMotionState::PARKED,
-              "EngageDevice unhomed: refused, device stays PARKED");
-    }
-
-    // ---- Homing lands the device PARKED (limp); auto-unpark never engages --
+    // ---- Home-all NEVER grabs a device (deliberate-action rule) ------------
     {
         MotionController mc;
         mc.configure(makeDeviceRigConfig());
         runCycles(mc, sim(0.0), 50);
         cmd(mc, MotionCommand::Type::StartHoming);
         runCycles(mc, sim(0.0), 200);
-        check(mc.isAxisHomed(DEV), "StartHoming: device axis homes (torque kind)");
+        check(!mc.isAxisHomed(DEV),
+              "StartHoming(all): device axis skipped (homes via its own button)");
+        check(mc.getAxisState(DEV) == AxisMotionState::PARKED,
+              "device rests PARKED through rig homing");
+        // Targeted single-axis home IS deliberate: allowed.
+        MotionCommand t; t.type = MotionCommand::Type::StartHoming; t.intVal = DEV;
+        mc.enqueueCommand(t);
+        runCycles(mc, sim(0.0), 200);
+        check(mc.isAxisHomed(DEV), "targeted StartHoming(axis) homes the device");
+    }
+
+    // ---- Three-state button: first press homes, lands limp -----------------
+    {
+        MotionController mc;
+        mc.configure(makeDeviceRigConfig());
+        runCycles(mc, sim(0.0), 50);
+        check(cmdAxis(mc, MotionCommand::Type::EngageDevice, -1), "EngageDevice enqueues");
+        runCycles(mc, sim(0.0), 100);
+        check(mc.isAxisHomed(DEV),
+              "EngageDevice unhomed: the press starts homing (sim: instant)");
+        check(mc.getAxisState(DEV) == AxisMotionState::PARKED,
+              "homing on engage request ends LIMP, not engaged");
+    }
+
+    // ---- Homed device lifecycle; rig homing/auto-unpark never engages ------
+    {
+        MotionController mc;
+        mc.configure(makeDeviceRigConfig());
+        runCycles(mc, sim(0.0), 50);
+        cmdAxis(mc, MotionCommand::Type::EngageDevice, -1);   // press 1: home
+        runCycles(mc, sim(0.0), 200);
+        check(mc.isAxisHomed(DEV), "device homed via its button");
+        cmd(mc, MotionCommand::Type::StartHoming);            // rig homes around it
+        runCycles(mc, sim(0.0), 200);
         MotionOutput out = runCycles(mc, sim(0.3), 100);
         check(mc.getAxisState(DEV) == AxisMotionState::PARKED,
               "post-homing auto-unpark: device stays PARKED (limp)");
@@ -299,7 +321,7 @@ int main()
         MotionController mc;
         mc.configure(makeDeviceRigConfig());
         runCycles(mc, sim(0.0), 50);
-        cmd(mc, MotionCommand::Type::StartHoming);
+        cmdAxis(mc, MotionCommand::Type::EngageDevice, -1);   // press 1: home
         runCycles(mc, sim(0.0), 200);
         mc.setEmergencyStop(true);
         runCycles(mc, sim(0.0), 50);

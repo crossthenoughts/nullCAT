@@ -196,6 +196,10 @@ int main()
           "POST /api/device/release accepted");
     check(has(post("/api/device/engage", "{\"axis\":99}"), "\"ok\":false"),
           "POST /api/device/engage axis out of range: refused");
+    check(has(post("/api/device-toggle"), "No device axes"),
+          "POST /api/device-toggle on a device-less rig: visible refusal");
+    check(has(get("/api/status"), "\"hasDevices\":false"),
+          "status: hasDevices false on a device-less rig");
 
     // ---- toggle endpoints (one button per pair; server-resolved + guarded) ----
     // Runs BEFORE the e-stop section: e-stop release triggers a re-home, and

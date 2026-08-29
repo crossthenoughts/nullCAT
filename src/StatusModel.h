@@ -115,4 +115,21 @@ struct BeltAggregates
 BeltAggregates deriveBeltAggregates(const AxisMotionState* states, int numStates,
                                     const bool* isTorque, int numConfig);
 
+// Device axes (shifter/pedal): drives the three-state device toggle -
+// home (any unhomed) -> engage (all homed, none live) -> release (any
+// live). One derivation for web, HID binds, and the GPIO panel so every
+// surface resolves identically.
+struct DeviceAggregates
+{
+    bool hasDevices   = false;  // any config axis of a device family
+    bool anyEngaged   = false;  // any device BLENDING or ONLINE
+    bool allHomed     = false;  // hasDevices AND every device axis homed
+    // Any device mid-transition: HOMING / PARKING / ESTOPPING. The toggle
+    // refuses while true (no-ops, never reversals).
+    bool transitional = false;
+};
+DeviceAggregates deriveDeviceAggregates(const AxisMotionState* states, int numStates,
+                                        const bool* homed,
+                                        const bool* isDevice, int numConfig);
+
 } // namespace status

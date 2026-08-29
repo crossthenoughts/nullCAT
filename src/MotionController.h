@@ -139,6 +139,14 @@ public:
     void setCarCache(const std::vector<CachedCar>& cars)
     { m_ratioLearner.setCache(cars.data(), (int)cars.size()); }
 
+    // ---- Device live-apply (the tuning path) ----
+    // A rig save stages new device params here (web thread, under the
+    // lock); the RT thread applies them the next cycle the device rests
+    // LIMP (PARKED) - feel edits never need a restart. Anything staged
+    // while engaged applies on release. Non-device settings keep the
+    // restart semantics.
+    void stageDeviceParams(int axisIndex, const DeviceParams& p);
+
 private:
     // Belt runaway guards (overspeed persistence + net-travel cap), armed in
     // BLENDING and ONLINE. Returns true if tripped: state latched to PARKED
@@ -407,6 +415,13 @@ private:
     // Per-car gear-ratio learner (survives configure(): re-init must not
     // forget a session's driving; only setCarCache() reseeds the cache).
     GearRatioLearner m_ratioLearner;
+    // Device live-apply staging (see stageDeviceParams). The mask is the
+    // lock-free "anything pending?" fast path; the params copy under the
+    // lock is brief and only contends with a web save.
+    std::mutex            m_devApplyLock;
+    DeviceParams          m_devPending[MAX_DRIVES];
+    std::atomic<uint16_t> m_devPendingMask{0};
+    void applyPendingDeviceParams();
     bool             m_seatActive[MAX_DRIVES] = {};   // axes selected by startSeatHoming() (deinit seat)
     std::atomic<bool> m_emergencyStop{false};
     double           m_estopElapsed = 0.0;

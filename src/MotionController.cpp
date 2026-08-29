@@ -519,6 +519,10 @@ bool MotionController::allAxesHomed() const
     for (int i = 0; i < m_numDrives; ++i)
     {
         if (!m_axisConfig[i].caps.homes) continue;
+        // Devices are lifecycle-independent of the rig (like belts): they
+        // home via their own deliberate engage flow, so they must never
+        // hold the post-homing auto-unpark hostage.
+        if (m_axisConfig[i].caps.isDevice()) continue;
         if (!m_runtime[i].homed) return false;
     }
     return true;
@@ -529,6 +533,7 @@ bool MotionController::allAxesReady() const
     for (int i = 0; i < m_numDrives; ++i)
     {
         if (!m_axisConfig[i].caps.homes) continue;
+        if (m_axisConfig[i].caps.isDevice()) continue;   // device readiness is its own affair
         if (m_axisState[i] != AxisMotionState::ONLINE &&
             m_axisState[i] != AxisMotionState::BLENDING) return false;
     }
@@ -555,6 +560,16 @@ void MotionController::startHoming(int axisIndex)
         {
             RT_LOG_INFO("MotionController: Axis %d is belt type -- skipping homing.", i + 1);
             m_runtime[i].homed = true;
+            continue;
+        }
+        // Home-ALL never grabs a device: a homing push must not surprise a
+        // hand resting on the lever when the rig comes up (or on e-stop
+        // release). Devices home through their own deliberate action - the
+        // device button, or an explicitly TARGETED home of that one axis.
+        if (axisIndex < 0 && m_axisConfig[i].caps.isDevice())
+        {
+            RT_LOG_INFO("MotionController: Axis %d is a device -- homes via its "
+                        "engage button, not home-all.", i + 1);
             continue;
         }
         // Reset HomingSequence regardless of what state it was in.
@@ -838,10 +853,17 @@ void MotionController::engageDevices(int axisIndex)
         if (!m_axisConfig[i].caps.isDevice()) continue;
         if (!m_runtime[i].homed)
         {
-            // The force field is home-frame; without the latched stop the
-            // configured geometry points nowhere. Same rail as unpark.
-            RT_LOG_WARNING("MotionController: Axis %d (device) not engaged -- never homed "
-                           "(no position reference). Home first.", i + 1);
+            // The deliberate press IS the homing authorization: an unhomed
+            // device starts its gentle stall-search here (and ends LIMP -
+            // the next press engages). This is the three-state device
+            // button: home -> engage -> release.
+            if (m_axisState[i] == AxisMotionState::PARKED)
+            {
+                m_torqueHoming[i].reset();
+                m_axisState[i] = AxisMotionState::HOMING;
+                RT_LOG_INFO("MotionController: Axis %d (device) homing on engage "
+                            "request -- will rest limp when done.", i + 1);
+            }
             continue;
         }
         AxisMotionState& state = m_axisState[i];
@@ -876,6 +898,44 @@ void MotionController::releaseDevices(int axisIndex)
             state = AxisMotionState::PARKING;   // device PARKING = force ramp to 0
             RT_LOG_INFO("MotionController: Axis %d (device) releasing -- easing to limp.", i + 1);
         }
+    }
+}
+
+// ---- Device live-apply (tuning path) -------------------------------------------
+
+void MotionController::stageDeviceParams(int axisIndex, const DeviceParams& p)
+{
+    if (axisIndex < 0 || axisIndex >= m_numDrives) return;
+    if (!m_axisConfig[axisIndex].caps.isDevice()) return;
+    {
+        std::lock_guard<std::mutex> lk(m_devApplyLock);
+        m_devPending[axisIndex] = p;
+    }
+    m_devPendingMask.fetch_or(uint16_t(1u << axisIndex), std::memory_order_release);
+}
+
+void MotionController::applyPendingDeviceParams()
+{
+    const uint16_t mask = m_devPendingMask.load(std::memory_order_acquire);
+    if (!mask) return;
+    for (int i = 0; i < m_numDrives; ++i)
+    {
+        if (!(mask & (1u << i))) continue;
+        // Apply only while LIMP: the force field re-seeds cleanly with the
+        // lever at rest; anything staged mid-engage waits for release.
+        if (m_axisState[i] != AxisMotionState::PARKED) continue;
+        DeviceParams p;
+        {
+            std::lock_guard<std::mutex> lk(m_devApplyLock);
+            p = m_devPending[i];
+        }
+        m_devPendingMask.fetch_and(uint16_t(~(1u << i)), std::memory_order_release);
+        AxisConfig& ac = m_axisConfig[i];
+        ac.device = p;
+        m_runtime[i].deviceModel.configure(p, m_cycleTimeSec);
+        m_runtime[i].deviceState.configure(p);
+        m_torqueHoming[i].configure(p, ac.beltUnitsPerRev, m_cycleTimeSec);
+        RT_LOG_INFO("MotionController: Axis %d (device) settings applied live.", i + 1);
     }
 }
 
@@ -1648,6 +1708,9 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
     // Drain UI commands first -- all m_axisState[] writes from UI-initiated
     // commands (StartHoming, StartPark) happen here on the RT thread.
     drainCommands(drives, numHwDrives);
+
+    // Device live-apply: staged feel/geometry params land on limp devices.
+    applyPendingDeviceParams();
 
     // Telemetry-quiet tracking for the commissioning entry rail: a test must
     // not start while a game/SimHub stream is live (the two would fight).

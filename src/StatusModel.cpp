@@ -212,4 +212,30 @@ BeltAggregates deriveBeltAggregates(const AxisMotionState* states, int numStates
     return b;
 }
 
+DeviceAggregates deriveDeviceAggregates(const AxisMotionState* states, int numStates,
+                                        const bool* homed,
+                                        const bool* isDevice, int numConfig)
+{
+    DeviceAggregates d;
+    bool allHomed = true;
+    for (int i = 0; i < numConfig && i < MAX_DRIVES; ++i)
+    {
+        if (!isDevice[i]) continue;
+        d.hasDevices = true;
+        if (i < numStates)
+        {
+            const AxisMotionState st = states[i];
+            if (st == AxisMotionState::BLENDING || st == AxisMotionState::ONLINE)
+                d.anyEngaged = true;
+            if (st == AxisMotionState::HOMING || st == AxisMotionState::PARKING ||
+                st == AxisMotionState::ESTOPPING)
+                d.transitional = true;
+            if (!homed[i]) allHomed = false;
+        }
+        else allHomed = false;   // beyond the engine snapshot: no reference
+    }
+    d.allHomed = d.hasDevices && allHomed;
+    return d;
+}
+
 } // namespace status
