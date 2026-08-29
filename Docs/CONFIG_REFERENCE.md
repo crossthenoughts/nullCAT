@@ -92,8 +92,10 @@ the drives (see SAFETY.md).
 | `gpioMode` | string | `"off"` | `off`, `estop` (mushroom only), `estop_led` (mushroom + LEDs), `full` (buttons + LEDs). |
 | `gpioChip` | string | `"gpiochip0"` | |
 | `gpioEstopPin` | int | `17` | Level-sampled; mushroom should be a latching NC type. |
-| `gpioEngagePin` | int | `27` | |
-| `gpioParkPin` | int | `22` | |
+| `gpioEngagePin` | int | `27` | The RUN button: offline = Initialize (start auto-chains), stopped = Start, running = Stop. `0` = not fitted. |
+| `gpioParkPin` | int | `22` | Park/unpark toggle. `0` = not fitted. |
+| `gpioBeltPin` | int | `4` | Belt slack/tension toggle (header pin 7, directly above the estop/run/park run at 11/13/15). `0` = not fitted. |
+| `gpioDevicePin` | int | `18` | Device home/engage/release toggle (header pin 12). `0` = not fitted. Any subset of buttons may be wired - compact panels just zero the rest. |
 | `gpioLedRunPin` | int | `23` | |
 | `gpioLedReadyPin` | int | `24` | |
 | `gpioLedFaultPin` | int | `25` | |
@@ -162,7 +164,9 @@ Top level: `configVersion`, `numDrives` (1 to 10, must match `axes[]`),
 Present only on `shifter`/`pedal` axes: the force feel and the torque
 homing. All positions are motor revolutions in the HOME frame (exactly as
 configured: neutral, detents, stops); `dir` alone maps a mirrored
-mechanical build. Curves are `[[x, y], ...]` node arrays sampled
+mechanical build. Unlike every other setting, the `device` object
+LIVE-APPLIES on save the moment that device is limp (staged if engaged,
+landing on release) - feel tuning never needs a restart. Curves are `[[x, y], ...]` node arrays sampled
 piecewise-linear with ends clamped; `y` is the force RESISTING
 displacement at `x` (percent of rated torque). A curve whose first `x` is
 negative is sampled as drawn (asymmetric); otherwise it is mirrored about
@@ -180,6 +184,8 @@ zero. The web Devices section ships starter presets for the whole object.
 | `stopDamp` | double | `60` | Extra damping inside the stop, %/(rev/s). |
 | `lashRev` | double | `0.0` | Free-play band about neutral (worn-linkage feel). |
 | `dampPctPerRevS` | double | `15` | Viscous damping everywhere. |
+| `frictionPct` | double | `0.0` | Dry (Coulomb) friction opposing motion - the mechanical-linkage feel viscous damping alone cannot give. `0` = off. |
+| `breakoutScale` | double | `1.0` | Detent force multiplier while pulling OUT of a slot: into gear easy, out of gear firm. `1` = symmetric. |
 | `velLpfHz` | double | `40` | Velocity estimate low-pass. |
 | `maxForcePct` | double | `100` | Model output clamp, % of rated. Above it only the drive's own 0x6072 torque limit still caps (`torqueMinPct`/`torqueMaxPct` are belt fields; the device path never reads them). |
 | `homeTorquePct` | double | `30` | Homing push, % of rated (5 to 100). Keep low: it presses a mechanism against its own stop. |

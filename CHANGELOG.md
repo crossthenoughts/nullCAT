@@ -31,6 +31,22 @@ middle number carries breaking changes and the last carries fixes.
   remembered across sessions in carcache.json - no car database), and
   a clutchless shift with the engine blipped to within `rpmMatchPct`
   of the destination gear goes in instead of grinding.
+- Devices are lifecycle-independent of the rig: they never home at
+  loop start, home-all, or e-stop release. Their button is three-state
+  (first press homes and rests limp, next engages, engaged releases),
+  identical on the web card, the bindable `device-toggle`, and a new
+  GPIO device button; a GPIO belt button joins it, and any panel
+  button pin can be set 0 = not fitted for compact builds.
+- Device settings live-apply on save while the device is limp - feel
+  tuning with no restarts. Travel is taught by sweep (home, waggle the
+  lever, Capture travel) and the gate layout derives from a profile:
+  H/sequential, N-slot selector (automatic-style lever on the same
+  hardware), or custom. Hand-crafted feels save as named presets.
+- Shifter feel: dry friction and breakout asymmetry (out of gear firm,
+  into gear easy) join the model; presets re-cut with the detents at
+  the engagement positions and a gate-shaped spring; the curve editors
+  show a live lever dot; the belt guard fields explain what each knob
+  does to the belt.
 - The Pi updates itself: a Software block in the web UI checks GitHub
   for a newer release and updates on click (rig parked, EtherCAT
   stopped). Releases now ship a prebuilt Pi tarball, installs live as
@@ -49,6 +65,12 @@ middle number carries breaking changes and the last carries fixes.
   clears the wedge, instead of the shallow PreOP walk that did not.
   Unreadable DC margins are labelled as such instead of asserting a
   pulse state that was never observed.
+- Re-running install.sh for the version already installed destroyed
+  the live config before adopting it (bench edits lost). The installer
+  now stashes the config first, and both it and the updater carry
+  carcache.json and devicepresets.json forward.
+- The EtherCAT init-failure message no longer tells Pi users to check
+  Npcap (Windows advice); Linux gets NIC-name/capability guidance.
 
 ## [0.9.4] - 2026-08-28
 

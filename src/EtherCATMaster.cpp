@@ -709,7 +709,14 @@ InitResult EtherCATMaster::initialize(const std::string& nicName)
 
     if (!ok)
     {
+#ifdef _WIN32
         m_lastError = strf("ecx_init() failed for '%s'. Run as Administrator, check Npcap.", nicName.c_str());
+#else
+        m_lastError = strf("ecx_init() failed for '%s'. Check the NIC name in host.json "
+                           "(ip link lists interfaces; the Pi's EtherCAT port is usually eth0), "
+                           "the cable, and that the binary has raw-socket capability "
+                           "(install.sh grants it).", nicName.c_str());
+#endif
         LOG_ERROR(m_lastError);
         return InitResult::fail(InitError::NicNotFound, m_lastError);
     }
@@ -728,7 +735,7 @@ InitResult EtherCATMaster::initialize(const std::string& nicName)
         {
             ecx_BRD(&ctx->port, 0x0000, 0, sizeof(dummy), &dummy, EC_TIMEOUTRET);
         }
-        LOG_INFO("EtherCATMaster: Pre-config-init Npcap drain complete.");
+        LOG_INFO("EtherCATMaster: Pre-config-init NIC receive-buffer drain complete.");
     }
 
     // Single config_init attempt (no retry -- retry corrupts SOEM state)
@@ -742,7 +749,7 @@ InitResult EtherCATMaster::initialize(const std::string& nicName)
         m_lastError = strf(
             "ecx_config_init() crashed (0x%08x).\n"
             "Possible causes:\n"
-            "  - Stale frames in Npcap RX buffer from prior session\n"
+            "  - Stale frames in the NIC receive buffer from a prior session\n"
             "  - Drive ESC in corrupted state (post-fault residual)\n"
             "Recovery: close app, wait 10 seconds, retry.\n"
             "If problem persists: power-cycle drives, then retry.",
@@ -1226,7 +1233,7 @@ InitResult EtherCATMaster::discoverAndPrepareSlaves(ecx_contextt* ctx, int& outT
         {
             ecx_BRD(&ctx->port, 0x0000, 0, sizeof(dummy), &dummy, EC_TIMEOUTRET);
         }
-        LOG_INFO("EtherCATMaster: Npcap frame buffer flushed.");
+        LOG_INFO("EtherCATMaster: NIC receive buffer flushed.");
     }
 
     // SM1 state snapshot before first SDO.
