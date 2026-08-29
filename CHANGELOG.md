@@ -7,6 +7,15 @@ middle number carries breaking changes and the last carries fixes.
 ## [0.9.5] - unreleased
 
 ### Added
+- Force devices, first slice (Pi): two new axis types, `shifter` and
+  `pedal`, driven in torque mode by a per-cycle force model (centring
+  spring, detents, end stops, damping, free play - all curve-based with
+  its own guard chain). A device homes by pushing gently against its
+  travel stop, rests limp until engaged, and engages/releases through
+  `/api/device/engage|release` - belt and park commands never touch it.
+  The web UI gains a Devices section with starter presets, enabled by a
+  new `webShowDevices` host setting. Bench validation of the feel is
+  still ahead of it; a graphical curve editor is on the roadmap.
 - The Pi updates itself: a Software block in the web UI checks GitHub
   for a newer release and updates on click (rig parked, EtherCAT
   stopped). Releases now ship a prebuilt Pi tarball, installs live as

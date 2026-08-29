@@ -1,7 +1,7 @@
 {
     "_documentation": "host.json -- PER-MACHINE config: NIC, network, timing, services, foreground keeper, GPIO. Travels with the controlling computer, NOT the rig. On the Windows/Qt build the desktop app owns this file (read-only in the web UI); on a headless build the web UI owns it. Copy any line into your live host.json to override the compiled-in default. Keys prefixed with '_' are documentation-only and ignored by the parser. See Docs/CONFIG_REFERENCE.md for descriptions and units.",
     "configVersion": 2,
-    "_section_network": "EtherCAT NIC + telemetry + web UI. telemetryBindAddr: 127.0.0.1 suits same-PC telemetry (Windows); a NUC sets its LAN IP or 0.0.0.0; Linux/Pi auto-corrects loopback to all-interfaces; dedicated-NUC setups see NUC_DEPLOYMENT.md. webAllowedHosts: extra Host-header names beyond the machine's own (localhost/hostname/interface addresses are always accepted). tempPollSec: IGBT temp poll period, 0 disables (Windows default 0). dcPhaseLock*: dormant compensator, keep disabled unless rig-validated. webUIEnabled defaults false on the Qt build; set true to expose the dashboard at webBindAddr:webPort.",
+    "_section_network": "EtherCAT NIC + telemetry + web UI. telemetryBindAddr: 127.0.0.1 suits same-PC telemetry (Windows); a NUC sets its LAN IP or 0.0.0.0; Linux/Pi auto-corrects loopback to all-interfaces; dedicated-NUC setups see NUC_DEPLOYMENT.md. webAllowedHosts: extra Host-header names beyond the machine's own (localhost/hostname/interface addresses are always accepted). tempPollSec: IGBT temp poll period, 0 disables (Windows default 0). dcPhaseLock*: dormant compensator, keep disabled unless rig-validated. webUIEnabled defaults false on the Qt build; set true to expose the dashboard at webBindAddr:webPort. webShowDevices shows the web Devices section (force devices: shifter/pedal; Pi builds).",
     "nicName": "",
     "controlLoopHz": 500,
     "tempPollSec": 15.0,
@@ -11,6 +11,7 @@
     "webBindAddr": "127.0.0.1",
     "webAllowedHosts": [],
     "webUIEnabled": false,
+    "webShowDevices": false,
     "dcSyncOffsetNs": 0,
     "dcPhaseLockEnabled": false,
     "dcPhaseLockKp": 2.5,

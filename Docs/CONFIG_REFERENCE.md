@@ -38,6 +38,7 @@ ignored (the flat-file migration from pre-release builds was retired).
 | `webBindAddr` | string | `"127.0.0.1"` | `"0.0.0.0"` allows access from other machines on the LAN. The Pi installer seeds `0.0.0.0` into host.json (a headless controller is browsed from another machine); the compiled default suits the same-PC Windows case. |
 | `webAllowedHosts` | string[] | `[]` | Extra Host-header names the web server accepts, e.g. a router-assigned DNS alias. Localhost forms, the machine's own hostname (bare and `.local`), the bind address, and all local interface addresses are always accepted; this list only appends. Part of the fail-closed Host allowlist that blocks DNS rebinding (see KNOWN_LIMITATIONS, security section). |
 | `webUIEnabled` | bool | `false` | Off by default on Windows installs where the Qt UI is the primary control surface; the headless build runs with it on. On the Qt build, toggle it with the main window's web on/off button (which persists the choice here); it is not in the Settings dialog. |
+| `webShowDevices` | bool | `false` | Shows the Devices section in the web UI (force devices: shifter, active pedal) and adds the device axis types to the axis editor. The tickbox lives under Advanced in the web config; Pi builds only (the row is hidden elsewhere). Purely a UI switch: device axes in rig.json work regardless. |
 
 ### EtherCAT timing and init
 
@@ -120,8 +121,8 @@ Top level: `configVersion`, `numDrives` (1 to 10, must match `axes[]`),
 |---|---|---|---|
 | `slaveIndex` | int | position | 1-based EtherCAT bus position. |
 | `name` | string | `"Drive N"` | Label for UI and logs. |
-| `mode` | string | `"csp"` | DS402 mode at init. `csp`: cyclic sync position, strict tracking. `pp`: the drive's internal profile generator hunts the target, a softer motion character. `torque`: CST, for belt tensioners. (`cst` in old configs is normalised to `torque`.) |
-| `axisType` | string | `"linear_vertical"` | `linear_vertical`, `linear_horizontal`, `rotary_lever`, `belt`. For `rotary_lever` the engineering unit is DEGREES at the lever shaft: `strokeMm` = arc travel in degrees, velocities/accels in deg/s and deg/s2, `homingBackoffMm` in degrees. Internally `ballscrewPitch` is pinned to 360 (360 units per output rev - the web editor forces and hides it) and `reductionRatio` carries the gearbox (e.g. `"50:1"`), giving counts/deg = encoderCountsPerRev x ratio / 360. Motion path, homing, guards, and commissioning are unit-agnostic and behave identically. |
+| `mode` | string | `"csp"` | DS402 mode at init. `csp`: cyclic sync position, strict tracking. `pp`: the drive's internal profile generator hunts the target, a softer motion character. `torque`: CST, for belt tensioners and device axes (shifter/pedal require it). (`cst` in old configs is normalised to `torque`.) |
+| `axisType` | string | `"linear_vertical"` | `linear_vertical`, `linear_horizontal`, `rotary_lever`, `belt`, `shifter`, `pedal`. The device types (`shifter`, `pedal`) are force-feedback devices: torque mode only, homed by a gentle stall search against a travel stop, engaged/released via their own commands, never touched by belt or unpark commands. Their feel lives in the nested `device` object below. For `rotary_lever` the engineering unit is DEGREES at the lever shaft: `strokeMm` = arc travel in degrees, velocities/accels in deg/s and deg/s2, `homingBackoffMm` in degrees. Internally `ballscrewPitch` is pinned to 360 (360 units per output rev - the web editor forces and hides it) and `reductionRatio` carries the gearbox (e.g. `"50:1"`), giving counts/deg = encoderCountsPerRev x ratio / 360. Motion path, homing, guards, and commissioning are unit-agnostic and behave identically. |
 | `invertDir` | bool | `false` | The axis's mechanical polarity: tick (true) for a foldback linkage, leave off for an inline actuator. Determines which motor direction is "retract", so it sets the homing search direction AND the telemetry response together (one mechanical reversal flips both). If a new axis homes toward the wrong end, this is the setting to flip. Since 0.9.2; before that it only reversed the telemetry response. |
 | `strokeMm` | double | `100.0` | Usable travel (linear types). Homing's stroke guard trips at 1.5x this if the hardstop is never found. |
 | `ballscrewPitch` | double | `10.0` | mm per motor revolution (linear types). |
@@ -154,6 +155,38 @@ Top level: `configVersion`, `numDrives` (1 to 10, must match `axes[]`),
 | `beltRelaxerPct` | double | `80.0` | |
 
 `rotationCount` in old rig files is ignored on load and no longer saved.
+
+### axes[].device (device axes only)
+
+Present only on `shifter`/`pedal` axes: the force feel and the torque
+homing. All positions are motor revolutions in the HOME frame (exactly as
+configured: neutral, detents, stops); `dir` alone maps a mirrored
+mechanical build. Curves are `[[x, y], ...]` node arrays sampled
+piecewise-linear with ends clamped; `y` is the force RESISTING
+displacement at `x` (percent of rated torque). A curve whose first `x` is
+negative is sampled as drawn (asymmetric); otherwise it is mirrored about
+zero. The web Devices section ships starter presets for the whole object.
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `dir` | double | `1` | `+1` or `-1`: maps the model's force onto the motor's torque sign (and motor position onto the device frame). Flip for a mirrored build; never edit the geometry for that. |
+| `neutralRev` | double | `0.0` | Rest position, revs from home. |
+| `springCurve` | nodes | `[]` | Centring force vs displacement from neutral. Empty contributes nothing. |
+| `detents` | double[] | `[]` | Detent centre positions (home frame). Only the nearest one acts. |
+| `detentCurve` | nodes | `[]` | Force profile relative to a detent centre. Drawn rising through zero it captures; inverted it pushes through (over-centre click). |
+| `stopMinRev` / `stopMaxRev` | double | `-0.07` / `0.07` | Soft end stops. Homing lands on the `homeDir` stop and latches the frame there. |
+| `stopSpring` | double | `20000` | Stop wall stiffness, %/rev. |
+| `stopDamp` | double | `60` | Extra damping inside the stop, %/(rev/s). |
+| `lashRev` | double | `0.0` | Free-play band about neutral (worn-linkage feel). |
+| `dampPctPerRevS` | double | `15` | Viscous damping everywhere. |
+| `velLpfHz` | double | `40` | Velocity estimate low-pass. |
+| `maxForcePct` | double | `100` | Model output clamp, % of rated. The axis `torqueMaxPct` and the drive's 0x6072 still cap above it. |
+| `homeTorquePct` | double | `30` | Homing push, % of rated (5 to 100). Keep low: it presses a mechanism against its own stop. |
+| `homeDir` | double | `-1` | Which stop homing pushes toward, in the DEVICE frame: `-1` = `stopMinRev`, `+1` = `stopMaxRev`. |
+| `slewPctPerSec` | double | `20000` | Output slew cap. A feel knob at the default; still the safety envelope for a bad curve edit landing mid-session. |
+| `thermalDwellSec` | double | `0.0` | Sustained near-ceiling output for this long eases to zero until demand drops (pre-empts drive i2t). `0` disables. |
+| `thermalPct` | double | `80` | Fraction of `maxForcePct` that counts as near-ceiling. |
+| `foldRpm` | double | `0.0` | Anti-runaway velocity fold knee (same idea as `beltMaxRpm`). `0` disables. |
 
 ## Telemetry wire format (UDP input)
 

@@ -117,6 +117,14 @@
         <button type="button" id="updCheck">Check for updates</button>
         <button type="button" id="updGo" hidden>Update</button>
       </div>
+      <div class="cgrp" id="devBlock" hidden style="grid-column:1/-1">
+        <div class="gt">Devices</div>
+        <div class="cfg-note">A device is an axis of type <code>shifter</code> or <code>pedal</code>. It homes
+          by pushing gently against its travel stop, then rests limp (moves freely) until engaged.
+          Engage loads the force feel; Release goes limp again. Feel comes from the device parameters -
+          apply a preset as a starting point, edit if you like, then Save.</div>
+        <div id="devCards"><p class="cfg-note">No device axes configured. Add an axis and set its type to shifter or pedal.</p></div>
+      </div>
       <div class="cgrp">
         <div class="gt">Advanced / EtherCAT tuning</div>
         <label class="frow"><span>Command sync cycles</span><input id="cf-cmdsync" type="number"></label>
@@ -124,6 +132,7 @@
         <label class="frow"><span>WKC valid. thresh</span><input id="cf-wkcthr" type="number" step="0.05"></label>
         <label class="frow"><span>Capability scan</span><input id="cf-capscan" type="checkbox"></label>
         <label class="frow"><span>Require fault reset</span><input id="cf-reqreset" type="checkbox"></label>
+        <label class="frow" id="devShowRow" hidden><span>Device controls</span><input id="cf-showdev" type="checkbox"></label>
       </div>
       <div class="cgrp">
         <div class="gt">GPIO control panel</div>

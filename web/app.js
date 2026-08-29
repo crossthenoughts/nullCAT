@@ -18,7 +18,8 @@ let lastRecvMs=0, jpeak=0, ecatMode='init', parkBtnMode='park', beltsSlack=false
 const SPARK_N=60; const jbuf=new Float32Array(SPARK_N); let jhead=0, jfill=0;
 const peaks={};   // per-drive sticky {vel,trq}
 
-const TYPE={ linear_vertical:'VERT', linear_horizontal:'HORIZ', belt:'BELT', rotary_lever:'ROT' };
+const TYPE={ linear_vertical:'VERT', linear_horizontal:'HORIZ', belt:'BELT', rotary_lever:'ROT',
+             shifter:'SHIFT', pedal:'PEDAL' };
 const hex4=(v)=> '0x'+(((v|0)&0xFFFF)>>>0).toString(16).toUpperCase().padStart(4,'0');
 // (DS402 statusword decode + the local status derivation moved to the shared
 //  StatusModel; the web consumes /api/status `ind`/`aggregate`. hex4() is still
@@ -62,6 +63,7 @@ function applyState(s){
   renderSpark();
 
   buildDriveCards(s.drives||[], running);
+  devPoll(s);
   driveCount.textContent = (s.numDrives ?? (s.drives||[]).length)+' axes';
   // commissioning panel needs the axis list + loop state
   tstDrives = s.drives||[]; tstLoopRunning = running; refreshTestButtons();
@@ -336,7 +338,8 @@ function setField(id,v){ const el=$(id); if(!el||v==null) return; if(el.type==='
 
 // host.json inputs - disabled when a native app owns host (hostOwner==="native").
 const HOST_INPUT_IDS=['cf-sim','cf-nic','cf-hz','cf-wd','cf-dc','cf-bind','cf-wport','cf-sport','cf-sbind',
-  'cf-loglvl','cf-logfile','cf-logcon','cf-diag','cf-temppoll','cf-cmdsync','cf-wkccyc','cf-wkcthr','cf-capscan','cf-gpiomode','cf-ledtest'];
+  'cf-loglvl','cf-logfile','cf-logcon','cf-diag','cf-temppoll','cf-cmdsync','cf-wkccyc','cf-wkcthr','cf-capscan','cf-gpiomode','cf-ledtest',
+  'cf-showdev'];
 function applyHostOwnership(){
   const native=(meta.hostOwner==='native');
   // Ownership as labeled groups, not mysteriously-greyed fields: every group
@@ -503,11 +506,13 @@ async function loadConfig(){
     setField('cf-cmdsync',host.commandSyncCycles); setField('cf-wkccyc',host.wkcValidationCycles);
     setField('cf-wkcthr',host.wkcValidationThreshold); setField('cf-capscan',host.enableCapabilityScan);
     setField('cf-gpiomode',host.gpioMode||'off');
+    setField('cf-showdev',host.webShowDevices);
     // rig.global fields (portable feel/policy)
     setField('cf-blendt',rig.blendTimeSec); setField('cf-blendv',rig.blendMaxVelocityMmS);
     setField('cf-condmode',rig.conditioningMode||'bypass'); updateCondNote();
     setField('cf-reqreset',rig.requireUserFaultReset);
     applyHostOwnership();
+    devInit();
     populateAxisEditor();
     cfgBaseline=snapshotCfg();   // loaded state = the clean baseline
     refreshDirtyUI();
@@ -556,7 +561,8 @@ async function saveConfig(){
         simulationMode:$('cf-sim').checked, logFile:$('cf-logfile').value,
         commandSyncCycles:+$('cf-cmdsync').value, wkcValidationCycles:+$('cf-wkccyc').value,
         wkcValidationThreshold:+$('cf-wkcthr').value, enableCapabilityScan:$('cf-capscan').checked,
-        gpioMode:$('cf-gpiomode').value, gpioEnabled:($('cf-gpiomode').value!=='off') };
+        gpioMode:$('cf-gpiomode').value, gpioEnabled:($('cf-gpiomode').value!=='off'),
+        webShowDevices:$('cf-showdev').checked };
       const hr=await fetch(API+'/api/host',{method:'POST',body:JSON.stringify(host)}); const hj=await hr.json();
       if(!hj.ok){ st.textContent='✗ host: '+(hj.error||'save failed'); st.style.color='var(--danger)'; return; }
     }
@@ -681,6 +687,14 @@ function renderAxisFields(i){
       dd.ballscrewPitch=360;
       if(!(dd.followingErrorWindowMm<=45)) dd.followingErrorWindowMm=20;
     }
+    // Device families are torque-mode BY DEFINITION (validation enforces
+    // it); force the mode and seed a starter feel so a fresh device axis
+    // is valid the moment it is created. Devices card list tracks type edits.
+    if(k==='axisType'&&isDeviceType(dd.axisType)){
+      dd.mode='torque';
+      if(!dd.device) dd.device=JSON.parse(JSON.stringify(DEV_PRESETS['H-gate shifter (firm)']));
+    }
+    if(k==='axisType') devRender();
     // re-render so the filter-knee note tracks accel/vel/knee/mode changes
     if(['axisType','mode','trackingWnHz','maxAccelerationMmS2','maxVelocityMmS','torqueMaxPct','reductionRatio'].includes(k)) renderAxisFields(i); }; });
   refreshDirtyUI();   // re-apply amber markers on the freshly rendered fields
@@ -805,6 +819,99 @@ const semLt=(a,b)=>{ const A=String(a).split('.').map(Number),B=String(b).split(
       }catch(_){}
     },3000);
   }; }
+
+/* ============================================================
+   Devices (0.9.5): shifter / active-pedal force axes. Pi-targeted --
+   the section (and the host tickbox that enables it) only shows on
+   linux builds, and then only when webShowDevices is on. Engage /
+   Release go through /api/device/*; the feel is the axis's device{}
+   object, saved through the normal config Save. Presets are starting
+   points, not gospel; a graphical curve editor is on the roadmap.
+   Curve convention: y = force resisting displacement at x (revs).
+   ============================================================ */
+const DEV_PRESETS={
+ 'H-gate shifter (firm)':{dir:1,neutralRev:0,
+   springCurve:[[0,0],[0.02,25],[0.05,120],[0.07,175]],
+   detents:[0],detentCurve:[[-0.015,-55],[0,0],[0.015,55]],lashRev:0.004,
+   stopMinRev:-0.07,stopMaxRev:0.07,stopSpring:20000,stopDamp:60,
+   dampPctPerRevS:12,velLpfHz:40,maxForcePct:100,homeTorquePct:30,homeDir:-1,
+   slewPctPerSec:20000,thermalDwellSec:2,thermalPct:80,foldRpm:900},
+ 'Worn shifter (loose)':{dir:1,neutralRev:0,
+   springCurve:[[0,0],[0.03,18],[0.07,110]],
+   detents:[0],detentCurve:[[-0.02,-30],[0,0],[0.02,30]],lashRev:0.012,
+   stopMinRev:-0.07,stopMaxRev:0.07,stopSpring:14000,stopDamp:60,
+   dampPctPerRevS:7,velLpfHz:40,maxForcePct:90,homeTorquePct:25,homeDir:-1,
+   slewPctPerSec:20000,thermalDwellSec:2,thermalPct:80,foldRpm:900},
+ 'Active pedal (progressive)':{dir:1,neutralRev:0,
+   springCurve:[[0,12],[0.15,45],[0.3,95],[0.4,170]],
+   detents:[],detentCurve:[],lashRev:0,
+   stopMinRev:-0.01,stopMaxRev:0.4,stopSpring:20000,stopDamp:60,
+   dampPctPerRevS:18,velLpfHz:40,maxForcePct:120,homeTorquePct:20,homeDir:-1,
+   slewPctPerSec:20000,thermalDwellSec:3,thermalPct:80,foldRpm:600}};
+const isDeviceType=t=>t==='shifter'||t==='pedal';
+function devEnabled(){ return meta.platform==='linux' && !!($('cf-showdev')&&$('cf-showdev').checked); }
+function devAxes(){ return ((cfgObj&&cfgObj.drives)||[]).map((d,i)=>({d,i})).filter(x=>isDeviceType(x.d.axisType)); }
+function devInit(){
+  const row=$('devShowRow'); if(row) row.hidden=(meta.platform!=='linux');
+  const cb=$('cf-showdev'); if(cb&&!cb._wired){ cb._wired=true; cb.addEventListener('change',devRender); }
+  devRender();
+}
+function devRender(){
+  const blk=$('devBlock'); if(!blk) return;
+  const on=devEnabled();
+  blk.hidden=!on;
+  // The axis-type dropdown gains the device types only while the section
+  // is enabled -- adding a device axis is part of the same opt-in.
+  const typeSpec=AXIS_SPEC.find(f=>f.k==='axisType');
+  if(typeSpec){ const has=typeSpec.opts.includes('shifter');
+    if(on&&!has) typeSpec.opts.push('shifter','pedal');
+    else if(!on&&has) typeSpec.opts=typeSpec.opts.filter(t=>!isDeviceType(t)); }
+  if(!on) return;
+  const hostEl=$('devCards'); if(!hostEl) return;
+  const list=devAxes();
+  if(!list.length){ hostEl.innerHTML='<p class="cfg-note">No device axes configured. Add an axis below and set its type to shifter or pedal.</p>'; return; }
+  let h='';
+  for(const {d,i} of list){
+    const n=i+1;
+    h+=`<div class="frow"><span>Axis ${n} · ${d.name||TYPE[d.axisType]}</span>
+      <span style="display:flex;gap:6px;align-items:center">
+        <span id="devState-${n}" class="tag">-</span>
+        <button type="button" class="btn btn-sm btn-start" id="devEng-${n}">Engage</button>
+        <button type="button" class="btn btn-sm btn-stop" id="devRel-${n}">Release</button>
+      </span></div>
+      <div class="frow"><span>Preset</span>
+      <span style="display:flex;gap:6px;align-items:center">
+        <select id="devPre-${n}">${Object.keys(DEV_PRESETS).map(p=>`<option>${p}</option>`).join('')}</select>
+        <button type="button" class="btn btn-sm btn-warn" id="devApply-${n}">Apply preset</button>
+      </span></div>`;
+  }
+  h+='<div class="cfg-note" id="devMsg" style="grid-column:1/-1">A preset overwrites the axis device parameters - Save to persist. Fine-tuning: the device object in rig.json.</div>';
+  hostEl.innerHTML=h;
+  for(const {i} of list){
+    const n=i+1;
+    const eng=$('devEng-'+n); if(eng) eng.onclick=()=>postJson('/api/device/engage',{axis:n});
+    const rel=$('devRel-'+n); if(rel) rel.onclick=()=>postJson('/api/device/release',{axis:n});
+    const ap=$('devApply-'+n); if(ap) ap.onclick=()=>{
+      const p=DEV_PRESETS[$('devPre-'+n).value]; if(!p||!cfgObj||!cfgObj.drives[i]) return;
+      cfgObj.drives[i].device=JSON.parse(JSON.stringify(p));
+      cfgObj.drives[i].mode='torque';
+      const m=$('devMsg'); if(m) m.textContent='Preset applied to axis '+n+' - Save to persist.';
+      refreshDirtyUI();
+    };
+  }
+}
+function devPoll(s){
+  const blk=$('devBlock'); if(!blk||blk.hidden) return;
+  const running=!!s.loopRunning, estop=!!s.estop;
+  for(const {i} of devAxes()){
+    const n=i+1; const st=(s.drives&&s.drives[i]&&s.drives[i].state)||'-';
+    const el=$('devState-'+n); if(el) el.textContent=st;
+    const online=/online|blending/i.test(st);
+    const eng=$('devEng-'+n), rel=$('devRel-'+n);
+    if(eng) eng.disabled=!running||estop||online;
+    if(rel) rel.disabled=!running||estop||!online;
+  }
+}
 
 let tstDrives=[], tstLoopRunning=false, tstActive=false;
 const TSTKEY='nullcat.test.axes';

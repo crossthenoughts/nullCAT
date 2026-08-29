@@ -9,7 +9,7 @@
         "blendMaxVelocityMmS": 20.0,
         "requireUserFaultReset": false
     },
-    "_section_axes": "One object per axis. slaveIndex is the EtherCAT bus position (part of the rig's wiring). followingErrorWindowMm is PER-AXIS now (written to drive object 0x6065, counts = mm * countsPerMm). Future per-axis tuning -- inertia ratio (C00.06), notch freq/width/depth -- will live in each axis object too.",
+    "_section_axes": "One object per axis. slaveIndex is the EtherCAT bus position (part of the rig's wiring). followingErrorWindowMm is PER-AXIS now (written to drive object 0x6065, counts = mm * countsPerMm). Future per-axis tuning -- inertia ratio (C00.06), notch freq/width/depth -- will live in each axis object too. Device axes (axisType shifter|pedal, mode torque) additionally carry a nested 'device' object with the force feel and torque-homing settings -- the web Devices section seeds it from a preset; fields in Docs/CONFIG_REFERENCE.md.",
     "axes": [
         {
             "slaveIndex": 1,
