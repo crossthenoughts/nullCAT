@@ -27,10 +27,14 @@ that can hurt you.
    Advanced), and Save. The Devices section appears. (Pi builds only.)
 2. Add an axis and set its type to **shifter** or **pedal**. Torque mode
    is selected automatically and a starter feel is filled in.
-3. Check the geometry: `stopMinRev` / `stopMaxRev` are your mechanism's
-   real travel in motor revolutions, and `homeDir` picks which stop the
-   axis homes against. Wrong values here mean homing pushes the wrong
-   way - the travel guard will stop it, but get them right first.
+3. Set the geometry - easiest by hand. Home the device (it rests limp),
+   then in its Devices card: hold the lever at one end and press **Set
+   min here**, the other end and **Set max here**, the rest position and
+   **Set neutral here**, and each gear slot with **Add gate here**. Save.
+   The values are motor revolutions in the homed frame; you can also
+   type them directly into the fields. `Home toward` picks which stop
+   homing pushes against - wrong direction means homing pushes the wrong
+   way (the travel guard will stop it, but get it right first).
 4. Save, restart, initialize, home. The device card shows its state;
    press **Engage** when you want the feel live.
 5. Pick a preset as a starting point, then shape the feel directly: the

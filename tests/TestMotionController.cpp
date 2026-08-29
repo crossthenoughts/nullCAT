@@ -1494,6 +1494,9 @@ private slots:
         }
         QVERIFY2(mc.isAxisHomed(0), "device axis homed by stall search");
         QVERIFY(sawTorqueHomingName);
+        // Live lever position published for the web teach capture: the
+        // lever sits at the homed stop, which maps to stopMinRev.
+        QVERIFY(qAbs(mc.getMotionStatus().devPosRev[0] - (-0.07)) < 1e-9);
 
         // Auto-unpark fires for the rig, but a device NEVER engages through
         // it -- and the belt tension command must not grab it either.

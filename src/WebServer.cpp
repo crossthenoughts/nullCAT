@@ -386,6 +386,14 @@ std::string WebServer::buildStatusJson() const
             {
                 s += ",\"state\":" + jsonStr(ms.axisStateName[i]);
                 s += ",\"homed\":" + jsonBool(ms.homed[i]);
+                // Device axes: live lever position in home-frame revs
+                // (web teach capture). Meaningful once homed.
+                if (m_config && i < static_cast<int>(m_config->drives.size()))
+                {
+                    const std::string& at = m_config->drives[i].axisType;
+                    if (at == "shifter" || at == "pedal")
+                        s += ",\"devRev\":" + jsonDouble(ms.devPosRev[i], 4);
+                }
                 s += ",\"accelPeakMms2\":" + jsonDouble(ms.accelWinPeakMms2[i], 0); // peak WINDOWED commanded accel (headroom gauge)
                 s += ",\"accelClipPct\":"  + jsonDouble(ms.accelClipPct[i], 1);     // % cycles accel clamp bound
                 s += ",\"accelBindPct\":"  + jsonDouble(ms.accelBindPct[i], 1);     // % cycles braking clamp bound

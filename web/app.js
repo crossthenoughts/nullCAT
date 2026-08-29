@@ -855,6 +855,7 @@ const DEV_PRESETS={
    dampPctPerRevS:18,velLpfHz:40,maxForcePct:120,homeTorquePct:20,homeDir:-1,
    slewPctPerSec:20000,thermalDwellSec:3,thermalPct:80,foldRpm:600}};
 const isDeviceType=t=>t==='shifter'||t==='pedal';
+const devLive={};   // latest per-axis lever position (revs) from the status poll
 function devEnabled(){ return meta.platform==='linux' && !!($('cf-showdev')&&$('cf-showdev').checked); }
 function devAxes(){ return ((cfgObj&&cfgObj.drives)||[]).map((d,i)=>({d,i})).filter(x=>isDeviceType(x.d.axisType)); }
 function devInit(){
@@ -911,6 +912,15 @@ function devRender(){
         <option value="1"${gv('dir',1)>0?' selected':''}>normal</option>
         <option value="-1"${gv('dir',1)<0?' selected':''}>mirrored</option></select></label>
     </div>
+    <div class="devgeo" style="grid-column:1/-1">
+      <label><span>Lever now · rev</span><span class="devlive" id="devLive-${n}">-</span></label>
+      <button type="button" class="btn btn-sm" id="devT-${n}-min">Set min here</button>
+      <button type="button" class="btn btn-sm" id="devT-${n}-max">Set max here</button>
+      <button type="button" class="btn btn-sm" id="devT-${n}-neu">Set neutral here</button>
+      <button type="button" class="btn btn-sm btn-start" id="devT-${n}-gate">Add gate here</button>
+      <button type="button" class="btn btn-sm btn-stop" id="devT-${n}-cg">Clear gates</button>
+    </div>
+    <div class="cfg-note" style="grid-column:1/-1">Teach by hand: home the device (it rests limp), hold the lever at each end / neutral / gear slot and press the matching button, then Save. Values land in the fields above.</div>
       <div style="grid-column:1/-1;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">
         <div><div class="cfg-note">Centring spring</div><svg id="devSpring-${n}" class="devCurve"></svg></div>
         <div><div class="cfg-note">Detent profile</div><svg id="devDetent-${n}" class="devCurve"></svg></div>
@@ -943,6 +953,26 @@ function devRender(){
     wire('homeDir',(el,dv)=>{ dv.homeDir=+el.value; });
     wire('dir',   (el,dv)=>{ dv.dir=+el.value; });
     wire('detents',(el,dv)=>{ dv.detents=el.value.split(',').map(s=>+s.trim()).filter(v=>isFinite(v)); });
+    // Teach capture: take the LIVE lever position (devPoll keeps devLive
+    // fresh) into a field. Needs a homed device - before that the frame
+    // is unanchored and the value meaningless.
+    const teach=(id,fn)=>{ const el=$(`devT-${n}-${id}`); if(el) el.onclick=()=>{
+      const lv=devLive[n];
+      const m=$('devMsg');
+      if(id!=='cg'&&(lv===undefined)){ if(m) m.textContent='Teach needs a homed device (home first, lever rests limp).'; return; }
+      const dd=cfgObj.drives[i]; dd.device=dd.device||{}; fn(+((lv??0).toFixed(4)),dd.device);
+      // reflect into the fields without a full re-render
+      const set=(k,v)=>{ const f=$(`devF-${n}-${k}`); if(f) f.value=v; };
+      set('stopMinRev',dd.device.stopMinRev); set('stopMaxRev',dd.device.stopMaxRev);
+      set('neutralRev',dd.device.neutralRev);
+      const df=$(`devF-${n}-detents`); if(df) df.value=(dd.device.detents||[]).join(', ');
+      if(m) m.textContent='Captured - Save to persist.';
+      refreshDirtyUI(); }; };
+    teach('min',(v,dv)=>{ dv.stopMinRev=v; });
+    teach('max',(v,dv)=>{ dv.stopMaxRev=v; });
+    teach('neu',(v,dv)=>{ dv.neutralRev=v; });
+    teach('gate',(v,dv)=>{ dv.detents=[...(dv.detents||[]),v].sort((a,b)=>a-b); });
+    teach('cg',(v,dv)=>{ dv.detents=[]; });
   }
 }
 
@@ -1034,8 +1064,15 @@ function devPoll(s){
     +((s.gearsKnown|0)>0?` · ${s.gearsKnown} gear ratio${s.gearsKnown>1?'s':''} known`:'');
   const running=!!s.loopRunning, estop=!!s.estop;
   for(const {i} of devAxes()){
-    const n=i+1; const st=(s.drives&&s.drives[i]&&s.drives[i].state)||'-';
+    const n=i+1; const d=(s.drives&&s.drives[i])||{};
+    const st=d.state||'-';
     const el=$('devState-'+n); if(el) el.textContent=st;
+    // Live lever position for the teach row (only once homed - the frame
+    // is unanchored before that, so keep the capture disabled).
+    if(d.homed && typeof d.devRev==='number'){ devLive[n]=d.devRev;
+      const lv=$('devLive-'+n); if(lv) lv.textContent=d.devRev.toFixed(4); }
+    else { delete devLive[n];
+      const lv=$('devLive-'+n); if(lv) lv.textContent=d.homed===false?'(not homed)':'-'; }
     const online=/online|blending/i.test(st);
     const eng=$('devEng-'+n), rel=$('devRel-'+n);
     if(eng) eng.disabled=!running||estop||online;

@@ -640,6 +640,7 @@ void MotionController::publishStatus()
         m_statusSnapshot.beltCmdPct[i] = m_runtime[i].lastTension;
         m_statusSnapshot.beltGuard [i] = m_runtime[i].beltLastTripWhy ? m_runtime[i].beltLastTripWhy
                                        : (m_runtime[i].beltRelaxed ? 3 : 0);
+        m_statusSnapshot.devPosRev[i]  = m_runtime[i].devPosRev;
     }
     // Gear-ratio learner snapshot: the status surface reads it live; the
     // car-cache save reads the LAST published copy after the loop stops.
@@ -1701,6 +1702,13 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
 
         double outPos = rt.currentPos;
 
+        // Device axes: refresh the live lever position every cycle,
+        // whatever the state - the web teach capture reads it while the
+        // device rests limp (PARKED), where no step function runs.
+        if (ac.caps.isDevice())
+            rt.devPosRev = deviceCurrentRev(i,
+                (drives && i < numHwDrives) ? drives[i] : nullptr);
+
         switch (state)
         {
         case AxisMotionState::HOMING:
@@ -2054,6 +2062,8 @@ void MotionController::processDeviceHomingAxis(int i, A6Drive* drive, MotionOutp
     {
         rt.deviceHomeRaw     = m_torqueHoming[i].getHomeRaw();
         rt.deviceHomeStopRev = m_torqueHoming[i].homeStopRev();
+        rt.devPosRev   = rt.deviceHomeStopRev;   // lever is AT the stop; the
+                             // per-cycle refresh ran before this frame latched
         rt.homed       = true;
         rt.lastTension = 0.0;
         m_axisState[i] = AxisMotionState::PARKED;   // PARKED = limp for devices
