@@ -181,7 +181,7 @@ zero. The web Devices section ships starter presets for the whole object.
 | `lashRev` | double | `0.0` | Free-play band about neutral (worn-linkage feel). |
 | `dampPctPerRevS` | double | `15` | Viscous damping everywhere. |
 | `velLpfHz` | double | `40` | Velocity estimate low-pass. |
-| `maxForcePct` | double | `100` | Model output clamp, % of rated. The axis `torqueMaxPct` and the drive's 0x6072 still cap above it. |
+| `maxForcePct` | double | `100` | Model output clamp, % of rated. Above it only the drive's own 0x6072 torque limit still caps (`torqueMinPct`/`torqueMaxPct` are belt fields; the device path never reads them). |
 | `homeTorquePct` | double | `30` | Homing push, % of rated (5 to 100). Keep low: it presses a mechanism against its own stop. |
 | `homeDir` | double | `-1` | Which stop homing pushes toward, in the DEVICE frame: `-1` = `stopMinRev`, `+1` = `stopMaxRev`. |
 | `slewPctPerSec` | double | `20000` | Output slew cap. A feel knob at the default; still the safety envelope for a bad curve edit landing mid-session. |

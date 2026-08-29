@@ -638,7 +638,13 @@ function effSpec(f,d){
            min:r.min??f.min, max:r.max??f.max, step:r.step??f.step,
            opts:r.opts??f.opts };
 }
-function axisApplicable(f,d){ if(f.hideRot&&isRot(d))return false; if(f.pos&&d.mode==='torque')return false; if(f.belt&&d.axisType!=='belt')return false; if(f.torque&&d.mode!=='torque')return false; if(f.csp&&d.mode!=='csp')return false; if(f.filterOnly&&condMode()!=='filter')return false; return true; }
+function axisApplicable(f,d){ if(f.hideRot&&isRot(d))return false; if(f.pos&&d.mode==='torque')return false;
+  // Device axes (shifter/pedal) are torque-mode but NOT belts: the belt
+  // tension/guard fields are never consumed for them (device guards live
+  // in the device object, edited in the Devices section) - mode alone
+  // must not surface them here.
+  if(isDeviceType(d.axisType)&&(f.torque||f.belt))return false;
+  if(f.belt&&d.axisType!=='belt')return false; if(f.torque&&d.mode!=='torque')return false; if(f.csp&&d.mode!=='csp')return false; if(f.filterOnly&&condMode()!=='filter')return false; return true; }
 function populateAxisEditor(){
   const sel=$('axisSel'); if(!sel) return; const drives=(cfgObj&&cfgObj.drives)||[];
   sel.innerHTML = drives.length ? drives.map((d,i)=>`<option value="${i}">Axis ${i} - ${d.name||('Drive '+i)}</option>`).join('') : '<option value="-1">no drives in config</option>';
@@ -670,7 +676,7 @@ function renderAxisFields(i){
     h+=`<div class="cfg-note" style="grid-column:1/-1">counts/${isRot(d)?'°':'mm'} = ${(d.encoderCountsPerRev*rf/d.ballscrewPitch).toFixed(1)}${rf!==1?' (incl. '+d.reductionRatio+')':''} (recomputed on save)</div>`; }
   // Torque mode: strap-side ceiling = motor torque x reduction. Re-derive torqueMax when
   // the ratio changes; config validation rejects maxPct x ratio > 300% of rated.
-  if(d.mode==='torque'){ const rf=parseFloat((d.reductionRatio||'1:1').split(':')[0])||1;
+  if(d.mode==='torque'&&!isDeviceType(d.axisType)){ const rf=parseFloat((d.reductionRatio||'1:1').split(':')[0])||1;
     const strap=(d.torqueMaxPct||0)*rf, over=strap>300;
     h+=`<div class="cfg-note" style="grid-column:1/-1${over?';color:var(--danger)':''}">strap-side max = ${d.torqueMaxPct||0}% × ${d.reductionRatio||'1:1'} = <b>${strap.toFixed(0)}%</b> of rated motor torque${over?' - EXCEEDS 300% cap, reduce Torque max':''}. Overspeed guard is motor-side rpm (scales ×${rf} for the same strap speed).</div>`; }
   host.innerHTML=h;
@@ -883,7 +889,28 @@ function devRender(){
       <span style="display:flex;gap:6px;align-items:center">
         <select id="devPre-${n}">${Object.keys(DEV_PRESETS).map(p=>`<option>${p}</option>`).join('')}</select>
         <button type="button" class="btn btn-sm btn-warn" id="devApply-${n}">Apply preset</button>
-      </span></div>
+      </span></div>`;
+    // Geometry + primary feel numbers. HOME-FRAME motor revs throughout:
+    // homing anchors the found stop at Travel min or max (per Home toward),
+    // everything else hangs off it. Gates = detent centre positions.
+    const dv=d.device||{};
+    const gv=(k,def)=>((dv[k]!==undefined&&dv[k]!==null)?dv[k]:def);
+    h+=`<div class="devgeo" style="grid-column:1/-1">
+      <label><span>Travel min · rev</span><input type="number" step="0.001" id="devF-${n}-stopMinRev" value="${gv('stopMinRev',-0.07)}"></label>
+      <label><span>Travel max · rev</span><input type="number" step="0.001" id="devF-${n}-stopMaxRev" value="${gv('stopMaxRev',0.07)}"></label>
+      <label><span>Neutral · rev</span><input type="number" step="0.001" id="devF-${n}-neutralRev" value="${gv('neutralRev',0)}"></label>
+      <label><span>Gates · rev, comma-sep</span><input type="text" id="devF-${n}-detents" value="${(dv.detents||[]).join(', ')}" placeholder="-0.05, 0, 0.05"></label>
+      <label><span>Home toward</span><select id="devF-${n}-homeDir">
+        <option value="-1"${gv('homeDir',-1)<0?' selected':''}>min stop</option>
+        <option value="1"${gv('homeDir',-1)>0?' selected':''}>max stop</option></select></label>
+      <label><span>Home torque · %</span><input type="number" step="1" id="devF-${n}-homeTorquePct" value="${gv('homeTorquePct',30)}"></label>
+      <label><span>Max force · %</span><input type="number" step="1" id="devF-${n}-maxForcePct" value="${gv('maxForcePct',100)}"></label>
+      <label><span>Free play · rev</span><input type="number" step="0.001" id="devF-${n}-lashRev" value="${gv('lashRev',0)}"></label>
+      <label><span>Damping · %/(rev/s)</span><input type="number" step="1" id="devF-${n}-dampPctPerRevS" value="${gv('dampPctPerRevS',15)}"></label>
+      <label><span>Mirror (dir)</span><select id="devF-${n}-dir">
+        <option value="1"${gv('dir',1)>0?' selected':''}>normal</option>
+        <option value="-1"${gv('dir',1)<0?' selected':''}>mirrored</option></select></label>
+    </div>
       <div style="grid-column:1/-1;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">
         <div><div class="cfg-note">Centring spring</div><svg id="devSpring-${n}" class="devCurve"></svg></div>
         <div><div class="cfg-note">Detent profile</div><svg id="devDetent-${n}" class="devCurve"></svg></div>
@@ -906,6 +933,16 @@ function devRender(){
     };
     devCurveEditor('devSpring-'+n, i, 'springCurve');
     devCurveEditor('devDetent-'+n, i, 'detentCurve');
+    // Geometry/feel field wiring: writes into the axis device object;
+    // saved by the normal config Save (dirty tracking sees the whole
+    // drive object, so Save(N) counts these edits).
+    const wire=(k,fn)=>{ const el=$(`devF-${n}-${k}`); if(el) el.onchange=()=>{
+      const dd=cfgObj.drives[i]; dd.device=dd.device||{}; fn(el,dd.device); refreshDirtyUI(); }; };
+    for(const k of ['stopMinRev','stopMaxRev','neutralRev','homeTorquePct','maxForcePct','lashRev','dampPctPerRevS'])
+      wire(k,(el,dv)=>{ const v=+el.value; if(isFinite(v)) dv[k]=v; });
+    wire('homeDir',(el,dv)=>{ dv.homeDir=+el.value; });
+    wire('dir',   (el,dv)=>{ dv.dir=+el.value; });
+    wire('detents',(el,dv)=>{ dv.detents=el.value.split(',').map(s=>+s.trim()).filter(v=>isFinite(v)); });
   }
 }
 

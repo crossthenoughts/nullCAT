@@ -155,8 +155,9 @@ public:
                 f *= 1.0 - (rpm - m_p.foldRpm) / band;
         }
 
-        // Model output clamp; the axis torqueMaxPct and the drive's 0x6072
-        // still cap above this, in that order.
+        // Model output clamp. Above this only the drive's own 0x6072
+        // limit still caps (the axis torqueMaxPct is belt machinery and
+        // is NOT applied on the device path).
         f = std::max(-m_p.maxForcePct, std::min(m_p.maxForcePct, f));
 
         m_lastOut = f;

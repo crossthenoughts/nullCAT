@@ -45,7 +45,7 @@ struct DeviceParams
     double lashRev        = 0.0;     // zero-force free-play halfwidth about neutral
     double dampPctPerRevS = 15.0;    // viscous damping everywhere
     double velLpfHz       = 40.0;    // velocity low-pass corner
-    double maxForcePct    = 100.0;   // model output clamp (torqueMaxPct still caps above)
+    double maxForcePct    = 100.0;   // model output clamp (above it only drive 0x6072 caps)
     // Torque-only homing (HomingKind::Torque): push toward a travel stop.
     double homeTorquePct  = 30.0;
     double homeDir        = -1.0;    // search direction sign
