@@ -56,9 +56,23 @@ public:
             m_p.homeDir < 0.0 ? "min" : "max"));
     }
 
-    // Advance one cycle. Returns the torque (% of rated) to command this
-    // cycle -- the caller writes it into the output like any device force.
+    // Advance one cycle. Writes the cycle's torque command to the drive
+    // (the sequence OWNS the drive while the axis is HOMING -- ControlLoop
+    // skips its normal write block, exactly as with HomingSequence) and
+    // returns the same value so the caller can mirror it into
+    // output.torques[] for the cards. homeDir is DEVICE-frame (-1 = toward
+    // stopMinRev); `dir` maps it onto the motor's torque sign, the same
+    // composition DeviceForceModel applies to its output.
     double step(A6Drive* drive)
+    {
+        if (drive) drive->updateStatus();   // sibling contract: step() is the tick
+        const double cmd = stepInner(drive);
+        if (drive) drive->setTargetTorque(cmd);
+        return cmd;
+    }
+
+private:
+    double stepInner(A6Drive* drive)
     {
         if (!drive || m_state == State::Idle ||
             m_state == State::Complete || m_state == State::FatalError)
@@ -140,7 +154,7 @@ public:
                     drive->getSlaveIndex(), raw, travelRev, m_elapsed));
                 return 0.0;
             }
-            return m_p.homeDir * m_p.homeTorquePct;
+            return m_p.dir * m_p.homeDir * m_p.homeTorquePct;
         }
 
         default:
@@ -148,6 +162,7 @@ public:
         }
     }
 
+public:
     State  getState()  const { return m_state; }
     bool   isComplete()   const { return m_state == State::Complete; }
     bool   isFatalError() const { return m_state == State::FatalError; }

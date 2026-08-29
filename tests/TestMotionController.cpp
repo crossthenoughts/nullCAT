@@ -1438,6 +1438,110 @@ private slots:
         }
         QVERIFY2(sawBlending, "BLENDING state was never observed");
     }
+
+    // ---- 0.9.5 device family: full lifecycle on a shifter axis ----
+    // Torque homing (stall search) -> PARKED limp (auto-unpark must NOT
+    // grab it, belt commands must NOT grab it) -> engage blends the force
+    // field in -> ONLINE holds the field -> release ramps to 0 -> PARKED.
+    // Mock torque response 0 = a hand holding the lever at the stop, so
+    // the steady ONLINE force is deterministic: the spring demand at the
+    // stop, clamped to maxForcePct.
+    void deviceAxis_fullLifecycle()
+    {
+        AppConfig cfg;
+        cfg.controlLoopHz = 100;
+        cfg.blendTimeSec  = 0.1;
+        cfg.numDrives     = 1;
+        DriveConfig dc;
+        dc.slaveIndex          = 1;
+        dc.axisType            = "shifter";
+        dc.mode                = "torque";
+        dc.parkTimeSec         = 0.1;
+        dc.unparkTimeSec       = 0.1;
+        dc.countsPerMm         = 131072.0;   // unitsPerRev = 1: mock raw IS revs
+        dc.encoderCountsPerRev = 131072.0;
+        dc.device.springCurve  = { {0.0, 0.0}, {0.07, 175.0} };
+        dc.device.velLpfHz     = 0.0;
+        dc.device.dampPctPerRevS = 0.0;
+        cfg.drives.push_back(dc);
+
+        MockA6Drive mock;
+        mock.configure(1, 0.0);
+        mock.setTorqueResponse(0.0001);      // homing physics: moves under torque
+        mock.setHardstop(-0.05, /*isMinLimit=*/true);
+
+        MotionController mc;
+        mc.configure(cfg);
+        mc.startHoming();
+
+        TelemetryData empty{};
+        A6Drive* drives[1] = { &mock };
+        MotionOutput out{};
+        bool sawTorqueHomingName = false;
+        int n = 0;
+        for (; n < 3000; ++n)
+        {
+            out = MotionOutput{};
+            mc.process(empty, out, drives, 1);
+            mock.setSimCommandedTorque(out.torques[0]);   // homing ticks the mock itself
+            if (mc.getAxisState(0) == AxisMotionState::HOMING)
+            {
+                MotionStatus ms = mc.getMotionStatus();
+                if (ms.axisStateName[0].rfind("HOMING[", 0) == 0)
+                    sawTorqueHomingName = true;
+            }
+            else if (mc.isAxisHomed(0)) break;
+        }
+        QVERIFY2(mc.isAxisHomed(0), "device axis homed by stall search");
+        QVERIFY(sawTorqueHomingName);
+
+        // Auto-unpark fires for the rig, but a device NEVER engages through
+        // it -- and the belt tension command must not grab it either.
+        mc.tensionBelts();
+        for (int i = 0; i < 50; ++i)
+        { out = MotionOutput{}; mc.process(empty, out, drives, 1); }
+        QCOMPARE((int)mc.getAxisState(0), (int)AxisMotionState::PARKED);
+        QCOMPARE(out.torques[0], 0.0);   // PARKED = limp
+
+        // Engage: force field blends in. The harness stops feeding the
+        // commanded torque into the mock physics from here on -- a hand
+        // holding the lever at the stop -- so the field demand is the
+        // spring at -0.07rev = 175%, clamped to maxForcePct = 100%.
+        // (Torque-response mode stays ON: it also disables the mock's
+        // position-target chase, which would otherwise drag the lever
+        // back to the pre-homing target.)
+        mc.engageDevices(-1);
+        out = MotionOutput{};
+        mock.updateStatus();
+        mc.process(empty, out, drives, 1);
+        QCOMPARE((int)mc.getAxisState(0), (int)AxisMotionState::BLENDING);
+        QVERIFY2(out.torques[0] > 0.0 && out.torques[0] < 100.0,
+                 "engage ramps the force in, no snap");
+        for (int i = 0; i < 100; ++i)
+        { out = MotionOutput{}; mock.updateStatus(); mc.process(empty, out, drives, 1); }
+        QCOMPARE((int)mc.getAxisState(0), (int)AxisMotionState::ONLINE);
+        QCOMPARE(out.torques[0], 100.0);   // spring demand, model-clamped
+
+        // Release: force ramps back to 0, then PARKED (limp).
+        mc.releaseDevices(-1);
+        out = MotionOutput{};
+        mock.updateStatus();
+        mc.process(empty, out, drives, 1);
+        QCOMPARE((int)mc.getAxisState(0), (int)AxisMotionState::PARKING);
+        QVERIFY2(out.torques[0] > 0.0 && out.torques[0] < 100.0,
+                 "release ramps the force out, no snap");
+        for (int i = 0; i < 50; ++i)
+        { out = MotionOutput{}; mock.updateStatus(); mc.process(empty, out, drives, 1); }
+        QCOMPARE((int)mc.getAxisState(0), (int)AxisMotionState::PARKED);
+        QCOMPARE(out.torques[0], 0.0);
+
+        // Engage on an UNHOMED device is refused (home-frame field).
+        mc.forceAxisParked(0);               // drops homed
+        mc.engageDevices(-1);
+        out = MotionOutput{};
+        mc.process(empty, out, drives, 1);
+        QCOMPARE((int)mc.getAxisState(0), (int)AxisMotionState::PARKED);
+    }
 };
 
 QTEST_MAIN(TestMotionController)

@@ -33,17 +33,18 @@ static DeviceParams shifterParams()
     return p;
 }
 
-// Drive the sequence to a terminal state (or cycle budget), feeding the
-// returned torque back into the mock physics each cycle.
+// Drive the sequence to a terminal state (or cycle budget). step() ticks
+// the mock itself (sibling contract with HomingSequence: updateStatus()
+// inside step()); the harness only forwards the commanded torque into the
+// mock's physics for the NEXT tick -- setTargetTorque() is a no-op on a
+// mock (no PDO buffer), so the feed is explicit.
 static int runToEnd(TorqueHomingSequence& seq, MockA6Drive& mock, int maxCycles)
 {
     int n = 0;
     while (n < maxCycles &&
            !seq.isComplete() && !seq.isFatalError())
     {
-        const double t = seq.step(&mock);
-        mock.setSimCommandedTorque(t);
-        mock.updateStatus();
+        mock.setSimCommandedTorque(seq.step(&mock));
         ++n;
     }
     return n;
@@ -129,9 +130,30 @@ int main()
         seq.start(&mock);
         int n = 0;
         while (n < 5000 && !seq.isFatalError())
-        { seq.step(&mock); mock.updateStatus(); ++n; }
+        { seq.step(&mock); ++n; }
         CHECK(seq.isFatalError(), "drive that will not enable = FatalError");
         CHECK(n >= 2400 && n <= 2600, "enable timeout fires at ~5s");
+    }
+
+    // ---------- mirrored build: dir composes into the motor command ----------
+    // homeDir is DEVICE-frame; dir maps it to the motor. dir=-1 with
+    // homeDir=-1 pushes motor-POSITIVE, and the found stop still maps to
+    // the device's min stop.
+    {
+        MockA6Drive mock; mock.configure(1, 0.0);
+        mock.setTorqueResponse(0.0001);
+        mock.setHardstop(0.05, false);
+        DeviceParams p = shifterParams();
+        p.dir = -1.0;
+        TorqueHomingSequence seq;
+        seq.configure(p, 1.0, DT);
+        seq.start(&mock);
+        runToEnd(seq, mock, 5000);
+        CHECK(seq.isComplete(), "mirrored build completes");
+        CHECK(std::fabs(seq.getHomeRaw() - 0.05) < 1e-9,
+              "mirrored search pushes motor-positive to the stop");
+        CHECK(seq.homeStopRev() == -0.07,
+              "found stop still maps to the DEVICE min stop");
     }
 
     // ---------- torque command contract ----------
@@ -159,7 +181,6 @@ int main()
                 else if (t != 0.0) torqueOk = false;   // only the final latch cycle is 0
             }
             mock.setSimCommandedTorque(t);
-            mock.updateStatus();
             ++n;
         }
         CHECK(seq.isComplete(), "contract run completes");

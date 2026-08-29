@@ -23,6 +23,8 @@
 #include "TelemetryInput.h"
 #include "Config.h"
 #include "HomingSequence.h"
+#include "TorqueHomingSequence.h"
+#include "DeviceForceModel.h"
 #include "SpscQueue.h"
 #include "CommandConditioner.h"
 #include "CommissioningMode.h"
@@ -110,6 +112,16 @@ public:
     void slackBelts();
     void tensionBelts();
 
+    // Device engage/release (shifter/pedal families ONLY; every other axis
+    // untouched). PARKED = limp (zero torque, lever moves freely); engage
+    // blends the force field in over blendTime; release ramps it back to 0.
+    // Same surface pattern as the belt pair: RT thread only, UI enqueues
+    // EngageDevice/ReleaseDevice. Engage is refused while e-stopped and for
+    // an unhomed device (the force field is home-frame). axisIndex -1 = all
+    // device axes.
+    void engageDevices(int axisIndex);
+    void releaseDevices(int axisIndex);
+
 private:
     // Belt runaway guards (overspeed persistence + net-travel cap), armed in
     // BLENDING and ONLINE. Returns true if tripped: state latched to PARKED
@@ -146,6 +158,19 @@ private:
     double stepPositionOnline(int i, AxisMotionState& state, const TelemetryData& td);
     double stepBeltParking(int i, AxisMotionState& state, MotionOutput& output);
     double stepPositionParking(int i, AxisMotionState& state);
+    // Device family (shifter/pedal): the force field runs every cycle from
+    // the axis's OWN position; no telemetry dependency in v1. BLENDING =
+    // engage ramp (forceScale 0 -> 1), ONLINE = live field, PARKING =
+    // force ramp to 0 -> PARKED (limp).
+    double stepDeviceBlending(int i, AxisMotionState& state, MotionOutput& output,
+                              A6Drive** drives, int numHwDrives);
+    double stepDeviceOnline(int i, AxisMotionState& state, MotionOutput& output,
+                            A6Drive** drives, int numHwDrives);
+    double stepDeviceParking(int i, AxisMotionState& state, MotionOutput& output);
+    // Device position in HOME-frame revs: dir maps motor raw onto the
+    // device frame (the mirror of DeviceForceModel's output mapping);
+    // null drive (sim) reads as resting at neutral.
+    double deviceCurrentRev(int i, A6Drive* drive) const;
 
 public:
 
@@ -279,6 +304,7 @@ private:
         bool    spikeFilterEnabled= false;
         double  spikeMaxMm        = 5.0;
         std::string parkMode      = "center";
+        DeviceParams device;      // device families only (shifter/pedal)
         double  homingBackoffMm   = 1.5;
         double  homingSpeed    = 5.0;
         int     homingTorquePct   = 25;
@@ -337,6 +363,13 @@ private:
         double  seatReliefStallSec = 0.0; // time with no torque-drop and no movement (plateau detector)
         bool    seatReliefDone     = false;
         bool    onlineHadData     = false; // seen >=1 valid frame this ONLINE session?
+        // Device family (shifter/pedal) runtime. The home frame lives HERE,
+        // not in A6Drive's home offset: raw counts never pass through the mm
+        // scaling, and deviceCurrentRev() is the one converter.
+        DeviceForceModel deviceModel;
+        double  deviceHomeRaw     = 0.0;   // raw units latched at the found stop
+        double  deviceHomeStopRev = 0.0;   // which configured stop that raw maps to
+        bool    deviceSeeded      = false; // model reset at engage (fresh, no vel kick)
                                            // stale-park only arms after the first frame --
                                            // before telemetry ever connects we hold, not park.
     };
@@ -350,6 +383,7 @@ private:
     AxisRuntime      m_runtime[MAX_DRIVES];
     AxisMotionState  m_axisState[MAX_DRIVES];
     HomingSequence   m_homing[MAX_DRIVES];
+    TorqueHomingSequence m_torqueHoming[MAX_DRIVES];   // device axes (HomingKind::Torque)
     bool             m_seatActive[MAX_DRIVES] = {};   // axes selected by startSeatHoming() (deinit seat)
     std::atomic<bool> m_emergencyStop{false};
     double           m_estopElapsed = 0.0;
@@ -419,5 +453,6 @@ private:
     double interpolate(double from, double to, double t);
 
     void processHomingAxis(int i, A6Drive* drive, MotionOutput& output);
+    void processDeviceHomingAxis(int i, A6Drive* drive, MotionOutput& output);
     void clearAxisLimits(int axis, A6Drive* drive);  // widen stale post-fault limits before rehome
 };

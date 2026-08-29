@@ -122,7 +122,23 @@ void MotionController::configure(const AppConfig& config)
         ac.blendMaxVelocityMmS = config.blendMaxVelocityMmS;
 
         bool isBelt = ac.caps.beltType;
-        if (ac.torqueMode)
+
+        // Device families (shifter/pedal): force engine + torque homing.
+        // getActualPositionRaw() is in counts/countsPerMm "units", so the
+        // rev conversion shares the belt's units-per-rev factor.
+        if (ac.caps.isDevice())
+        {
+            ac.device = dc.device;
+            m_runtime[i].deviceModel.configure(ac.device, m_cycleTimeSec);
+            m_torqueHoming[i].configure(ac.device, ac.beltUnitsPerRev, m_cycleTimeSec);
+            LOG_INFO(strf("MotionController: Axis %d device: dir=%+.0f stops[%.3f, %.3f]rev "
+                          "neutral=%.3frev detents=%d maxForce=%.0f%% homeTorque=%.0f%% homeDir=%+.0f",
+                          i + 1, ac.device.dir, ac.device.stopMinRev, ac.device.stopMaxRev,
+                          ac.device.neutralRev, (int)ac.device.detents.size(),
+                          ac.device.maxForcePct, ac.device.homeTorquePct, ac.device.homeDir));
+        }
+
+        if (ac.torqueMode && isBelt)
         {
             // Ratio visibility: the strap sees motor torque x reduction. Config
             // validation caps maxPct x ratio at 300%-of-rated; log the effective
@@ -532,7 +548,10 @@ void MotionController::startHoming(int axisIndex)
         // processHomingAxis sees state != Idle/Complete/Error and skips
         // start() -- leaving the drive in SwitchOnDisabled while homing
         // tries to run CSPTorqueSearch (positions frozen, torque=0%).
-        m_homing[i].reset();
+        if (m_axisConfig[i].caps.homingKind == HomingKind::Torque)
+            m_torqueHoming[i].reset();
+        else
+            m_homing[i].reset();
         m_axisState[i] = AxisMotionState::HOMING;
         m_runtime[i].homed = false;
         RT_LOG_INFO("MotionController: Axis %d queued for homing.", i + 1);
@@ -546,7 +565,9 @@ std::string MotionController::getAxisStateName(int i) const
     {
     case AxisMotionState::HOMING:
     {
-        std::string sub = HomingSequence::stateName(m_homing[i].getState());
+        std::string sub = (m_axisConfig[i].caps.homingKind == HomingKind::Torque)
+            ? TorqueHomingSequence::stateName(m_torqueHoming[i].getState())
+            : HomingSequence::stateName(m_homing[i].getState());
         return "HOMING[" + sub + "]";
     }
     case AxisMotionState::PARKED:    return "PARKED";
@@ -584,8 +605,10 @@ void MotionController::publishStatus()
         // Rebuild the display string only on a state change -- see the
         // m_pubState comment in the header (RT heap-lock avoidance).
         const AxisMotionState st = m_axisState[i];
-        const int sub = (st == AxisMotionState::HOMING)
-                      ? (int)m_homing[i].getState() : -1;
+        const int sub = (st != AxisMotionState::HOMING) ? -1
+                      : (m_axisConfig[i].caps.homingKind == HomingKind::Torque)
+                      ? (int)m_torqueHoming[i].getState()
+                      : (int)m_homing[i].getState();
         if (!m_pubNameInit[i] || st != m_pubState[i] || sub != m_pubHomingSub[i])
         {
             m_statusSnapshot.axisStateName[i] = getAxisStateName(i);
@@ -766,6 +789,68 @@ void MotionController::tensionBelts()
             rt.beltRelaxed      = false;
             rt.beltLastTripWhy  = 0;            // card guard flag clears on tension-up
             RT_LOG_INFO("MotionController: Axis %d (belt) tensioning -- blending in.", i + 1);
+        }
+    }
+}
+
+// ---- Device engage/release: force field on/off, scoped to device axes ONLY ----
+// The device mirror of the belt slack/tension pair. PARKED = limp (zero torque,
+// the lever swings freely); engage blends the force field in over blendTime
+// (forceScale 0 -> 1 inside stepDeviceBlending); release ramps the last
+// commanded force to 0 over parkTime. Surface-agnostic like the belt pair --
+// see /api/device/engage + /api/device/release.
+
+void MotionController::engageDevices(int axisIndex)
+{
+    if (m_emergencyStop.load(std::memory_order_acquire))
+    {
+        RT_LOG_WARNING("MotionController: EngageDevice ignored -- e-stop active.");
+        return;
+    }
+    int start = (axisIndex < 0) ? 0 : axisIndex;
+    int end   = (axisIndex < 0) ? m_numDrives : axisIndex + 1;
+    for (int i = start; i < end && i < m_numDrives; ++i)
+    {
+        if (!m_axisConfig[i].caps.isDevice()) continue;
+        if (!m_runtime[i].homed)
+        {
+            // The force field is home-frame; without the latched stop the
+            // configured geometry points nowhere. Same rail as unpark.
+            RT_LOG_WARNING("MotionController: Axis %d (device) not engaged -- never homed "
+                           "(no position reference). Home first.", i + 1);
+            continue;
+        }
+        AxisMotionState& state = m_axisState[i];
+        // PARKED = limp; PARKING = mid-release (flip back, the blend restarts
+        // from 0 -- the model's slew cap keeps the transition smooth).
+        if (state == AxisMotionState::PARKED || state == AxisMotionState::PARKING)
+        {
+            AxisRuntime& rt   = m_runtime[i];
+            rt.blendElapsed   = 0.0;
+            rt.blendDuration  = m_blendTimeSec;
+            rt.lastTension    = 0.0;
+            rt.deviceSeeded   = false;   // re-seed the model at the engage position
+            state = AxisMotionState::BLENDING;
+            RT_LOG_INFO("MotionController: Axis %d (device) engaging -- blending force in.", i + 1);
+        }
+    }
+}
+
+void MotionController::releaseDevices(int axisIndex)
+{
+    int start = (axisIndex < 0) ? 0 : axisIndex;
+    int end   = (axisIndex < 0) ? m_numDrives : axisIndex + 1;
+    for (int i = start; i < end && i < m_numDrives; ++i)
+    {
+        if (!m_axisConfig[i].caps.isDevice()) continue;
+        AxisMotionState& state = m_axisState[i];
+        if (state == AxisMotionState::ONLINE ||
+            state == AxisMotionState::BLENDING)
+        {
+            m_runtime[i].interpElapsed  = 0.0;
+            m_runtime[i].interpDuration = m_axisConfig[i].parkTimeSec;
+            state = AxisMotionState::PARKING;   // device PARKING = force ramp to 0
+            RT_LOG_INFO("MotionController: Axis %d (device) releasing -- easing to limp.", i + 1);
         }
     }
 }
@@ -1421,6 +1506,92 @@ double MotionController::stepBeltParking(int i, AxisMotionState& state,
     return rt.currentPos;
 }
 
+// ---- Device family (shifter/pedal) step functions ------------------------
+// The force field is self-contained: it runs from the axis's OWN measured
+// position, so there is no telemetry dependency, no stale-park, and no
+// conditioning chain -- DeviceForceModel carries its own guard chain
+// (thermal dwell -> slew -> velocity fold -> clamp). rt.currentPos is a
+// pass-through for devices (positions are ignored by the CST write path);
+// rt.lastTension carries the last commanded torque, belt-style, so the
+// PARKING ramp starts from what was actually commanded.
+
+double MotionController::deviceCurrentRev(int i, A6Drive* drive) const
+{
+    const AxisConfig& ac = m_axisConfig[i];
+    if (!drive) return ac.device.neutralRev;   // sim: resting at neutral
+    const AxisRuntime& rt = m_runtime[i];
+    // dir maps motor raw onto the device frame -- the exact mirror of the
+    // model's output mapping, so the loop sign is consistent for mirrored
+    // builds. beltUnitsPerRev is the family-generic raw-units-per-motor-rev
+    // factor (belt-named only for history).
+    return rt.deviceHomeStopRev + ac.device.dir *
+        (drive->getActualPositionRaw() - rt.deviceHomeRaw) / ac.beltUnitsPerRev;
+}
+
+double MotionController::stepDeviceBlending(int i, AxisMotionState& state,
+    MotionOutput& output, A6Drive** drives, int numHwDrives)
+{
+    AxisRuntime& rt = m_runtime[i];
+    A6Drive* d = (drives && i < numHwDrives) ? drives[i] : nullptr;
+    const double posRev = deviceCurrentRev(i, d);
+
+    // Seed the model at the engage position: no velocity kick from a stale
+    // previous-position, fresh texture phase.
+    if (!rt.deviceSeeded)
+    {
+        rt.deviceModel.reset(posRev);
+        rt.deviceSeeded = true;
+    }
+
+    rt.blendElapsed += m_cycleTimeSec;
+    const double bf = std::max(0.0, std::min(1.0, rt.blendElapsed / rt.blendDuration));
+
+    DeviceStateMods mods;      // inert until the NULLCATX state layer lands
+    mods.forceScale = bf;      // engage ramp: the field fades in, never snaps
+    const double f = rt.deviceModel.step(posRev, mods);
+    rt.lastTension    = f;
+    output.torques[i] = f;
+
+    if (bf >= 1.0)
+    {
+        state = AxisMotionState::ONLINE;
+        RT_LOG_INFO("MotionController: Axis %d (device) engaged -- ONLINE.", i + 1);
+    }
+    return rt.currentPos;
+}
+
+double MotionController::stepDeviceOnline(int i, AxisMotionState& /*state*/,
+    MotionOutput& output, A6Drive** drives, int numHwDrives)
+{
+    AxisRuntime& rt = m_runtime[i];
+    A6Drive* d = (drives && i < numHwDrives) ? drives[i] : nullptr;
+    DeviceStateMods mods;      // inert; the NULLCATX wire fills these later
+    const double f = rt.deviceModel.step(deviceCurrentRev(i, d), mods);
+    rt.lastTension    = f;
+    output.torques[i] = f;
+    return rt.currentPos;
+}
+
+double MotionController::stepDeviceParking(int i, AxisMotionState& state,
+    MotionOutput& output)
+{
+    AxisRuntime& rt = m_runtime[i];
+
+    // Ease the force from its release-entry value to 0 over parkTime, then
+    // PARKED (limp). Signed-safe: devices command negative torque too.
+    rt.interpElapsed += m_cycleTimeSec;
+    const double t = std::min(1.0, rt.interpElapsed / rt.interpDuration);
+    output.torques[i] = (1.0 - t) * rt.lastTension;
+    if (t >= 1.0)
+    {
+        state = AxisMotionState::PARKED;
+        rt.lastTension  = 0.0;
+        rt.deviceSeeded = false;
+        RT_LOG_INFO("MotionController: Axis %d (device) released -- PARKED (limp).", i + 1);
+    }
+    return rt.currentPos;
+}
+
 double MotionController::stepPositionParking(int i, AxisMotionState& state)
 {
     AxisConfig& ac = m_axisConfig[i];
@@ -1591,9 +1762,16 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
                 outPos = rt.currentPos;
                 break;
             }
-            outPos = ac.torqueMode
-                ? stepBeltBlending(i, state, telemetryData, output, drives, numHwDrives)
-                : stepPositionBlending(i, state, telemetryData);
+            // Family fork (see the Stage D seam note in the header): device
+            // families first -- they are torque-mode too, so the belt
+            // ternary alone would misroute them. Non-device routing is
+            // UNCHANGED, including the degenerate torque-mode-without-
+            // belt-type configs.
+            outPos = ac.caps.isDevice()
+                ? stepDeviceBlending(i, state, output, drives, numHwDrives)
+                : (ac.torqueMode
+                    ? stepBeltBlending(i, state, telemetryData, output, drives, numHwDrives)
+                    : stepPositionBlending(i, state, telemetryData));
             break;
         }
 
@@ -1607,17 +1785,21 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
                 break;
             }
 
-            outPos = ac.torqueMode
-                ? stepBeltOnline(i, state, telemetryData, output, drives, numHwDrives)
-                : stepPositionOnline(i, state, telemetryData);
+            outPos = ac.caps.isDevice()
+                ? stepDeviceOnline(i, state, output, drives, numHwDrives)
+                : (ac.torqueMode
+                    ? stepBeltOnline(i, state, telemetryData, output, drives, numHwDrives)
+                    : stepPositionOnline(i, state, telemetryData));
             break;
         }
 
         case AxisMotionState::PARKING:
         {
-            outPos = ac.torqueMode
-                ? stepBeltParking(i, state, output)
-                : stepPositionParking(i, state);
+            outPos = ac.caps.isDevice()
+                ? stepDeviceParking(i, state, output)
+                : (ac.torqueMode
+                    ? stepBeltParking(i, state, output)
+                    : stepPositionParking(i, state));
             break;
         }
 
@@ -1706,6 +1888,14 @@ void MotionController::processHomingAxis(int i, A6Drive* drive, MotionOutput& ou
 {
     AxisRuntime& rt = m_runtime[i];
     AxisConfig& ac = m_axisConfig[i];
+
+    // Device families home by torque stall-search, not the CSP endstop
+    // search -- their PDO layout has no position command to move with.
+    if (ac.caps.homingKind == HomingKind::Torque)
+    {
+        processDeviceHomingAxis(i, drive, output);
+        return;
+    }
 
     bool isSimDrive = (drive == nullptr);
 
@@ -1797,6 +1987,54 @@ void MotionController::processHomingAxis(int i, A6Drive* drive, MotionOutput& ou
     }
 
     output.positions[i] = rt.currentPos;
+}
+
+void MotionController::processDeviceHomingAxis(int i, A6Drive* drive, MotionOutput& output)
+{
+    AxisRuntime& rt = m_runtime[i];
+    AxisConfig&  ac = m_axisConfig[i];
+
+    if (!drive)
+    {
+        RT_LOG_INFO("MotionController: Axis %d (device) homing in SIM mode -- instant complete.", i + 1);
+        rt.deviceHomeRaw     = 0.0;
+        rt.deviceHomeStopRev = (ac.device.homeDir < 0.0) ? ac.device.stopMinRev
+                                                         : ac.device.stopMaxRev;
+        rt.homed       = true;
+        rt.lastTension = 0.0;
+        m_axisState[i] = AxisMotionState::PARKED;
+        return;
+    }
+
+    if (m_torqueHoming[i].getState() == TorqueHomingSequence::State::Idle)
+        m_torqueHoming[i].start(drive);
+
+    // The sequence writes the drive itself (it owns the drive while the
+    // axis is HOMING); the mirror into output.torques[] feeds the cards.
+    output.torques[i]   = m_torqueHoming[i].step(drive);
+    rt.currentPos       = drive->getActualPositionRaw();
+    output.positions[i] = rt.currentPos;
+
+    if (m_torqueHoming[i].isComplete())
+    {
+        rt.deviceHomeRaw     = m_torqueHoming[i].getHomeRaw();
+        rt.deviceHomeStopRev = m_torqueHoming[i].homeStopRev();
+        rt.homed       = true;
+        rt.lastTension = 0.0;
+        m_axisState[i] = AxisMotionState::PARKED;   // PARKED = limp for devices
+        RT_LOG_INFO("MotionController: Axis %d (device) homing COMPLETE -- stop %.3frev "
+            "latched at raw=%.3f. PARKED (limp); engage to load the force field.",
+            i + 1, rt.deviceHomeStopRev, rt.deviceHomeRaw);
+    }
+    else if (m_torqueHoming[i].isFatalError())
+    {
+        // Terminal, like the CSP FatalError: axis PARKED unhomed; explicit
+        // startHoming() (user action) to retry.
+        RT_LOG_ERROR("MotionController: Axis %d (device) homing FATAL ERROR -- "
+            "manual re-home required.", i + 1);
+        rt.lastTension = 0.0;
+        m_axisState[i] = AxisMotionState::PARKED;
+    }
 }
 
 double MotionController::applySpikeFilter(int i, double input)
