@@ -76,7 +76,7 @@ NEW="$OPT/versions/v$VERSION"
 rm -rf "$NEW"
 mkdir -p "$OPT/versions"
 mv "$STAGING/$NAME" "$NEW"
-for f in host.json rig.json buttons.json; do
+for f in host.json rig.json buttons.json carcache.json devicepresets.json; do
     [ -f "$CUR_TARGET/$f" ] && cp -p "$CUR_TARGET/$f" "$NEW/$f" && say "config copied forward: $f"
 done
 mkdir -p "$NEW/logs"

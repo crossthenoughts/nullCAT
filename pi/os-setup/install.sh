@@ -329,18 +329,32 @@ sudo mkdir -p /opt/nullcat/versions /opt/nullcat/staging
 # byte-identical in structure.
 "${REPO_DIR}/deploy/package-release-pi.sh" "${NULLCAT_VERSION}" "${REPO_DIR}/pi/build"
 DEST="/opt/nullcat/versions/v${NULLCAT_VERSION}"
+# Stash the live config BEFORE anything is deleted: when re-installing the
+# SAME version, /opt/nullcat/current points INTO ${DEST}, so the rm -rf
+# below would destroy the only copy of the operator's edits (found the
+# hard way: bench-tuned device curves vanished on a same-version
+# re-install). carcache.json and devicepresets.json are learned/authored
+# state and ferry with the config.
+CFG_FILES="host.json rig.json buttons.json carcache.json devicepresets.json"
+CFG_STASH="$(mktemp -d)"
+for f in ${CFG_FILES}; do
+    if sudo test -f "/opt/nullcat/current/${f}"; then
+        sudo cp -p "/opt/nullcat/current/${f}" "${CFG_STASH}/${f}"
+    fi
+done
 sudo rm -rf "${DEST}"
 sudo tar -xzf "${REPO_DIR}/dist/nullCAT-v${NULLCAT_VERSION}-pi-aarch64.tar.gz" -C /opt/nullcat/versions
 sudo mv "/opt/nullcat/versions/nullCAT-v${NULLCAT_VERSION}-pi-aarch64" "${DEST}"
-# Config adoption: an existing versioned install's live config wins; a
-# pre-0.9.5 source install's build-dir config is picked up once.
-for f in host.json rig.json buttons.json; do
-    if sudo test -f "/opt/nullcat/current/${f}"; then
-        sudo cp -p "/opt/nullcat/current/${f}" "${DEST}/${f}"
+# Config adoption: the stashed live config wins; a pre-0.9.5 source
+# install's build-dir config is picked up once.
+for f in ${CFG_FILES}; do
+    if sudo test -f "${CFG_STASH}/${f}"; then
+        sudo cp -p "${CFG_STASH}/${f}" "${DEST}/${f}"
     elif [ -f "${REPO_DIR}/pi/build/${f}" ]; then
         sudo cp -p "${REPO_DIR}/pi/build/${f}" "${DEST}/${f}"
     fi
 done
+sudo rm -rf "${CFG_STASH}"
 sudo chown -R "${RT_USER}:${RT_USER}" "${DEST}"
 sudo ln -sfn "${DEST}" /opt/nullcat/current.new
 sudo mv -Tf /opt/nullcat/current.new /opt/nullcat/current
