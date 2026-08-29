@@ -71,11 +71,18 @@ bool GpioPanel::start(const PanelPins& pins,
         gpiod_line_settings_set_direction(out, GPIOD_LINE_DIRECTION_OUTPUT);
         gpiod_line_settings_set_output_value(out, GPIOD_LINE_VALUE_INACTIVE);
 
-        // Request only the lines the active mode uses, so unused pins stay free.
-        // E-STOP is always present; ENGAGE/PARK only with useButtons; LEDs only
-        // with useLeds.
+        // Request only the lines the active mode uses, so unused pins stay
+        // free. E-STOP is always present; buttons only with useButtons, and
+        // each button pin set to 0 is "not fitted" (compact panels wire any
+        // subset); LEDs only with useLeds.
         std::vector<unsigned int> inOff;  inOff.push_back(pins.estop);
-        if (pins.useButtons) { inOff.push_back(pins.engage); inOff.push_back(pins.park); }
+        if (pins.useButtons)
+        {
+            if (pins.engage) inOff.push_back(pins.engage);
+            if (pins.park)   inOff.push_back(pins.park);
+            if (pins.belt)   inOff.push_back(pins.belt);
+            if (pins.device) inOff.push_back(pins.device);
+        }
         std::vector<unsigned int> outOff;
         if (pins.useLeds) { outOff = { pins.ledRun, pins.ledReady, pins.ledFault }; }
 
@@ -110,7 +117,9 @@ bool GpioPanel::start(const PanelPins& pins,
 
     LOG_INFO(strf("GpioPanel: started on %s - estop=%u%s%s",
                   path.c_str(), pins.estop,
-                  pins.useButtons ? strf(" engage=%u park=%u", pins.engage, pins.park).c_str() : " (no buttons)",
+                  pins.useButtons ? strf(" run=%u park=%u belt=%u device=%u (0=absent)",
+                                         pins.engage, pins.park, pins.belt, pins.device).c_str()
+                                  : " (no buttons)",
                   pins.useLeds ? strf(" LEDs run=%u ready=%u fault=%u", pins.ledRun, pins.ledReady, pins.ledFault).c_str() : " (no LEDs)"));
     return true;
 }
@@ -122,9 +131,10 @@ void GpioPanel::run()
     // Debounce state: a press fires once the raw level has been stable for
     // DEBOUNCE_CYCLES. Returns true only on a confirmed press edge.
     bool engageStable = false, parkStable = false;
-    bool engageAutoStart = false;   // cold ENGAGE chains init -> start
+    bool beltStable = false, deviceStable = false;
+    bool engageAutoStart = false;   // cold RUN press chains init -> start
     bool prevInitBusy    = false;
-    int  engageCnt = 0, parkCnt = 0;
+    int  engageCnt = 0, parkCnt = 0, beltCnt = 0, deviceCnt = 0;
     auto edge = [](bool raw, bool& stable, int& cnt) -> bool
     {
         if (raw == stable) { cnt = 0; return false; }
@@ -134,7 +144,7 @@ void GpioPanel::run()
 
     bool estopLatched = false;   // panel latch; no auto-resume on release
     int  tick = 0;
-    int  pE = -1, pEn = -1, pP = -1;   // previous raw input states for change-logging
+    int  pE = -1;   // packed previous raw input state for change-logging
 
     while (m_running.load())
     {
@@ -143,22 +153,29 @@ void GpioPanel::run()
         // Inputs (pull-up): estop ACTIVE(high)=open=engaged; buttons INACTIVE(low)=pressed.
         // Button lines are read only when the mode uses them (short-circuit).
         const bool estopOpen  = gpiod_line_request_get_value(req, m_pins.estop) == GPIOD_LINE_VALUE_ACTIVE;
-        const bool engageDown = m_pins.useButtons &&
+        const bool engageDown = m_pins.useButtons && m_pins.engage &&
             gpiod_line_request_get_value(req, m_pins.engage) == GPIOD_LINE_VALUE_INACTIVE;
-        const bool parkDown   = m_pins.useButtons &&
+        const bool parkDown   = m_pins.useButtons && m_pins.park &&
             gpiod_line_request_get_value(req, m_pins.park)   == GPIOD_LINE_VALUE_INACTIVE;
+        const bool beltDown   = m_pins.useButtons && m_pins.belt &&
+            gpiod_line_request_get_value(req, m_pins.belt)   == GPIOD_LINE_VALUE_INACTIVE;
+        const bool deviceDown = m_pins.useButtons && m_pins.device &&
+            gpiod_line_request_get_value(req, m_pins.device) == GPIOD_LINE_VALUE_INACTIVE;
 
         // Diagnostic: log raw inputs whenever any one changes, so wiring/polarity
         // can be verified live from journalctl. First pass prints the initial state.
-        if ((int)estopOpen != pE || (int)engageDown != pEn || (int)parkDown != pP)
+        const int rawNow = (int)estopOpen | ((int)engageDown << 1) | ((int)parkDown << 2)
+                         | ((int)beltDown << 3) | ((int)deviceDown << 4);
+        if (rawNow != pE)
         {
             if (m_pins.useButtons)
-                LOG_INFO(strf("GpioPanel: inputs  estop=%s  engage=%s  park=%s",
+                LOG_INFO(strf("GpioPanel: inputs  estop=%s  run=%s  park=%s  belt=%s  device=%s",
                               estopOpen ? "OPEN(stop)" : "closed(ok)",
-                              engageDown ? "PRESSED" : "up", parkDown ? "PRESSED" : "up"));
+                              engageDown ? "PRESSED" : "up", parkDown ? "PRESSED" : "up",
+                              beltDown ? "PRESSED" : "up", deviceDown ? "PRESSED" : "up"));
             else
                 LOG_INFO(strf("GpioPanel: inputs  estop=%s", estopOpen ? "OPEN(stop)" : "closed(ok)"));
-            pE = estopOpen; pEn = engageDown; pP = parkDown;
+            pE = rawNow;
         }
 
         const PanelStatus st = m_getStatus ? m_getStatus() : PanelStatus{};
@@ -188,13 +205,15 @@ void GpioPanel::run()
 
         const bool engagePress = edge(engageDown, engageStable, engageCnt);
         const bool parkPress   = edge(parkDown,   parkStable,   parkCnt);
+        const bool beltPress   = edge(beltDown,   beltStable,   beltCnt);
+        const bool devicePress = edge(deviceDown, deviceStable, deviceCnt);
 
         if (engagePress)
         {
             if (estopLatched)
             {
                 // Latch only persists while the mushroom is open; release it to clear.
-                LOG_INFO("GpioPanel: ENGAGE ignored - release the E-STOP mushroom first.");
+                LOG_INFO("GpioPanel: RUN ignored - release the E-STOP mushroom first.");
             }
             else if (st.loopRunning)
             {
@@ -204,18 +223,18 @@ void GpioPanel::run()
                 // so dropping the bus stays a deliberate act (web UI).
                 if (m_actions.stop) m_actions.stop();
                 engageAutoStart = false;
-                LOG_INFO("GpioPanel: ENGAGE → Stop loop (bus stays up; de-init via web UI).");
+                LOG_INFO("GpioPanel: RUN → Stop loop (bus stays up; de-init via web UI).");
             }
             else if (!st.masterOp && !st.initBusy)
             {
                 if (m_actions.init) m_actions.init();
                 engageAutoStart = true;   // cold press means "run": chain the start
-                LOG_INFO("GpioPanel: ENGAGE → Initialize EtherCAT (loop will auto-start).");
+                LOG_INFO("GpioPanel: RUN → Initialize EtherCAT (loop will auto-start).");
             }
             else if (st.masterOp && !st.loopRunning)
             {
                 if (m_actions.start) m_actions.start();
-                LOG_INFO("GpioPanel: ENGAGE → Start loop.");
+                LOG_INFO("GpioPanel: RUN → Start loop.");
             }
         }
 
@@ -231,12 +250,12 @@ void GpioPanel::run()
             {
                 engageAutoStart = false;
                 if (m_actions.start) m_actions.start();
-                LOG_INFO("GpioPanel: ENGAGE chain → init complete, starting loop.");
+                LOG_INFO("GpioPanel: RUN chain → init complete, starting loop.");
             }
             else if (!st.masterOp && !st.initBusy && prevInitBusy)
             {
                 engageAutoStart = false;
-                LOG_INFO("GpioPanel: ENGAGE chain cancelled - init did not reach OP.");
+                LOG_INFO("GpioPanel: RUN chain cancelled - init did not reach OP.");
             }
         }
         prevInitBusy = st.initBusy;
@@ -252,6 +271,39 @@ void GpioPanel::run()
             {
                 if (m_actions.park) m_actions.park();
                 LOG_INFO("GpioPanel: PARK.");
+            }
+        }
+
+        // BELT toggle: slack <-> tension (tension blocked under the e-stop
+        // latch, matching the web toggle's visible refusal).
+        if (beltPress && !estopLatched && st.loopRunning && st.hasBelts)
+        {
+            if (st.beltsSlack)
+            {
+                if (m_actions.beltTension) m_actions.beltTension();
+                LOG_INFO("GpioPanel: BELT → tension.");
+            }
+            else
+            {
+                if (m_actions.beltSlack) m_actions.beltSlack();
+                LOG_INFO("GpioPanel: BELT → slack.");
+            }
+        }
+
+        // DEVICE three-state toggle: unhomed press HOMES (rests limp), the
+        // next engages, engaged press releases - identical resolution to
+        // the web device button. Transitional states are no-ops.
+        if (devicePress && !estopLatched && st.loopRunning && st.hasDevices && !st.devBusy)
+        {
+            if (st.devEngaged)
+            {
+                if (m_actions.deviceRelease) m_actions.deviceRelease();
+                LOG_INFO("GpioPanel: DEVICE → release.");
+            }
+            else
+            {
+                if (m_actions.deviceEngage) m_actions.deviceEngage();
+                LOG_INFO("GpioPanel: DEVICE → home/engage.");
             }
         }
 

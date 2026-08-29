@@ -351,6 +351,11 @@ struct AppConfig
     int         gpioEstopPin    = 17;   // input,  NC mushroom (open = e-stop)
     int         gpioEngagePin   = 27;   // input,  momentary
     int         gpioParkPin     = 22;   // input,  momentary
+    // Optional extra buttons (0 = not fitted, line left free). Defaults sit
+    // physically adjacent to the existing run: belt BCM4 = header pin 7
+    // (directly above estop/run/park at 11/13/15), device BCM18 = pin 12.
+    int         gpioBeltPin     = 4;    // input,  momentary: belts-toggle
+    int         gpioDevicePin   = 18;   // input,  momentary: device-toggle
     int         gpioLedRunPin   = 23;   // output, green
     int         gpioLedReadyPin = 24;   // output, amber
     int         gpioLedFaultPin = 25;   // output, red

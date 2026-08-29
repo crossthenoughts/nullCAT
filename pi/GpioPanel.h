@@ -25,7 +25,9 @@
 #include <functional>
 #include <string>
 
-// Snapshot the panel reads each cycle to drive the LEDs.
+// Snapshot the panel reads each cycle to drive the LEDs and resolve the
+// stateful buttons (belt + device toggles use the same aggregates as the
+// web endpoints - derived in main_headless via StatusModel).
 struct PanelStatus
 {
     bool masterOp    = false;   // EtherCAT operational
@@ -35,30 +37,42 @@ struct PanelStatus
     bool initBusy    = false;   // init/de-init in progress
     bool homing      = false;   // any axis homing
     bool parked      = false;   // all axes parked
+    bool hasBelts     = false;  // rig has belt axes
+    bool beltsSlack   = false;  // every belt PARKED (slack)
+    bool hasDevices   = false;  // rig has device axes (shifter/pedal)
+    bool devEngaged   = false;  // any device live (BLENDING/ONLINE)
+    bool devBusy      = false;  // any device transitional (homing/releasing)
 };
 
 // Button → action callbacks. Wired in main_headless to the same calls the
 // web endpoints make.
 struct PanelActions
 {
-    std::function<void()> init;          // ENGAGE when offline
-    std::function<void()> start;         // ENGAGE when ready (OP, stopped)
-    std::function<void()> stop;          // ENGAGE when running (stop loop; never de-inits)
+    std::function<void()> init;          // RUN when offline
+    std::function<void()> start;         // RUN when ready (OP, stopped)
+    std::function<void()> stop;          // RUN when running (stop loop; never de-inits)
     std::function<void()> park;          // PARK when running (not parked)
     std::function<void()> unpark;        // PARK when already parked (toggle)
+    std::function<void()> beltSlack;     // BELT when tensioned
+    std::function<void()> beltTension;   // BELT when slack
+    std::function<void()> deviceEngage;  // DEVICE when limp (homes if unhomed, else engages)
+    std::function<void()> deviceRelease; // DEVICE when engaged
     std::function<void()> estop;         // mushroom opened
     std::function<void()> estopRelease;  // mushroom closed again (auto-release)
 };
 
 // BCM line numbers (and the chip name). Loaded from config.json.
-// useLeds / useButtons gate which lines are requested, so unused pins stay
-// free for other purposes (set from gpioMode in main_headless).
+// useLeds / useButtons gate which lines are requested; any BUTTON pin set
+// to 0 is "not fitted" (compact panels wire any subset), so unused pins
+// stay free for other purposes.
 struct PanelPins
 {
     std::string chip     = "gpiochip0";
     unsigned    estop    = 17;   // input, NC mushroom (open = e-stop)  [always]
-    unsigned    engage   = 27;   // input, momentary to GND             [useButtons]
+    unsigned    engage   = 27;   // input, momentary to GND: RUN        [useButtons]
     unsigned    park     = 22;   // input, momentary to GND             [useButtons]
+    unsigned    belt     = 4;    // input, momentary: belt toggle       [useButtons, 0=absent]
+    unsigned    device   = 18;   // input, momentary: device toggle     [useButtons, 0=absent]
     unsigned    ledRun   = 23;   // output, green                       [useLeds]
     unsigned    ledReady = 24;   // output, amber                       [useLeds]
     unsigned    ledFault = 25;   // output, red                         [useLeds]

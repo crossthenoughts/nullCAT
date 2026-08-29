@@ -92,6 +92,8 @@ static void writeHostConfig(const AppConfig& c, QJsonObject& obj)
     obj["gpioEstopPin"]             = c.gpioEstopPin;
     obj["gpioEngagePin"]            = c.gpioEngagePin;
     obj["gpioParkPin"]              = c.gpioParkPin;
+    obj["gpioBeltPin"]              = c.gpioBeltPin;
+    obj["gpioDevicePin"]            = c.gpioDevicePin;
     obj["gpioLedRunPin"]            = c.gpioLedRunPin;
     obj["gpioLedReadyPin"]          = c.gpioLedReadyPin;
     obj["gpioLedFaultPin"]          = c.gpioLedFaultPin;
@@ -141,6 +143,8 @@ static void readHostConfig(const QJsonObject& obj, AppConfig& c)
     if (obj.contains("gpioEstopPin"))             c.gpioEstopPin             = obj.value("gpioEstopPin").toInt(17);
     if (obj.contains("gpioEngagePin"))            c.gpioEngagePin            = obj.value("gpioEngagePin").toInt(27);
     if (obj.contains("gpioParkPin"))              c.gpioParkPin              = obj.value("gpioParkPin").toInt(22);
+    if (obj.contains("gpioBeltPin"))              c.gpioBeltPin              = obj.value("gpioBeltPin").toInt(4);
+    if (obj.contains("gpioDevicePin"))            c.gpioDevicePin            = obj.value("gpioDevicePin").toInt(18);
     if (obj.contains("gpioLedRunPin"))            c.gpioLedRunPin            = obj.value("gpioLedRunPin").toInt(23);
     if (obj.contains("gpioLedReadyPin"))          c.gpioLedReadyPin          = obj.value("gpioLedReadyPin").toInt(24);
     if (obj.contains("gpioLedFaultPin"))          c.gpioLedFaultPin          = obj.value("gpioLedFaultPin").toInt(25);

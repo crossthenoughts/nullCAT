@@ -25,6 +25,7 @@
 #include "MotionController.h"
 #include "CarCache.h"
 #include "ControlLoop.h"
+#include "StatusModel.h"
 #include "WebServer.h"
 #include "EvdevButtons.h"
 #include "A6Drive.h"
@@ -225,6 +226,8 @@ int main(int argc, char* argv[])
         pins.estop    = static_cast<unsigned>(cfg.gpioEstopPin);
         pins.engage   = static_cast<unsigned>(cfg.gpioEngagePin);
         pins.park     = static_cast<unsigned>(cfg.gpioParkPin);
+        pins.belt     = static_cast<unsigned>(cfg.gpioBeltPin);
+        pins.device   = static_cast<unsigned>(cfg.gpioDevicePin);
         pins.ledRun   = static_cast<unsigned>(cfg.gpioLedRunPin);
         pins.ledReady = static_cast<unsigned>(cfg.gpioLedReadyPin);
         pins.ledFault = static_cast<unsigned>(cfg.gpioLedFaultPin);
@@ -256,6 +259,26 @@ int main(int argc, char* argv[])
             c.type = MotionCommand::Type::StartUnpark;
             motion.enqueueCommand(c);
         };
+        acts.beltSlack = [&motion]()
+        {
+            MotionCommand c; c.type = MotionCommand::Type::SlackBelts;
+            motion.enqueueCommand(c);
+        };
+        acts.beltTension = [&motion]()
+        {
+            MotionCommand c; c.type = MotionCommand::Type::TensionBelts;
+            motion.enqueueCommand(c);
+        };
+        acts.deviceEngage = [&motion]()
+        {
+            MotionCommand c; c.type = MotionCommand::Type::EngageDevice; c.intVal = -1;
+            motion.enqueueCommand(c);
+        };
+        acts.deviceRelease = [&motion]()
+        {
+            MotionCommand c; c.type = MotionCommand::Type::ReleaseDevice; c.intVal = -1;
+            motion.enqueueCommand(c);
+        };
         acts.estop = [&motion, &master]()
         {
             motion.setEmergencyStop(true);
@@ -263,7 +286,7 @@ int main(int argc, char* argv[])
         };
         acts.estopRelease = [&motion]() { motion.setEmergencyStop(false); };
 
-        auto getStatus = [&master, &loop, &motion, &webServer]() -> PanelStatus
+        auto getStatus = [&master, &loop, &motion, &webServer, &config]() -> PanelStatus
         {
             PanelStatus s;
             s.masterOp    = master.isOperational();
@@ -286,6 +309,28 @@ int main(int argc, char* argv[])
                 if (mst.axisState[i] != AxisMotionState::PARKED) allParked = false;
             }
             s.parked = allParked;
+            // Belt + device toggle state: the SAME StatusModel derivations
+            // the web toggles use, so all surfaces resolve identically.
+            {
+                const AppConfig& c = config.get();
+                bool beltMask[MAX_DRIVES] = {}, devMask[MAX_DRIVES] = {};
+                int n = (int)c.drives.size(); if (n > MAX_DRIVES) n = MAX_DRIVES;
+                for (int i = 0; i < n; ++i)
+                {
+                    const AxisCaps caps = axisCaps(c.drives[i].axisType, c.drives[i].mode);
+                    beltMask[i] = caps.beltType && caps.torqueMode;
+                    devMask[i]  = caps.isDevice();
+                }
+                const status::BeltAggregates b =
+                    status::deriveBeltAggregates(mst.axisState, mst.numDrives, beltMask, n);
+                const status::DeviceAggregates d =
+                    status::deriveDeviceAggregates(mst.axisState, mst.numDrives, mst.homed, devMask, n);
+                s.hasBelts   = b.hasBelts;
+                s.beltsSlack = b.beltsSlack;
+                s.hasDevices = d.hasDevices;
+                s.devEngaged = d.anyEngaged;
+                s.devBusy    = d.transitional;
+            }
             return s;
         };
 
