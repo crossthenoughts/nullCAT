@@ -284,6 +284,12 @@ void MotionController::drainCommands(A6Drive** /*drives*/, int /*numHwDrives*/)
         case MotionCommand::Type::TensionBelts:
             tensionBelts();
             break;
+        case MotionCommand::Type::EngageDevice:
+            engageDevices(cmd.intVal);
+            break;
+        case MotionCommand::Type::ReleaseDevice:
+            releaseDevices(cmd.intVal);
+            break;
         default:
             break;
         }

@@ -185,6 +185,18 @@ int main()
     check(has(post("/api/belts/tension"), "\"ok\":true"), "POST /api/belts/tension accepted");
     check(waitStatus("\"beltsSlack\":false", 5000), "tension: beltsSlack goes false");
 
+    // ---- 0.9.5 device endpoints: surface shape ----
+    // This rig has no device axis, so accept = enqueue and the RT-side
+    // family filter no-ops -- what these rows pin is the ROUTE (it exists,
+    // it answers) and the HTTP-side axis validation. The engine-layer
+    // behaviour rows live in TestCommandContract.
+    check(has(post("/api/device/engage"), "\"ok\":true"),
+          "POST /api/device/engage accepted");
+    check(has(post("/api/device/release"), "\"ok\":true"),
+          "POST /api/device/release accepted");
+    check(has(post("/api/device/engage", "{\"axis\":99}"), "\"ok\":false"),
+          "POST /api/device/engage axis out of range: refused");
+
     // ---- toggle endpoints (one button per pair; server-resolved + guarded) ----
     // Runs BEFORE the e-stop section: e-stop release triggers a re-home, and
     // sim drives have no hardstop torque model (getTorquePercent()==0 without

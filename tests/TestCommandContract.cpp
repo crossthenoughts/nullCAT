@@ -206,6 +206,111 @@ int main()
               "StartHoming: belt axis state unchanged (belts never home)");
     }
 
+    // ======== 0.9.5 device family (EngageDevice / ReleaseDevice) ============
+    // Null drives: device homing sim-completes instantly and the engaged
+    // field idles at neutral (zero force), so these rows pin STATE
+    // transitions and cross-family isolation -- the force numbers live in
+    // TestDeviceForce/TestMotionController.
+    const int DEV = 2;   // shifter axis index in the extended rig below
+    auto makeDeviceRigConfig = []()
+    {
+        AppConfig cfg = makeRigConfig();
+        DriveConfig dev  = cfg.drives[0];
+        dev.slaveIndex   = 3;
+        dev.axisType     = "shifter";
+        dev.mode         = "torque";
+        cfg.numDrives    = 3;
+        cfg.drives.push_back(dev);
+        return cfg;
+    };
+    auto cmdAxis = [](MotionController& mc, MotionCommand::Type t, int axis)
+    {
+        MotionCommand c; c.type = t; c.intVal = axis;
+        return mc.enqueueCommand(c);
+    };
+
+    // ---- EngageDevice before homing: refused (home-frame force field) ------
+    {
+        MotionController mc;
+        mc.configure(makeDeviceRigConfig());
+        runCycles(mc, sim(0.0), 50);
+        check(cmdAxis(mc, MotionCommand::Type::EngageDevice, -1), "EngageDevice enqueues");
+        runCycles(mc, sim(0.0), 100);
+        check(mc.getAxisState(DEV) == AxisMotionState::PARKED,
+              "EngageDevice unhomed: refused, device stays PARKED");
+    }
+
+    // ---- Homing lands the device PARKED (limp); auto-unpark never engages --
+    {
+        MotionController mc;
+        mc.configure(makeDeviceRigConfig());
+        runCycles(mc, sim(0.0), 50);
+        cmd(mc, MotionCommand::Type::StartHoming);
+        runCycles(mc, sim(0.0), 200);
+        check(mc.isAxisHomed(DEV), "StartHoming: device axis homes (torque kind)");
+        MotionOutput out = runCycles(mc, sim(0.3), 100);
+        check(mc.getAxisState(DEV) == AxisMotionState::PARKED,
+              "post-homing auto-unpark: device stays PARKED (limp)");
+        check(out.torques[DEV] == 0.0, "PARKED device commands zero torque");
+
+        // ---- Engage -> BLENDING -> ONLINE; belts untouched -----------------
+        AxisMotionState beltBefore = mc.getAxisState(BELT);
+        cmdAxis(mc, MotionCommand::Type::EngageDevice, DEV);
+        runCycles(mc, sim(0.3), 100);
+        check(mc.getAxisState(DEV) == AxisMotionState::ONLINE,
+              "EngageDevice: device reaches ONLINE");
+        check(mc.getAxisState(BELT) == beltBefore,
+              "EngageDevice: belt axis untouched");
+
+        // ---- Belt commands never grab a device -----------------------------
+        cmd(mc, MotionCommand::Type::SlackBelts);
+        runCycles(mc, sim(0.3), 200);
+        check(mc.getAxisState(DEV) == AxisMotionState::ONLINE,
+              "SlackBelts: engaged device stays ONLINE");
+        cmd(mc, MotionCommand::Type::TensionBelts);
+        runCycles(mc, sim(0.3), 200);
+        check(mc.getAxisState(DEV) == AxisMotionState::ONLINE,
+              "TensionBelts: device untouched (still ONLINE)");
+
+        // ---- Idempotency ---------------------------------------------------
+        cmdAxis(mc, MotionCommand::Type::EngageDevice, DEV);
+        runCycles(mc, sim(0.3), 50);
+        check(mc.getAxisState(DEV) == AxisMotionState::ONLINE,
+              "EngageDevice idempotent: still ONLINE");
+
+        // ---- Release -> PARKED (limp) --------------------------------------
+        check(cmdAxis(mc, MotionCommand::Type::ReleaseDevice, DEV), "ReleaseDevice enqueues");
+        out = runCycles(mc, sim(0.3), 200);
+        check(mc.getAxisState(DEV) == AxisMotionState::PARKED,
+              "ReleaseDevice: device PARKED (limp)");
+        check(out.torques[DEV] == 0.0, "released device commands zero torque");
+
+        // ---- StartPark releases an engaged device (whole-rig park) ---------
+        cmdAxis(mc, MotionCommand::Type::EngageDevice, DEV);
+        runCycles(mc, sim(0.3), 100);
+        cmd(mc, MotionCommand::Type::StartPark);
+        out = runCycles(mc, sim(0.3), 600);
+        check(mc.getAxisState(DEV) == AxisMotionState::PARKED && out.torques[DEV] == 0.0,
+              "StartPark: engaged device released to PARKED");
+    }
+
+    // ---- EngageDevice REFUSED under e-stop (silent, like TensionBelts) -----
+    {
+        MotionController mc;
+        mc.configure(makeDeviceRigConfig());
+        runCycles(mc, sim(0.0), 50);
+        cmd(mc, MotionCommand::Type::StartHoming);
+        runCycles(mc, sim(0.0), 200);
+        mc.setEmergencyStop(true);
+        runCycles(mc, sim(0.0), 50);
+        cmdAxis(mc, MotionCommand::Type::EngageDevice, -1);
+        MotionOutput out = runCycles(mc, sim(0.0), 200);
+        check(mc.getAxisState(DEV) != AxisMotionState::ONLINE
+              && mc.getAxisState(DEV) != AxisMotionState::BLENDING
+              && out.torques[DEV] == 0.0,
+              "EngageDevice under e-stop: refused, device stays limp");
+    }
+
     std::printf("\n%d passed, %d failed, %d pending ruling\n", g_pass, g_fail, g_pending);
     return g_fail ? 1 : 0;
 }

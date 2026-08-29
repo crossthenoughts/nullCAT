@@ -45,6 +45,8 @@ struct MotionCommand
         StartUnpark,      // no args - return parked axes to standby/online
         SlackBelts,       // torque axes only: ease tension to 0 (don/doff); others untouched
         TensionBelts,     // torque axes only: blend 0 -> live tension; others untouched
+        EngageDevice,     // device axes only: blend force field in; intVal = axis (-1 = all)
+        ReleaseDevice,    // device axes only: ease force to 0 (limp); intVal = axis (-1 = all)
     };
     Type type   = Type::StartHoming;
     int  intVal = -1;

@@ -48,8 +48,10 @@ in the same commit.
 | Home | `/api/home` (optional body `{"axis":N}`) | needs motion controller; out-of-range `axis` refused | ignored per-axis unless axis eligible (belt axes never home) | `homing:true` → `needsRehome:false` | yes |
 | Park | `/api/park` | needs motion controller | per-axis state machine | `parked:true` | yes |
 | Unpark | `/api/unpark` | needs motion controller | **position axes only**: belts NEVER tension via unpark, auto or explicit; requires homed axes | `parked:false` | yes |
-| Slack belts | `/api/belts/slack` | needs motion controller | torque axes only; allowed in any non-fault state | `beltsSlack:true` | yes |
-| Tension belts | `/api/belts/tension` | needs motion controller | **REFUSED under e-stop** (logged, silent on wire); torque axes only; from PARKED/PARKING | `beltsSlack:false` | yes |
+| Slack belts | `/api/belts/slack` | needs motion controller | belt axes only; allowed in any non-fault state | `beltsSlack:true` | yes |
+| Tension belts | `/api/belts/tension` | needs motion controller | **REFUSED under e-stop** (logged, silent on wire); belt axes only; from PARKED/PARKING | `beltsSlack:false` | yes |
+| Engage device | `/api/device/engage` (optional body `{"axis":N}`) | needs motion controller; out-of-range `axis` refused | **REFUSED under e-stop** and for an unhomed device (both logged, silent on wire); device axes (shifter/pedal) only; from PARKED/PARKING | per-axis state (BLENDING then ONLINE) | no |
+| Release device | `/api/device/release` (optional body `{"axis":N}`) | needs motion controller; out-of-range `axis` refused | device axes only; from ONLINE/BLENDING | per-axis state (PARKING then PARKED = limp) | no |
 | Software e-stop | `/api/estop` | needs components | - (always honored) | `estop:true` | yes |
 | E-stop release | `/api/estop/release` | none | - | `estop:false` | **desktop-only** (re-arm needs eyes on the rig) |
 | Reset fault (+lockout) | `/api/reset-fault` | needs components | drive may refuse reset until thermal decay (Er40/41); retried by fault monitor | drive state via per-drive status; lockout cleared | yes |
@@ -104,6 +106,19 @@ slack. Vertical axes keep full auto-recovery (release, re-home, unpark).
 TensionBelts is also the only latch-clearing re-tension; it remains refused
 under e-stop. Pinned by TestCommandContract and the TestTorquePath
 guard-latch tests.
+
+## Device engage rule
+
+The device families (shifter, pedal - torque-mode, but NEVER belts) mirror
+the belt rule with their own command pair: EngageDevice is the ONE way a
+device's force field comes on. Homing (torque stall-search) lands the
+device PARKED = limp; the post-homing auto-unpark skips device axes exactly
+as it skips belts; the belt commands filter on belt type so they can never
+grab a device, and the device commands filter on device family so they can
+never touch a belt. StartPark (whole-rig park) releases engaged devices.
+Engage is refused under e-stop and for an unhomed device. Pinned by
+TestCommandContract's device rows and TestMotionController's
+deviceAxis_fullLifecycle.
 
 ## Known contract gaps
 

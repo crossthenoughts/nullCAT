@@ -962,6 +962,44 @@ bool WebServer::start()
             okResp(res);
         });
 
+        // Device engage/release (shifter/pedal families ONLY; every other
+        // axis untouched -- the RT side filters on caps.isDevice()). Same
+        // idempotent two-endpoint shape as the belt pair, for the same
+        // reason: a physical button bound to one of these can never do the
+        // opposite because UI state drifted. Optional {"axis": N} targets
+        // one device (1-based, chain order); default all device axes.
+        const auto deviceCmd = [this, okResp, errResp](
+            MotionCommand::Type type, const httplib::Request& req, httplib::Response& res)
+        {
+            if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
+            MotionCommand cmd;
+            cmd.type   = type;
+            cmd.intVal = -1;
+            if (!req.body.empty())
+            {
+                QJsonParseError pe;
+                const QJsonDocument doc = QJsonDocument::fromJson(
+                    QByteArray(req.body.c_str(), (int)req.body.size()), &pe);
+                if (pe.error == QJsonParseError::NoError && doc.isObject())
+                {
+                    const int axis = doc.object().value("axis").toInt(0);
+                    if (axis != 0)
+                    {
+                        const int n = m_config ? (int)m_config->drives.size() : 0;
+                        if (axis < 1 || axis > n)
+                        { errResp(res, "axis out of range."); return; }
+                        cmd.intVal = axis - 1;
+                    }
+                }
+            }
+            m_motion->enqueueCommand(cmd);
+            okResp(res);
+        };
+        postCmd("/api/device/engage", [deviceCmd](const httplib::Request& req, httplib::Response& res)
+        { deviceCmd(MotionCommand::Type::EngageDevice, req, res); });
+        postCmd("/api/device/release", [deviceCmd](const httplib::Request& req, httplib::Response& res)
+        { deviceCmd(MotionCommand::Type::ReleaseDevice, req, res); });
+
         // GPIO panel LED self-test (no-op if the panel/mode has no LEDs).
         postCmd("/api/gpio/ledtest", [this, okResp, errResp](const httplib::Request&, httplib::Response& res)
         {
