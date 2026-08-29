@@ -348,6 +348,8 @@ private slots:
             d.device.stopMaxRev   =  0.08;
             d.device.lashRev      = 0.004;
             d.device.thermalDwellSec = 20.0;
+            d.device.frictionPct     = 6.0;
+            d.device.breakoutScale   = 1.8;
             d.device.clutchBitePct   = 30.0;
             d.device.blockGain       = 1.5;
             d.device.grindAmpPct     = 12.0;
@@ -375,6 +377,8 @@ private slots:
         QCOMPARE(p.stopMinRev, -0.08);
         QCOMPARE(p.lashRev, 0.004);
         QCOMPARE(p.thermalDwellSec, 20.0);
+        QCOMPARE(p.frictionPct, 6.0);
+        QCOMPARE(p.breakoutScale, 1.8);
         QCOMPARE(p.clutchBitePct, 30.0);
         QCOMPARE(p.blockGain, 1.5);
         QCOMPARE(p.grindAmpPct, 12.0);

@@ -106,7 +106,18 @@ public:
             double best = m_p.detents[0];
             for (double d : m_p.detents)
                 if (std::fabs(posRev - d) < std::fabs(posRev - best)) best = d;
-            f += -restoring(m_p.detentCurve, posRev - best);
+            double fd = -restoring(m_p.detentCurve, posRev - best);
+            // Breakout asymmetry: pulling OUT of a slot resists harder than
+            // falling in (real dog engagement). Scales the detent force only
+            // while moving AWAY from the slot centre, smoothly in velocity so
+            // rest is exactly 1x and the default (1.0) is bit-inert.
+            if (m_p.breakoutScale != 1.0)
+            {
+                const double away = m_vel * ((posRev - best) >= 0.0 ? 1.0 : -1.0);
+                const double t = std::min(1.0, std::max(0.0, away / BREAKOUT_VEL_EPS));
+                fd *= 1.0 + (m_p.breakoutScale - 1.0) * t;
+            }
+            f += fd;
         }
 
         // Soft end stops: stiff spring past the stop, extra damping inside it.
@@ -117,6 +128,14 @@ public:
 
         // Viscous damping everywhere.
         f -= m_p.dampPctPerRevS * m_vel;
+
+        // Dry (Coulomb) friction: a constant force opposing motion, the
+        // "mechanical linkage" feel viscous damping alone can't give. The
+        // sign is smoothed below BREAKOUT_VEL_EPS so a resting lever gets
+        // exactly zero (no chatter at the zero crossing).
+        if (m_p.frictionPct > 0.0)
+            f -= m_p.frictionPct *
+                 std::max(-1.0, std::min(1.0, m_vel / FRICTION_VEL_EPS));
 
         // ---- L2 modifiers ----
         f *= mods.forceScale;
@@ -179,6 +198,12 @@ public:
             }
         return c.back().y;
     }
+
+    // Velocity scales for the friction sign smoothing and the breakout
+    // ramp-in (rev/s). Small enough that any deliberate hand movement is
+    // fully in-regime; large enough that encoder noise at rest stays out.
+    static constexpr double FRICTION_VEL_EPS = 0.05;
+    static constexpr double BREAKOUT_VEL_EPS = 0.05;
 
 private:
     // Curve y resists displacement: force magnitude at |offset|, signed to

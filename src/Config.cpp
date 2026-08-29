@@ -230,6 +230,8 @@ static void writeDeviceParams(const DeviceParams& p, QJsonObject& o)
     o["stopDamp"]        = p.stopDamp;
     o["lashRev"]         = p.lashRev;
     o["dampPctPerRevS"]  = p.dampPctPerRevS;
+    o["frictionPct"]     = p.frictionPct;
+    o["breakoutScale"]   = p.breakoutScale;
     o["velLpfHz"]        = p.velLpfHz;
     o["maxForcePct"]     = p.maxForcePct;
     o["homeTorquePct"]   = p.homeTorquePct;
@@ -331,6 +333,8 @@ static void readDeviceParams(const QJsonObject& o, DeviceParams& p)
     rdDbl(o, "stopDamp",        p.stopDamp);
     rdDbl(o, "lashRev",         p.lashRev);
     rdDbl(o, "dampPctPerRevS",  p.dampPctPerRevS);
+    rdDbl(o, "frictionPct",     p.frictionPct);
+    rdDbl(o, "breakoutScale",   p.breakoutScale);
     rdDbl(o, "velLpfHz",        p.velLpfHz);
     rdDbl(o, "maxForcePct",     p.maxForcePct);
     rdDbl(o, "homeTorquePct",   p.homeTorquePct);
@@ -967,6 +971,10 @@ std::vector<std::string> AppConfig::validate() const
                 errors.push_back(pfx + "device.blockStartRev must be >= 0 and within the travel");
             if (p.rpmMatchPct < 0.0 || p.rpmMatchPct > 50.0)
                 errors.push_back(pfx + "device.rpmMatchPct out of range [0, 50]");
+            if (p.frictionPct < 0.0 || p.frictionPct > 50.0)
+                errors.push_back(pfx + "device.frictionPct out of range [0, 50]");
+            if (p.breakoutScale < 0.2 || p.breakoutScale > 10.0)
+                errors.push_back(pfx + "device.breakoutScale out of range [0.2, 10]");
         }
     }
 

@@ -44,6 +44,8 @@ struct DeviceParams
     double stopDamp       = 60.0;    // % per rev/s inside a stop
     double lashRev        = 0.0;     // zero-force free-play halfwidth about neutral
     double dampPctPerRevS = 15.0;    // viscous damping everywhere
+    double frictionPct    = 0.0;     // dry (Coulomb) friction opposing motion; 0 = off
+    double breakoutScale  = 1.0;     // detent force multiplier pulling OUT of a slot; 1 = symmetric
     double velLpfHz       = 40.0;    // velocity low-pass corner
     double maxForcePct    = 100.0;   // model output clamp (above it only drive 0x6072 caps)
     // Torque-only homing (HomingKind::Torque): push toward a travel stop.

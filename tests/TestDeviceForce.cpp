@@ -172,6 +172,53 @@ int main()
               "thermal dwell eases sustained near-max force to zero");
     }
 
+    // ================= dry friction =================
+    {
+        DeviceParams p = baseParams();
+        p.springCurve.clear(); p.detents.clear(); p.detentCurve.clear();
+        p.frictionPct = 10.0;
+        DeviceForceModel m; m.configure(p, DT); m.reset(0.0);
+        DeviceStateMods inert;
+        CHECK(m.step(0.0, inert) == 0.0, "friction: exactly zero at rest");
+        // 0.1 rev/s (2x the smoothing eps): full friction against motion.
+        double f = m.step(0.1 * DT, inert);
+        CHECK(std::fabs(f + 10.0) < 1e-9, "friction opposes positive motion at full value");
+        m.reset(0.0);
+        m.step(0.0, inert);
+        f = m.step(-0.1 * DT, inert);
+        CHECK(std::fabs(f - 10.0) < 1e-9, "friction opposes negative motion");
+        // Half the eps: proportionally smaller (no chatter at zero crossing).
+        m.reset(0.0);
+        m.step(0.0, inert);
+        f = m.step(0.025 * DT, inert);
+        CHECK(std::fabs(f + 5.0) < 1e-9, "friction sign is smoothed below the eps");
+    }
+
+    // ================= breakout asymmetry =================
+    {
+        DeviceParams p = baseParams();
+        p.springCurve.clear();
+        p.detents = { 0.0 };
+        p.detentCurve = { {-0.02, -60.0}, {0.0, 0.0}, {0.02, 60.0} };   // capture
+        p.breakoutScale = 2.0;
+        DeviceForceModel m; m.configure(p, DT); m.reset(0.006);
+        DeviceStateMods inert;
+        m.step(0.008, inert);   // seed prev (first step after reset has vel 0)
+        // At +0.01 rel, moving AWAY (4 rev/s > eps): capture pull doubled.
+        double fAway = m.step(0.01, inert);
+        DeviceForceModel n; n.configure(p, DT); n.reset(0.014);
+        n.step(0.012, inert);
+        // Same position moving TOWARD the slot: plain capture pull.
+        double fIn = n.step(0.01, inert);
+        CHECK(std::fabs(fIn + 30.0) < 1e-9, "falling into the slot: plain detent force");
+        CHECK(std::fabs(fAway + 60.0) < 1e-9, "pulling out: detent force x breakoutScale");
+        // Default 1.0 is bit-inert (the branch itself is skipped).
+        p.breakoutScale = 1.0;
+        DeviceForceModel d1; d1.configure(p, DT); d1.reset(0.008);
+        CHECK(std::fabs(d1.step(0.01, inert) + 30.0) < 1e-9,
+              "breakoutScale 1: identical to the symmetric model");
+    }
+
     // ================= dir mapping + determinism =================
     {
         DeviceParams p = baseParams();
