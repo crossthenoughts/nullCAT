@@ -457,6 +457,7 @@ add_motion_test(TestCommissioningFlow tests/TestCommissioningFlow.cpp)
 
 # ---- Axis classification authority (golden vs legacy string compares) ----
 add_motion_test(TestAxisKind tests/TestAxisKind.cpp)
+add_motion_test(TestDeviceForce tests/TestDeviceForce.cpp)
 
 # ---- Build 72: TestInitSequence - EtherCATMaster init sequence (sim mode) ----
 #

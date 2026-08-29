@@ -9,6 +9,7 @@
 // ============================================================
 
 #include "CommissioningMode.h"
+#include "WaveSynth.h"
 #include "Logging.h"   // RT-safe TESTRESULT lines (rig logs carry the data)
 #include <cmath>
 #include <cstring>
@@ -32,11 +33,9 @@ double clampd(double v, double lo, double hi)
 // ============================================================
 double CommissioningMode::envelope(double t, double dur, double ramp)
 {
-    if (t <= 0.0 || t >= dur) return 0.0;
-    if (2.0 * ramp > dur) ramp = dur / 2.0;
-    if (t < ramp)        return 0.5 * (1.0 - std::cos(PI * t / ramp));
-    if (t > dur - ramp)  return 0.5 * (1.0 - std::cos(PI * (dur - t) / ramp));
-    return 1.0;
+    // Delegates to the shared toolkit (WaveSynth.h) -- the expression moved
+    // there verbatim so the commissioning goldens pin it for every consumer.
+    return wavesynth::envelope(t, dur, ramp);
 }
 
 // ============================================================
