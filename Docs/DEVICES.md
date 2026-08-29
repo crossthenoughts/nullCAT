@@ -70,9 +70,18 @@ section shows whether the stream is being received.
 - `grindAmpPct` / `grindFreqHz`: pushing against that blocked gate
   grinds.
 
-Both are off by default. If the channel stream stops for half a second,
-every effect drops out and the plain feel remains - a lost connection
-can never lock your shifter.
+- `rpmMatchPct`: the revmatch window. With rpm, speed, and gear bound,
+  the controller learns each gear's rpm-per-speed ratio while you drive
+  (no car database, no setup - it identifies returning cars by their
+  ratios and remembers them across sessions in `carcache.json`). A
+  clutchless shift then goes IN when your blip has the engine within
+  this window of what the next gear needs - and grinds when it does
+  not. Give it a lap of normal driving in at least two gears before
+  expecting let-ins.
+
+All of these are off by default. If the channel stream stops for half a
+second, every effect drops out and the plain feel remains - a lost
+connection can never lock your shifter.
 
 ## Troubleshooting
 

@@ -41,6 +41,16 @@ struct NcxValues
     double val[TokenCount]  = {};
 };
 
+// Gear ratios (rpm per km/h), index 1..8; produced by GearRatioLearner,
+// consumed here for the revmatch let-in. known = usable now (learned this
+// session or adopted from the car cache).
+static constexpr int MAX_GEARS = 9;   // index 1..8 used; 0 unused
+struct GearRatios
+{
+    double r[MAX_GEARS]     = {};
+    bool   known[MAX_GEARS] = {};
+};
+
 inline int ncxTokenIndex(const std::string& t)
 {
     if (t == "rpm")         return NcxValues::Rpm;
@@ -93,7 +103,8 @@ class DeviceStateLayer
 public:
     void configure(const DeviceParams& p) { m_p = p; }
 
-    DeviceStateMods step(double posRev, const NcxValues& v) const
+    DeviceStateMods step(double posRev, const NcxValues& v,
+                         const GearRatios* ratios = nullptr) const
     {
         DeviceStateMods m;                 // inert defaults
         if (!v.fresh) return m;            // stream dead -> plain feel
@@ -110,7 +121,8 @@ public:
             for (double d : m_p.detents)
                 if (std::fabs(posRev - d) < std::fabs(posRev - best)) best = d;
             const double rel = std::fabs(posRev - best);
-            if (clutchDriving && rel > m_p.blockStartRev)
+            if (clutchDriving && rel > m_p.blockStartRev &&
+                !revmatched(v, ratios))
             {
                 if (m_p.blockGain > 0.0)
                     m.forceScale = 1.0 + m_p.blockGain;
@@ -125,5 +137,33 @@ public:
     }
 
 private:
+    // Revmatch let-in: a clutchless shift goes in when the engine speed
+    // already agrees with where a NEIGHBOUR gear would put it at the
+    // current road speed (a 1D lever moves one gear at a time, so the
+    // destination is current gear +/- 1; matching either lets it in).
+    // Needs learned ratios - unknown destination = the block stands, and
+    // near-standstill there is no meaningful match (clutchless into 1st
+    // at a stop grinds, as it should).
+    bool revmatched(const NcxValues& v, const GearRatios* ratios) const
+    {
+        if (m_p.rpmMatchPct <= 0.0 || !ratios) return false;
+        if (!v.have[NcxValues::Rpm] || !v.have[NcxValues::SpeedKmh] ||
+            !v.have[NcxValues::Gear]) return false;
+        const double sp = v.val[NcxValues::SpeedKmh];
+        if (sp < 5.0) return false;
+        const int g = (int)(v.val[NcxValues::Gear] < 0.0
+                          ? v.val[NcxValues::Gear] - 0.5
+                          : v.val[NcxValues::Gear] + 0.5);
+        for (int t = g - 1; t <= g + 1; t += 2)
+        {
+            if (t < 1 || t >= MAX_GEARS || !ratios->known[t]) continue;
+            const double want = ratios->r[t] * sp;
+            if (want > 0.0 &&
+                std::fabs(v.val[NcxValues::Rpm] - want) <= m_p.rpmMatchPct / 100.0 * want)
+                return true;
+        }
+        return false;
+    }
+
     DeviceParams m_p;
 };

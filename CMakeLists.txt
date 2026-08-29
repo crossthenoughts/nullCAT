@@ -111,6 +111,7 @@ set(SOURCES
     src/DriveProvisioner.cpp
     src/DriveFaultMonitor.cpp
     src/Config.cpp
+    src/CarCache.cpp
     src/Logging.cpp
     src/WebServer.cpp
     src/ForegroundKeeper.cpp
@@ -347,6 +348,7 @@ set(TEST_CORE_SOURCES
     src/MotionController.cpp
     src/CommissioningMode.cpp
     src/Config.cpp
+    src/CarCache.cpp
     src/Logging.cpp
     src/DriveFaultMonitor.cpp
 )
@@ -460,6 +462,7 @@ add_motion_test(TestAxisKind tests/TestAxisKind.cpp)
 add_motion_test(TestDeviceForce tests/TestDeviceForce.cpp)
 add_motion_test(TestTorqueHoming tests/TestTorqueHoming.cpp)
 add_motion_test(TestDeviceState tests/TestDeviceState.cpp)
+add_motion_test(TestGearRatio tests/TestGearRatio.cpp)
 
 # ---- Build 72: TestInitSequence - EtherCATMaster init sequence (sim mode) ----
 #
@@ -951,6 +954,7 @@ endif()
 add_executable(TestB222O
     tests/TestB222O.cpp
     src/Config.cpp
+    src/CarCache.cpp
     src/A6Drive.cpp
     src/Logging.cpp
 )

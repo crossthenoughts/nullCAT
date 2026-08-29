@@ -641,6 +641,15 @@ void MotionController::publishStatus()
         m_statusSnapshot.beltGuard [i] = m_runtime[i].beltLastTripWhy ? m_runtime[i].beltLastTripWhy
                                        : (m_runtime[i].beltRelaxed ? 3 : 0);
     }
+    // Gear-ratio learner snapshot: the status surface reads it live; the
+    // car-cache save reads the LAST published copy after the loop stops.
+    for (int g = 1; g < MAX_GEARS; ++g)
+    {
+        m_statusSnapshot.gearRatio[g]          = m_ratioLearner.gearRatio(g);
+        m_statusSnapshot.gearRatioKnown[g]     = m_ratioLearner.ratios().known[g];
+        m_statusSnapshot.gearRatioConfident[g] = m_ratioLearner.gearSessionConfident(g);
+    }
+    m_statusSnapshot.gearRatiosDirty = m_ratioLearner.dirty();
 }
 
 void MotionController::startUnpark(A6Drive** drives, int numHwDrives)
@@ -1562,7 +1571,8 @@ double MotionController::stepDeviceBlending(int i, AxisMotionState& state,
 
     // State effects compose with the engage ramp: the field (and anything
     // the wire adds to it) fades in together, never snaps.
-    DeviceStateMods mods = rt.deviceState.step(posRev, m_ncxMap.extract(td));
+    DeviceStateMods mods = rt.deviceState.step(posRev, m_ncxMap.extract(td),
+                                               &m_ratioLearner.ratios());
     mods.forceScale    *= bf;
     mods.textureAmpPct *= bf;
     const double f = rt.deviceModel.step(posRev, mods);
@@ -1583,7 +1593,8 @@ double MotionController::stepDeviceOnline(int i, AxisMotionState& /*state*/,
     AxisRuntime& rt = m_runtime[i];
     A6Drive* d = (drives && i < numHwDrives) ? drives[i] : nullptr;
     const double posRev = deviceCurrentRev(i, d);
-    const DeviceStateMods mods = rt.deviceState.step(posRev, m_ncxMap.extract(td));
+    const DeviceStateMods mods = rt.deviceState.step(posRev, m_ncxMap.extract(td),
+                                                     &m_ratioLearner.ratios());
     const double f = rt.deviceModel.step(posRev, mods);
     rt.lastTension    = f;
     output.torques[i] = f;
@@ -1646,6 +1657,12 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
 
     // Commissioning test mode: start/stop requests, engine step, completion.
     serviceCommissioning(drives, numHwDrives);
+
+    // Gear-ratio learner: one observation per cycle from the NULLCATX
+    // channels (it filters for meaningful samples itself). Rig-level, so
+    // it runs whether or not any device axis is engaged.
+    if (m_ncxMap.boundCount() > 0)
+        m_ratioLearner.step(m_ncxMap.extract(telemetryData));
 
     output.numDrives = m_numDrives;
     const bool estopNow = m_emergencyStop.load(std::memory_order_acquire);

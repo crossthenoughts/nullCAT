@@ -243,6 +243,7 @@ static void writeDeviceParams(const DeviceParams& p, QJsonObject& o)
     o["grindAmpPct"]     = p.grindAmpPct;
     o["grindFreqHz"]     = p.grindFreqHz;
     o["blockStartRev"]   = p.blockStartRev;
+    o["rpmMatchPct"]     = p.rpmMatchPct;
 }
 static void writeDriveConfig(const DriveConfig& d, QJsonObject& obj)
 {
@@ -343,6 +344,7 @@ static void readDeviceParams(const QJsonObject& o, DeviceParams& p)
     rdDbl(o, "grindAmpPct",     p.grindAmpPct);
     rdDbl(o, "grindFreqHz",     p.grindFreqHz);
     rdDbl(o, "blockStartRev",   p.blockStartRev);
+    rdDbl(o, "rpmMatchPct",     p.rpmMatchPct);
 }
 
 static void readDriveConfig(const QJsonObject& obj, int idx, DriveConfig& d)
@@ -963,6 +965,8 @@ std::vector<std::string> AppConfig::validate() const
                 errors.push_back(pfx + "device.grindFreqHz out of range (0, 500]");
             if (p.blockStartRev < 0.0 || p.blockStartRev > (p.stopMaxRev - p.stopMinRev))
                 errors.push_back(pfx + "device.blockStartRev must be >= 0 and within the travel");
+            if (p.rpmMatchPct < 0.0 || p.rpmMatchPct > 50.0)
+                errors.push_back(pfx + "device.rpmMatchPct out of range [0, 50]");
         }
     }
 

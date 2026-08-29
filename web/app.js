@@ -993,7 +993,8 @@ function devCurveEditor(svgId, axisIdx, key){
 }
 function devPoll(s){
   const blk=$('devBlock'); if(!blk||blk.hidden) return;
-  const nx=$('devNcx'); if(nx) nx.textContent=s.ncxRx?'receiving':'not receiving (effects idle, plain feel)';
+  const nx=$('devNcx'); if(nx) nx.textContent=(s.ncxRx?'receiving':'not receiving (effects idle, plain feel)')
+    +((s.gearsKnown|0)>0?` · ${s.gearsKnown} gear ratio${s.gearsKnown>1?'s':''} known`:'');
   const running=!!s.loopRunning, estop=!!s.estop;
   for(const {i} of devAxes()){
     const n=i+1; const st=(s.drives&&s.drives[i]&&s.drives[i].state)||'-';

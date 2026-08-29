@@ -26,6 +26,7 @@
 
 #include "../src/Config.h"
 #include "../src/A6Drive.h"
+#include "../src/CarCache.h"
 
 class TestB222O : public QObject
 {
@@ -399,6 +400,52 @@ private slots:
         // Negative scaling not allowed (clamp to 1.0 so /0 protection).
         drive.setScaling(-1.0);
         QCOMPARE(drive.getCountsPerMm(), 1.0);
+    }
+
+    // ---- CarCache: learned gear ratios persist, merge, and identify ----
+    void o4b_carcache_roundtrip_merge()
+    {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const std::string anchor = (tmp.path() + "/config.json").toStdString();
+
+        double r[MAX_GEARS] = {}; bool conf[MAX_GEARS] = {};
+        r[1] = 120.0; conf[1] = true;
+        r[2] = 85.0;  conf[2] = true;
+        r[3] = 60.0;  conf[3] = true;
+
+        CarCache cc;
+        cc.merge(r, conf);
+        QCOMPARE((int)cc.cars().size(), 1);
+
+        // Same car observed again with a refined ratio: updated, no duplicate.
+        r[2] = 85.5;
+        cc.merge(r, conf);
+        QCOMPARE((int)cc.cars().size(), 1);
+        QCOMPARE(cc.cars()[0].r[2], 85.5);
+
+        // A different car: remembered separately, most recently driven first.
+        double r2[MAX_GEARS] = {}; bool c2[MAX_GEARS] = {};
+        r2[1] = 95.0; c2[1] = true;
+        r2[2] = 66.0; c2[2] = true;
+        cc.merge(r2, c2);
+        QCOMPARE((int)cc.cars().size(), 2);
+        QCOMPARE(cc.cars()[0].r[1], 95.0);
+
+        // One confident gear is not an identity: never merged.
+        double r3[MAX_GEARS] = {}; bool c3[MAX_GEARS] = {};
+        r3[4] = 50.0; c3[4] = true;
+        cc.merge(r3, c3);
+        QCOMPARE((int)cc.cars().size(), 2);
+
+        QVERIFY(cc.save(anchor));
+        CarCache back;
+        QVERIFY(back.load(anchor));
+        QCOMPARE((int)back.cars().size(), 2);
+        QCOMPARE(back.cars()[0].r[1], 95.0);
+        QVERIFY(back.cars()[1].has[3]);
+        QCOMPARE(back.cars()[1].r[3], 60.0);
+        QVERIFY(!back.cars()[0].has[4]);
     }
 
     void o5_full_default_roundtrip_no_data_loss()

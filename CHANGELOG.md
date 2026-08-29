@@ -26,6 +26,11 @@ middle number carries breaking changes and the last carries fixes.
   A minimal SimHub exporter plugin ships in `integrations/simhub/`;
   any tool that can compose a text UDP line works the same. Setup and
   tuning: Docs/DEVICES.md.
+- Revmatch let-in: gear ratios are learned per car while driving (rpm
+  per km/h per gear; cars are identified by their ratio set and
+  remembered across sessions in carcache.json - no car database), and
+  a clutchless shift with the engine blipped to within `rpmMatchPct`
+  of the destination gear goes in instead of grinding.
 - The Pi updates itself: a Software block in the web UI checks GitHub
   for a newer release and updates on click (rig parked, EtherCAT
   stopped). Releases now ship a prebuilt Pi tarball, installs live as

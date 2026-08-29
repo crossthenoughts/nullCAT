@@ -64,6 +64,7 @@ add_executable(nullcat-pi
     ${SRC}/DriveProvisioner.cpp
     ${SRC}/DriveFaultMonitor.cpp
     ${SRC}/Config.cpp
+    ${SRC}/CarCache.cpp
     ${SRC}/Logging.cpp
     ${SRC}/WebServer.cpp
 )
@@ -291,6 +292,7 @@ if(NULLCAT_FULL_TESTS)
         ${SRC}/MotionController.cpp
         ${SRC}/CommissioningMode.cpp
         ${SRC}/Config.cpp
+        ${SRC}/CarCache.cpp
         ${SRC}/Logging.cpp
         ${SRC}/DriveFaultMonitor.cpp)
     macro(add_logic_test NAME)
@@ -310,7 +312,7 @@ if(NULLCAT_FULL_TESTS)
               TestConfigTwoFile TestRTLogging TestLogControls TestTrackingFilter
               TestAxisKind TestFaultCodes TestCommissioning
               TestCommissioningFlow TestB222O TestDeviceForce
-              TestTorqueHoming TestDeviceState)
+              TestTorqueHoming TestDeviceState TestGearRatio)
         add_logic_test(${T})
     endforeach()
 

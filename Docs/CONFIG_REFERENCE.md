@@ -193,6 +193,7 @@ zero. The web Devices section ships starter presets for the whole object.
 | `grindAmpPct` | double | `0.0` | Grind texture amplitude while blocked and pushing, % of rated. `0` = off. |
 | `grindFreqHz` | double | `33` | Grind texture frequency. |
 | `blockStartRev` | double | `0.01` | How far out of the nearest detent the lever must be before block/grind engage (a settled lever in gear is never affected). |
+| `rpmMatchPct` | double | `0.0` | Revmatch let-in window, % of the target rpm. With `rpm`, `speedKmh`, and `gear` channels bound, a clutchless shift goes IN (no block, no grind) when the engine speed is already within this window of what the destination gear needs at the current road speed. The per-gear ratios are learned automatically while you drive and remembered per car in `carcache.json` (machine state beside the configs - safe to delete, never hand-edited). `0` disables. |
 
 ## Telemetry wire format (UDP input)
 

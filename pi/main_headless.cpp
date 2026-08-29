@@ -23,6 +23,7 @@
 #include "EtherCATMaster.h"
 #include "TelemetryInput.h"
 #include "MotionController.h"
+#include "CarCache.h"
 #include "ControlLoop.h"
 #include "WebServer.h"
 #include "EvdevButtons.h"
@@ -146,6 +147,12 @@ int main(int argc, char* argv[])
 
     MotionController motion;
     motion.configure(cfg);
+
+    // Remembered per-car gear ratios (device effects). Loaded before the
+    // RT loop ever runs; saved at shutdown from the last learner snapshot.
+    CarCache carCache;
+    carCache.load(cfgPath);
+    motion.setCarCache(carCache.cars());
 
     ControlLoop loop;
     loop.setComponents(&master, &telemetry, &motion);
@@ -327,6 +334,20 @@ int main(int argc, char* argv[])
         master.shutdown();
     }
     telemetry.shutdown();
+
+    // Persist the session's learned gear ratios (loop is stopped, so the
+    // published snapshot is final). Nothing confident learned = no write.
+    {
+        const MotionStatus ms = motion.getMotionStatus();
+        bool any = false;
+        for (int g = 1; g < MAX_GEARS; ++g) if (ms.gearRatioConfident[g]) any = true;
+        if (any && ms.gearRatiosDirty)
+        {
+            carCache.merge(ms.gearRatio, ms.gearRatioConfident);
+            carCache.save(cfgPath);
+            LOG_INFO("CarCache: session gear ratios remembered.");
+        }
+    }
 
     LOG_INFO(strf("Exited with code %d.", g_exitCode.load()));
     return g_exitCode.load();

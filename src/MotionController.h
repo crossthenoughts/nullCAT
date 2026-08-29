@@ -26,6 +26,7 @@
 #include "TorqueHomingSequence.h"
 #include "DeviceForceModel.h"
 #include "DeviceStateLayer.h"
+#include "GearRatioLearner.h"
 #include "SpscQueue.h"
 #include "CommandConditioner.h"
 #include "CommissioningMode.h"
@@ -90,6 +91,12 @@ struct MotionStatus
     // Belt (torque axes) card telemetry
     double          beltCmdPct[MAX_DRIVES]    = {};  // last commanded tension %
     uint8_t         beltGuard [MAX_DRIVES]    = {};  // 0=ok 1=OVERSPEED trip 2=TRAVEL trip 3=relaxer active
+    // Gear-ratio learner snapshot (device effects). Read off-RT for the
+    // status surface and for the car-cache save at shutdown.
+    double          gearRatio[MAX_GEARS]          = {};
+    bool            gearRatioKnown[MAX_GEARS]     = {};  // usable (learned or adopted)
+    bool            gearRatioConfident[MAX_GEARS] = {};  // session-observed (persistable)
+    bool            gearRatiosDirty               = false;
 };
 
 class MotionController
@@ -124,6 +131,10 @@ public:
     // device axes.
     void engageDevices(int axisIndex);
     void releaseDevices(int axisIndex);
+
+    // Car cache handoff (main thread, at startup - before the RT loop runs).
+    void setCarCache(const std::vector<CachedCar>& cars)
+    { m_ratioLearner.setCache(cars.data(), (int)cars.size()); }
 
 private:
     // Belt runaway guards (overspeed persistence + net-travel cap), armed in
@@ -389,6 +400,9 @@ private:
     HomingSequence   m_homing[MAX_DRIVES];
     TorqueHomingSequence m_torqueHoming[MAX_DRIVES];   // device axes (HomingKind::Torque)
     NcxMap           m_ncxMap;   // rig-level NULLCATX binding table (strings resolved once)
+    // Per-car gear-ratio learner (survives configure(): re-init must not
+    // forget a session's driving; only setCarCache() reseeds the cache).
+    GearRatioLearner m_ratioLearner;
     bool             m_seatActive[MAX_DRIVES] = {};   // axes selected by startSeatHoming() (deinit seat)
     std::atomic<bool> m_emergencyStop{false};
     double           m_estopElapsed = 0.0;

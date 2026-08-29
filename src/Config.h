@@ -64,6 +64,7 @@ struct DeviceParams
     double grindAmpPct    = 0.0;   // grind texture amplitude when blocked and pushing; 0 = off
     double grindFreqHz    = 33.0;
     double blockStartRev  = 0.01;  // displacement from the nearest detent where block/grind engage
+    double rpmMatchPct    = 0.0;   // revmatch let-in window (% of target rpm); 0 = off
 };
 
 // One NULLCATX channel binding: wire slot -> semantic token, engineering
