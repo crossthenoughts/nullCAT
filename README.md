@@ -72,6 +72,8 @@ platforms. **Looking for beta testers with A6-EC hardware.** See
 - Configuration reference: [Docs/CONFIG_REFERENCE.md](Docs/CONFIG_REFERENCE.md)
 - Hexapod bring-up (rotary levers or linear struts):
   [Docs/HEXAPOD_SETUP.md](Docs/HEXAPOD_SETUP.md)
+- Force devices (shifter, active pedal - experimental):
+  [Docs/DEVICES.md](Docs/DEVICES.md)
 - HTTP/WS command contract: [Docs/COMMAND_CONTRACT.md](Docs/COMMAND_CONTRACT.md)
 - Dedicated-controller deployment (NUC/laptop):
   [Docs/NUC_DEPLOYMENT.md](Docs/NUC_DEPLOYMENT.md)

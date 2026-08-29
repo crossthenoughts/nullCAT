@@ -22,6 +22,9 @@ middle number carries breaking changes and the last carries fixes.
   named tokens. First effects driven by it: clutch-up shift blocking
   and gear grind on shifter axes - inert unless configured, and any
   stall of the channel stream drops every effect back to plain feel.
+  A minimal SimHub exporter plugin ships in `integrations/simhub/`;
+  any tool that can compose a text UDP line works the same. Setup and
+  tuning: Docs/DEVICES.md.
 - The Pi updates itself: a Software block in the web UI checks GitHub
   for a newer release and updates on click (rig parked, EtherCAT
   stopped). Releases now ship a prebuilt Pi tarball, installs live as
