@@ -100,7 +100,8 @@ int main()
     // be gripped by the belts button, and a belt-typed position axis can't
     // accept torque commands.
     for (const char* t : { "linear_vertical", "linear_horizontal",
-                           "rotary_lever", "belt", "hexapod_strut" })
+                           "rotary_lever", "belt", "hexapod_strut",
+                           "shifter", "pedal" })
         for (const char* m : { "csp", "pp", "torque" })
         {
             const AxisCaps c = axisCaps(t, m);
@@ -112,6 +113,45 @@ int main()
             else
                 CHECK(!isBelt, "mismatched type/mode is never a belt (safe no-op)");
         }
+
+    // ---- Device family rows (control-loading, 0.9.5) ----
+    for (const char* t : { "shifter", "pedal" })
+    {
+        const AxisCaps d = axisCaps(t, "torque");
+        CHECK(d.isDevice(), "device type classifies as a device family");
+        CHECK(d.family == (std::strcmp(t, "shifter") == 0 ? AxisFamily::Shifter
+                                                          : AxisFamily::Pedal),
+              "device family value matches its type string");
+        CHECK(d.torqueMode && !d.beltType, "device is torque-mode, never a belt");
+        CHECK(!(d.beltType && d.torqueMode),
+              "device never satisfies the belt command predicate");
+        CHECK(d.homes && d.homingKind == HomingKind::Torque,
+              "device homes via the torque-only search");
+        CHECK(!d.positionPark, "device parks by easing force, not position");
+        CHECK(!d.seatable, "device is never seated");
+        CHECK(!d.holdsPositionUnpowered, "capstan devices are back-drivable");
+        CHECK(d.commissioningKind == 2, "device excluded from commissioning");
+        CHECK(std::strcmp(d.unit, "rev") == 0, "device unit is motor revs");
+    }
+
+    // Coherence across the whole matrix, plus the declared-capability rows.
+    for (const char* t : { "linear_vertical", "linear_horizontal",
+                           "rotary_lever", "belt", "hexapod_strut",
+                           "shifter", "pedal" })
+        for (const char* m : { "csp", "pp", "torque" })
+        {
+            const AxisCaps x = axisCaps(t, m);
+            CHECK(x.homes == (x.homingKind != HomingKind::None),
+                  "homes <=> a homing kind exists");
+        }
+    CHECK(axisCaps("belt", "torque").family == AxisFamily::Belt, "belt family");
+    CHECK(axisCaps("linear_vertical", "csp").family == AxisFamily::Position,
+          "vertical = position family");
+    CHECK(axisCaps("rotary_lever", "csp").holdsPositionUnpowered,
+          "rotary lever DECLARES self-locking (no longer inference)");
+    CHECK(!axisCaps("linear_vertical", "csp").holdsPositionUnpowered
+          && axisCaps("linear_vertical", "csp").seatable,
+          "vertical declares no hold and stays seatable");
 
     std::printf("TestAxisKind: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

@@ -65,6 +65,7 @@ static void writeHostConfig(const AppConfig& c, QJsonObject& obj)
     { QJsonArray a; for (const auto& h : c.webAllowedHosts) a.append(QString::fromStdString(h));
       obj["webAllowedHosts"] = a; }
     obj["webUIEnabled"]             = c.webUIEnabled;
+    obj["webShowDevices"]           = c.webShowDevices;
     obj["dcSyncOffsetNs"]           = c.dcSyncOffsetNs;
     obj["dcPhaseLockEnabled"]       = c.dcPhaseLockEnabled;
     obj["dcPhaseLockKp"]            = c.dcPhaseLockKp;
@@ -112,6 +113,7 @@ static void readHostConfig(const QJsonObject& obj, AppConfig& c)
             if (!v.toString().isEmpty()) c.webAllowedHosts.push_back(v.toString().toStdString());
     }
     if (obj.contains("webUIEnabled"))             c.webUIEnabled             = obj.value("webUIEnabled").toBool(false);
+    if (obj.contains("webShowDevices"))           c.webShowDevices           = obj.value("webShowDevices").toBool(false);
     if (obj.contains("dcSyncOffsetNs"))           c.dcSyncOffsetNs           = obj.value("dcSyncOffsetNs").toInt(0);
     if (obj.contains("dcPhaseLockEnabled"))       c.dcPhaseLockEnabled       = obj.value("dcPhaseLockEnabled").toBool(false);
     if (obj.contains("dcPhaseLockKp"))            c.dcPhaseLockKp            = obj.value("dcPhaseLockKp").toDouble(2.5);
@@ -163,6 +165,50 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
     if (obj.contains("requireUserFaultReset"))    c.requireUserFaultReset    = obj.value("requireUserFaultReset").toBool(false);
 }
 
+// ---- Control-loading "device" object (families shifter/pedal) --------------
+// Curves serialize as [[x,y],...] node arrays - the exact structure the web
+// curve editor edits and a preset ships.
+static QJsonArray writeCurve(const std::vector<CurveNode>& c)
+{
+    QJsonArray a;
+    for (const CurveNode& n : c)
+    { QJsonArray p; p.append(n.x); p.append(n.y); a.append(p); }
+    return a;
+}
+static void readCurve(const QJsonValue& v, std::vector<CurveNode>& out)
+{
+    if (!v.isArray()) return;   // absent/wrong shape: keep caller's value
+    out.clear();
+    for (const QJsonValue& e : v.toArray())
+    {
+        const QJsonArray p = e.toArray();
+        if (p.size() != 2) continue;
+        out.push_back({ p.at(0).toDouble(), p.at(1).toDouble() });
+    }
+}
+
+static void writeDeviceParams(const DeviceParams& p, QJsonObject& o)
+{
+    o["dir"]             = p.dir;
+    o["neutralRev"]      = p.neutralRev;
+    o["springCurve"]     = writeCurve(p.springCurve);
+    o["detentCurve"]     = writeCurve(p.detentCurve);
+    { QJsonArray a; for (double d : p.detents) a.append(d); o["detents"] = a; }
+    o["stopMinRev"]      = p.stopMinRev;
+    o["stopMaxRev"]      = p.stopMaxRev;
+    o["stopSpring"]      = p.stopSpring;
+    o["stopDamp"]        = p.stopDamp;
+    o["lashRev"]         = p.lashRev;
+    o["dampPctPerRevS"]  = p.dampPctPerRevS;
+    o["velLpfHz"]        = p.velLpfHz;
+    o["maxForcePct"]     = p.maxForcePct;
+    o["homeTorquePct"]   = p.homeTorquePct;
+    o["homeDir"]         = p.homeDir;
+    o["slewPctPerSec"]   = p.slewPctPerSec;
+    o["thermalDwellSec"] = p.thermalDwellSec;
+    o["thermalPct"]      = p.thermalPct;
+    o["foldRpm"]         = p.foldRpm;
+}
 static void writeDriveConfig(const DriveConfig& d, QJsonObject& obj)
 {
     obj["slaveIndex"]                = d.slaveIndex;
@@ -199,6 +245,14 @@ static void writeDriveConfig(const DriveConfig& d, QJsonObject& obj)
     obj["beltMaxRpm"]                = d.beltMaxRpm;
     obj["beltRelaxerSec"]            = d.beltRelaxerSec;
     obj["beltRelaxerPct"]            = d.beltRelaxerPct;
+    // Nested device object: written for the control-loading families only,
+    // so ordinary axes never carry an unused block.
+    if (axisCaps(d.axisType, d.mode).isDevice())
+    {
+        QJsonObject dev;
+        writeDeviceParams(d.device, dev);
+        obj["device"] = dev;
+    }
 }
 
 // Present-only readers. A key that is ABSENT leaves the value the caller
@@ -222,6 +276,34 @@ static void rdStr(const QJsonObject& o, const char* k, std::string& v, bool lowe
 static void rdDbl (const QJsonObject& o, const char* k, double& v) { if (o.contains(k)) v = o.value(k).toDouble(v); }
 static void rdInt (const QJsonObject& o, const char* k, int&    v) { if (o.contains(k)) v = o.value(k).toInt(v); }
 static void rdBool(const QJsonObject& o, const char* k, bool&   v) { if (o.contains(k)) v = o.value(k).toBool(v); }
+
+static void readDeviceParams(const QJsonObject& o, DeviceParams& p)
+{
+    rdDbl(o, "dir",             p.dir);
+    rdDbl(o, "neutralRev",      p.neutralRev);
+    readCurve(o.value("springCurve"), p.springCurve);
+    readCurve(o.value("detentCurve"), p.detentCurve);
+    if (o.contains("detents") && o.value("detents").isArray())
+    {
+        p.detents.clear();
+        for (const QJsonValue& v : o.value("detents").toArray())
+            p.detents.push_back(v.toDouble());
+    }
+    rdDbl(o, "stopMinRev",      p.stopMinRev);
+    rdDbl(o, "stopMaxRev",      p.stopMaxRev);
+    rdDbl(o, "stopSpring",      p.stopSpring);
+    rdDbl(o, "stopDamp",        p.stopDamp);
+    rdDbl(o, "lashRev",         p.lashRev);
+    rdDbl(o, "dampPctPerRevS",  p.dampPctPerRevS);
+    rdDbl(o, "velLpfHz",        p.velLpfHz);
+    rdDbl(o, "maxForcePct",     p.maxForcePct);
+    rdDbl(o, "homeTorquePct",   p.homeTorquePct);
+    rdDbl(o, "homeDir",         p.homeDir);
+    rdDbl(o, "slewPctPerSec",   p.slewPctPerSec);
+    rdDbl(o, "thermalDwellSec", p.thermalDwellSec);
+    rdDbl(o, "thermalPct",      p.thermalPct);
+    rdDbl(o, "foldRpm",         p.foldRpm);
+}
 
 static void readDriveConfig(const QJsonObject& obj, int idx, DriveConfig& d)
 {
@@ -272,6 +354,8 @@ static void readDriveConfig(const QJsonObject& obj, int idx, DriveConfig& d)
     rdDbl (obj, "beltMaxRpm",             d.beltMaxRpm);
     rdDbl (obj, "beltRelaxerSec",         d.beltRelaxerSec);
     rdDbl (obj, "beltRelaxerPct",         d.beltRelaxerPct);
+    if (obj.contains("device") && obj.value("device").isObject())
+        readDeviceParams(obj.value("device").toObject(), d.device);
 
     // countsPerMm is derived from encoderCountsPerRev * reduction /
     // ballscrewPitch for linear axes. If the file explicitly stores countsPerMm
@@ -735,6 +819,7 @@ std::vector<std::string> AppConfig::validate() const
         if (d.onlineHoldTimeoutSec <= 0.0)
             errors.push_back(pfx + "onlineHoldTimeoutSec must be > 0");
 
+        const AxisCaps kcaps = axisCaps(d.axisType, d.mode);
         if (d.mode == "cst" || d.mode == "torque")
         {
             // Torque values are % of RATED (100 = rated, ~300 = peak); the drive's
@@ -747,6 +832,14 @@ std::vector<std::string> AppConfig::validate() const
                 errors.push_back(pfx + "torqueMaxPct out of range [0, 300]");
             if (d.torqueMinPct >= d.torqueMaxPct)
                 errors.push_back(pfx + "torqueMinPct must be < torqueMaxPct");
+        }
+        // The seven belt guards are BELT-shaped (load-lost physics, strap
+        // winding); their ranges bind belt axes only. The device families
+        // carry their own guard set inside device{} (validated below), so a
+        // shifter is no longer forced into, e.g., a mandatory overspeed trip
+        // whose model is "snapped strap free-spins".
+        if (kcaps.beltType && (d.mode == "cst" || d.mode == "torque"))
+        {
             if (d.beltSlewPctPerSec < 100.0)
                 errors.push_back(pfx + "beltSlewPctPerSec must be >= 100 (haptics need ~1000+; 3000 recommended)");
             if (d.beltOverspeedRpm < 50.0 || d.beltOverspeedRpm > 6000.0)
@@ -772,6 +865,53 @@ std::vector<std::string> AppConfig::validate() const
                     errors.push_back(pfx + "torqueMaxPct x reduction exceeds 300% of rated at the strap -- "
                                            "reduce torqueMaxPct to compensate for the gearing");
             }
+        }
+
+        // ---- Control-loading device families (shifter/pedal) ----
+        if (kcaps.isDevice())
+        {
+            const DeviceParams& p = d.device;
+            if (d.mode != "torque")
+                errors.push_back(pfx + "device family axes (shifter/pedal) require mode \"torque\"");
+            if (p.dir != 1.0 && p.dir != -1.0)
+                errors.push_back(pfx + "device.dir must be +1 or -1");
+            if (p.homeDir != 1.0 && p.homeDir != -1.0)
+                errors.push_back(pfx + "device.homeDir must be +1 or -1");
+            if (p.stopMinRev >= p.stopMaxRev)
+                errors.push_back(pfx + "device.stopMinRev must be < device.stopMaxRev");
+            if (p.neutralRev < p.stopMinRev || p.neutralRev > p.stopMaxRev)
+                errors.push_back(pfx + "device.neutralRev must lie between the stops");
+            for (double det : p.detents)
+                if (det < p.stopMinRev || det > p.stopMaxRev)
+                { errors.push_back(pfx + "device.detents entries must lie between the stops"); break; }
+            auto monotonicX = [](const std::vector<CurveNode>& c)
+            {
+                for (size_t i = 1; i < c.size(); ++i)
+                    if (c[i].x <= c[i - 1].x) return false;
+                return true;
+            };
+            if (!monotonicX(p.springCurve))
+                errors.push_back(pfx + "device.springCurve x values must be strictly increasing");
+            if (!monotonicX(p.detentCurve))
+                errors.push_back(pfx + "device.detentCurve x values must be strictly increasing");
+            if (p.maxForcePct <= 0.0 || p.maxForcePct > 300.0)
+                errors.push_back(pfx + "device.maxForcePct out of range (0, 300]");
+            if (p.homeTorquePct < 5.0 || p.homeTorquePct > 100.0)
+                errors.push_back(pfx + "device.homeTorquePct out of range [5, 100]");
+            if (p.slewPctPerSec < 100.0)
+                errors.push_back(pfx + "device.slewPctPerSec must be >= 100");
+            if (p.thermalDwellSec != 0.0 && (p.thermalDwellSec < 1.0 || p.thermalDwellSec > 300.0))
+                errors.push_back(pfx + "device.thermalDwellSec must be 0 (off) or in [1, 300]");
+            if (p.thermalPct < 20.0 || p.thermalPct > 100.0)
+                errors.push_back(pfx + "device.thermalPct out of range [20, 100]");
+            if (p.foldRpm != 0.0 && (p.foldRpm < 100.0 || p.foldRpm > 6000.0))
+                errors.push_back(pfx + "device.foldRpm must be 0 (off) or in [100, 6000]");
+            if (p.lashRev < 0.0 || p.lashRev >= (p.stopMaxRev - p.stopMinRev) / 2.0)
+                errors.push_back(pfx + "device.lashRev must be >= 0 and smaller than half the travel");
+            if (p.velLpfHz < 0.0)
+                errors.push_back(pfx + "device.velLpfHz must be >= 0");
+            if (p.dampPctPerRevS < 0.0 || p.stopDamp < 0.0 || p.stopSpring < 0.0)
+                errors.push_back(pfx + "device damping/stop values must be >= 0");
         }
     }
 

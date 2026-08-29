@@ -321,6 +321,54 @@ private slots:
         QVERIFY(qAbs(d.countsPerMm - 131072.0 * 1.5 / 360.0) < 0.01);
     }
 
+    void o3c_device_object_roundtrip()
+    {
+        // The nested device{} block (curves as node arrays) must survive
+        // save/load exactly - it is what presets fill and the curve editor
+        // edits.
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        QString path = tmp.path() + "/config.json";
+
+        Config cfg;
+        {
+            AppConfig& c = cfg.get();
+            c.numDrives = 1;
+            DriveConfig d;
+            d.slaveIndex = 1;
+            d.axisType   = "shifter";
+            d.mode       = "torque";
+            d.device.dir          = -1.0;
+            d.device.neutralRev   = 0.01;
+            d.device.detents      = { -0.05, 0.0, 0.05 };
+            d.device.springCurve  = { {-0.07, -175.0}, {0.0, 0.0}, {0.07, 175.0} };
+            d.device.detentCurve  = { {-0.02, 60.0}, {0.02, -60.0} };
+            d.device.stopMinRev   = -0.08;
+            d.device.stopMaxRev   =  0.08;
+            d.device.lashRev      = 0.004;
+            d.device.thermalDwellSec = 20.0;
+            c.drives = { d };
+        }
+        QVERIFY(cfg.save(path.toStdString()));
+
+        Config back;
+        QVERIFY(back.load(path.toStdString()));
+        QVERIFY(!back.get().drives.empty());
+        const DeviceParams& p = back.get().drives[0].device;
+        QCOMPARE(p.dir, -1.0);
+        QCOMPARE(p.neutralRev, 0.01);
+        QCOMPARE((int)p.detents.size(), 3);
+        QCOMPARE(p.detents[2], 0.05);
+        QCOMPARE((int)p.springCurve.size(), 3);
+        QCOMPARE(p.springCurve[0].x, -0.07);
+        QCOMPARE(p.springCurve[0].y, -175.0);
+        QCOMPARE((int)p.detentCurve.size(), 2);
+        QCOMPARE(p.detentCurve[1].y, -60.0);
+        QCOMPARE(p.stopMinRev, -0.08);
+        QCOMPARE(p.lashRev, 0.004);
+        QCOMPARE(p.thermalDwellSec, 20.0);
+    }
+
     void o4_a6drive_single_arg_scaling()
     {
         // setScaling takes a single counts/mm argument.

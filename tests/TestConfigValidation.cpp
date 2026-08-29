@@ -153,6 +153,78 @@ private slots:
         QVERIFY2(lin.validate().empty(), "Linear axis keeps the wide default");
     }
 
+    // ---- Control-loading device family (0.9.5) ----
+    void deviceAxis_validConfig_passes()
+    {
+        AppConfig cfg = validConfig();
+        DriveConfig& d = cfg.drives[0];
+        d.axisType = "shifter";
+        d.mode     = "torque";
+        d.device.detents     = { -0.05, 0.0, 0.05 };
+        d.device.springCurve = { {-0.07, -175.0}, {0.0, 0.0}, {0.07, 175.0} };
+        d.device.detentCurve = { {-0.02, 60.0}, {0.0, 0.0}, {0.02, -60.0} };
+        auto errors = cfg.validate();
+        QVERIFY2(errors.empty(),
+            ("Device config must pass, got: " + (errors.empty() ? "" : errors[0])).c_str());
+    }
+
+    void deviceAxis_wrongMode_error()
+    {
+        AppConfig cfg = validConfig();
+        cfg.drives[0].axisType = "shifter";
+        cfg.drives[0].mode     = "csp";
+        bool found = false;
+        for (const auto& e : cfg.validate())
+            if (e.find("torque") != std::string::npos) found = true;
+        QVERIFY2(found, "shifter in csp mode must demand torque mode");
+    }
+
+    void deviceAxis_detentOutsideStops_error()
+    {
+        AppConfig cfg = validConfig();
+        cfg.drives[0].axisType = "shifter";
+        cfg.drives[0].mode     = "torque";
+        cfg.drives[0].device.detents = { 0.5 };   // outside +/-0.07 stops
+        bool found = false;
+        for (const auto& e : cfg.validate())
+            if (e.find("detents") != std::string::npos) found = true;
+        QVERIFY2(found, "detent outside the stops must be rejected");
+    }
+
+    void deviceAxis_nonMonotonicCurve_error()
+    {
+        AppConfig cfg = validConfig();
+        cfg.drives[0].axisType = "pedal";
+        cfg.drives[0].mode     = "torque";
+        cfg.drives[0].device.springCurve = { {0.0, 0.0}, {0.05, 50.0}, {0.02, 80.0} };
+        bool found = false;
+        for (const auto& e : cfg.validate())
+            if (e.find("springCurve") != std::string::npos) found = true;
+        QVERIFY2(found, "non-monotonic curve x values must be rejected");
+    }
+
+    // Deliberate 0.9.5 re-gate: the seven belt guards bind BELT axes only.
+    // A non-belt torque axis with out-of-belt-range guard values validates
+    // (it never runs the belt guards); before 0.9.5 this errored.
+    void beltGuardRanges_bindBeltsOnly()
+    {
+        AppConfig cfg = validConfig();
+        cfg.drives[0].axisType         = "shifter";
+        cfg.drives[0].mode             = "torque";
+        cfg.drives[0].beltOverspeedRpm = 10.0;    // far below the belt floor of 50
+        QVERIFY2(cfg.validate().empty(),
+                 "belt guard ranges must not bind a non-belt torque axis");
+
+        AppConfig belt = validConfig();
+        belt.drives[0].axisType         = "belt";
+        belt.drives[0].mode             = "torque";
+        belt.drives[0].beltOverspeedRpm = 10.0;
+        bool found = false;
+        for (const auto& e : belt.validate())
+            if (e.find("beltOverspeedRpm") != std::string::npos) found = true;
+        QVERIFY2(found, "belt axes keep the belt guard ranges unchanged");
+    }
+
     // homingTorquePct = 0 (must be >= 1)
     void homingTorquePct_zero_error()
     {

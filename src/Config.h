@@ -19,6 +19,44 @@
 #include <string>
 #include <vector>
 
+// One node of a piecewise-linear curve (x = position in the device's unit,
+// y = force in % of rated). The web curve editor edits exactly these.
+struct CurveNode { double x = 0.0; double y = 0.0; };
+
+// Control-loading device parameters (families shifter/pedal), rendered by
+// DeviceForceModel as a signed force field from the axis's own encoder
+// position. Positions are MOTOR-SHAFT REVOLUTIONS from the homed reference;
+// forces are % of rated torque. Serialized as ONE nested "device" object in
+// each rig.json axis so presets map onto it 1:1 and merge-on-save treats it
+// as a unit. Generic across the family: a pedal is the same field with no
+// detents. The L2 state modifiers (force scale, neutral offset, textures)
+// arrive over NULLCATX later and are NOT config - config is character.
+struct DeviceParams
+{
+    double dir            = 1.0;     // +1/-1 flips the whole model
+    double neutralRev     = 0.0;     // rest position, revs from home
+    std::vector<CurveNode> springCurve;   // centring force vs (pos - neutral), signed x
+    std::vector<CurveNode> detentCurve;   // one detent profile, x relative to detent centre
+    std::vector<double>    detents;       // detent/gate centre positions, revs from home
+    double stopMinRev     = -0.07;   // soft end stops (revs from home)
+    double stopMaxRev     =  0.07;
+    double stopSpring     = 20000.0; // % per rev past a stop
+    double stopDamp       = 60.0;    // % per rev/s inside a stop
+    double lashRev        = 0.0;     // zero-force free-play halfwidth about neutral
+    double dampPctPerRevS = 15.0;    // viscous damping everywhere
+    double velLpfHz       = 40.0;    // velocity low-pass corner
+    double maxForcePct    = 100.0;   // model output clamp (torqueMaxPct still caps above)
+    // Torque-only homing (HomingKind::Torque): push toward a travel stop.
+    double homeTorquePct  = 30.0;
+    double homeDir        = -1.0;    // search direction sign
+    // Family guards (device-domain instances of the torque-guard primitives;
+    // the belt keeps its own field-proven set untouched).
+    double slewPctPerSec   = 20000.0; // high: the slew cap is a feel knob here
+    double thermalDwellSec = 0.0;     // sustained >= thermalPct eases to zero; 0 = off
+    double thermalPct      = 80.0;
+    double foldRpm         = 0.0;     // velocity fold knee (anti-runaway); 0 = off
+};
+
 struct DriveConfig
 {
     int         slaveIndex        = 1;
@@ -155,6 +193,10 @@ struct DriveConfig
     // once on the drive itself. The app's protection comes from the drive's
     // own following-error fault, software stroke clamping, and the motion
     // limits above.
+
+    // Control-loading device parameters (see DeviceParams above). Unused by
+    // every non-device family; serialized as the nested "device" object.
+    DeviceParams device;
 };
 
 struct AppConfig
@@ -246,6 +288,11 @@ struct AppConfig
     // dashboard at webBindAddr:webPort. Not exposed in the Qt UI; edit
     // config.json directly to enable.
     bool        webUIEnabled   = false;
+    // Shows the web UI's Devices section (control-loading: shifter/pedal).
+    // Machine fact, so it lives in host.json; the section is additionally
+    // absent on Windows builds regardless (Pi-targeted functionality; the
+    // engine itself stays platform-neutral).
+    bool        webShowDevices = false;
 
     std::string logFile        = "logs/app.log";
     bool    logToConsole   = true;
