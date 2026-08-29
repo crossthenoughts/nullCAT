@@ -309,7 +309,8 @@ if(NULLCAT_FULL_TESTS)
               TestDriveFaultMonitor TestTrajectory TestConfigValidation
               TestConfigTwoFile TestRTLogging TestLogControls TestTrackingFilter
               TestAxisKind TestFaultCodes TestCommissioning
-              TestCommissioningFlow TestB222O TestDeviceForce)
+              TestCommissioningFlow TestB222O TestDeviceForce
+              TestTorqueHoming)
         add_logic_test(${T})
     endforeach()
 

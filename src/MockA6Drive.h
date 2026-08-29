@@ -56,6 +56,8 @@ public:
         m_fraInjected           = false;
         m_useIntermediateStates = false;
         m_stepsPerState         = 1;
+        m_torqueResponse        = 0.0;
+        m_cmdTorquePct          = 0.0;
     }
 
     // Set a mechanical hardstop.  isMinLimit=true means the stop is at a
@@ -73,6 +75,16 @@ public:
     {
         m_hardstopActive = false;
     }
+
+    // ---- Torque-response simulation (device family / torque homing) ----
+    // When gain is nonzero, updateStatus() integrates the commanded torque
+    // instead of chasing the position target: pos += gain * cmdPct per
+    // cycle, then the hardstop clamp applies as usual. The test feeds the
+    // commanded torque each cycle via setSimCommandedTorque(); units follow
+    // the test's frame (torque-homing tests run counts == revs by passing
+    // encoderCountsPerRev = 1).
+    void setTorqueResponse(double gainPerCyclePerPct) { m_torqueResponse = gainPerCyclePerPct; }
+    void setSimCommandedTorque(double pct)            { m_cmdTorquePct = pct; }
 
     // Inject a drive fault. Drive immediately transitions to Fault state
     // on the next updateStatus() call and stays there until clearFault().
@@ -123,12 +135,20 @@ public:
             return;
         }
 
-        // Move actual position toward target, clamped to maxVelPerCycle.
-        double delta = m_targetPos - m_actualPos;
-        if (std::abs(delta) > 1e-9)
+        if (m_torqueResponse != 0.0)
         {
-            double step = std::min(std::abs(delta), m_maxVelPerCycle);
-            m_actualPos += (delta > 0.0 ? step : -step);
+            // Torque-response mode: velocity proportional to commanded torque.
+            m_actualPos += m_torqueResponse * m_cmdTorquePct;
+        }
+        else
+        {
+            // Move actual position toward target, clamped to maxVelPerCycle.
+            double delta = m_targetPos - m_actualPos;
+            if (std::abs(delta) > 1e-9)
+            {
+                double step = std::min(std::abs(delta), m_maxVelPerCycle);
+                m_actualPos += (delta > 0.0 ? step : -step);
+            }
         }
 
         // Apply hardstop: clamp actual position at the physical limit.
@@ -307,6 +327,10 @@ private:
     bool   m_hardstopIsMin   = true;   // true = stop is a lower bound (negative dir)
     double m_hardstopTorque  = 50.0;   // % to report when pushing against stop
     double m_simHoldTorque   = 0.0;    // static load-holding torque (seated driver model)
+
+    // Torque-response simulation
+    double m_torqueResponse  = 0.0;    // position units per cycle per % torque
+    double m_cmdTorquePct    = 0.0;
 
     // Home offset (separate from A6Drive's private members -- those aren't accessible)
     double m_mockHomeOffset    = 0.0;
