@@ -78,6 +78,7 @@ logs/
 **/host.json
 **/rig.json
 **/buttons.json
+**/carcache.json
 !resources/*.reference.json
 !deploy/*.example.json
 
