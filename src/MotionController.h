@@ -92,8 +92,11 @@ struct MotionStatus
     double          beltCmdPct[MAX_DRIVES]    = {};  // last commanded tension %
     uint8_t         beltGuard [MAX_DRIVES]    = {};  // 0=ok 1=OVERSPEED trip 2=TRAVEL trip 3=relaxer active
     // Device axes: live lever position, home-frame revs (web teach
-    // capture + card display; meaningful once homed).
+    // capture + card display; meaningful once homed), plus the travel
+    // extremes swept since homing (Capture travel).
     double          devPosRev[MAX_DRIVES]        = {};
+    double          devPosMin[MAX_DRIVES]        = {};
+    double          devPosMax[MAX_DRIVES]        = {};
     // Gear-ratio learner snapshot (device effects). Read off-RT for the
     // status surface and for the car-cache save at shutdown.
     double          gearRatio[MAX_GEARS]          = {};
@@ -397,6 +400,10 @@ private:
         double  deviceHomeStopRev = 0.0;   // which configured stop that raw maps to
         bool    deviceSeeded      = false; // model reset at engage (fresh, no vel kick)
         double  devPosRev         = 0.0;   // live position, refreshed every cycle
+        // Travel sweep since homing: the teach capture reads these (move
+        // the lever end to end by hand while limp, press Capture travel).
+        double  devPosMin         = 0.0;
+        double  devPosMax         = 0.0;
                                            // stale-park only arms after the first frame --
                                            // before telemetry ever connects we hold, not park.
     };

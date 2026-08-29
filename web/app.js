@@ -617,15 +617,15 @@ const AXIS_SPEC=[
   {k:'parkTimeSec',label:'Park time',type:'num',min:0.5,max:30,step:0.1,unit:'s'},
   {k:'spikeFilterEnabled',label:'Spike filter',type:'bool',pos:true},
   {k:'spikeMaxMm',label:'Spike max',type:'num',min:0.1,max:500,step:0.01,unit:'mm/cyc',pos:true},
-  {k:'torqueMinPct',label:'Torque min',type:'num',min:0,max:300,step:1,unit:'%',torque:true},
-  {k:'torqueMaxPct',label:'Torque max',type:'num',min:0,max:300,step:1,unit:'%',torque:true},
-  {k:'beltSlewPctPerSec',label:'Slew cap',type:'num',min:100,max:20000,step:100,unit:'%/s',torque:true},
-  {k:'beltOverspeedRpm',label:'Overspeed',type:'num',min:50,max:6000,step:10,unit:'rpm',torque:true},
-  {k:'beltOverspeedMs',label:'Overspeed time',type:'num',min:20,max:5000,step:10,unit:'ms',torque:true},
-  {k:'beltMaxTravelRevs',label:'Travel cap (0=off)',type:'num',min:0,max:100,step:0.5,unit:'revs',torque:true},
-  {k:'beltMaxRpm',label:'Speed fold (0=off)',type:'num',min:0,max:3000,step:50,unit:'rpm',torque:true},
-  {k:'beltRelaxerSec',label:'Relaxer (0=off)',type:'num',min:0,max:120,step:1,unit:'s',torque:true},
-  {k:'beltRelaxerPct',label:'Relaxer band',type:'num',min:20,max:100,step:1,unit:'%',torque:true},
+  {k:'torqueMinPct',label:'Torque min',type:'num',min:0,max:300,step:1,unit:'%',torque:true,tip:'Floor tension while tracking - the belt stays snug at zero demand. Raise for a firmer resting hold.'},
+  {k:'torqueMaxPct',label:'Torque max',type:'num',min:0,max:300,step:1,unit:'%',torque:true,tip:'Tension at full-scale telemetry - the overall strength of the effect. The drive 0x6072 limit still caps above it.'},
+  {k:'beltSlewPctPerSec',label:'Slew cap',type:'num',min:100,max:20000,step:100,unit:'%/s',torque:true,tip:'How fast tension may change: lower = softer, laggier haptics; higher = snappier. Also stretches a single garbage frame instead of letting it snap the belt. 3000 passes every real effect.'},
+  {k:'beltOverspeedRpm',label:'Overspeed',type:'num',min:50,max:6000,step:10,unit:'rpm',torque:true,tip:'Snapped-belt detector: shaft speed sustained above this trips to slack. Set above any speed a worn strap can reach in use.'},
+  {k:'beltOverspeedMs',label:'Overspeed time',type:'num',min:20,max:5000,step:10,unit:'ms',torque:true,tip:'How long the overspeed must persist before tripping - haptic flicks and hand pulls reset it.'},
+  {k:'beltMaxTravelRevs',label:'Travel cap (0=off)',type:'num',min:0,max:100,step:0.5,unit:'revs',torque:true,tip:'Net winding since tension-up. Catches the SLOW runaway an rpm limit never sees (bare shaft idling along). A strapped belt cannot reach it at any speed.'},
+  {k:'beltMaxRpm',label:'Speed fold (0=off)',type:'num',min:0,max:3000,step:50,unit:'rpm',torque:true,tip:'THE enforced speed limit on these drives (their own CST speed objects do not restrain): tension folds to zero above this, capping the slack take-up lunge.'},
+  {k:'beltRelaxerSec',label:'Relaxer (0=off)',type:'num',min:0,max:120,step:1,unit:'s',torque:true,tip:'Sustained near-max tension for this long eases to min until demand drops - pre-empts the drive thermal fault that would park the whole rig.'},
+  {k:'beltRelaxerPct',label:'Relaxer band',type:'num',min:20,max:100,step:1,unit:'%',torque:true,tip:'Fraction of Torque max that counts as near-max for the relaxer dwell.'},
 ];
 function condMode(){ return (cfgObj&&cfgObj.conditioningMode)||'bypass'; }
 const isRot=d=>d&&d.axisType==='rotary_lever';
@@ -667,6 +667,9 @@ function renderAxisFields(i){
     else { const it=f.text?'text':'number';   // f.text → no spinner arrows (e.g. encoder)
       const emin=f.dynMin?f.dynMin(d,cfgObj):e.min, emax=f.dynMax?f.dynMax(d,cfgObj):e.max;
       h+=`<label class="frow"><span>${e.label}</span><input type="${it}" inputmode="decimal" data-k="${f.k}" data-num="1" value="${v??''}"${(!f.text&&emin!=null)?` min="${emin}"`:''}${(!f.text&&emax!=null)?` max="${emax}"`:''}${(!f.text&&e.step!=null)?` step="${e.step}"`:''}>${e.unit?`<span class="u">${e.unit}</span>`:''}</label>`; }
+    // Feel/behaviour one-liner under fields that carry one (the belt
+    // guards especially: what each knob does to the belt, not just units).
+    if(f.tip) h+=`<div class="fldtip">${f.tip}</div>`;
   }
   // Filter-knee consequences, live next to the knob (Filter mode only).
   if(d.mode==='csp' && condMode()==='filter' && typeof d.trackingWnHz==='number' && d.maxAccelerationMmS2){
@@ -835,32 +838,50 @@ const semLt=(a,b)=>{ const A=String(a).split('.').map(Number),B=String(b).split(
    points, not gospel; a graphical curve editor is on the roadmap.
    Curve convention: y = force resisting displacement at x (revs).
    ============================================================ */
+/* Preset geometry notes: an H-gate's FEELABLE detents are the fore/aft
+   engagement positions - never a detent at neutral (it would hide under
+   the centring spring, which is exactly what made v1 feel detent-less).
+   The spring is a GATE spring: strong near centre, fading past the
+   engagement points so the detent holds the lever in gear. */
 const DEV_PRESETS={
  'H-gate shifter (firm)':{dir:1,neutralRev:0,
-   springCurve:[[0,0],[0.02,25],[0.05,120],[0.07,175]],
-   detents:[0],detentCurve:[[-0.015,-55],[0,0],[0.015,55]],lashRev:0.004,
+   springCurve:[[0,0],[0.012,40],[0.03,55],[0.045,18],[0.07,8]],
+   detents:[-0.055,0.055],
+   detentCurve:[[-0.02,-70],[-0.012,-85],[0,0],[0.012,85],[0.02,70]],
+   lashRev:0.004,breakoutScale:1.6,frictionPct:4,
    stopMinRev:-0.07,stopMaxRev:0.07,stopSpring:20000,stopDamp:60,
-   dampPctPerRevS:12,velLpfHz:40,maxForcePct:100,homeTorquePct:30,homeDir:-1,
+   dampPctPerRevS:10,velLpfHz:40,maxForcePct:100,homeTorquePct:30,homeDir:-1,
    slewPctPerSec:20000,thermalDwellSec:2,thermalPct:80,foldRpm:900},
  'Worn shifter (loose)':{dir:1,neutralRev:0,
-   springCurve:[[0,0],[0.03,18],[0.07,110]],
-   detents:[0],detentCurve:[[-0.02,-30],[0,0],[0.02,30]],lashRev:0.012,
+   springCurve:[[0,0],[0.015,25],[0.03,32],[0.05,10],[0.07,6]],
+   detents:[-0.05,0.05],
+   detentCurve:[[-0.025,-40],[-0.012,-50],[0,0],[0.012,50],[0.025,40]],
+   lashRev:0.012,breakoutScale:1.2,frictionPct:7,
    stopMinRev:-0.07,stopMaxRev:0.07,stopSpring:14000,stopDamp:60,
    dampPctPerRevS:7,velLpfHz:40,maxForcePct:90,homeTorquePct:25,homeDir:-1,
    slewPctPerSec:20000,thermalDwellSec:2,thermalPct:80,foldRpm:900},
  'Active pedal (progressive)':{dir:1,neutralRev:0,
    springCurve:[[0,12],[0.15,45],[0.3,95],[0.4,170]],
-   detents:[],detentCurve:[],lashRev:0,
+   detents:[],detentCurve:[],lashRev:0,breakoutScale:1,frictionPct:3,
    stopMinRev:-0.01,stopMaxRev:0.4,stopSpring:20000,stopDamp:60,
    dampPctPerRevS:18,velLpfHz:40,maxForcePct:120,homeTorquePct:20,homeDir:-1,
    slewPctPerSec:20000,thermalDwellSec:3,thermalPct:80,foldRpm:600}};
+let DEV_USER_PRESETS={};   // devicepresets.json, loaded at config load
 const isDeviceType=t=>t==='shifter'||t==='pedal';
 const devLive={};   // latest per-axis lever position (revs) from the status poll
+const devSweep={};  // per-axis {min,max} travel swept since homing (Capture travel)
+const devDot={};    // per-svg live-dot updaters (curve editors)
 function devEnabled(){ return meta.platform==='linux' && !!($('cf-showdev')&&$('cf-showdev').checked); }
 function devAxes(){ return ((cfgObj&&cfgObj.drives)||[]).map((d,i)=>({d,i})).filter(x=>isDeviceType(x.d.axisType)); }
 function devInit(){
   const row=$('devShowRow'); if(row) row.hidden=(meta.platform!=='linux');
   const cb=$('cf-showdev'); if(cb&&!cb._wired){ cb._wired=true; cb.addEventListener('change',devRender); }
+  devRender();
+  devLoadPresets();
+}
+async function devLoadPresets(){
+  try{ const r=await fetch(API+'/api/devpresets');
+       if(r.ok) DEV_USER_PRESETS=(await r.json()).presets||{}; }catch(_){}
   devRender();
 }
 function devRender(){
@@ -886,9 +907,14 @@ function devRender(){
         <button type="button" class="btn btn-sm btn-start" id="devTog-${n}">Home</button>
       </span></div>
       <div class="frow"><span>Preset</span>
-      <span style="display:flex;gap:6px;align-items:center">
-        <select id="devPre-${n}">${Object.keys(DEV_PRESETS).map(p=>`<option>${p}</option>`).join('')}</select>
+      <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <select id="devPre-${n}">
+          <optgroup label="Built-in">${Object.keys(DEV_PRESETS).map(p=>`<option>${p}</option>`).join('')}</optgroup>
+          ${Object.keys(DEV_USER_PRESETS).length?`<optgroup label="Yours">${Object.keys(DEV_USER_PRESETS).map(p=>`<option>${p}</option>`).join('')}</optgroup>`:''}
+        </select>
         <button type="button" class="btn btn-sm btn-warn" id="devApply-${n}">Apply preset</button>
+        <button type="button" class="btn btn-sm" id="devSaveP-${n}">Save as preset…</button>
+        <button type="button" class="btn btn-sm btn-stop" id="devDelP-${n}">Delete preset</button>
       </span></div>`;
     // Geometry + primary feel numbers. HOME-FRAME motor revs throughout:
     // homing anchors the found stop at Travel min or max (per Home toward),
@@ -896,28 +922,34 @@ function devRender(){
     const dv=d.device||{};
     const gv=(k,def)=>((dv[k]!==undefined&&dv[k]!==null)?dv[k]:def);
     h+=`<div class="devgeo" style="grid-column:1/-1">
-      <label><span>Travel min · rev</span><input type="number" step="0.001" id="devF-${n}-stopMinRev" value="${gv('stopMinRev',-0.07)}"></label>
-      <label><span>Travel max · rev</span><input type="number" step="0.001" id="devF-${n}-stopMaxRev" value="${gv('stopMaxRev',0.07)}"></label>
-      <label><span>Neutral · rev</span><input type="number" step="0.001" id="devF-${n}-neutralRev" value="${gv('neutralRev',0)}"></label>
-      <label><span>Gates · rev, comma-sep</span><input type="text" id="devF-${n}-detents" value="${(dv.detents||[]).join(', ')}" placeholder="-0.05, 0, 0.05"></label>
-      <label><span>Home toward</span><select id="devF-${n}-homeDir">
+      <label title="End of usable travel, motor revs in the homed frame. Capture by sweep, or type. Err small: a wall just inside the physical stop is fine."><span>Travel min · rev</span><input type="number" step="0.001" id="devF-${n}-stopMinRev" value="${gv('stopMinRev',-0.07)}"></label>
+      <label title="End of usable travel, motor revs in the homed frame."><span>Travel max · rev</span><input type="number" step="0.001" id="devF-${n}-stopMaxRev" value="${gv('stopMaxRev',0.07)}"></label>
+      <label title="Rest position the centring spring pulls toward."><span>Neutral · rev</span><input type="number" step="0.001" id="devF-${n}-neutralRev" value="${gv('neutralRev',0)}"></label>
+      <label title="Detent centre positions (engagement points). Derive from a layout, or type."><span>Gates · rev, comma-sep</span><input type="text" id="devF-${n}-detents" value="${(dv.detents||[]).join(', ')}" placeholder="-0.055, 0.055"></label>
+      <label title="Which stop homing pushes gently against."><span>Home toward</span><select id="devF-${n}-homeDir">
         <option value="-1"${gv('homeDir',-1)<0?' selected':''}>min stop</option>
         <option value="1"${gv('homeDir',-1)>0?' selected':''}>max stop</option></select></label>
-      <label><span>Home torque · %</span><input type="number" step="1" id="devF-${n}-homeTorquePct" value="${gv('homeTorquePct',30)}"></label>
-      <label><span>Max force · %</span><input type="number" step="1" id="devF-${n}-maxForcePct" value="${gv('maxForcePct',100)}"></label>
-      <label><span>Free play · rev</span><input type="number" step="0.001" id="devF-${n}-lashRev" value="${gv('lashRev',0)}"></label>
-      <label><span>Damping · %/(rev/s)</span><input type="number" step="1" id="devF-${n}-dampPctPerRevS" value="${gv('dampPctPerRevS',15)}"></label>
-      <label><span>Mirror (dir)</span><select id="devF-${n}-dir">
+      <label title="Homing push, % of rated. Keep low - it presses the mechanism against its own stop."><span>Home torque · %</span><input type="number" step="1" id="devF-${n}-homeTorquePct" value="${gv('homeTorquePct',30)}"></label>
+      <label title="Force clamp for the whole feel. Start around 30 for first contact, raise as trusted."><span>Max force · %</span><input type="number" step="1" id="devF-${n}-maxForcePct" value="${gv('maxForcePct',100)}"></label>
+      <label title="Zero-force slop about neutral - the worn-linkage feel."><span>Free play · rev</span><input type="number" step="0.001" id="devF-${n}-lashRev" value="${gv('lashRev',0)}"></label>
+      <label title="Viscous drag everywhere. Raise to calm buzz or oscillation at rest."><span>Damping · %/(rev/s)</span><input type="number" step="1" id="devF-${n}-dampPctPerRevS" value="${gv('dampPctPerRevS',15)}"></label>
+      <label title="Dry friction opposing motion - the mechanical-linkage feel. 0 = off."><span>Friction · %</span><input type="number" step="0.5" id="devF-${n}-frictionPct" value="${gv('frictionPct',0)}"></label>
+      <label title="Detent force multiplier pulling OUT of a slot: into gear easy, out of gear firm. 1 = symmetric."><span>Breakout · x</span><input type="number" step="0.1" id="devF-${n}-breakoutScale" value="${gv('breakoutScale',1)}"></label>
+      <label title="One flag for a mirrored mechanical build - never rewrite the geometry."><span>Mirror (dir)</span><select id="devF-${n}-dir">
         <option value="1"${gv('dir',1)>0?' selected':''}>normal</option>
         <option value="-1"${gv('dir',1)<0?' selected':''}>mirrored</option></select></label>
     </div>
     <div class="devgeo" style="grid-column:1/-1">
       <label><span>Lever now · rev</span><span class="devlive" id="devLive-${n}">-</span></label>
-      <button type="button" class="btn btn-sm" id="devT-${n}-min">Set min here</button>
-      <button type="button" class="btn btn-sm" id="devT-${n}-max">Set max here</button>
+      <label><span>Swept · rev</span><span class="devlive" id="devSweep-${n}">-</span></label>
+      <button type="button" class="btn btn-sm btn-start" id="devT-${n}-cap">Capture travel</button>
       <button type="button" class="btn btn-sm" id="devT-${n}-neu">Set neutral here</button>
-      <button type="button" class="btn btn-sm btn-start" id="devT-${n}-gate">Add gate here</button>
-      <button type="button" class="btn btn-sm btn-stop" id="devT-${n}-cg">Clear gates</button>
+      <label><span>Layout</span><select id="devLay-${n}">
+        <option value="h">H / sequential</option>
+        <option value="sel">Selector (auto)</option>
+        <option value="custom">Custom</option></select></label>
+      <label><span id="devLayPL-${n}">Throw · rev</span><input type="number" step="0.001" id="devLayP-${n}" value="0.055"></label>
+      <button type="button" class="btn btn-sm btn-warn" id="devT-${n}-lay">Derive layout</button>
     </div>
     <div class="cfg-note" style="grid-column:1/-1">The device homes only from its own button (never with the rig): first press homes and rests limp, next press engages. Feel and geometry edits apply LIVE while the device is limp - Save, feel, adjust; if it is engaged when you save, they land on release. Teach by hand: while limp, hold the lever at a position and press the matching capture button, then Save.</div>
       <div style="grid-column:1/-1;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">
@@ -936,12 +968,26 @@ function devRender(){
     const tog=$('devTog-'+n); if(tog) tog.onclick=()=>{
       postJson(tog.dataset.act==='release'?'/api/device/release':'/api/device/engage',{axis:n}); };
     const ap=$('devApply-'+n); if(ap) ap.onclick=()=>{
-      const p=DEV_PRESETS[$('devPre-'+n).value]; if(!p||!cfgObj||!cfgObj.drives[i]) return;
+      const v=$('devPre-'+n).value;
+      const p=DEV_PRESETS[v]||DEV_USER_PRESETS[v]; if(!p||!cfgObj||!cfgObj.drives[i]) return;
       cfgObj.drives[i].device=JSON.parse(JSON.stringify(p));
       cfgObj.drives[i].mode='torque';
       devRender();   // rebuild cards so the curve editors show the preset
       const m=$('devMsg'); if(m) m.textContent='Preset applied to axis '+n+' - Save to persist.';
       refreshDirtyUI();
+    };
+    // A hand-crafted feel survives anything once it is a named preset.
+    const sp=$('devSaveP-'+n); if(sp) sp.onclick=async()=>{
+      const dd=cfgObj.drives[i]; if(!dd||!dd.device) return;
+      const name=(window.prompt('Preset name:')||'').trim(); if(!name) return;
+      if(await postJson('/api/devpresets',{name,device:dd.device})) devLoadPresets();
+    };
+    const dp=$('devDelP-'+n); if(dp) dp.onclick=async()=>{
+      const v=$('devPre-'+n).value;
+      const m=$('devMsg');
+      if(!DEV_USER_PRESETS[v]){ if(m) m.textContent='Built-in presets cannot be deleted.'; return; }
+      if(!window.confirm('Delete preset "'+v+'"?')) return;
+      if(await postJson('/api/devpresets',{name:v,remove:true})) devLoadPresets();
     };
     devCurveEditor('devSpring-'+n, i, 'springCurve');
     devCurveEditor('devDetent-'+n, i, 'detentCurve');
@@ -950,31 +996,63 @@ function devRender(){
     // drive object, so Save(N) counts these edits).
     const wire=(k,fn)=>{ const el=$(`devF-${n}-${k}`); if(el) el.onchange=()=>{
       const dd=cfgObj.drives[i]; dd.device=dd.device||{}; fn(el,dd.device); refreshDirtyUI(); }; };
-    for(const k of ['stopMinRev','stopMaxRev','neutralRev','homeTorquePct','maxForcePct','lashRev','dampPctPerRevS'])
+    for(const k of ['stopMinRev','stopMaxRev','neutralRev','homeTorquePct','maxForcePct',
+                    'lashRev','dampPctPerRevS','frictionPct','breakoutScale'])
       wire(k,(el,dv)=>{ const v=+el.value; if(isFinite(v)) dv[k]=v; });
     wire('homeDir',(el,dv)=>{ dv.homeDir=+el.value; });
     wire('dir',   (el,dv)=>{ dv.dir=+el.value; });
     wire('detents',(el,dv)=>{ dv.detents=el.value.split(',').map(s=>+s.trim()).filter(v=>isFinite(v)); });
-    // Teach capture: take the LIVE lever position (devPoll keeps devLive
-    // fresh) into a field. Needs a homed device - before that the frame
-    // is unanchored and the value meaningless.
-    const teach=(id,fn)=>{ const el=$(`devT-${n}-${id}`); if(el) el.onclick=()=>{
+    // Teach: travel is a HARDWARE property, taught once by sweep - home
+    // the device (it rests limp), waggle the lever end to end, press
+    // Capture travel. Layout is a USE-CASE property, DERIVED from that
+    // range by profile (never taught per position: an H-pattern's lateral
+    // select is mechanical and invisible here, so every column shares one
+    // fore/neutral/aft geometry; a selector splits the range into slots).
+    const setF=(k,v)=>{ const f=$(`devF-${n}-${k}`); if(f) f.value=v; };
+    const reflect=(dv)=>{ setF('stopMinRev',dv.stopMinRev); setF('stopMaxRev',dv.stopMaxRev);
+      setF('neutralRev',dv.neutralRev);
+      const df=$(`devF-${n}-detents`); if(df) df.value=(dv.detents||[]).join(', '); };
+    const msg=(t)=>{ const m=$('devMsg'); if(m) m.textContent=t; };
+    const cap=$(`devT-${n}-cap`); if(cap) cap.onclick=()=>{
+      const sw=devSweep[n];
+      if(!sw||!(sw.max>sw.min+0.002)){ msg('Capture travel: home the device, then move the lever end to end by hand first.'); return; }
+      const dd=cfgObj.drives[i]; dd.device=dd.device||{};
+      dd.device.stopMinRev=+sw.min.toFixed(4); dd.device.stopMaxRev=+sw.max.toFixed(4);
+      reflect(dd.device); msg('Travel captured - derive a layout (or set neutral), then Save.');
+      refreshDirtyUI(); };
+    const neu=$(`devT-${n}-neu`); if(neu) neu.onclick=()=>{
       const lv=devLive[n];
-      const m=$('devMsg');
-      if(id!=='cg'&&(lv===undefined)){ if(m) m.textContent='Teach needs a homed device (home first, lever rests limp).'; return; }
-      const dd=cfgObj.drives[i]; dd.device=dd.device||{}; fn(+((lv??0).toFixed(4)),dd.device);
-      // reflect into the fields without a full re-render
-      const set=(k,v)=>{ const f=$(`devF-${n}-${k}`); if(f) f.value=v; };
-      set('stopMinRev',dd.device.stopMinRev); set('stopMaxRev',dd.device.stopMaxRev);
-      set('neutralRev',dd.device.neutralRev);
-      const df=$(`devF-${n}-detents`); if(df) df.value=(dd.device.detents||[]).join(', ');
-      if(m) m.textContent='Captured - Save to persist.';
-      refreshDirtyUI(); }; };
-    teach('min',(v,dv)=>{ dv.stopMinRev=v; });
-    teach('max',(v,dv)=>{ dv.stopMaxRev=v; });
-    teach('neu',(v,dv)=>{ dv.neutralRev=v; });
-    teach('gate',(v,dv)=>{ dv.detents=[...(dv.detents||[]),v].sort((a,b)=>a-b); });
-    teach('cg',(v,dv)=>{ dv.detents=[]; });
+      if(lv===undefined){ msg('Set neutral needs a homed device.'); return; }
+      const dd=cfgObj.drives[i]; dd.device=dd.device||{};
+      dd.device.neutralRev=+lv.toFixed(4);
+      reflect(dd.device); msg('Neutral captured - Save to persist.'); refreshDirtyUI(); };
+    const laySel=$(`devLay-${n}`), layP=$(`devLayP-${n}`), layPL=$(`devLayPL-${n}`);
+    if(laySel) laySel.onchange=()=>{
+      const v=laySel.value;
+      if(layPL) layPL.textContent=(v==='sel')?'Slots · count':'Throw · rev';
+      if(layP){ layP.disabled=(v==='custom'); if(v==='sel'&&+layP.value<2) layP.value=5; } };
+    const lay=$(`devT-${n}-lay`); if(lay) lay.onclick=()=>{
+      const dd=cfgObj.drives[i]; dd.device=dd.device||{};
+      const dv=dd.device;
+      const lo=+dv.stopMinRev, hi=+dv.stopMaxRev;
+      if(!(hi>lo)){ msg('Derive layout: capture (or type) the travel first.'); return; }
+      const mode=laySel?laySel.value:'h';
+      if(mode==='custom'){ msg('Custom layout: type gates and neutral directly.'); return; }
+      const centre=+((lo+hi)/2).toFixed(4);
+      if(mode==='h'){
+        const throwR=Math.abs(+layP.value)||0.055;
+        dv.neutralRev=centre;
+        dv.detents=[+(centre-throwR).toFixed(4),+(centre+throwR).toFixed(4)];
+        msg('H layout derived: neutral at centre, engagement gates fore and aft - Save to persist.');
+      } else {
+        const nSlots=Math.max(2,Math.min(9,Math.round(+layP.value)||5));
+        const edge=(hi-lo)*0.06;
+        const a=lo+edge, b=hi-edge, step=(b-a)/(nSlots-1);
+        dv.detents=Array.from({length:nSlots},(_,k)=>+(a+k*step).toFixed(4));
+        dv.neutralRev=centre;
+        msg(nSlots+'-slot selector derived (slot labels live in the game) - Save to persist.');
+      }
+      reflect(dv); refreshDirtyUI(); };
   }
 }
 
@@ -1020,11 +1098,22 @@ function devCurveEditor(svgId, axisIdx, key){
     } else {
       s+=`<text x="${W/2}" y="${H/2}" class="lbl" text-anchor="middle">double-click to add nodes</text>`;
     }
+    s+=`<circle class="dot" r="3.5" visibility="hidden"/>`;   // live lever marker
     svg.innerHTML=s;
   }
+  // Live dot: devPoll feeds (curve-relative x, commanded force). Clamped
+  // into the plot box so the marker stays visible at the edges.
+  devDot[svgId]=(x,y)=>{
+    const dot=svg.querySelector('.dot'); if(!dot) return;
+    if(x===null||x===undefined){ dot.setAttribute('visibility','hidden'); return; }
+    if(!rng) rng=ranges();
+    dot.setAttribute('cx',Math.max(PL,Math.min(W-PR,px(x))));
+    dot.setAttribute('cy',Math.max(PT,Math.min(H-PB,py(y||0))));
+    dot.setAttribute('visibility','visible');
+  };
   function pt(ev){ const r=svg.getBoundingClientRect();
     return { x:(ev.clientX-r.left)*W/r.width, y:(ev.clientY-r.top)*H/r.height }; }
-  function nearest(p){ let best=-1,bd=144; const ns=nodes();
+  function nearest(p,r2){ let best=-1,bd=r2||144; const ns=nodes();
     ns.forEach((nd,k)=>{ const dx=px(nd[0])-p.x, dy=py(nd[1])-p.y, d=dx*dx+dy*dy;
       if(d<bd){ bd=d; best=k; } });
     return best; }
@@ -1049,7 +1138,9 @@ function devCurveEditor(svgId, axisIdx, key){
   });
   svg.addEventListener('dblclick',ev=>{
     if(!rng) rng=ranges();
-    const ns=nodes(), p=pt(ev), k=nearest(p);
+    // Delete gets a generous hit radius (20px): a double-click NEAR a
+    // node removes it; only a clearly-empty spot adds one.
+    const ns=nodes(), p=pt(ev), k=nearest(p,400);
     if(k>=0 && ns.length>2){ ns.splice(k,1); }
     else if(k<0){
       const nd=[ +ux(p.x).toFixed(4), +uy(p.y).toFixed(1) ];
@@ -1072,9 +1163,22 @@ function devPoll(s){
     // Live lever position for the teach row (only once homed - the frame
     // is unanchored before that, so keep the capture disabled).
     if(d.homed && typeof d.devRev==='number'){ devLive[n]=d.devRev;
-      const lv=$('devLive-'+n); if(lv) lv.textContent=d.devRev.toFixed(4); }
-    else { delete devLive[n];
-      const lv=$('devLive-'+n); if(lv) lv.textContent=d.homed===false?'(not homed)':'-'; }
+      devSweep[n]={min:d.devMin,max:d.devMax};
+      const lv=$('devLive-'+n); if(lv) lv.textContent=d.devRev.toFixed(4);
+      const sw=$('devSweep-'+n); if(sw) sw.textContent=d.devMin.toFixed(3)+' … '+d.devMax.toFixed(3);
+      // Live dot on the curve editors: where the lever sits on each curve
+      // right now, with the actually-commanded force (whole field, so the
+      // dot can sit off a single curve - it is a position marker first).
+      const dv=(cfgObj&&cfgObj.drives[i]&&cfgObj.drives[i].device)||{};
+      const f=(typeof d.cmdTrq==='number')?d.cmdTrq:0;
+      const sd=devDot['devSpring-'+n]; if(sd) sd(d.devRev-(+dv.neutralRev||0), f);
+      const ds=devDot['devDetent-'+n];
+      if(ds){ const dets=dv.detents||[];
+        let best=null; for(const g of dets) if(best===null||Math.abs(d.devRev-g)<Math.abs(d.devRev-best)) best=g;
+        ds(best===null?null:d.devRev-best, f); } }
+    else { delete devLive[n]; delete devSweep[n];
+      const lv=$('devLive-'+n); if(lv) lv.textContent=d.homed===false?'(not homed)':'-';
+      const sw=$('devSweep-'+n); if(sw) sw.textContent='-'; }
     const online=/online|blending/i.test(st);
     const homing=/homing/i.test(st);
     const tog=$('devTog-'+n);

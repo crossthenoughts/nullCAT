@@ -275,3 +275,4 @@ body.estop-active{ box-shadow:inset 0 0 0 4px var(--danger); }
 .devgeo label{ display:flex; flex-direction:column; gap:3px; font-size:.68rem; color:var(--ink-soft); }
 .devgeo input,.devgeo select{ width:110px; }
 .devlive{ font-family:var(--mono); font-size:.9rem; color:var(--live); min-width:70px; display:inline-block; }
+.fldtip{ font-size:.66rem; color:var(--ink-soft); line-height:1.4; margin:-2px 0 6px; opacity:.85; }

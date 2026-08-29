@@ -400,7 +400,11 @@ std::string WebServer::buildStatusJson() const
                 {
                     const std::string& at = m_config->drives[i].axisType;
                     if (at == "shifter" || at == "pedal")
+                    {
                         s += ",\"devRev\":" + jsonDouble(ms.devPosRev[i], 4);
+                        s += ",\"devMin\":" + jsonDouble(ms.devPosMin[i], 4);
+                        s += ",\"devMax\":" + jsonDouble(ms.devPosMax[i], 4);
+                    }
                 }
                 s += ",\"accelPeakMms2\":" + jsonDouble(ms.accelWinPeakMms2[i], 0); // peak WINDOWED commanded accel (headroom gauge)
                 s += ",\"accelClipPct\":"  + jsonDouble(ms.accelClipPct[i], 1);     // % cycles accel clamp bound
@@ -1353,6 +1357,59 @@ bool WebServer::start()
             m_motion->enqueueCommand(c);
             resolvedResp(res, agg.anyEngaged ? "device/release"
                              : agg.allHomed  ? "device/engage" : "device/home");
+        });
+
+        // ---- User device presets: hand-crafted feels saved by name ----
+        // devicepresets.json beside the configs. Authored state like the
+        // car cache: never merged into rig.json, ferried by the installer
+        // and updater, survives everything. Applying one is a web-side
+        // act (it fills the axis's device object; Save persists).
+        svr.Get("/api/devpresets", [this](const httplib::Request&, httplib::Response& res)
+        {
+            const std::string path = siblingFile(m_configPath, "devicepresets.json");
+            std::ifstream f(path, std::ios::binary);
+            if (!f) { res.set_content("{\"presets\":{}}", "application/json"); return; }
+            std::stringstream ss; ss << f.rdbuf();
+            res.set_content(ss.str(), "application/json");
+        });
+        postCmd("/api/devpresets", [this, errResp](const httplib::Request& req, httplib::Response& res)
+        {
+            if (m_configPath.empty()) { errResp(res, "No config path configured."); return; }
+            QJsonParseError pe;
+            const QJsonDocument doc = QJsonDocument::fromJson(
+                QByteArray(req.body.c_str(), (int)req.body.size()), &pe);
+            if (pe.error != QJsonParseError::NoError || !doc.isObject())
+            { errResp(res, "Invalid JSON."); return; }
+            const QString name = doc.object().value("name").toString().trimmed();
+            const QJsonValue dev = doc.object().value("device");
+            const bool remove = doc.object().value("remove").toBool(false);
+            if (name.isEmpty() || name.size() > 64)
+            { errResp(res, "Preset name must be 1..64 characters."); return; }
+            if (!remove && !dev.isObject())
+            { errResp(res, "Missing device object."); return; }
+
+            const std::string path = siblingFile(m_configPath, "devicepresets.json");
+            QJsonObject root, presets;
+            {
+                std::ifstream f(path, std::ios::binary);
+                if (f) { std::stringstream ss; ss << f.rdbuf();
+                    const QJsonDocument d0 = QJsonDocument::fromJson(
+                        QByteArray(ss.str().c_str(), (int)ss.str().size()));
+                    if (d0.isObject()) root = d0.object(); }
+            }
+            presets = root.value("presets").toObject();
+            if (remove) presets.remove(name); else presets[name] = dev.toObject();
+            root["presets"] = presets;
+            const QByteArray out = QJsonDocument(root).toJson(QJsonDocument::Indented);
+            const std::string tmp = path + ".tmp";
+            { std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
+              if (!o) { errResp(res, "Cannot write temp file."); return; }
+              o.write(out.constData(), out.size()); }
+            std::error_code ec;
+            std::filesystem::rename(tmp, path, ec);
+            if (ec) { std::error_code ec2; std::filesystem::remove(tmp, ec2);
+                      errResp(res, "Save failed (rename)."); return; }
+            res.set_content("{\"ok\":true}", "application/json");
         });
 
         // ---- Button bindings - save (hot-applies, no restart) and
