@@ -4,7 +4,7 @@ Notable changes to nullCAT. Format follows [Keep a Changelog](https://keepachang
 versioning is [Semantic Versioning](https://semver.org/) - while on `0.x`, the
 middle number carries breaking changes and the last carries fixes.
 
-## [0.9.5] - unreleased
+## [0.9.5] - 2026-08-29
 
 ### Added
 - Force devices, first slice (Pi): two new axis types, `shifter` and
