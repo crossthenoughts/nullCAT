@@ -1542,6 +1542,87 @@ private slots:
         mc.process(empty, out, drives, 1);
         QCOMPARE((int)mc.getAxisState(0), (int)AxisMotionState::PARKED);
     }
+
+    // ---- 0.9.5 NULLCATX state layer through the full motion path ----
+    // Clutch-up blocking: with the lever held mid-shift (hand at the stop,
+    // 0.07 rev from the only detent), the same cycle commands (1+blockGain)x
+    // the plain force when the bound clutch channel reads "driving", and
+    // exactly the plain force when the channel is stale or pressed.
+    void deviceAxis_ncxBlocking()
+    {
+        AppConfig cfg;
+        cfg.controlLoopHz = 100;
+        cfg.blendTimeSec  = 0.1;
+        cfg.numDrives     = 1;
+        cfg.ncxBindings   = { { "clutchPct", 0, 1.0, 0.0 } };
+        DriveConfig dc;
+        dc.slaveIndex          = 1;
+        dc.axisType            = "shifter";
+        dc.mode                = "torque";
+        dc.parkTimeSec         = 0.1;
+        dc.unparkTimeSec       = 0.1;
+        dc.countsPerMm         = 131072.0;   // unitsPerRev = 1: mock raw IS revs
+        dc.encoderCountsPerRev = 131072.0;
+        dc.device.springCurve  = { {0.0, 0.0}, {0.07, 50.0} };
+        dc.device.detents      = { 0.0 };
+        dc.device.detentCurve  = {};         // no detent force: block scale is exact
+        dc.device.velLpfHz     = 0.0;
+        dc.device.dampPctPerRevS = 0.0;
+        dc.device.maxForcePct  = 300.0;      // keep the doubled force unclamped
+        dc.device.clutchBitePct = 25.0;
+        dc.device.blockGain     = 1.0;
+        dc.device.grindAmpPct   = 0.0;       // texture off: deterministic magnitude
+        dc.device.blockStartRev = 0.01;
+        cfg.drives.push_back(dc);
+
+        MockA6Drive mock;
+        mock.configure(1, 0.0);
+        mock.setTorqueResponse(0.0001);
+        mock.setHardstop(-0.05, /*isMinLimit=*/true);
+
+        MotionController mc;
+        mc.configure(cfg);
+        mc.startHoming();
+        TelemetryData empty{};
+        A6Drive* drives[1] = { &mock };
+        MotionOutput out{};
+        for (int n = 0; n < 3000 && !mc.isAxisHomed(0); ++n)
+        {
+            out = MotionOutput{};
+            mc.process(empty, out, drives, 1);
+            mock.setSimCommandedTorque(out.torques[0]);
+        }
+        QVERIFY(mc.isAxisHomed(0));
+        mc.engageDevices(-1);
+        // Hand holds the lever at the stop from here (no torque fed back).
+        for (int n = 0; n < 100; ++n)
+        { out = MotionOutput{}; mock.updateStatus(); mc.process(empty, out, drives, 1); }
+        QCOMPARE((int)mc.getAxisState(0), (int)AxisMotionState::ONLINE);
+        const double plain = out.torques[0];
+        QCOMPARE(plain, 50.0);   // spring at -0.07 rev, no effects
+
+        TelemetryData ncx{};
+        ncx.numNcx   = 1;
+        ncx.ncxFresh = true;
+        ncx.ncx[0]   = 5.0;      // clutch up (5% < bite 25%): blocking active
+        out = MotionOutput{};
+        mock.updateStatus();
+        mc.process(ncx, out, drives, 1);
+        QCOMPARE(out.torques[0], 100.0);   // (1 + blockGain) x plain
+
+        ncx.ncx[0] = 80.0;       // clutch pressed: no block
+        out = MotionOutput{};
+        mock.updateStatus();
+        mc.process(ncx, out, drives, 1);
+        QCOMPARE(out.torques[0], 50.0);
+
+        ncx.ncx[0]   = 5.0;      // clutch up again, but the stream is STALE
+        ncx.ncxFresh = false;
+        out = MotionOutput{};
+        mock.updateStatus();
+        mc.process(ncx, out, drives, 1);
+        QCOMPARE(out.torques[0], 50.0);    // fail-safe: plain feel
+    }
 };
 
 QTEST_MAIN(TestMotionController)

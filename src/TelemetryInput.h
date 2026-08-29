@@ -12,9 +12,14 @@ static constexpr int MAX_DRIVES = 10;
 
 enum class TelemetryPacketType
 {
-    Motion,   // NULLCAT,<axis1>,... - motion data (the only accepted packet)
+    Motion,   // NULLCAT,<axis1>,...  - motion data (drives the axes)
+    Ncx,      // NULLCATX,<ch0>,...   - raw sim telemetry channels (device
+              //   state effects; meaning is assigned by the ncxBindings
+              //   config, never by the wire)
     Invalid
 };
+
+static constexpr int MAX_NCX_CHANNELS = 16;
 
 struct TelemetryData
 {
@@ -24,6 +29,13 @@ struct TelemetryData
     bool            valid                 = false;
     TelemetryPacketType packetType           = TelemetryPacketType::Invalid;
     double          nominalFrameSec       = -1.0;  // host new-frame interval (1/new_hz); -1 = not yet measured
+    // NULLCATX channels, merged in by getLatestData() from the latest Ncx
+    // packet (the two streams run at independent rates; an Ncx packet never
+    // touches the motion fields and vice versa). ncxFresh is the fail-safe:
+    // consumers go inert when the stream stops (<500 ms window).
+    int             numNcx                   = 0;
+    double          ncx[MAX_NCX_CHANNELS]    = {};
+    bool            ncxFresh                 = false;
 };
 
 class TelemetryInput
@@ -66,6 +78,17 @@ public:
         return (now - m_lastMotionPacketMs.load()) < withinMs;
     }
     bool isInitialized()  const { return m_socket != INVALID_SOCKET_VALUE; }
+    // NULLCATX stream indicator (web status): a channel packet arrived recently.
+    // Same 1500 ms window as the motion RX indicator; the 500 ms EFFECT
+    // freshness in getLatestData() is deliberately tighter (fail-safe first,
+    // indicator second).
+    bool hasRecentNcx() const
+    {
+        auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        const int64_t last = m_lastNcxPacketMs.load();
+        return last != 0 && (now - last) < 1500;
+    }
     void shutdown();
 
     // UDP telemetry-rate diagnostic. Measured on the receive path, ACTIVE ONLY
@@ -117,6 +140,13 @@ private:
     int m_parseFailCount = 0;
 
     std::atomic<int64_t> m_lastMotionPacketMs{0};
+
+    // Latest NULLCATX channels (receive thread writes under m_dataMutex;
+    // getLatestData() merges them into the returned snapshot). Deliberately
+    // separate from m_latestData so neither stream clobbers the other.
+    int     m_ncxCount = 0;
+    double  m_ncxVals[MAX_NCX_CHANNELS] = {};
+    std::atomic<int64_t> m_lastNcxPacketMs{0};
 
     // UDP-rate diagnostic: receive-thread-only counters + published atomics.
     void    updateUdpRate(const TelemetryData& d);

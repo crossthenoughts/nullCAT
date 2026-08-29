@@ -155,6 +155,22 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
     obj["blendTimeSec"]             = c.blendTimeSec;
     obj["blendMaxVelocityMmS"]      = c.blendMaxVelocityMmS;
     obj["requireUserFaultReset"]    = c.requireUserFaultReset;
+    // NULLCATX channel bindings. ALWAYS written (an empty array included):
+    // saveRig merges schema keys over the existing file, so omitting the
+    // key when empty would make a removed binding immortal on disk.
+    {
+        QJsonArray arr;
+        for (const NcxBinding& b : c.ncxBindings)
+        {
+            QJsonObject o;
+            o["token"]  = QString::fromStdString(b.token);
+            o["slot"]   = b.slot;
+            o["scale"]  = b.scale;
+            o["offset"] = b.offset;
+            arr.append(o);
+        }
+        obj["ncxBindings"] = arr;
+    }
 }
 
 static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
@@ -163,6 +179,20 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
     if (obj.contains("blendTimeSec"))             c.blendTimeSec             = obj.value("blendTimeSec").toDouble(2.0);
     if (obj.contains("blendMaxVelocityMmS"))      c.blendMaxVelocityMmS      = obj.value("blendMaxVelocityMmS").toDouble(20.0);
     if (obj.contains("requireUserFaultReset"))    c.requireUserFaultReset    = obj.value("requireUserFaultReset").toBool(false);
+    if (obj.contains("ncxBindings"))
+    {
+        c.ncxBindings.clear();
+        for (const QJsonValue& v : obj.value("ncxBindings").toArray())
+        {
+            const QJsonObject o = v.toObject();
+            NcxBinding b;
+            b.token  = o.value("token").toString("").toStdString();
+            b.slot   = o.value("slot").toInt(0);
+            b.scale  = o.value("scale").toDouble(1.0);
+            b.offset = o.value("offset").toDouble(0.0);
+            c.ncxBindings.push_back(b);
+        }
+    }
 }
 
 // ---- Control-loading "device" object (families shifter/pedal) --------------
@@ -208,6 +238,11 @@ static void writeDeviceParams(const DeviceParams& p, QJsonObject& o)
     o["thermalDwellSec"] = p.thermalDwellSec;
     o["thermalPct"]      = p.thermalPct;
     o["foldRpm"]         = p.foldRpm;
+    o["clutchBitePct"]   = p.clutchBitePct;
+    o["blockGain"]       = p.blockGain;
+    o["grindAmpPct"]     = p.grindAmpPct;
+    o["grindFreqHz"]     = p.grindFreqHz;
+    o["blockStartRev"]   = p.blockStartRev;
 }
 static void writeDriveConfig(const DriveConfig& d, QJsonObject& obj)
 {
@@ -303,6 +338,11 @@ static void readDeviceParams(const QJsonObject& o, DeviceParams& p)
     rdDbl(o, "thermalDwellSec", p.thermalDwellSec);
     rdDbl(o, "thermalPct",      p.thermalPct);
     rdDbl(o, "foldRpm",         p.foldRpm);
+    rdDbl(o, "clutchBitePct",   p.clutchBitePct);
+    rdDbl(o, "blockGain",       p.blockGain);
+    rdDbl(o, "grindAmpPct",     p.grindAmpPct);
+    rdDbl(o, "grindFreqHz",     p.grindFreqHz);
+    rdDbl(o, "blockStartRev",   p.blockStartRev);
 }
 
 static void readDriveConfig(const QJsonObject& obj, int idx, DriveConfig& d)
@@ -912,6 +952,41 @@ std::vector<std::string> AppConfig::validate() const
                 errors.push_back(pfx + "device.velLpfHz must be >= 0");
             if (p.dampPctPerRevS < 0.0 || p.stopDamp < 0.0 || p.stopSpring < 0.0)
                 errors.push_back(pfx + "device damping/stop values must be >= 0");
+            // State-layer effect character (all inert at defaults).
+            if (p.clutchBitePct < 0.0 || p.clutchBitePct > 100.0)
+                errors.push_back(pfx + "device.clutchBitePct out of range [0, 100]");
+            if (p.blockGain < 0.0 || p.blockGain > 10.0)
+                errors.push_back(pfx + "device.blockGain out of range [0, 10]");
+            if (p.grindAmpPct < 0.0 || p.grindAmpPct > 100.0)
+                errors.push_back(pfx + "device.grindAmpPct out of range [0, 100]");
+            if (p.grindFreqHz <= 0.0 || p.grindFreqHz > 500.0)
+                errors.push_back(pfx + "device.grindFreqHz out of range (0, 500]");
+            if (p.blockStartRev < 0.0 || p.blockStartRev > (p.stopMaxRev - p.stopMinRev))
+                errors.push_back(pfx + "device.blockStartRev must be >= 0 and within the travel");
+        }
+    }
+
+    // ---- NULLCATX channel bindings (rig global) ----
+    {
+        static const char* kTokens[] = { "rpm", "speedKmh", "gear", "clutchPct", "throttlePct" };
+        std::vector<std::string> seen;
+        for (size_t i = 0; i < ncxBindings.size(); ++i)
+        {
+            const NcxBinding& b = ncxBindings[i];
+            const std::string pfx = "ncxBindings[" + std::to_string(i) + "]: ";
+            bool known = false;
+            for (const char* t : kTokens) if (b.token == t) { known = true; break; }
+            if (!known)
+                errors.push_back(pfx + "unknown token \"" + b.token +
+                                 "\" (rpm, speedKmh, gear, clutchPct, throttlePct)");
+            if (b.slot < 0 || b.slot >= 16)
+                errors.push_back(pfx + "slot out of range [0, 15]");
+            if (b.scale == 0.0)
+                errors.push_back(pfx + "scale must be nonzero");
+            for (const std::string& s : seen)
+                if (s == b.token)
+                { errors.push_back(pfx + "token \"" + b.token + "\" bound twice"); break; }
+            seen.push_back(b.token);
         }
     }
 

@@ -55,6 +55,28 @@ struct DeviceParams
     double thermalDwellSec = 0.0;     // sustained >= thermalPct eases to zero; 0 = off
     double thermalPct      = 80.0;
     double foldRpm         = 0.0;     // velocity fold knee (anti-runaway); 0 = off
+    // State-layer effects (NULLCATX-driven). Config here is still CHARACTER
+    // - how blocking/grinding FEEL when they happen; the per-cycle decision
+    // comes from the bound channels via DeviceStateLayer. Every effect is
+    // inert by default AND inert whenever the channel stream is stale.
+    double clutchBitePct  = 0.0;   // clutchPct below this = clutch driving; 0 disables clutch logic
+    double blockGain      = 0.0;   // extra force scale when shifting clutch-up; 0 = off
+    double grindAmpPct    = 0.0;   // grind texture amplitude when blocked and pushing; 0 = off
+    double grindFreqHz    = 33.0;
+    double blockStartRev  = 0.01;  // displacement from the nearest detent where block/grind engage
+};
+
+// One NULLCATX channel binding: wire slot -> semantic token, engineering
+// value = raw * scale + offset. The wire stays dumb numbers; the RIG says
+// what they mean, so any exporter (SimHub DLL, FlyPT template, custom
+// script) can feed the same effects. Lives in rig.json global (portable).
+// Known tokens: rpm, speedKmh, gear, clutchPct, throttlePct.
+struct NcxBinding
+{
+    std::string token;
+    int    slot   = 0;    // 0-based channel index on the wire (0..15)
+    double scale  = 1.0;
+    double offset = 0.0;
 };
 
 struct DriveConfig
@@ -255,6 +277,9 @@ struct AppConfig
 #endif
 
     std::vector<DriveConfig> drives;
+
+    // NULLCATX channel bindings (rig.json global; empty = no channel wire).
+    std::vector<NcxBinding> ncxBindings;
 
     bool    requireUserFaultReset = false;
     // Runs 24+ SDO reads per drive during init -- useful for first-time setup,

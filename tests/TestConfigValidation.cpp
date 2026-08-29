@@ -206,6 +206,38 @@ private slots:
     // Deliberate 0.9.5 re-gate: the seven belt guards bind BELT axes only.
     // A non-belt torque axis with out-of-belt-range guard values validates
     // (it never runs the belt guards); before 0.9.5 this errored.
+    void ncxBindings_validation()
+    {
+        AppConfig cfg = validConfig();
+        cfg.ncxBindings = { { "rpm", 0, 1.0, 0.0 },
+                           { "clutchPct", 3, 100.0, 0.0 } };
+        QVERIFY2(cfg.validate().empty(), "well-formed bindings pass");
+
+        cfg.ncxBindings = { { "boostBar", 0, 1.0, 0.0 } };
+        bool found = false;
+        for (const auto& e : cfg.validate())
+            if (e.find("unknown token") != std::string::npos) found = true;
+        QVERIFY2(found, "unknown token rejected");
+
+        cfg.ncxBindings = { { "rpm", 16, 1.0, 0.0 } };
+        found = false;
+        for (const auto& e : cfg.validate())
+            if (e.find("slot out of range") != std::string::npos) found = true;
+        QVERIFY2(found, "slot 16 rejected (wire carries 0..15)");
+
+        cfg.ncxBindings = { { "rpm", 0, 1.0, 0.0 }, { "rpm", 1, 1.0, 0.0 } };
+        found = false;
+        for (const auto& e : cfg.validate())
+            if (e.find("bound twice") != std::string::npos) found = true;
+        QVERIFY2(found, "duplicate token rejected");
+
+        cfg.ncxBindings = { { "rpm", 0, 0.0, 0.0 } };
+        found = false;
+        for (const auto& e : cfg.validate())
+            if (e.find("scale must be nonzero") != std::string::npos) found = true;
+        QVERIFY2(found, "zero scale rejected");
+    }
+
     void beltGuardRanges_bindBeltsOnly()
     {
         AppConfig cfg = validConfig();

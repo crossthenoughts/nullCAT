@@ -25,6 +25,7 @@
 #include "HomingSequence.h"
 #include "TorqueHomingSequence.h"
 #include "DeviceForceModel.h"
+#include "DeviceStateLayer.h"
 #include "SpscQueue.h"
 #include "CommandConditioner.h"
 #include "CommissioningMode.h"
@@ -164,10 +165,10 @@ private:
     // the axis's OWN position; no telemetry dependency in v1. BLENDING =
     // engage ramp (forceScale 0 -> 1), ONLINE = live field, PARKING =
     // force ramp to 0 -> PARKED (limp).
-    double stepDeviceBlending(int i, AxisMotionState& state, MotionOutput& output,
-                              A6Drive** drives, int numHwDrives);
-    double stepDeviceOnline(int i, AxisMotionState& state, MotionOutput& output,
-                            A6Drive** drives, int numHwDrives);
+    double stepDeviceBlending(int i, AxisMotionState& state, const TelemetryData& td,
+                              MotionOutput& output, A6Drive** drives, int numHwDrives);
+    double stepDeviceOnline(int i, AxisMotionState& state, const TelemetryData& td,
+                            MotionOutput& output, A6Drive** drives, int numHwDrives);
     double stepDeviceParking(int i, AxisMotionState& state, MotionOutput& output);
     // Device position in HOME-frame revs: dir maps motor raw onto the
     // device frame (the mirror of DeviceForceModel's output mapping);
@@ -369,6 +370,7 @@ private:
         // not in A6Drive's home offset: raw counts never pass through the mm
         // scaling, and deviceCurrentRev() is the one converter.
         DeviceForceModel deviceModel;
+        DeviceStateLayer deviceState;      // NULLCATX effects (stateless, fail-safe inert)
         double  deviceHomeRaw     = 0.0;   // raw units latched at the found stop
         double  deviceHomeStopRev = 0.0;   // which configured stop that raw maps to
         bool    deviceSeeded      = false; // model reset at engage (fresh, no vel kick)
@@ -386,6 +388,7 @@ private:
     AxisMotionState  m_axisState[MAX_DRIVES];
     HomingSequence   m_homing[MAX_DRIVES];
     TorqueHomingSequence m_torqueHoming[MAX_DRIVES];   // device axes (HomingKind::Torque)
+    NcxMap           m_ncxMap;   // rig-level NULLCATX binding table (strings resolved once)
     bool             m_seatActive[MAX_DRIVES] = {};   // axes selected by startSeatHoming() (deinit seat)
     std::atomic<bool> m_emergencyStop{false};
     double           m_estopElapsed = 0.0;

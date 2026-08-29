@@ -114,6 +114,7 @@ Top level: `configVersion`, `numDrives` (1 to 10, must match `axes[]`),
 | `blendTimeSec` | double | `2.0` | Smoothing time constant for cross-axis blended motion. |
 | `blendMaxVelocityMmS` | double | `20.0` | Cap on the blended-axis velocity contribution. |
 | `requireUserFaultReset` | bool | `false` | If true, faulted drives need a manual reset from the UI before motion resumes. Safety policy, so it travels with the rig. |
+| `ncxBindings` | array | `[]` | NULLCATX channel bindings for the device state effects. Each entry is `{"token", "slot", "scale", "offset"}`: the wire's numbered channel `slot` (0 to 15) maps onto the semantic `token`, with `value = raw * scale + offset`. Tokens: `rpm`, `speedKmh`, `gear`, `clutchPct` (0 = pedal up, 100 = floored), `throttlePct`. Each token binds at most once. Empty = no channel wire; the devices then run their plain configured feel. |
 
 ### axes[] (one object per drive)
 
@@ -187,6 +188,11 @@ zero. The web Devices section ships starter presets for the whole object.
 | `thermalDwellSec` | double | `0.0` | Sustained near-ceiling output for this long eases to zero until demand drops (pre-empts drive i2t). `0` disables. |
 | `thermalPct` | double | `80` | Fraction of `maxForcePct` that counts as near-ceiling. |
 | `foldRpm` | double | `0.0` | Anti-runaway velocity fold knee (same idea as `beltMaxRpm`). `0` disables. |
+| `clutchBitePct` | double | `0.0` | State effect (needs a bound `clutchPct` channel): clutch reading below this = the clutch is driving, so moving the lever out of gear blocks and grinds. `0` disables all clutch logic. If the stream stops, every effect drops out and the plain feel remains. |
+| `blockGain` | double | `0.0` | Extra force scale while blocked (the whole field stiffens by `1 + blockGain`). `0` = off. |
+| `grindAmpPct` | double | `0.0` | Grind texture amplitude while blocked and pushing, % of rated. `0` = off. |
+| `grindFreqHz` | double | `33` | Grind texture frequency. |
+| `blockStartRev` | double | `0.01` | How far out of the nearest detent the lever must be before block/grind engage (a settled lever in gear is never affected). |
 
 ## Telemetry wire format (UDP input)
 
@@ -234,6 +240,25 @@ NULLCAT,<axis1>,<axis2>,...,<axisN>
 - No timestamp field, no trailing newline required. Telemetry is
   considered lost after ~300 ms without a fresh motion packet; axes hold
   center until it resumes.
+
+### NULLCATX channel packets (device state effects)
+
+A second line format on the SAME port feeds the force-device effects
+(shifter/pedal - see the Devices section of the web UI):
+
+    NULLCATX,<ch0>,<ch1>,...,<chN>
+
+- Same parsing rules as motion lines (decimal CSV, case-insensitive
+  header, skipped fields compact). At most **16** channels are read.
+- The channels are plain numbers in whatever units the sender has; the
+  rig's `ncxBindings` config says which channel means what and rescales
+  it. Send raw sim values (rpm, speed, gear, clutch) - no shaping on the
+  sender side.
+- Independent of the motion stream: either runs without the other, at
+  its own rate (100 to 400 Hz is plenty). A NULLCATX packet never counts
+  as motion telemetry - it cannot hold off the motion-loss standby.
+- If the channel stream stops for 500 ms, every state effect drops out
+  and devices fall back to their plain configured feel.
 
 ## Tips
 

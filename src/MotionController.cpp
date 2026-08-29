@@ -74,6 +74,13 @@ void MotionController::configure(const AppConfig& config)
                        :                                              CommandConditioner::Mode::Bypass;
     m_needsRehome = true;
 
+    // NULLCATX channel bindings (rig-level): resolve token strings once so
+    // the RT path only does index lookups.
+    m_ncxMap.configure(config.ncxBindings);
+    if (m_ncxMap.boundCount() > 0)
+        LOG_INFO(strf("MotionController: %d NULLCATX channel binding(s) active.",
+                      m_ncxMap.boundCount()));
+
     for (int i = 0; i < m_numDrives && i < config.drives.size(); ++i)
     {
         const DriveConfig& dc = config.drives[i];
@@ -130,6 +137,7 @@ void MotionController::configure(const AppConfig& config)
         {
             ac.device = dc.device;
             m_runtime[i].deviceModel.configure(ac.device, m_cycleTimeSec);
+            m_runtime[i].deviceState.configure(ac.device);
             m_torqueHoming[i].configure(ac.device, ac.beltUnitsPerRev, m_cycleTimeSec);
             LOG_INFO(strf("MotionController: Axis %d device: dir=%+.0f stops[%.3f, %.3f]rev "
                           "neutral=%.3frev detents=%d maxForce=%.0f%% homeTorque=%.0f%% homeDir=%+.0f",
@@ -1535,7 +1543,7 @@ double MotionController::deviceCurrentRev(int i, A6Drive* drive) const
 }
 
 double MotionController::stepDeviceBlending(int i, AxisMotionState& state,
-    MotionOutput& output, A6Drive** drives, int numHwDrives)
+    const TelemetryData& td, MotionOutput& output, A6Drive** drives, int numHwDrives)
 {
     AxisRuntime& rt = m_runtime[i];
     A6Drive* d = (drives && i < numHwDrives) ? drives[i] : nullptr;
@@ -1552,8 +1560,11 @@ double MotionController::stepDeviceBlending(int i, AxisMotionState& state,
     rt.blendElapsed += m_cycleTimeSec;
     const double bf = std::max(0.0, std::min(1.0, rt.blendElapsed / rt.blendDuration));
 
-    DeviceStateMods mods;      // inert until the NULLCATX state layer lands
-    mods.forceScale = bf;      // engage ramp: the field fades in, never snaps
+    // State effects compose with the engage ramp: the field (and anything
+    // the wire adds to it) fades in together, never snaps.
+    DeviceStateMods mods = rt.deviceState.step(posRev, m_ncxMap.extract(td));
+    mods.forceScale    *= bf;
+    mods.textureAmpPct *= bf;
     const double f = rt.deviceModel.step(posRev, mods);
     rt.lastTension    = f;
     output.torques[i] = f;
@@ -1567,12 +1578,13 @@ double MotionController::stepDeviceBlending(int i, AxisMotionState& state,
 }
 
 double MotionController::stepDeviceOnline(int i, AxisMotionState& /*state*/,
-    MotionOutput& output, A6Drive** drives, int numHwDrives)
+    const TelemetryData& td, MotionOutput& output, A6Drive** drives, int numHwDrives)
 {
     AxisRuntime& rt = m_runtime[i];
     A6Drive* d = (drives && i < numHwDrives) ? drives[i] : nullptr;
-    DeviceStateMods mods;      // inert; the NULLCATX wire fills these later
-    const double f = rt.deviceModel.step(deviceCurrentRev(i, d), mods);
+    const double posRev = deviceCurrentRev(i, d);
+    const DeviceStateMods mods = rt.deviceState.step(posRev, m_ncxMap.extract(td));
+    const double f = rt.deviceModel.step(posRev, mods);
     rt.lastTension    = f;
     output.torques[i] = f;
     return rt.currentPos;
@@ -1774,7 +1786,7 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
             // UNCHANGED, including the degenerate torque-mode-without-
             // belt-type configs.
             outPos = ac.caps.isDevice()
-                ? stepDeviceBlending(i, state, output, drives, numHwDrives)
+                ? stepDeviceBlending(i, state, telemetryData, output, drives, numHwDrives)
                 : (ac.torqueMode
                     ? stepBeltBlending(i, state, telemetryData, output, drives, numHwDrives)
                     : stepPositionBlending(i, state, telemetryData));
@@ -1792,7 +1804,7 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
             }
 
             outPos = ac.caps.isDevice()
-                ? stepDeviceOnline(i, state, output, drives, numHwDrives)
+                ? stepDeviceOnline(i, state, telemetryData, output, drives, numHwDrives)
                 : (ac.torqueMode
                     ? stepBeltOnline(i, state, telemetryData, output, drives, numHwDrives)
                     : stepPositionOnline(i, state, telemetryData));

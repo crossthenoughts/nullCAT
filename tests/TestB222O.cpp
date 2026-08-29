@@ -347,7 +347,14 @@ private slots:
             d.device.stopMaxRev   =  0.08;
             d.device.lashRev      = 0.004;
             d.device.thermalDwellSec = 20.0;
+            d.device.clutchBitePct   = 30.0;
+            d.device.blockGain       = 1.5;
+            d.device.grindAmpPct     = 12.0;
+            d.device.grindFreqHz     = 47.0;
+            d.device.blockStartRev   = 0.015;
             c.drives = { d };
+            c.ncxBindings = { { "rpm", 0, 1.0, 0.0 },
+                              { "clutchPct", 3, 100.0, 0.0 } };
         }
         QVERIFY(cfg.save(path.toStdString()));
 
@@ -367,6 +374,16 @@ private slots:
         QCOMPARE(p.stopMinRev, -0.08);
         QCOMPARE(p.lashRev, 0.004);
         QCOMPARE(p.thermalDwellSec, 20.0);
+        QCOMPARE(p.clutchBitePct, 30.0);
+        QCOMPARE(p.blockGain, 1.5);
+        QCOMPARE(p.grindAmpPct, 12.0);
+        QCOMPARE(p.grindFreqHz, 47.0);
+        QCOMPARE(p.blockStartRev, 0.015);
+        const auto& nb = back.get().ncxBindings;
+        QCOMPARE((int)nb.size(), 2);
+        QCOMPARE(QString::fromStdString(nb[0].token), QString("rpm"));
+        QCOMPARE(nb[1].slot, 3);
+        QCOMPARE(nb[1].scale, 100.0);
     }
 
     void o4_a6drive_single_arg_scaling()

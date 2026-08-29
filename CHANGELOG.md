@@ -16,6 +16,12 @@ middle number carries breaking changes and the last carries fixes.
   The web UI gains a Devices section with starter presets, enabled by a
   new `webShowDevices` host setting. Bench validation of the feel is
   still ahead of it; a graphical curve editor is on the roadmap.
+- A second telemetry line format, `NULLCATX,<ch0>,...`, carries raw sim
+  values (rpm, speed, gear, clutch) on the same UDP port at its own
+  rate; the rig's new `ncxBindings` config maps numbered channels onto
+  named tokens. First effects driven by it: clutch-up shift blocking
+  and gear grind on shifter axes - inert unless configured, and any
+  stall of the channel stream drops every effect back to plain feel.
 - The Pi updates itself: a Software block in the web UI checks GitHub
   for a newer release and updates on click (rig parked, EtherCAT
   stopped). Releases now ship a prebuilt Pi tarball, installs live as

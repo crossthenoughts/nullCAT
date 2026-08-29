@@ -886,6 +886,7 @@ function devRender(){
       </span></div>`;
   }
   h+='<div class="cfg-note" id="devMsg" style="grid-column:1/-1">A preset overwrites the axis device parameters - Save to persist. Fine-tuning: the device object in rig.json.</div>';
+  h+='<div class="cfg-note" style="grid-column:1/-1">Sim channel stream (NULLCATX): <span id="devNcx">-</span></div>';
   hostEl.innerHTML=h;
   for(const {i} of list){
     const n=i+1;
@@ -902,6 +903,7 @@ function devRender(){
 }
 function devPoll(s){
   const blk=$('devBlock'); if(!blk||blk.hidden) return;
+  const nx=$('devNcx'); if(nx) nx.textContent=s.ncxRx?'receiving':'not receiving (effects idle, plain feel)';
   const running=!!s.loopRunning, estop=!!s.estop;
   for(const {i} of devAxes()){
     const n=i+1; const st=(s.drives&&s.drives[i]&&s.drives[i].state)||'-';

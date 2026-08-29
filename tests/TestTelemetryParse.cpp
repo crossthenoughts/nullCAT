@@ -117,6 +117,37 @@ int main()
               "40-char numeric field parses (fixed buffer must fit realistic max)");
     }
 
+    // ---- NULLCATX raw-channel packets (0.9.5 device state wire) ----
+    {
+        bool ok; TelemetryData d = parse("NULLCATX,6500,142.3,3,0", &ok);
+        check(ok && d.packetType == TelemetryPacketType::Ncx,
+              "NULLCATX header parses as an Ncx packet");
+        check(d.numNcx == 4 &&
+              std::fabs(d.ncx[0] - 6500.0) < 1e-12 &&
+              std::fabs(d.ncx[1] - 142.3)  < 1e-12,
+              "channels land in ncx[], in order");
+        check(d.numPositions == 0,
+              "an Ncx packet carries NO motion positions");
+
+        d = parse("nullcatx,1.0", &ok);
+        check(ok && d.packetType == TelemetryPacketType::Ncx,
+              "NULLCATX header is case-insensitive like NULLCAT");
+        d = parse("NULLCATX,1.0,,abc,2.0", &ok);
+        check(ok && d.numNcx == 2, "Ncx fields skip-and-compact like motion fields");
+        parse("NULLCATXX,1.0", &ok);
+        check(!ok, "reject: NULLCATXX is not a header");
+        parse("NULLCATX", &ok);
+        check(!ok, "reject: Ncx header with no comma");
+
+        std::string line = "NULLCATX";
+        for (int i = 0; i < 20; ++i) line += "," + std::to_string(i + 0.25);
+        d = parse(line.c_str(), &ok);
+        check(ok && d.numNcx == MAX_NCX_CHANNELS,
+              "channel count clamped at MAX_NCX_CHANNELS, first 16 kept");
+        check(!d.ncxFresh,
+              "parsePacket never sets ncxFresh (getLatestData owns freshness)");
+    }
+
     std::printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

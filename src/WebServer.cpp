@@ -322,6 +322,8 @@ std::string WebServer::buildStatusJson() const
     s += "\"initBusy\":"   + jsonBool(m_initBusy.load())          + ",";
     s += "\"telemetryReceiving\":" + jsonBool(m_telemetry && m_telemetry->hasRecentData()) + ",";
     s += "\"telemetryInit\":"      + jsonBool(m_telemetry && m_telemetry->isInitialized()) + ",";
+    // NULLCATX channel stream indicator (device state effects wire).
+    s += "\"ncxRx\":"              + jsonBool(m_telemetry && m_telemetry->hasRecentNcx()) + ",";
     // UDP telemetry-rate diagnostic (-1 when diagnostics off / no window yet).
     s += "\"udpArrivalHz\":" + jsonDouble(m_telemetry ? m_telemetry->getUdpArrivalHz() : -1.0, 0) + ",";
     s += "\"udpNewHz\":"     + jsonDouble(m_telemetry ? m_telemetry->getUdpNewHz()     : -1.0, 0) + ",";

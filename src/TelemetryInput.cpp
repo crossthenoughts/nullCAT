@@ -243,6 +243,24 @@ bool TelemetryInput::receive()
     }
     m_parseFailCount = 0;
 
+    // NULLCATX channels: independent stream at its own rate. Stored beside
+    // the motion snapshot, never over it -- and it must not touch the motion
+    // freshness/rate machinery (m_hasData, m_lastMotionPacketMs, the rate
+    // diagnostic, the onNewData motion callback), or a channels-only sender
+    // would masquerade as live motion telemetry.
+    if (parsed.packetType == TelemetryPacketType::Ncx)
+    {
+        {
+            std::lock_guard<std::mutex> lock(m_dataMutex);
+            m_ncxCount = parsed.numNcx;
+            for (int i = 0; i < parsed.numNcx; ++i) m_ncxVals[i] = parsed.ncx[i];
+        }
+        auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        m_lastNcxPacketMs.store(static_cast<int64_t>(nowMs));
+        return true;
+    }
+
     {
         std::lock_guard<std::mutex> lock(m_dataMutex);
         m_latestData = parsed;
@@ -357,8 +375,20 @@ void TelemetryInput::updateUdpRate(const TelemetryData& d)
 
 TelemetryData TelemetryInput::getLatestData() const
 {
+    // Merge the two streams into one snapshot: the motion frame as stored,
+    // plus the latest NULLCATX channels with a 500 ms freshness verdict.
+    // Effects consuming the channels key on ncxFresh and go inert the
+    // moment the stream stops -- staleness must never hold an effect on.
+    const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const int64_t lastNcx = m_lastNcxPacketMs.load();
+
     std::lock_guard<std::mutex> lock(m_dataMutex);
-    return m_latestData;
+    TelemetryData d = m_latestData;
+    d.numNcx = m_ncxCount;
+    for (int i = 0; i < m_ncxCount; ++i) d.ncx[i] = m_ncxVals[i];
+    d.ncxFresh = (lastNcx != 0) && (nowMs - lastNcx) < 500;
+    return d;
 }
 
 // ============================================================
@@ -394,6 +424,13 @@ void TelemetryInput::shutdown()
 //                                          an axis value. There is NO
 //                                          timestamp field on the wire
 //                                          (timestampMs is always 0).
+//   NULLCATX,<ch0>,<ch1>,...,<chN>\n     -- raw sim telemetry channels (up
+//                                          to 16) for the device state
+//                                          effects. The wire carries plain
+//                                          numbers; MEANING is assigned by
+//                                          the rig's ncxBindings config.
+//                                          Same port, own rate; either
+//                                          stream runs without the other.
 //
 // This runs ON THE RT THREAD at telemetry rate, so: no heap, no
 // std::string. Pointer/length spans throughout; each numeric field is
@@ -412,17 +449,14 @@ bool TelemetryInput::parsePacket(const char* buf, int len, TelemetryData& out)
     while (len > 0 && std::isspace(static_cast<unsigned char>(p[0])))       { ++p; --len; }
     while (len > 0 && std::isspace(static_cast<unsigned char>(p[len - 1]))) { --len; }
 
-    // ---- Motion data ----
-    out.numPositions = 0;
-    out.packetType   = TelemetryPacketType::Motion;
-
     // Header token: everything before the first comma must read "NULLCAT"
-    // case-insensitively with embedded whitespace ignored (tolerance pinned
-    // by TestTelemetryParse). No comma at all = not our packet.
+    // (motion) or "NULLCATX" (raw channels), case-insensitively with
+    // embedded whitespace ignored (tolerance pinned by TestTelemetryParse).
+    // No comma at all = not our packet.
     const char* comma = static_cast<const char*>(std::memchr(p, ',', static_cast<size_t>(len)));
     if (!comma) return false;
+    const auto headerIs = [&](const char* ref) -> bool
     {
-        const char* ref = "NULLCAT";
         for (const char* h = p; h < comma; ++h)
         {
             const unsigned char c = static_cast<unsigned char>(*h);
@@ -431,15 +465,25 @@ bool TelemetryInput::parsePacket(const char* buf, int len, TelemetryData& out)
                 std::toupper(c) != static_cast<unsigned char>(*ref)) return false;
             ++ref;
         }
-        if (*ref != '\0') return false;
-    }
+        return *ref == '\0';
+    };
+    const bool isNcx = headerIs("NULLCATX");     // longer token first
+    if (!isNcx && !headerIs("NULLCAT")) return false;
+
+    out.numPositions = 0;
+    out.numNcx       = 0;
+    out.packetType   = isNcx ? TelemetryPacketType::Ncx
+                             : TelemetryPacketType::Motion;
+    double*   dst    = isNcx ? out.ncx : out.positions;
+    const int dstCap = isNcx ? MAX_NCX_CHANNELS : MAX_DRIVES;
+    int&      dstN   = isNcx ? out.numNcx : out.numPositions;
 
     // Fields: comma-separated numerics; empty/garbage fields are skipped and
     // the position array COMPACTS (pinned behavior).
     constexpr int kMaxFieldLen = 64;
     const char* end = p + len;
     const char* f   = comma + 1;
-    while (f <= end && out.numPositions < MAX_DRIVES)
+    while (f <= end && dstN < dstCap)
     {
         const char* fc = static_cast<const char*>(
             std::memchr(f, ',', static_cast<size_t>(end - f)));
@@ -457,7 +501,7 @@ bool TelemetryInput::parsePacket(const char* buf, int len, TelemetryData& out)
             char* endp = nullptr;
             const double val = std::strtod(fld, &endp);
             if (endp != fld)
-                out.positions[out.numPositions++] = val;
+                dst[dstN++] = val;
         }
 
         if (!fc) break;
@@ -465,6 +509,6 @@ bool TelemetryInput::parsePacket(const char* buf, int len, TelemetryData& out)
     }
 
     out.timestampMs = 0;
-    out.valid = (out.numPositions > 0);
+    out.valid = (dstN > 0);
     return out.valid;
 }
