@@ -263,3 +263,11 @@ body.estop-active{ box-shadow:inset 0 0 0 4px var(--danger); }
 .test-verdict{ margin-top:8px; border:1.5px solid var(--hair); border-radius:8px; padding:8px 12px; max-width:78ch; }
 .test-verdict .tv-h{ font-family:var(--mono); font-size:.6rem; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-soft); margin-bottom:4px; }
 .test-verdict .tv-l{ font-size:.78rem; line-height:1.5; }
+
+/* ---- device curve editor (Devices section) ---- */
+.devCurve{ border:1.5px solid var(--hair); border-radius:8px; background:transparent;
+  touch-action:none; cursor:crosshair; display:block; }
+.devCurve .ax{ stroke:var(--hair); stroke-width:1; }
+.devCurve .cv{ fill:none; stroke:var(--live); stroke-width:2; }
+.devCurve .nd{ fill:var(--live); stroke:var(--ink); stroke-width:1; cursor:grab; }
+.devCurve .lbl{ fill:var(--ink-soft); font-size:9px; font-family:var(--mono); }

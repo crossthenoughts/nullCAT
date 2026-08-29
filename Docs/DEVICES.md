@@ -33,8 +33,11 @@ that can hurt you.
    way - the travel guard will stop it, but get them right first.
 4. Save, restart, initialize, home. The device card shows its state;
    press **Engage** when you want the feel live.
-5. Pick a preset as a starting point and adjust from there. The full
-   parameter list is in CONFIG_REFERENCE.md (the `device` object).
+5. Pick a preset as a starting point, then shape the feel directly: the
+   two curves under each device (centring spring, detent profile) edit
+   by dragging their nodes - double-click adds or removes a node. Save
+   to persist. The full parameter list is in CONFIG_REFERENCE.md (the
+   `device` object).
 
 A mirrored build (motor on the other side) flips ONE setting:
 `device.dir`. Never rewrite the geometry for that.

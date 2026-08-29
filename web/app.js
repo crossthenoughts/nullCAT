@@ -883,9 +883,13 @@ function devRender(){
       <span style="display:flex;gap:6px;align-items:center">
         <select id="devPre-${n}">${Object.keys(DEV_PRESETS).map(p=>`<option>${p}</option>`).join('')}</select>
         <button type="button" class="btn btn-sm btn-warn" id="devApply-${n}">Apply preset</button>
-      </span></div>`;
+      </span></div>
+      <div style="grid-column:1/-1;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">
+        <div><div class="cfg-note">Centring spring</div><svg id="devSpring-${n}" class="devCurve"></svg></div>
+        <div><div class="cfg-note">Detent profile</div><svg id="devDetent-${n}" class="devCurve"></svg></div>
+      </div>`;
   }
-  h+='<div class="cfg-note" id="devMsg" style="grid-column:1/-1">A preset overwrites the axis device parameters - Save to persist. Fine-tuning: the device object in rig.json.</div>';
+  h+='<div class="cfg-note" id="devMsg" style="grid-column:1/-1">A preset overwrites the axis device parameters. Drag the curve nodes to shape the feel (double-click adds or removes a node); Save to persist. Everything else: the device object in rig.json.</div>';
   h+='<div class="cfg-note" style="grid-column:1/-1">Sim channel stream (NULLCATX): <span id="devNcx">-</span></div>';
   hostEl.innerHTML=h;
   for(const {i} of list){
@@ -896,10 +900,96 @@ function devRender(){
       const p=DEV_PRESETS[$('devPre-'+n).value]; if(!p||!cfgObj||!cfgObj.drives[i]) return;
       cfgObj.drives[i].device=JSON.parse(JSON.stringify(p));
       cfgObj.drives[i].mode='torque';
+      devRender();   // rebuild cards so the curve editors show the preset
       const m=$('devMsg'); if(m) m.textContent='Preset applied to axis '+n+' - Save to persist.';
       refreshDirtyUI();
     };
+    devCurveEditor('devSpring-'+n, i, 'springCurve');
+    devCurveEditor('devDetent-'+n, i, 'detentCurve');
   }
+}
+
+/* ---- graphical curve editor ----
+   Edits a device [[x,y],...] node array IN PLACE (cfgObj.drives[i].device),
+   saved through the normal config Save. y = the force resisting
+   displacement at x (percent of rated); a curve whose first x is negative
+   is asymmetric, otherwise the engine mirrors it about zero.
+   Drag a node; double-click a segment to add one; double-click a node to
+   remove it (a curve keeps at least two). x order is enforced by clamping
+   each node between its neighbours. */
+function devCurveEditor(svgId, axisIdx, key){
+  const svg=$(svgId); if(!svg) return;
+  const dev=()=>((cfgObj&&cfgObj.drives[axisIdx])||{}).device;
+  if(!dev()) return;
+  const W=300,H=140,PL=38,PR=10,PT=10,PB=20;
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  svg.setAttribute('width',W); svg.setAttribute('height',H);
+  let rng=null;   // frozen while dragging so the scale doesn't chase the node
+  function nodes(){ const d=dev(); return d[key]||(d[key]=[]); }
+  function ranges(){
+    const ns=nodes(); let xa=0.001,ya=25;
+    for(const nd of ns){ xa=Math.max(xa,Math.abs(+nd[0]||0)); ya=Math.max(ya,Math.abs(+nd[1]||0)); }
+    const x0=Math.min(0,...ns.map(nd=>+nd[0]||0));
+    return {x0:x0*1.15, x1:xa*1.15, y1:ya*1.3};
+  }
+  const px=x=>PL+((x-rng.x0)/(rng.x1-rng.x0))*(W-PL-PR);
+  const py=y=>PT+(1-(y+rng.y1)/(2*rng.y1))*(H-PT-PB);
+  const ux=p=>rng.x0+((p-PL)/(W-PL-PR))*(rng.x1-rng.x0);
+  const uy=p=>(1-(p-PT)/(H-PT-PB))*2*rng.y1-rng.y1;
+  function fmt(v,d){ return (+v).toFixed(d); }
+  function render(){
+    if(!rng) rng=ranges();
+    const ns=nodes();
+    let s=`<line x1="${PL}" y1="${py(0)}" x2="${W-PR}" y2="${py(0)}" class="ax"/>`+
+          `<line x1="${px(Math.max(rng.x0,0))}" y1="${PT}" x2="${px(Math.max(rng.x0,0))}" y2="${H-PB}" class="ax"/>`+
+          `<text x="${PL-4}" y="${PT+8}" class="lbl" text-anchor="end">${fmt(rng.y1,0)}%</text>`+
+          `<text x="${PL-4}" y="${H-PB}" class="lbl" text-anchor="end">${fmt(-rng.y1,0)}%</text>`+
+          `<text x="${W-PR}" y="${H-6}" class="lbl" text-anchor="end">${fmt(rng.x1,3)} rev</text>`;
+    if(ns.length){
+      s+=`<polyline class="cv" points="${ns.map(nd=>px(nd[0])+','+py(nd[1])).join(' ')}"/>`;
+      ns.forEach((nd,k)=>{ s+=`<circle class="nd" data-k="${k}" cx="${px(nd[0])}" cy="${py(nd[1])}" r="5"/>`; });
+    } else {
+      s+=`<text x="${W/2}" y="${H/2}" class="lbl" text-anchor="middle">double-click to add nodes</text>`;
+    }
+    svg.innerHTML=s;
+  }
+  function pt(ev){ const r=svg.getBoundingClientRect();
+    return { x:(ev.clientX-r.left)*W/r.width, y:(ev.clientY-r.top)*H/r.height }; }
+  function nearest(p){ let best=-1,bd=144; const ns=nodes();
+    ns.forEach((nd,k)=>{ const dx=px(nd[0])-p.x, dy=py(nd[1])-p.y, d=dx*dx+dy*dy;
+      if(d<bd){ bd=d; best=k; } });
+    return best; }
+  let drag=-1;
+  svg.addEventListener('pointerdown',ev=>{
+    if(!rng) rng=ranges();
+    drag=nearest(pt(ev));
+    if(drag>=0){ svg.setPointerCapture(ev.pointerId); ev.preventDefault(); }
+  });
+  svg.addEventListener('pointermove',ev=>{
+    if(drag<0) return;
+    const ns=nodes(), p=pt(ev);
+    const lo=(drag>0)?(+ns[drag-1][0])+1e-4:rng.x0;
+    const hi=(drag<ns.length-1)?(+ns[drag+1][0])-1e-4:rng.x1;
+    ns[drag]=[ +Math.min(hi,Math.max(lo,ux(p.x))).toFixed(4),
+               +Math.min(rng.y1,Math.max(-rng.y1,uy(p.y))).toFixed(1) ];
+    render();
+  });
+  svg.addEventListener('pointerup',ev=>{
+    if(drag<0) return;
+    drag=-1; rng=null; render(); refreshDirtyUI();
+  });
+  svg.addEventListener('dblclick',ev=>{
+    if(!rng) rng=ranges();
+    const ns=nodes(), p=pt(ev), k=nearest(p);
+    if(k>=0 && ns.length>2){ ns.splice(k,1); }
+    else if(k<0){
+      const nd=[ +ux(p.x).toFixed(4), +uy(p.y).toFixed(1) ];
+      let at=ns.findIndex(m=>+m[0]>nd[0]); if(at<0) at=ns.length;
+      ns.splice(at,0,nd);
+    } else return;
+    rng=null; render(); refreshDirtyUI();
+  });
+  render();
 }
 function devPoll(s){
   const blk=$('devBlock'); if(!blk||blk.hidden) return;

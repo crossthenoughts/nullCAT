@@ -13,9 +13,10 @@ middle number carries breaking changes and the last carries fixes.
   its own guard chain). A device homes by pushing gently against its
   travel stop, rests limp until engaged, and engages/releases through
   `/api/device/engage|release` - belt and park commands never touch it.
-  The web UI gains a Devices section with starter presets, enabled by a
+  The web UI gains a Devices section with starter presets and a
+  drag-the-nodes editor for the spring and detent curves, enabled by a
   new `webShowDevices` host setting. Bench validation of the feel is
-  still ahead of it; a graphical curve editor is on the roadmap.
+  still ahead of it.
 - A second telemetry line format, `NULLCATX,<ch0>,...`, carries raw sim
   values (rpm, speed, gear, clutch) on the same UDP port at its own
   rate; the rig's new `ncxBindings` config maps numbered channels onto
