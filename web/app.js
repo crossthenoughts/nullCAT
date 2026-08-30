@@ -353,7 +353,7 @@ function applyHostOwnership(){
   const bn=$('btnBindNativeNote'); if(bn) bn.style.display=native?'block':'none';
   const rn=$('cf-rignote'); if(rn) rn.textContent = native
     ? 'Rig & axis settings: portable rig config - saved here, applies on the next Stop → Re-initialize.'
-    : 'Rig & axis settings: saved here, applied on service restart.';
+    : 'Rig & axis settings: saved here, apply on the next Stop → Re-initialize (device feel applies live). Host/network settings need a service restart.';
 }
 
 /* ---- UI state clarity ----
@@ -404,7 +404,7 @@ async function refreshPendingPill(fetchMeta){
   const pill=$('cfgPending'); if(!pill) return;
   const pend=!!(meta.rigPendingRestart||meta.hostPendingRestart);
   pill.style.display=pend?'':'none';
-  pill.textContent=(meta.hostOwner==='native')?'config saved - re-initialize to apply':'config saved - restart to apply';
+  pill.textContent='config saved - re-initialize to apply';
 }
 setInterval(()=>refreshPendingPill(true),15000);
 
@@ -568,7 +568,9 @@ async function saveConfig(){
     }
     // Native (desktop) reloads config in-process on save (QFileSystemWatcher) -     // no app restart; it applies live when EtherCAT is offline, or on the next
     // Stop→Re-initialize. Headless (hostOwner 'web', systemd) still needs a restart.
-    const applyMsg=(meta.hostOwner==='native')?'Saved ✓ Re-initialize EtherCAT to apply (no app restart).':'Saved ✓ Restart to apply.';
+    const applyMsg=(meta.hostOwner==='native')
+      ?'Saved ✓ Re-initialize EtherCAT to apply (no app restart).'
+      :'Saved ✓ Re-initialize EtherCAT to apply rig & axis settings (device feel applies live; host/network settings need a service restart).';
     st.textContent=applyMsg+(clamped?` (${clamped} field${clamped>1?'s':''} clamped to safe range)`:''); st.style.color='var(--ok)';
     cfgBaseline=snapshotCfg(); refreshDirtyUI();   // saved = new clean baseline
     refreshPendingPill(true);                      // server now reports pending-restart

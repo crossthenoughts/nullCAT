@@ -88,6 +88,14 @@ public:
     void setOnStopRequested(std::function<void()> cb)         { m_onStopRequested  = std::move(cb); }
     // GPIO panel LED self-test trigger (wired to GpioPanel in main_headless).
     void setOnLedTest(std::function<void()> cb)               { m_onLedTest       = std::move(cb); }
+    // Reload the AppConfig from disk (host.json/rig.json). Called by the
+    // init worker before re-applying config to the motion controller, so a
+    // web save made while EtherCAT was up takes effect on the NEXT
+    // Initialize. The Qt build reloads via its file watcher; the headless
+    // build has no watcher, so WITHOUT this hook a Pi re-init silently
+    // applied the boot-time config - saved axes/settings looked dead until
+    // a full service restart (found on the bench, 0.9.5 beta).
+    void setConfigReloader(std::function<bool()> cb)          { m_configReloader   = std::move(cb); }
     // exitCode 0 = clean quit (watchdog does not relaunch)
     // exitCode 2 = restart requested (watchdog relaunches after 500ms)
     void setOnExitRequested(std::function<void(int)> cb)  { m_onExitRequested     = std::move(cb); }
@@ -199,6 +207,7 @@ private:
 
     std::function<void()>        m_onStopRequested;
     std::function<void()>        m_onLedTest;
+    std::function<bool()>        m_configReloader;
     std::function<void(int)> m_onExitRequested;
     std::function<std::string(const std::string&)> m_onUpdateStart;
 

@@ -173,6 +173,12 @@ int main(int argc, char* argv[])
     }
     webServer.setPort(cfg.webPort > 0 ? cfg.webPort : 8080);
     webServer.setBindAddr(cfg.webBindAddr);
+    // Web-triggered re-init applies the SAVED config (the Qt file watcher
+    // usually reloads first anyway; this makes the guarantee unconditional).
+    webServer.setConfigReloader([&config, cfgPath]() -> bool
+    {
+        return config.load(cfgPath.toStdString());
+    });
     // Extra Host-header names the operator allows (host.json webAllowedHosts,
     // e.g. an mDNS name). Local interface addresses are always allowed.
     webServer.setAllowedHosts(cfg.webAllowedHosts);

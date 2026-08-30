@@ -624,16 +624,22 @@ bool WebServer::start()
             }
             else if (doInit)
             {
-                // Mirror the Qt Initialize button: re-apply the (possibly reloaded)
-                // config to the motion controller so a rig.json save made while
-                // EtherCAT was up takes effect on THIS init instead of needing an
-                // application restart. Both init entry points must do this -- an
-                // operator who edits and initialises entirely from the web UI never
-                // touches the Qt button. Guarded on the loop being stopped:
-                // configure() reseats axes to parkPos and clears homed/arms rehome,
-                // which must never run under a live RT thread.
+                // Mirror the Qt Initialize button: reload the config from DISK
+                // (headless has no file watcher - without this a Pi re-init
+                // silently applied the boot-time config, so web saves looked
+                // dead until a service restart), then re-apply it to the
+                // motion controller so a rig.json save made while EtherCAT
+                // was up takes effect on THIS init. Guarded on the loop being
+                // stopped: configure() reseats axes to parkPos and clears
+                // homed/arms rehome, which must never run under a live RT
+                // thread.
                 if (m_motion && m_config && !(m_loop && m_loop->isRunning()))
+                {
+                    if (m_configReloader && !m_configReloader())
+                        LOG_WARNING("WebServer: config reload from disk failed -- "
+                                    "initializing with the in-memory config.");
                     m_motion->configure(*m_config);
+                }
 
                 std::string nicName = m_config ? m_config->nicName : "";
                 bool ok = m_master && m_master->initializeAndEnterOp(nicName);
@@ -863,7 +869,7 @@ bool WebServer::start()
             std::filesystem::rename(tmp, path, ec);
             if (ec)
             { std::error_code ec2; std::filesystem::remove(tmp, ec2); errResp(res, "Save failed (rename)."); return false; }
-            LOG_INFO(std::string("WebServer: ") + which + " updated via web - restart to apply.");
+            LOG_INFO(std::string("WebServer: ") + which + " updated via web - applies on the next Initialize (host/service settings on restart).");
             res.set_content("{\"ok\":true,\"restartRequired\":true}", "application/json");
             return true;
         };

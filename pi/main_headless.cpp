@@ -190,6 +190,15 @@ int main(int argc, char* argv[])
         if (loop.isRunning())
             loop.stop();
     });
+    // Re-initialize applies the SAVED config: reload host.json/rig.json from
+    // disk before the init worker re-configures the motion controller. Rig
+    // and axis settings (devices included) thus apply on the next
+    // Initialize; host/service-level settings (ports, NIC binding of the
+    // web server itself, loop rate) still need a service restart.
+    webServer.setConfigReloader([&config, cfgPath]() -> bool
+    {
+        return config.load(cfgPath);
+    });
     webServer.setOnExitRequested([](int code) { requestExit(code); });
 
     // Button backend (EvdevButtons.h): capture + runtime reader for the web

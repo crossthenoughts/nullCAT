@@ -178,9 +178,10 @@
       </div>
     </div>
     <div class="cfg-foot">
-      <span class="cfg-note">Theme applies live (saved in browser). All other fields (global +
-        per-axis) write to <code>rig.json</code> - they take effect on the next
-        <strong>EtherCAT Initialize</strong> (Windows) or <strong>service restart</strong> (Pi).</span>
+      <span class="cfg-note">Theme applies live (saved in browser); device feel applies live
+        while the device is limp. All other rig fields (global + per-axis) write to
+        <code>rig.json</code> and take effect on the next <strong>EtherCAT Initialize</strong>;
+        host/network settings need a <strong>service restart</strong> (Pi) or app restart.</span>
       <span class="spacer"></span>
       <span class="cfg-note" id="cfgStatus"></span>
       <button class="btn btn-start btn-sm" id="cfgSave">Save to rig.json</button>
