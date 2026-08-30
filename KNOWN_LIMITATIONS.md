@@ -14,13 +14,49 @@ behaves measurably better. Some recommendations for Windows: using a dedicated P
 the EtherCAT segment, wired everything, no virtualization, administrator
 rights for Npcap.
 
+### What the difference looks like in practice
+
+An indicative comparison from the project's own session logs, not a
+controlled benchmark: two Windows sessions on the reference rig
+(August 2026, 500 Hz loop) against a Raspberry Pi session on the same
+class of rig (2 kHz loop, six drives, including one continuous
+two-hour drive).
+
+- **Loop stalls.** The Windows sessions logged 1,900 to 2,600
+  "stall -- resynced" events each: moments where the OS held the loop
+  for 25 to 33 ms and two to five command cycles were skipped. Each
+  one is a brief hold of the last command frame, in other words a
+  micro-stutter, felt most in slow smooth motion and during homing.
+  The Pi logged zero stall events, in every session.
+- **Bus health.** The Windows sessions showed up to a few hundred
+  working-counter (WKC) misses and dozens of DC sync-loss events per
+  session. The Pi showed zero of both across nearly fifteen million
+  cycles, with more drives at four times the loop rate.
+- **Motion consequence.** Peak following error under hard driving ran
+  7 to 8 mm on the Pi against 9 to 11 mm on Windows. Different
+  sessions and different driving, so treat that as directional rather
+  than a measurement; the stall-free cadence and the 0.5 ms command
+  steps (versus 2 ms) are the mechanical reasons to expect it.
+
+None of this makes the Windows build unsafe or unusable, and that is
+the point of the architecture: every one of those events is absorbed
+by design. A stalled loop holds its last frame and resynchronizes
+without a catch-up burst, a WKC miss rides on the previous process
+image, sync wobble is ridden out rather than escalated, and the motion
+guards (velocity clamps, braking-aware limits, belt folds) stay active
+throughout. The thousands of events in those Windows logs produced
+zero drive faults and zero aborted sessions; what they cost is
+texture, not safety. Windows is the convenient platform. The Pi build
+is the reference platform, and its logs simply have nothing to absorb.
+
 ## Tested scale
 
-Validated on the reference rig: 4 drives on one segment (3x CSP vertical
-actuators plus 1x CST belt tensioner), daily use on both platforms. Larger
-topologies (5 to 10 drives) are untested and are a stated goal of the beta
-program; if you run a bigger chain, your results are exactly the data the
-project needs.
+Validated on the reference rigs: 6 drives on one segment on the Pi
+(CSP vertical and horizontal actuators, a CST belt tensioner, and a
+CST force device), 5 drives on Windows, daily use on both platforms.
+Larger topologies (7 to 10 drives) are untested and are a stated goal
+of the beta program; if you run a bigger chain, your results are
+exactly the data the project needs.
 
 ## Simulation mode cannot home
 
