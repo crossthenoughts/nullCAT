@@ -87,7 +87,8 @@
         <label class="frow"><span>Web bind</span><input id="cf-bind" value="0.0.0.0"></label>
         <label class="frow"><span>Web port</span><input id="cf-wport" value="8080" type="number"></label>
         <label class="frow"><span>Telemetry port</span><input id="cf-sport" value="4444" type="number"></label>
-        <label class="frow"><span>Telemetry bind</span><input id="cf-sbind" value="" placeholder="auto"></label>
+        <label class="frow" title="THIS machine's address to listen on - never the game PC's. 0.0.0.0 or blank = all interfaces (recommended). A specific IP restricts to one interface and fails if the machine loses that address."><span>Telemetry bind</span><input id="cf-sbind" value="" placeholder="auto"></label>
+        <div class="fldtip">This machine's listen address, not the sender's. Blank or 0.0.0.0 = all interfaces (recommended).</div>
       </div>
       <div class="cgrp">
         <div class="gt">Logging</div>

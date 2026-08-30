@@ -46,7 +46,11 @@ function applyState(s){
   vCyc.innerHTML  = s.loopHz? (1e6/s.loopHz).toFixed(0)+'<span class="u">µs</span>' : ' - ';
   setV(vWkc, String(s.wkcErrors ?? 0), (s.wkcErrors>0)?'bad':'ok');
   vSlv.textContent = (s.slavesFound ?? 0) + ' / ' + (s.numDrives ?? 0);
-  setV(vTelemetry, s.telemetryReceiving?'RX':(s.telemetryInit?'idle':'off'), s.telemetryReceiving?'ok':(s.telemetryInit?'':'warn'));
+  // Telemetry indicator: RX (receiving) / idle (socket up, no packets) /
+  // SOCKET FAILED (bind failed at startup - check telemetryBindAddr/port in
+  // host.json; a fallback bind logs loudly in the journal).
+  setV(vTelemetry, s.telemetryReceiving?'RX':(s.telemetryInit?'idle':'SOCKET FAILED'), s.telemetryReceiving?'ok':(s.telemetryInit?'':'bad'));
+  if(vTelemetry) vTelemetry.title=s.telemetryInit?'':'Telemetry socket failed to bind - check telemetryBindAddr (this machine's address or 0.0.0.0) and the port in host.json, then restart the service.';
   // UDP rate diagnostic: new/arrival Hz + hold% ( - when diag off / no window yet)
   if(vUdp){ const ua=+s.udpArrivalHz, un=+s.udpNewHz, uh=+s.udpHoldPct;
     vUdp.innerHTML = (ua>=0)? `${un.toFixed(0)}/${ua.toFixed(0)}<span class="u">Hz</span> ${uh.toFixed(0)}%` : ' - '; }
@@ -401,6 +405,19 @@ window.addEventListener('beforeunload',e=>{ if(window.__cfgDirty){ e.preventDefa
 { const p=$('cfgPanel'); if(p){ p.addEventListener('input',refreshDirtyUI); p.addEventListener('change',refreshDirtyUI); } }
 async function refreshPendingPill(fetchMeta){
   if(fetchMeta){ try{ const r=await fetch(API+'/api/meta'); if(r.ok) meta=await r.json(); }catch(_){} }
+  // A tab left open across a version update keeps running the OLD page
+  // logic (the server already sends no-store, but nothing re-fetches a
+  // running page). Reload automatically when the server version changes,
+  // unless there are unsaved edits - then just say so.
+  if(meta.version){
+    if(!window.__pageVer) window.__pageVer=meta.version;
+    else if(meta.version!==window.__pageVer){
+      if(!window.__cfgDirty){ location.reload(); return; }
+      const p=$('cfgPending');
+      if(p){ p.style.display=''; p.textContent='controller updated to v'+meta.version+' - reload this page'; }
+      return;
+    }
+  }
   const pill=$('cfgPending'); if(!pill) return;
   const pend=!!(meta.rigPendingRestart||meta.hostPendingRestart);
   pill.style.display=pend?'':'none';
@@ -972,10 +989,20 @@ function devRender(){
     const ap=$('devApply-'+n); if(ap) ap.onclick=()=>{
       const v=$('devPre-'+n).value;
       const p=DEV_PRESETS[v]||DEV_USER_PRESETS[v]; if(!p||!cfgObj||!cfgObj.drives[i]) return;
-      cfgObj.drives[i].device=JSON.parse(JSON.stringify(p));
-      cfgObj.drives[i].mode='torque';
+      // Presets apply FEEL ONLY. The mechanism's identity - taught travel,
+      // neutral, gate positions, homing direction, mirror - is never
+      // clobbered by a preset (learned the hard way: a preset once wiped a
+      // bench-taught travel). Geometry comes from teach/derive; a fresh
+      // axis with no geometry yet takes the preset's as a starting point.
+      const dd=cfgObj.drives[i];
+      const KEEP=['stopMinRev','stopMaxRev','neutralRev','detents','homeDir','dir'];
+      const old=dd.device||{};
+      const fresh=JSON.parse(JSON.stringify(p));
+      for(const k of KEEP) if(old[k]!==undefined) fresh[k]=old[k];
+      dd.device=fresh;
+      dd.mode='torque';
       devRender();   // rebuild cards so the curve editors show the preset
-      const m=$('devMsg'); if(m) m.textContent='Preset applied to axis '+n+' - Save to persist.';
+      const m=$('devMsg'); if(m) m.textContent='Preset feel applied to axis '+n+' (travel, neutral, gates, and homing kept) - Save to persist.';
       refreshDirtyUI();
     };
     // A hand-crafted feel survives anything once it is a named preset.

@@ -140,12 +140,14 @@ private:
             if (stepRev < STALL_EPS_REV) ++m_stallCycles;
             else                          m_stallCycles = 0;
 
-            const int need = (m_state == State::Search)
-                           ? STALL_CONFIRM_CYCLES
-                           : STALL_CONFIRM_CYCLES + CONFIRM_EXTRA_CYCLES;
+            // Search -> Confirm at the first window; Complete only after the
+            // FULL count. (An earlier revision computed the target before the
+            // transition, collapsing the Confirm phase to zero extra cycles -
+            // spotted in the bench logs as a 0.06 s search.)
             if (m_state == State::Search && m_stallCycles >= STALL_CONFIRM_CYCLES)
                 m_state = State::Confirm;   // keep pushing, keep counting
-            if (m_state == State::Confirm && m_stallCycles >= need)
+            if (m_state == State::Confirm &&
+                m_stallCycles >= STALL_CONFIRM_CYCLES + CONFIRM_EXTRA_CYCLES)
             {
                 m_homeRaw = raw;
                 m_state   = State::Complete;

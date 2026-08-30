@@ -71,6 +71,22 @@ middle number carries breaking changes and the last carries fixes.
   carcache.json and devicepresets.json forward.
 - The EtherCAT init-failure message no longer tells Pi users to check
   Npcap (Windows advice); Linux gets NIC-name/capability guidance.
+- Applying a preset no longer overwrites the taught travel, neutral,
+  gates, homing direction, or mirror - presets are feel only (a preset
+  once wiped a bench-taught travel).
+- A telemetry bind address the machine does not own (wrong IP, stale
+  DHCP lease, interface not up yet at boot) now falls back to all
+  interfaces with a loud log line instead of leaving telemetry dead
+  for the whole session; the web header shows SOCKET FAILED when the
+  bind genuinely could not happen, and the bind field explains it
+  wants THIS machine's address. Found the hard way on the bench.
+- The device homing confirm window now actually runs its extra
+  confirmation cycles (a threshold was read before the state advanced,
+  collapsing the window - visible in logs as a suspiciously fast
+  search).
+- A browser tab left open across a version update now reloads itself
+  (or asks, if there are unsaved edits) instead of silently running
+  the previous version's page.
 
 ## [0.9.4] - 2026-08-28
 

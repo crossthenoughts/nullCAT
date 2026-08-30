@@ -157,14 +157,37 @@ bool TelemetryInput::initialize(int port, const std::string& bindAddr)
 
     if (bind(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR)
     {
-        LOG_ERROR(strf("TelemetryInput: bind() failed on port %d: error %d",
-            port, WSAGetLastError()));
-        closesocket(sock);
+        const int err = WSAGetLastError();
+        // An explicit bind address the machine does not (yet) own fails with
+        // EADDRNOTAVAIL - a wrong IP in host.json (the other machine's, a
+        // stale DHCP lease) or an interface that has not come up at boot.
+        // Either way a dead telemetry socket for the whole session is the
+        // worst outcome, so fall back to all-interfaces LOUDLY and keep
+        // running. A busy port (EADDRINUSE) is not retried: two listeners
+        // is a configuration error to surface, not to paper over.
+        const bool wasSpecific = (addr.sin_addr.s_addr != htonl(INADDR_ANY));
+        bool bound = false;
+        if (wasSpecific)
+        {
+            LOG_ERROR(strf("TelemetryInput: bind() failed on %s:%d (error %d) -- the "
+                "configured telemetryBindAddr is not an address this machine has. "
+                "Falling back to ALL interfaces; fix host.json (0.0.0.0 = all).",
+                effective.c_str(), port, err));
+            addr.sin_addr.s_addr = htonl(INADDR_ANY);
+            bound = (bind(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr))
+                     != SOCKET_ERROR);
+        }
+        if (!bound)
+        {
+            LOG_ERROR(strf("TelemetryInput: bind() failed on port %d: error %d",
+                port, WSAGetLastError()));
+            closesocket(sock);
 #ifdef _WIN32
-        WSACleanup();
-        m_winsockInitialized = false;
+            WSACleanup();
+            m_winsockInitialized = false;
 #endif
-        return false;
+            return false;
+        }
     }
 
     m_socket = static_cast<uintptr_t>(sock);
