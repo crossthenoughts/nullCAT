@@ -59,8 +59,6 @@ namespace NullcatChannelExporter
 
             _target = new IPEndPoint(IPAddress.Parse(host), port);
             _udp = new UdpClient();
-            SimHub.Logging.Current.Info(
-                "NullcatChannelExporter: sending NULLCATX to " + _target);
         }
 
         public void DataUpdate(PluginManager pluginManager, ref GameData data)
