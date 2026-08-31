@@ -99,3 +99,4 @@ dist/
 .local/
 **/integrations/**/bin/
 **/integrations/**/obj/
+Docs/spike-report.txt
