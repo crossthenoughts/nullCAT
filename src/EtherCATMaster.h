@@ -4,6 +4,7 @@
 #include "A6Drive.h"
 #include "Config.h"
 #include "Logging.h"
+#include "RecoveryGate.h"
 #include <string>
 #include <vector>
 #include <functional>
@@ -365,6 +366,16 @@ private:
     std::atomic<bool> m_needsRecovery{false};
     std::atomic<bool> m_recoveryStop{false};
     std::atomic<uint32_t> m_panelReadMask{0};   // bit n = read 0x203F from drive n
+    // PDO pump-cycle counter: incremented by every completed sendReceive().
+    // The recovery thread's direct mailbox reads pace themselves on this
+    // ADVANCING (RecoveryGate) - a verified frame between any two access-
+    // lock holds, so diagnostic reads can never stack into a PDO gap that
+    // breaches the watchdog. Also gates the inter-read gaps in the
+    // fault-history walk (waitPumpAdvance).
+    std::atomic<uint64_t> m_pumpCycles{0};
+    RecoveryGate m_panelGate;                    // recovery-thread-only state
+    uint32_t readPanelCodeLocked(A6Drive* d);
+    bool     waitPumpAdvance(uint64_t& snap, int maxWaitMs);
     std::atomic<bool> m_recoveryThreadRunning{false};
 
     // Serialises SOEM port access between the RT control loop / pump

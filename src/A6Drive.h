@@ -138,7 +138,10 @@ public:
     // recovery thread only, NEVER the RT loop. Returns 0 on failure.
     // The last successful read is cached for the UI (atomic: written by the
     // recovery thread, read by web/UI threads).
-    uint32_t readPanelCode(ecx_contextt* ctx);
+    // The 0x203F panel-code READ lives in EtherCATMaster::readPanelCodeLocked
+    // (mailbox concurrency is the master's job); the drive object only
+    // caches the value for the status surface.
+    void     setPanelCode(uint32_t v) { m_panelCode.store(v, std::memory_order_release); }
     uint32_t getPanelCode() const { return m_panelCode.load(std::memory_order_acquire); }
     void     clearPanelCode()     { m_panelCode.store(0, std::memory_order_release); }
 
