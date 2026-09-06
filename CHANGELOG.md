@@ -87,6 +87,15 @@ middle number carries breaking changes and the last carries fixes.
 - A browser tab left open across a version update now reloads itself
   (or asks, if there are unsaved edits) instead of silently running
   the previous version's page.
+- The recovery thread's diagnostic mailbox reads (drive fault
+  history, the precise panel Er code) are now short (50 ms), properly
+  serialized against the cyclic exchange, and paced so a VERIFIED PDO
+  frame passes between any two reads - diagnosing a drive fault can no
+  longer stall the bus into a watchdog cascade. The panel-code read had
+  raced the RT exchange entirely unserialized.
+- A Download logs button (Logging section) saves a one-file support
+  bundle - recent log, app and soem log tails, rig and host config,
+  version - to whichever computer runs the browser.
 
 ## [0.9.4] - 2026-08-28
 

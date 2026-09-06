@@ -701,6 +701,71 @@ bool WebServer::start()
 
         // ---- REST: recent log lines ----
         // Returns up to ?n=N lines (default 100, max 500) as a JSON array.
+        // One-click support bundle: everything a remote report needs, as a
+        // single text file DOWNLOADED to whatever machine runs the browser
+        // (no SSH, no scp, no path knowledge). Serves the on-disk logs
+        // directly - identical on Pi and PC, no journalctl involved.
+        svr.Get("/api/logbundle", [this](const httplib::Request&, httplib::Response& res)
+        {
+            const auto tailFile = [](const std::string& path, size_t capBytes) -> std::string
+            {
+                std::ifstream f(path, std::ios::binary | std::ios::ate);
+                if (!f) return "(not found: " + path + ")\n";
+                const std::streamoff sz = f.tellg();
+                const std::streamoff take = std::min<std::streamoff>(sz, (std::streamoff)capBytes);
+                f.seekg(sz - take);
+                std::string out((size_t)take, '\0');
+                f.read(&out[0], take);
+                if (take < sz) out.insert(0, "...(older lines truncated)...\n");
+                return out;
+            };
+            const auto wholeFile = [](const std::string& path) -> std::string
+            {
+                std::ifstream f(path, std::ios::binary);
+                if (!f) return "(not found)\n";
+                std::stringstream ss; ss << f.rdbuf(); return ss.str();
+            };
+
+#ifndef NULLCAT_VERSION
+#define NULLCAT_VERSION "dev"
+#endif
+            std::string s;
+            s.reserve(1 << 20);
+            {
+                char ts[64] = "?";
+                std::time_t t = std::time(nullptr);
+                std::strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", std::localtime(&t));
+                s += "==== nullCAT support bundle ====\nversion: " NULLCAT_VERSION "\nplatform: ";
+#ifdef _WIN32
+                s += "windows";
+#else
+                s += "linux";
+#endif
+                s += "\ncaptured: "; s += ts; s += "\n\n";
+            }
+            s += "==== recent log ring (last 500 lines) ====\n";
+            for (const auto& l : Logger::instance().getRecentLogs(500)) { s += l; s += "\n"; }
+            if (!m_configPath.empty() && m_config)
+            {
+                const std::string appLog = siblingFile(m_configPath, m_config->logFile.c_str());
+                std::string soemLog = appLog;
+                const auto dot = soemLog.find_last_of('.');
+                if (dot != std::string::npos) soemLog.insert(dot, "_soem");
+                s += "\n==== app.log tail ====\n";
+                s += tailFile(appLog, 512 * 1024);
+                s += "\n==== soem log tail ====\n";
+                s += tailFile(soemLog, 256 * 1024);
+                s += "\n==== rig.json ====\n";
+                s += wholeFile(siblingFile(m_configPath, "rig.json"));
+                s += "\n==== host.json ====\n";
+                s += wholeFile(siblingFile(m_configPath, "host.json"));
+            }
+            res.set_header("Content-Disposition",
+                           "attachment; filename=\"nullcat-support-bundle.txt\"");
+            res.set_header("Cache-Control", "no-store");
+            res.set_content(s, "text/plain; charset=utf-8");
+        });
+
         svr.Get("/api/logs", [](const httplib::Request& req, httplib::Response& res)
         {
             int n = 100;

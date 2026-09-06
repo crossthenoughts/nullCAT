@@ -760,6 +760,9 @@ function applyToAll(){
 
 $('cfgSave').onclick=saveConfig;
 { const lt=$('cf-ledtest'); if(lt) lt.onclick=()=>postCmd('/api/gpio/ledtest'); }
+// Support bundle: a plain navigation, so the browser handles the file
+// save natively (works on any machine viewing the page).
+{ const dl=$('cf-logdl'); if(dl) dl.onclick=()=>{ window.location=API+'/api/logbundle'; }; }
 // Reset peaks: clear the server-latched tuning metrics AND the client-side sticky
 // vel/trq peaks together, so one action re-baselines every card. Drives stay in OP.
 { const rs=$('btn-reset-stats'); if(rs) rs.onclick=()=>{
