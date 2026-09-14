@@ -50,7 +50,7 @@ function applyState(s){
   // SOCKET FAILED (bind failed at startup - check telemetryBindAddr/port in
   // host.json; a fallback bind logs loudly in the journal).
   setV(vTelemetry, s.telemetryReceiving?'RX':(s.telemetryInit?'idle':'SOCKET FAILED'), s.telemetryReceiving?'ok':(s.telemetryInit?'':'bad'));
-  if(vTelemetry) vTelemetry.title=s.telemetryInit?'':'Telemetry socket failed to bind - check telemetryBindAddr (this machine's address or 0.0.0.0) and the port in host.json, then restart the service.';
+  if(vTelemetry) vTelemetry.title=s.telemetryInit?'':"Telemetry socket failed to bind - check telemetryBindAddr (this machine's address or 0.0.0.0) and the port in host.json, then restart the service.";
   // UDP rate diagnostic: new/arrival Hz + hold% ( - when diag off / no window yet)
   if(vUdp){ const ua=+s.udpArrivalHz, un=+s.udpNewHz, uh=+s.udpHoldPct;
     vUdp.innerHTML = (ua>=0)? `${un.toFixed(0)}/${ua.toFixed(0)}<span class="u">Hz</span> ${uh.toFixed(0)}%` : ' - '; }

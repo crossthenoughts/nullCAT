@@ -96,6 +96,12 @@ middle number carries breaking changes and the last carries fixes.
 - A Download logs button (Logging section) saves a one-file support
   bundle - recent log, app and soem log tails, rig and host config,
   version - to whichever computer runs the browser.
+- An unescaped apostrophe in a tooltip string broke the whole web
+  dashboard on a fresh load (stuck Disconnected, no controls) - the
+  file failed to parse, so no script ran at all. Tabs already open
+  from an earlier build kept working, which masked it (#1, thanks
+  @Haarie). CI now syntax-checks the web JS so this class cannot
+  ship again.
 
 ## [0.9.4] - 2026-08-28
 

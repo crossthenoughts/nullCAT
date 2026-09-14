@@ -47,6 +47,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # The web UI has no build step, so nothing parses its JS before a browser
+  # does; a single syntax error kills the whole dashboard (issue #1).
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax-check web JS
+        run: |
+          for f in web/*.js; do
+            echo "node --check $f"
+            node --check "$f"
+          done
+
   linux:
     runs-on: ubuntu-latest
     timeout-minutes: 30
