@@ -84,7 +84,7 @@ jobs:
         run: |
           git clone https://github.com/OpenEtherCATsociety/SOEM.git ~/SOEM
           cd ~/SOEM && git checkout $SOEM_REV
-          cmake -S . -B build && cmake --build build -j
+          cmake -S . -B build && cmake --build build -j$(nproc)
 
       - name: Cache libgpiod v2
         id: gpiod-cache
@@ -105,8 +105,10 @@ jobs:
       - name: Configure
         run: cmake -S pi -B build -DNULLCAT_FULL_TESTS=ON -DCMAKE_PREFIX_PATH=$HOME/libgpiod2
 
+      # -j capped at core count: bare -j is unlimited, and ~30 test targets
+      # each recompiling the heavy sources OOM-killed the 16GB runner twice.
       - name: Build
-        run: cmake --build build -j
+        run: cmake --build build -j$(nproc)
 
       - name: Test
         run: cd build && ctest --output-on-failure
