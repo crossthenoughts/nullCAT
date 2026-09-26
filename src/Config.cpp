@@ -62,6 +62,7 @@ static void writeHostConfig(const AppConfig& c, QJsonObject& obj)
     obj["telemetryBindAddr"]           = QString::fromStdString(c.telemetryBindAddr);
     obj["webPort"]                  = c.webPort;
     obj["webBindAddr"]              = QString::fromStdString(c.webBindAddr);
+    obj["webAuthToken"]             = QString::fromStdString(c.webAuthToken);
     { QJsonArray a; for (const auto& h : c.webAllowedHosts) a.append(QString::fromStdString(h));
       obj["webAllowedHosts"] = a; }
     obj["webUIEnabled"]             = c.webUIEnabled;
@@ -108,6 +109,7 @@ static void readHostConfig(const QJsonObject& obj, AppConfig& c)
     if (obj.contains("telemetryBindAddr"))           c.telemetryBindAddr           = obj.value("telemetryBindAddr").toString("").toStdString();  // "" = platform default
     if (obj.contains("webPort"))                  c.webPort                  = obj.value("webPort").toInt(8080);
     if (obj.contains("webBindAddr"))              c.webBindAddr              = obj.value("webBindAddr").toString("127.0.0.1").toStdString();
+    if (obj.contains("webAuthToken"))             c.webAuthToken             = obj.value("webAuthToken").toString("").toStdString();  // "" = auth off
     if (obj.contains("webAllowedHosts"))
     {
         c.webAllowedHosts.clear();

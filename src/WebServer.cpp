@@ -666,6 +666,33 @@ bool WebServer::start()
         httplib::Server svr;
         m_svr.store(&svr);
 
+        // ---- optional web auth (host.json webAuthToken; empty = off) ----
+        // When a token is set, every /api/* request must carry it in the
+        // X-Nullcat-Auth header; the static page stays reachable so the
+        // browser can render the password prompt. Applied at boot like the
+        // other host settings (restart to change). Plain-HTTP transport, so
+        // this is a lock on the door, not a hostile-network defense.
+        svr.set_pre_routing_handler([this](const httplib::Request& req, httplib::Response& res)
+        {
+            if (!m_config || m_config->webAuthToken.empty())
+                return httplib::Server::HandlerResponse::Unhandled;
+            if (req.path.rfind("/api/", 0) != 0)
+                return httplib::Server::HandlerResponse::Unhandled;
+
+            // Constant-time compare: never leak the match length via timing.
+            const std::string& want = m_config->webAuthToken;
+            const std::string  got  = req.get_header_value("X-Nullcat-Auth");
+            unsigned char acc = (got.size() == want.size()) ? 0 : 1;
+            for (size_t i = 0; i < got.size() && i < want.size(); ++i)
+                acc |= static_cast<unsigned char>(got[i] ^ want[i]);
+            if (acc == 0)
+                return httplib::Server::HandlerResponse::Unhandled;
+
+            res.status = 401;
+            res.set_content("{\"ok\":false,\"error\":\"auth required\"}", "application/json");
+            return httplib::Server::HandlerResponse::Handled;
+        });
+
         // Serve any static asset straight from web/ (logo.svg, fonts/*.woff2, …).
         // Explicit Get() handlers below take precedence; this is the fallback.
         svr.set_mount_point("/", m_webRoot);

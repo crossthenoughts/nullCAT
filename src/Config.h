@@ -306,6 +306,11 @@ struct AppConfig
 
     int         webPort        = 8080;
     std::string webBindAddr    = "127.0.0.1";
+    // Optional web password. Empty = no auth (default; bench-friendly).
+    // Non-empty = every /api/* request must carry it (X-Nullcat-Auth
+    // header); the page prompts once per browser. Plain HTTP transport,
+    // so this is a lock on the door, not a hostile-network defense.
+    std::string webAuthToken;
     // Extra Host-header names the web server accepts (e.g. an mDNS name like
     // "nullcat.local"). Local interface addresses and localhost forms are
     // always accepted; this list only appends. Part of the Host-header

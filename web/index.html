@@ -86,6 +86,8 @@
         <div class="gt">Network / telemetry</div>
         <label class="frow"><span>Web bind</span><input id="cf-bind" value="0.0.0.0"></label>
         <label class="frow"><span>Web port</span><input id="cf-wport" value="8080" type="number"></label>
+        <label class="frow" title="Optional. When ticked, every browser must enter this password once before it can see or control the rig. Applies after a service restart. Plain HTTP transport: this locks the door against casual access on your network, it is not encryption."><span>Web password</span><input id="cf-authen" type="checkbox"> <input id="cf-authtok" type="password" placeholder="none" autocomplete="new-password"></label>
+        <div class="fldtip">Off = anyone on your network who can reach this page can control the rig. Recommended once the rig is on a shared network.</div>
         <label class="frow"><span>Telemetry port</span><input id="cf-sport" value="4444" type="number"></label>
         <label class="frow" title="THIS machine's address to listen on - never the game PC's. 0.0.0.0 or blank = all interfaces (recommended). A specific IP restricts to one interface and fails if the machine loses that address."><span>Telemetry bind</span><input id="cf-sbind" value="" placeholder="auto"></label>
         <div class="fldtip">This machine's listen address, not the sender's. Blank or 0.0.0.0 = all interfaces (recommended).</div>

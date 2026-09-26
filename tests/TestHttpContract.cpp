@@ -316,6 +316,30 @@ int main()
     check(has(post("/api/deinit"), "\"ok\":true"), "POST /api/deinit accepted");
     check(waitStatus("\"masterOp\":false", 15000), "status reaches masterOp:false");
 
+    // ---- optional web auth: a set token gates every /api/*; static exempt ----
+    // (cfg is held by pointer, so flipping the token here is the same live
+    // config the server enforces from; empty = off is the shipped default and
+    // everything above this line ran with it.)
+    cfg.webAuthToken = "sesame";
+    {
+        httplib::Client cli(HOST, PORT);
+        cli.set_read_timeout(2, 0);
+        auto r1 = cli.Get("/api/status");
+        check(r1 && r1->status == 401 && has(r1->body, "auth required"),
+              "auth on: GET /api/* without token is 401");
+        auto r2 = cli.Get("/api/status", httplib::Headers{{"X-Nullcat-Auth", "sesame"}});
+        check(r2 && r2->status == 200 && has(r2->body, "\"loopRunning\""),
+              "auth on: correct token passes");
+        auto r3 = cli.Get("/api/status", httplib::Headers{{"X-Nullcat-Auth", "sesamE"}});
+        check(r3 && r3->status == 401, "auth on: wrong token is 401");
+        auto r4 = cli.Post("/api/stop", "", "application/json");
+        check(r4 && r4->status == 401, "auth on: POST without token is 401");
+        auto r5 = cli.Get("/");
+        check(r5 && r5->status != 401, "auth on: static page stays reachable (prompt can render)");
+    }
+    cfg.webAuthToken.clear();
+    check(has(get("/api/status"), "\"loopRunning\""), "auth cleared: /api/* open again");
+
     // ---- teardown ----
     if (loop.isRunning()) loop.stop();
     web.stop();

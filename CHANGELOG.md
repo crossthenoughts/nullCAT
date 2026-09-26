@@ -7,6 +7,12 @@ middle number carries breaking changes and the last carries fixes.
 ## [0.9.6] - 2026-09-27
 
 ### Added
+- Optional web password: tick Web password in the host settings, type
+  one, save, restart the service - from then on every browser must
+  enter it once before it can see or control the rig. Off by default
+  (nothing changes on existing installs); recommended once the rig
+  shares a network. Plain HTTP transport, so it locks the door against
+  casual access rather than encrypting traffic.
 - Provisioning role check: a Check drive settings button (Drive
   Provisioning section) reads the role-critical drive-resident params
   (runaway protection C06.20 first) from every drive with the loop

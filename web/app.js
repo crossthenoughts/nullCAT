@@ -7,6 +7,40 @@
 const $ = (id) => document.getElementById(id);
 const API = '';
 
+/* ---- optional web auth: the server 401s every /api/* call when host.json
+   sets webAuthToken. fetch is wrapped ONCE here: the stored token rides
+   every /api request as a header, and the first 401 raises the password
+   prompt (stored per-browser, like the theme; wrapped in try/catch since
+   localStorage can be unavailable). Plain HTTP, so this is a lock on the
+   door, not a hostile-network defense. ---- */
+const AUTH_KEY='nullcat.authToken';
+{ const rawFetch=window.fetch.bind(window);
+  window.fetch=async(url,opts)=>{
+    const isApi=(typeof url==='string')&&url.startsWith(API+'/api');
+    if(isApi){ let tok=null; try{ tok=localStorage.getItem(AUTH_KEY); }catch(_){}
+      if(tok){ opts=opts||{}; opts.headers=Object.assign({},opts.headers,{'X-Nullcat-Auth':tok}); } }
+    const r=await rawFetch(url,opts);
+    if(isApi&&r.status===401) authPrompt();
+    return r;
+  };
+}
+let authPromptUp=false;
+function authPrompt(){
+  if(authPromptUp) return; authPromptUp=true;
+  const d=document.createElement('div');
+  d.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999';
+  d.innerHTML='<div style="background:var(--surface,#fff);border:1.5px solid var(--hair,#ccc);border-radius:8px;padding:22px 26px;max-width:320px">'
+    +'<div style="font-weight:600;margin-bottom:8px">Password required</div>'
+    +'<div style="font-size:.78rem;margin-bottom:12px;line-height:1.5">This controller has a web password set. Enter it once for this browser.</div>'
+    +'<input id="authTok" type="password" style="width:100%;margin-bottom:12px;box-sizing:border-box">'
+    +'<button id="authGo" class="btn btn-action" type="button">Unlock</button></div>';
+  document.body.appendChild(d);
+  const go=()=>{ try{ localStorage.setItem(AUTH_KEY,d.querySelector('#authTok').value); }catch(_){} location.reload(); };
+  d.querySelector('#authGo').onclick=go;
+  d.querySelector('#authTok').addEventListener('keydown',(e)=>{ if(e.key==='Enter') go(); });
+  setTimeout(()=>{ const i=d.querySelector('#authTok'); if(i) i.focus(); },50);
+}
+
 const elLogo=$('logo'), elConn=$('conn-status'), elClock=$('clock');
 const vLoop=$('v-loop'), vEc=$('v-ec'), vRate=$('v-rate'), vCyc=$('v-cyc'),
       vWkc=$('v-wkc'), vSlv=$('v-slv'), vTelemetry=$('v-telemetry'), vUdp=$('v-udp'), vJit=$('v-jit'), vJpk=$('v-jpk'),
@@ -341,7 +375,7 @@ let meta={hostOwner:'web'};
 function setField(id,v){ const el=$(id); if(!el||v==null) return; if(el.type==='checkbox') el.checked=!!v; else el.value=v; }
 
 // host.json inputs - disabled when a native app owns host (hostOwner==="native").
-const HOST_INPUT_IDS=['cf-sim','cf-nic','cf-hz','cf-wd','cf-dc','cf-bind','cf-wport','cf-sport','cf-sbind',
+const HOST_INPUT_IDS=['cf-authen','cf-authtok','cf-sim','cf-nic','cf-hz','cf-wd','cf-dc','cf-bind','cf-wport','cf-sport','cf-sbind',
   'cf-loglvl','cf-logfile','cf-logcon','cf-diag','cf-temppoll','cf-cmdsync','cf-wkccyc','cf-wkcthr','cf-capscan','cf-gpiomode','cf-ledtest',
   'cf-showdev'];
 function applyHostOwnership(){
@@ -524,6 +558,7 @@ async function loadConfig(){
     setField('cf-wkcthr',host.wkcValidationThreshold); setField('cf-capscan',host.enableCapabilityScan);
     setField('cf-gpiomode',host.gpioMode||'off');
     setField('cf-showdev',host.webShowDevices);
+    setField('cf-authen',!!host.webAuthToken); setField('cf-authtok',host.webAuthToken||'');
     // rig.global fields (portable feel/policy)
     setField('cf-blendt',rig.blendTimeSec); setField('cf-blendv',rig.blendMaxVelocityMmS);
     setField('cf-condmode',rig.conditioningMode||'bypass'); updateCondNote();
@@ -572,7 +607,14 @@ async function saveConfig(){
       return; }
     // host.json - only when the web owns it (headless); on "native" the desktop app owns it.
     if(meta.hostOwner==='web'){
+      // Web password tickbox semantics: unticked -> "" (auth off); ticked
+      // needs an actual password (an empty one would lock nobody out and
+      // read as protection).
+      if($('cf-authen')&&$('cf-authen').checked&&!$('cf-authtok').value){
+        st.textContent='✗ Web password: ticked but empty - type a password or untick.';
+        st.style.color='var(--danger)'; return; }
       const host={ configVersion:cfgObj._configVersion||2,
+        webAuthToken:($('cf-authen')&&$('cf-authen').checked)?$('cf-authtok').value:'',
         nicName:$('cf-nic').value, controlLoopHz:+$('cf-hz').value, pdoWatchdogMs:+$('cf-wd').value,
         dcSyncOffsetNs:+$('cf-dc').value, webBindAddr:$('cf-bind').value, webPort:+$('cf-wport').value,
         telemetryPort:+$('cf-sport').value, telemetryBindAddr:$('cf-sbind').value,
@@ -766,9 +808,17 @@ function applyToAll(){
 
 $('cfgSave').onclick=saveConfig;
 { const lt=$('cf-ledtest'); if(lt) lt.onclick=()=>postCmd('/api/gpio/ledtest'); }
-// Support bundle: a plain navigation, so the browser handles the file
-// save natively (works on any machine viewing the page).
-{ const dl=$('cf-logdl'); if(dl) dl.onclick=()=>{ window.location=API+'/api/logbundle'; }; }
+// Support bundle: fetched (so the auth header rides along when a web
+// password is set) and handed to the browser as a normal file save.
+{ const dl=$('cf-logdl'); if(dl) dl.onclick=async()=>{
+    try{
+      const r=await fetch(API+'/api/logbundle'); if(!r.ok) return;
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(await r.blob());
+      a.download='nullcat-support-bundle.txt'; a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+    }catch(_){}
+  }; }
 // Provisioning role check: reads drive-resident params (loop stopped) and
 // flags any that disagree with the axis's configured role.
 { const rc=$('pc-rolecheck'); if(rc) rc.onclick=async()=>{
