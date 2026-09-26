@@ -26,9 +26,9 @@ platforms:
 
 ## Status
 
-Pre-1.0, in active development. Runs daily on the author's rig (3x vertical
-actuators in CSP plus a belt tensioner in CST torque mode) on both
-platforms. **Looking for beta testers with A6-EC hardware.** See
+Pre-1.0, in active development. Runs daily on the author's 6-drive rig
+(vertical actuators in CSP, a belt tensioner in CST torque mode, and a
+force-device shifter) on both platforms. **Looking for beta testers with A6-EC hardware.** See
 [Community](#community--supporting-the-project).
 
 [![CI](https://github.com/crossthenoughts/nullCAT/actions/workflows/ci.yml/badge.svg)](https://github.com/crossthenoughts/nullCAT/actions/workflows/ci.yml)
@@ -48,9 +48,21 @@ platforms. **Looking for beta testers with A6-EC hardware.** See
 
 ## Supported hardware
 
-- **Drives:** STEPPERONLINE A6-EC series (ANCTL AS715N). Other DS402
-  drives may work but are untested; drive-specific register knowledge
-  (fault codes, runaway-protection tuning) is specific to the A6 series.
+- **Drives: STEPPERONLINE A6-EC series (ANCTL AS715N) - by design, not by
+  accident.** nullCAT goes deeper than the CiA 402 standard: it reads the
+  A6's vendor fault registers to name the exact Er code on the drive's
+  panel, ships a provisioning profile for its object dictionary (runaway
+  protection, notch filters, carrier), and its fault recovery is tuned
+  against this drive's observed behaviour. Another CiA 402 drive may init
+  and move, but all of those layers go dark - treat "may work" as
+  **untested and unsupported**, and expect the first debugging session to
+  be yours. Compatibility reports are very welcome
+  ([Contributing](#contributing)).
+- **Tested scale:** 6 drives on a Raspberry Pi 4B (the author's daily rig
+  and a tester's hexapod), 5 drives on Windows. Nothing in the code caps
+  the count or the loop rate;
+  [KNOWN_LIMITATIONS](KNOWN_LIMITATIONS.md) records what each platform has
+  proven in practice.
 - **Controller:** Raspberry Pi 4 (1GB+) with an additional USB-Ethernet
   NIC for the Pi-to-PC transport, or a Windows PC with a dedicated Intel
   NIC + Npcap.
@@ -60,23 +72,33 @@ platforms. **Looking for beta testers with A6-EC hardware.** See
   drives or a motor-power contactor, independent of this software, plus
   physical end-stops on every axis. See [SAFETY.md](SAFETY.md).
 
-## Quickstart
+## Start here
 
-- **Raspberry Pi, blank SD card to running controller (one script):**
-  [Docs/PI_SETUP.md](Docs/PI_SETUP.md)
-- **Windows, start to finish (plain language):**
-  [Docs/FIRST_SETUP_WINDOWS.md](Docs/FIRST_SETUP_WINDOWS.md)
-- Build (Pi, on an already-tuned OS): `cmake -S pi -B pi/build && cmake --build pi/build -j2`
-- Build (Windows): open the top-level CMakeLists with Qt 6 + MSVC; Npcap
-  SDK required.
-- Configuration reference: [Docs/CONFIG_REFERENCE.md](Docs/CONFIG_REFERENCE.md)
-- Hexapod bring-up (rotary levers or linear struts):
-  [Docs/HEXAPOD_SETUP.md](Docs/HEXAPOD_SETUP.md)
-- Force devices (shifter, active pedal - experimental):
-  [Docs/DEVICES.md](Docs/DEVICES.md)
-- HTTP/WS command contract: [Docs/COMMAND_CONTRACT.md](Docs/COMMAND_CONTRACT.md)
-- Dedicated-controller deployment (NUC/laptop):
-  [Docs/NUC_DEPLOYMENT.md](Docs/NUC_DEPLOYMENT.md)
+One path per builder - pick yours:
+
+- **New rig on a Raspberry Pi (recommended):**
+  [Docs/PI_SETUP.md](Docs/PI_SETUP.md) takes you from a blank SD card to
+  first motion - drive prep, networking, SimHub, all of it. Everything
+  else below is optional depth.
+- **New rig on Windows:**
+  [Docs/FIRST_SETUP_WINDOWS.md](Docs/FIRST_SETUP_WINDOWS.md) - read
+  [KNOWN_LIMITATIONS](KNOWN_LIMITATIONS.md) first.
+- **Hexapod (rotary levers or linear struts):** do the Pi path, then
+  [Docs/HEXAPOD_SETUP.md](Docs/HEXAPOD_SETUP.md).
+- **Adding a shifter or active pedal (experimental):** get the rig running
+  first, then [Docs/DEVICES.md](Docs/DEVICES.md).
+- **Dedicated NUC or laptop as the controller:**
+  [Docs/NUC_DEPLOYMENT.md](Docs/NUC_DEPLOYMENT.md).
+
+Reference, when you need it:
+[configuration](Docs/CONFIG_REFERENCE.md) ·
+[commissioning](Docs/COMMISSIONING.md) ·
+[drive tuning](Docs/DRIVE_TUNING.md) ·
+[HTTP command contract](Docs/COMMAND_CONTRACT.md)
+
+Building from source (developers): Pi
+`cmake -S pi -B pi/build && cmake --build pi/build -j2`; Windows:
+top-level CMakeLists with Qt 6 + MSVC, Npcap SDK required.
 
 ## Community & supporting the project
 
