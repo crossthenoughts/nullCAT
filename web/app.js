@@ -564,7 +564,12 @@ async function saveConfig(){
   st.textContent='Saving…'; st.style.color='var(--ink-soft)';
   try{
     const rr=await fetch(API+'/api/rig',{method:'POST',body:JSON.stringify(rig)}); const rj=await rr.json();
-    if(!rj.ok){ st.textContent='✗ rig: '+(rj.error||'save failed'); st.style.color='var(--danger)'; return; }
+    if(!rj.ok){ st.textContent='✗ rig: '+(rj.error||'save failed'); st.style.color='var(--danger)';
+      // Mirror the refusal where the user is likely editing: the Save bar
+      // can be a screen away from the Devices card (a bench session lost
+      // an evening to a refusal rendered out of view).
+      const m=$('devMsg'); if(m) m.textContent='SAVE REFUSED - nothing was saved: '+(rj.error||'save failed');
+      return; }
     // host.json - only when the web owns it (headless); on "native" the desktop app owns it.
     if(meta.hostOwner==='web'){
       const host={ configVersion:cfgObj._configVersion||2,
@@ -589,6 +594,7 @@ async function saveConfig(){
       ?'Saved ✓ Re-initialize EtherCAT to apply (no app restart).'
       :'Saved ✓ Re-initialize EtherCAT to apply rig & axis settings (device feel applies live; host/network settings need a service restart).';
     st.textContent=applyMsg+(clamped?` (${clamped} field${clamped>1?'s':''} clamped to safe range)`:''); st.style.color='var(--ok)';
+    { const m=$('devMsg'); if(m&&m.textContent.startsWith('SAVE REFUSED')) m.textContent='Saved.'; }
     cfgBaseline=snapshotCfg(); refreshDirtyUI();   // saved = new clean baseline
     refreshPendingPill(true);                      // server now reports pending-restart
   }catch(e){ st.textContent='✗ '+e; st.style.color='var(--danger)'; }
@@ -970,7 +976,7 @@ function devRender(){
         <option value="h">H / sequential</option>
         <option value="sel">Selector (auto)</option>
         <option value="custom">Custom</option></select></label>
-      <label><span id="devLayPL-${n}">Throw · rev</span><input type="number" step="0.001" id="devLayP-${n}" value="0.055"></label>
+      <label><span id="devLayPL-${n}">Throw · rev (blank = auto)</span><input type="number" step="0.001" id="devLayP-${n}" value="" placeholder="auto"></label>
       <button type="button" class="btn btn-sm btn-warn" id="devT-${n}-lay">Derive layout</button>
     </div>
     <div class="cfg-note" style="grid-column:1/-1">The device homes only from its own button (never with the rig): first press homes and rests limp, next press engages. Feel and geometry edits apply LIVE while the device is limp - Save, feel, adjust; if it is engaged when you save, they land on release. Teach by hand: while limp, hold the lever at a position and press the matching capture button, then Save.</div>
@@ -1031,8 +1037,12 @@ function devRender(){
     for(const k of ['stopMinRev','stopMaxRev','neutralRev','homeTorquePct','maxForcePct',
                     'lashRev','dampPctPerRevS','frictionPct','breakoutScale'])
       wire(k,(el,dv)=>{ const v=+el.value; if(isFinite(v)) dv[k]=v; });
-    wire('homeDir',(el,dv)=>{ dv.homeDir=+el.value; });
-    wire('dir',   (el,dv)=>{ dv.dir=+el.value; });
+    // Taught geometry (stops, neutral, gates) lives in the homed frame, so
+    // changing either direction setting silently invalidates it - say so.
+    const frameWarn=()=>{ const m=$('devMsg'); if(m) m.textContent=
+      'Direction changed: taught travel, neutral and gates were captured in the previous homed frame - re-home, sweep and Capture travel again before trusting the feel.'; };
+    wire('homeDir',(el,dv)=>{ dv.homeDir=+el.value; frameWarn(); });
+    wire('dir',   (el,dv)=>{ dv.dir=+el.value; frameWarn(); });
     wire('detents',(el,dv)=>{ dv.detents=el.value.split(',').map(s=>+s.trim()).filter(v=>isFinite(v)); });
     // Teach: travel is a HARDWARE property, taught once by sweep - home
     // the device (it rests limp), waggle the lever end to end, press
@@ -1061,8 +1071,13 @@ function devRender(){
     const laySel=$(`devLay-${n}`), layP=$(`devLayP-${n}`), layPL=$(`devLayPL-${n}`);
     if(laySel) laySel.onchange=()=>{
       const v=laySel.value;
-      if(layPL) layPL.textContent=(v==='sel')?'Slots · count':'Throw · rev';
-      if(layP){ layP.disabled=(v==='custom'); if(v==='sel'&&+layP.value<2) layP.value=5; } };
+      if(layPL) layPL.textContent=(v==='sel')?'Slots · count':'Throw · rev (blank = auto)';
+      // Mode switch resets the param to that mode's default so a slot count
+      // never gets read as a throw (and vice versa): sel needs a count,
+      // h defaults to auto (gates derived from the captured travel).
+      if(layP){ layP.disabled=(v==='custom');
+        if(v==='sel'&&!(+layP.value>=2)) layP.value=5;
+        if(v==='h') layP.value=''; } };
     const lay=$(`devT-${n}-lay`); if(lay) lay.onclick=()=>{
       const dd=cfgObj.drives[i]; dd.device=dd.device||{};
       const dv=dd.device;
@@ -1072,10 +1087,20 @@ function devRender(){
       if(mode==='custom'){ msg('Custom layout: type gates and neutral directly.'); return; }
       const centre=+((lo+hi)/2).toFixed(4);
       if(mode==='h'){
-        const throwR=Math.abs(+layP.value)||0.055;
+        // Auto (blank field): gates just inside each end of the CAPTURED
+        // travel (7% inset, the selector's philosophy) - the sweep is the
+        // truth, no magic constant. A typed throw overrides, clamped
+        // inside the stops so a save can never be refused for geometry
+        // the derive itself produced.
+        const half=(hi-lo)/2, ov=+layP.value;
+        const throwR=(layP.value!==''&&isFinite(ov)&&ov>0)
+          ? Math.min(Math.abs(ov), half*0.98)
+          : half-(hi-lo)*0.07;
         dv.neutralRev=centre;
         dv.detents=[+(centre-throwR).toFixed(4),+(centre+throwR).toFixed(4)];
-        msg('H layout derived: neutral at centre, engagement gates fore and aft - Save to persist.');
+        msg('H layout derived: neutral at centre, gates '+
+            ((layP.value==='')?'just inside each stop':'at the set throw (kept inside the stops)')+
+            ' - Save to persist.');
       } else {
         const nSlots=Math.max(2,Math.min(9,Math.round(+layP.value)||5));
         const edge=(hi-lo)*0.06;
