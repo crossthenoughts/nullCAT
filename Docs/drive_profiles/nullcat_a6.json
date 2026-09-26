@@ -69,8 +69,9 @@
       "coe": "0x2006:0x21",
       "type": "u16",
       "value": 0,
+      "posValue": 1,
       "panel": "C06.20",
-      "name": "Runaway protection OFF (CST belt is back-driven by design; Er06.0 otherwise, manual p181)"
+      "name": "Runaway protection OFF (CST belt is back-driven by design; Er06.0 otherwise, manual p181; position axes keep the factory 1)"
     }
   ],
   "clone": [

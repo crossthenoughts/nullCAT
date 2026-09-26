@@ -42,6 +42,8 @@ struct Param
     int         bytes    = 2;        // 1 / 2 / 4
     bool        isSigned = false;
     int64_t     value    = 0;        // target value
+    int64_t     posValue = 0;        // torqueOnly[] only: expected on a POSITION
+    bool        hasPosValue = false; // axis (the factory default), for roleCheck()
     std::string coe;                 // "0x2001:0x41" (for logging)
     std::string panel;               // "C01.40"
     std::string name;
@@ -96,6 +98,16 @@ public:
     // Readback clone[] (+ inertia, + torqueOnly[] iff torqueAxis) and compare to the
     // profile. For the post-power-cycle confirmation. Does NOT write anything.
     Result verify(int slave, const Profile& p, bool torqueAxis = false);
+
+    // Role check: read ONLY the role-critical params (torqueOnly[]) and compare
+    // each against what THIS slave's role expects - `value` on a torque axis,
+    // `posValue` (the declared factory default) on a position axis. Catches
+    // drive-resident state that stayed with the metal through a physical drive
+    // swap, replacement, or factory reset (a belt drive with runaway protection
+    // still on trips Er06.0 the moment it is back-driven; the ex-belt drive
+    // runs a position axis unprotected). Read-only; same preconditions as
+    // verify(). In each result row `wrote` carries the EXPECTED value.
+    Result roleCheck(int slave, const Profile& p, bool torqueAxis);
 
 private:
     EtherCATMaster& m_master;

@@ -769,6 +769,29 @@ $('cfgSave').onclick=saveConfig;
 // Support bundle: a plain navigation, so the browser handles the file
 // save natively (works on any machine viewing the page).
 { const dl=$('cf-logdl'); if(dl) dl.onclick=()=>{ window.location=API+'/api/logbundle'; }; }
+// Provisioning role check: reads drive-resident params (loop stopped) and
+// flags any that disagree with the axis's configured role.
+{ const rc=$('pc-rolecheck'); if(rc) rc.onclick=async()=>{
+    const m=$('pc-rolemsg'), t=$('pc-roletbl');
+    const esc=(v)=>String(v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    if(m) m.textContent='Reading drives…'; if(t) t.innerHTML='';
+    try{
+      const r=await fetch(API+'/api/provision/rolecheck'); const j=await r.json();
+      if(!j.ok){ if(m) m.textContent=j.error||'check failed'; return; }
+      if(m) m.textContent=j.rows.length?'':'No slaves configured to check.';
+      if(t&&j.rows.length){
+        let bad=0,h='<table class="prov-table" style="table-layout:auto"><tr><th>axis</th><th>slave</th><th>role</th><th>param</th><th>drive has</th><th>should be</th><th></th></tr>';
+        for(const w of j.rows){
+          h+=w.error!==undefined
+            ?`<tr><td>${esc(w.name)}</td><td>${w.slave}</td><td>${w.role}</td><td colspan="4">${esc(w.error)}</td></tr>`
+            :`<tr><td>${esc(w.name)}</td><td>${w.slave}</td><td>${w.role}</td><td>${esc(w.param)}</td><td>${w.actual}</td><td>${w.expected}</td><td>${w.match?'OK':'<b>SET ON PANEL</b>'}</td></tr>`;
+          if(w.error!==undefined||!w.match) bad++;
+        }
+        t.innerHTML=h+'</table>';
+        if(m) m.textContent=bad?bad+' item(s) need attention - fix on the drive panel, save, power-cycle.':'All drives match their roles.';
+      }
+    }catch(e){ if(m) m.textContent='check failed: '+e; }
+  }; }
 // Reset peaks: clear the server-latched tuning metrics AND the client-side sticky
 // vel/trq peaks together, so one action re-baselines every card. Drives stay in OP.
 { const rs=$('btn-reset-stats'); if(rs) rs.onclick=()=>{

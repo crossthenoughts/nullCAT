@@ -23,6 +23,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include "SdoWorker.h"     // IGBT temp readout for the drive cards (OP-time round-robin poll)
+#include "DriveProvisioner.h" // role check: drive-resident params vs axis role (PreOp, read-only)
 #include <vector>
 
 #include <filesystem>
@@ -697,6 +698,67 @@ bool WebServer::start()
             if (body.empty()) { res.status = 404; return; }
             res.set_header("Cache-Control", "no-store");
             res.set_content(body, "text/css");
+        });
+
+        // ---- REST: provisioning role check ----
+        // Reads the drive-RESIDENT role-critical params (profile torqueOnly[],
+        // C06.20 runaway protection first) from every configured slave and
+        // compares each against what that axis's role expects: the torque
+        // value on torque axes, the declared factory default on position
+        // axes. Catches state that stayed with the metal through a physical
+        // drive swap, replacement, or factory reset. Read-only, PreOp with
+        // the loop stopped (same regime as the provision tool) - refused
+        // otherwise, so it can never contend with the RT exchange.
+        svr.Get("/api/provision/rolecheck", [this](const httplib::Request&, httplib::Response& res)
+        {
+            const auto fail = [&res](const std::string& msg)
+            { res.set_content("{\"ok\":false,\"error\":" + jsonStr(msg) + "}", "application/json"); };
+
+            if (!m_master || !m_config) { fail("controller not available"); return; }
+            if (!m_master->isInitialized())
+            { fail("Initialize EtherCAT first (loop stopped) - the check reads each drive over the bus."); return; }
+            if (m_master->isOperational() || m_master->isRtLoopActive())
+            { fail("Stop the control loop first - the check runs with the bus in PreOp only."); return; }
+
+            prov::Profile prof;
+            std::string perr;
+            if (!prof.load("drive_profiles/nullcat_a6.json", perr))
+            { fail("drive profile not found (drive_profiles/nullcat_a6.json): " + perr); return; }
+            if (prof.torqueOnly.empty())
+            { fail("this drive profile declares no role-critical params"); return; }
+
+            prov::Provisioner pv(*m_master);
+            std::string s = "{\"ok\":true,\"rows\":[";
+            bool first = true;
+            for (size_t i = 0; i < m_config->drives.size(); ++i)
+            {
+                const DriveConfig& d = m_config->drives[i];
+                if (d.slaveIndex < 1) continue;
+                const bool torqueAxis = (d.mode == "torque");
+                prov::Result rr = pv.roleCheck(d.slaveIndex, prof, torqueAxis);
+                const std::string head =
+                    "{\"name\":" + jsonStr(d.name) +
+                    ",\"slave\":" + std::to_string(d.slaveIndex) +
+                    ",\"role\":\"" + (torqueAxis ? "torque" : "position") + "\"";
+                if (rr.writes.empty())          // per-slave refusal (e.g. index out of range)
+                {
+                    if (!first) s += ","; first = false;
+                    s += head + ",\"error\":" + jsonStr(rr.message) + "}";
+                    continue;
+                }
+                for (const auto& w : rr.writes)
+                {
+                    if (!first) s += ","; first = false;
+                    s += head +
+                         ",\"param\":"    + jsonStr(w.panel) +
+                         ",\"coe\":"      + jsonStr(w.coe) +
+                         ",\"expected\":" + std::to_string(static_cast<long long>(w.wrote)) +
+                         ",\"actual\":"   + std::to_string(static_cast<long long>(w.readback)) +
+                         ",\"match\":"    + (w.verified ? "true" : "false") + "}";
+                }
+            }
+            s += "]}";
+            res.set_content(s, "application/json");
         });
 
         // ---- REST: recent log lines ----

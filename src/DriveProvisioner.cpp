@@ -64,6 +64,10 @@ bool parseParam(const QJsonObject& o, Param& p, std::string& err, const char* va
         err = "bad type for " + p.coe; return false;
     }
     p.value = static_cast<int64_t>(o.value(valueKey).toDouble());
+    if (o.contains("posValue")) {   // torqueOnly[] only: position-axis expectation
+        p.posValue    = static_cast<int64_t>(o.value("posValue").toDouble());
+        p.hasPosValue = true;
+    }
     return true;
 }
 
@@ -275,6 +279,43 @@ Result Provisioner::verify(int slave, const Profile& p, bool torqueAxis)
     r.ok = all;
     r.message = all ? strf("slave %d: all %zu params match the profile.", slave, check.size())
                     : strf("slave %d: MISMATCH - drive does not match the profile (see per-param).", slave);
+    return r;
+}
+
+// ---- role check (drive-resident state vs the axis's configured role) -----------
+
+Result Provisioner::roleCheck(int slave, const Profile& p, bool torqueAxis)
+{
+    Result r;
+    std::string why;
+    if (!preconditionOk(slave, why)) { r.message = "refused: " + why; return r; }
+
+    std::lock_guard<std::mutex> xfer(m_master.sdoTransferMutex());
+
+    bool all = true;
+    for (const Param& c : p.torqueOnly) {
+        // A position axis is only checkable where the profile declares the
+        // factory default; without it there is no expectation to compare.
+        if (!torqueAxis && !c.hasPosValue) continue;
+        const int64_t expect = torqueAxis ? c.value : c.posValue;
+
+        WriteResult wr; wr.coe = c.coe; wr.panel = c.panel; wr.name = c.name;
+        wr.wrote = expect;                       // row carries the EXPECTED value
+        int64_t rb = 0; std::string e;
+        if (readParam(slave, c, rb, e)) { wr.readback = rb; wr.verified = (rb == expect); }
+        else {
+            wr.verified = false;                 // unreadable counts as a mismatch
+            LOG_WARNING(strf("DriveProvisioner: roleCheck %s read failed on slave %d: %s",
+                             c.coe.c_str(), slave, e.c_str()));
+        }
+        if (!wr.verified) all = false;
+        r.writes.push_back(wr);
+    }
+    r.ok = all;
+    r.message = all
+        ? strf("slave %d: drive-resident params match its %s role.", slave, torqueAxis ? "torque" : "position")
+        : strf("slave %d: drive-resident params do NOT match its %s role - fix on the drive panel, then power-cycle.",
+               slave, torqueAxis ? "torque" : "position");
     return r;
 }
 

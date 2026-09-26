@@ -224,6 +224,20 @@ sudo ./provision eth0 &lt;slave&gt; --verify    # confirm everything persisted</
         <div class="pc-note">Writes the 18 deliberate params + both notch frequencies (7999) + baseline inertia, and stores to NVRAM <b>only if every readback verifies</b>. A before-state backup file is written first. Per-axis inertia (auto-ID) and notch frequency are tuned separately - they are not blind-cloned.</div>
       </div>
 
+      <!-- Role check: drive-resident params vs each axis's configured role -->
+      <div class="prov-callout pc-soft">
+        <div class="pc-step">Role check · after any drive swap, replacement, or factory reset</div>
+        <div class="pc-title">Do the drives' own saved settings match the job each one has now?</div>
+        <div class="pc-note">Settings saved inside a drive move with the physical drive, not with your rig config.
+          This reads the role-critical ones (runaway protection <code>C06.20</code>) from every drive and flags any
+          that disagree with the axis's role - a belt drive with protection still on faults <code>Er06.0</code> the
+          moment the belt is back-driven. Needs EtherCAT <b>initialized with the loop stopped</b>; fix any flagged
+          value on the drive's front panel, save, power-cycle.</div>
+        <div class="frow"><button class="btn btn-sm btn-action" id="pc-rolecheck" type="button">Check drive settings</button>
+          <span class="fldtip" id="pc-rolemsg"></span></div>
+        <div id="pc-roletbl"></div>
+      </div>
+
       <!-- The exact params the tool writes - all panel-doable, so this doubles as a manual sheet -->
       <div class="pc-note" style="margin:-2px 0 2px">
         The values below are <b>exactly what the <code>provision</code> tool writes</b> - every one has a front-panel code,

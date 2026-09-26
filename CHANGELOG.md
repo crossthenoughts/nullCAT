@@ -4,6 +4,34 @@ Notable changes to nullCAT. Format follows [Keep a Changelog](https://keepachang
 versioning is [Semantic Versioning](https://semver.org/) - while on `0.x`, the
 middle number carries breaking changes and the last carries fixes.
 
+## [0.9.6] - 2026-09-27
+
+### Added
+- Provisioning role check: a Check drive settings button (Drive
+  Provisioning section) reads the role-critical drive-resident params
+  (runaway protection C06.20 first) from every drive with the loop
+  stopped and flags any that disagree with the axis's configured role,
+  with the panel fix instruction. Settings saved inside a drive move
+  with the physical drive, not the rig config - a swapped-in belt
+  drive with protection still on faults Er06.0 the moment the belt is
+  back-driven, and the swapped-out one runs a position axis
+  unprotected. Found the hard way on the bench.
+
+### Fixed
+- The H layout derive now places the engagement gates from the taught
+  travel itself (just inside each stop, neutral at centre), the same
+  way the selector derive always worked; the Throw field is an
+  optional override, kept inside the stops. The old fixed default
+  planted gates outside (or nowhere near) the real travel on any
+  lever unlike the one it was tuned on.
+- A refused config save now says so on the Devices card ("SAVE
+  REFUSED - nothing was saved"), not only in the status line beside
+  the distant Save button. An evening of shifter tuning was lost to
+  refusals rendered out of view.
+- Changing a device's homing direction or mirror now warns that the
+  taught travel, neutral, and gates were captured in the previous
+  homed frame and need re-teaching.
+
 ## [0.9.5] - 2026-08-29
 
 ### Added
