@@ -47,6 +47,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # The telemetry parser eats raw UDP datagrams from the network on the RT
+  # thread; any sanitizer finding here is a remote-input bug. Coverage-guided
+  # for a short burst on every push, seeded from tests/fuzz/corpus/.
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fuzz the telemetry line parser (libFuzzer + ASan)
+        run: |
+          clang++ -std=c++20 -g -O1 -fsanitize=fuzzer,address -pthread -Isrc \
+            tests/fuzz/fuzz_telemetry.cpp src/TelemetryInput.cpp src/Logging.cpp \
+            -o fuzz_telemetry
+          ./fuzz_telemetry -max_total_time=60 -max_len=2048 -print_final_stats=1 tests/fuzz/corpus
+
   # The web UI has no build step, so nothing parses its JS before a browser
   # does; a single syntax error kills the whole dashboard (issue #1).
   web:
@@ -112,6 +127,15 @@ jobs:
 
       - name: Test
         run: cd build && ctest --output-on-failure
+
+      # Boots the real headless binary (simulation mode) and drives a real
+      # headless Chrome at it: the page must reach Connected with zero
+      # console/page errors. Gates the "page renders but no script runs"
+      # class (issue #1) and dead-UI regressions the parse check cannot see.
+      - name: Web UI smoke test
+        run: |
+          npm install --no-save puppeteer-core@23.11.1
+          node tests/web/smoke.mjs build/nullcat-pi "$(command -v google-chrome || command -v chromium-browser)"
 
   linux-arm64:
     runs-on: ubuntu-latest

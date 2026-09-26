@@ -17,6 +17,14 @@ middle number carries breaking changes and the last carries fixes.
   back-driven, and the swapped-out one runs a position axis
   unprotected. Found the hard way on the bench.
 
+- CI now boots the real headless controller in simulation mode and
+  drives a real headless browser at it on every push: the dashboard
+  must reach Connected with zero script errors, so a page that renders
+  but never runs (the issue #1 class) can no longer ship. The wire
+  telemetry parser is also fuzzed (coverage-guided, sanitized) on
+  every push - it eats raw network datagrams on the RT thread, so any
+  finding there is a remote-input bug.
+
 ### Fixed
 - The H layout derive now places the engagement gates from the taught
   travel itself (just inside each stop, neutral at centre), the same
