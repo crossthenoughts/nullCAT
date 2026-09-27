@@ -27,6 +27,25 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.release.tag_name }}
+
+      # The on-Pi updater health-checks `nullcat-pi --version` against the
+      # tag, and the binary's stamp comes from the root project() line. A
+      # tag whose stamp disagrees ships a tarball that can NEVER pass that
+      # health check (0.9.6's first cut did exactly this and rolled every
+      # rig back). Refuse to build it instead.
+      - name: Version stamp must match the tag
+        run: |
+          TAG="${TAG_NAME#v}"
+          VER=$(grep -Po 'project\(nullCAT VERSION \K[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt)
+          if [ "$TAG" != "$VER" ]; then
+            echo "::error::Release tag is v$TAG but CMakeLists.txt project() says $VER."
+            echo "::error::Bump the project() version, re-tag, and republish."
+            exit 1
+          fi
+          echo "Version stamp $VER matches tag."
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+
       - uses: docker/setup-qemu-action@v3
         with: { platforms: arm64 }
       - name: Build + test + package in Debian trixie arm64
