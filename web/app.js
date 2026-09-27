@@ -1048,15 +1048,15 @@ function hapTorqueAxes(){
   return out;
 }
 
-// Static picture of the CONFIGURED shape (flat = amp 0 = off), like the
-// device curve editors. ph scrolls the carrier - used only while a Test
-// is playing, so activity reads as motion and idle settles back static.
+// The wave has ONE meaning: playing right now. Idle draws a flat line
+// whatever the amplitude (the header dot is the enabled indicator); a
+// live Test passes a scrolling phase and the shape appears only then.
 function hapWave(svg,fx,dv,ph){
   const W=148,H=26,pts=[];
-  const n=64, amp=(dv.ampPct>0)?1:0, p=ph||0;
+  const live=(ph!==undefined&&dv.ampPct>0), p=ph||0, n=64;
   for(let s=0;s<=n;s++){
     const t=s/n; let y=0;
-    if(amp){
+    if(live){
       if(fx.transient){
         const ramp=0.25, env=(t<=0||t>=1)?0:(t<ramp?0.5*(1-Math.cos(Math.PI*t/ramp))
           :(t>1-ramp?0.5*(1-Math.cos(Math.PI*(1-t)/ramp)):1));
