@@ -61,6 +61,25 @@ const hex4=(v)=> '0x'+(((v|0)&0xFFFF)>>>0).toString(16).toUpperCase().padStart(4
 
 /* ---- theme (persisted) ---- */
 const THEME_KEY='nullcat-theme';
+/* ---- Operate / Setup view switch. Setup holds the build-time surfaces
+   (host settings, provisioning, commissioning test, bindings, updater);
+   Operate holds everything a tuning evening touches. Pure show/hide via
+   body[data-view] and the vw-op / vw-setup tags - no element moves, so
+   every id and handler stays exactly where the rest of this file put it. */
+function setView(v){
+  document.body.dataset.view=v;
+  const o=$('vwBtn-op'), s=$('vwBtn-setup');
+  if(o) o.classList.toggle('vw-on', v==='op');
+  if(s) s.classList.toggle('vw-on', v==='setup');
+  try{ localStorage.setItem('nullcat.view', v); }catch(_){}
+}
+{ let v='op';
+  try{ v = (location.hash==='#setup') ? 'setup' : (localStorage.getItem('nullcat.view')||'op'); }catch(_){}
+  setView(v==='setup'?'setup':'op');
+  const o=$('vwBtn-op'), s=$('vwBtn-setup');
+  if(o) o.onclick=()=>setView('op');
+  if(s) s.onclick=()=>setView('setup'); }
+
 function applyTheme(t){ document.documentElement.setAttribute('data-theme', t==='dark'?'dark':'light'); }
 let theme = localStorage.getItem(THEME_KEY)||'light'; applyTheme(theme);
 
@@ -565,6 +584,7 @@ async function loadConfig(){
     setField('cf-reqreset',rig.requireUserFaultReset);
     applyHostOwnership();
     devInit();
+    hapInit();
     populateAxisEditor();
     cfgBaseline=snapshotCfg();   // loaded state = the clean baseline
     refreshDirtyUI();
@@ -593,7 +613,8 @@ async function saveConfig(){
   if(clamped){ const s=$('axisSel'); if(s) renderAxisFields(+s.value||0); }
   // rig.json (web owns it on both platforms)
   const g={ blendTimeSec:+$('cf-blendt').value, blendMaxVelocityMmS:+$('cf-blendv').value,
-            conditioningMode:$('cf-condmode').value, requireUserFaultReset:$('cf-reqreset').checked };
+            conditioningMode:$('cf-condmode').value, requireUserFaultReset:$('cf-reqreset').checked,
+            haptics:cfgObj.haptics||{} };
   cfgObj.conditioningMode=g.conditioningMode;   // keep merged view in sync for axis logic
   const rig={ configVersion:cfgObj._configVersion||2, numDrives:(cfgObj.drives||[]).length, global:g, axes:cfgObj.drives||[] };
   st.textContent='Saving…'; st.style.color='var(--ink-soft)';
@@ -974,6 +995,147 @@ const devSweep={};  // per-axis {min,max} travel swept since homing (Capture tra
 const devDot={};    // per-svg live-dot updaters (curve editors)
 function devEnabled(){ return meta.platform==='linux' && !!($('cf-showdev')&&$('cf-showdev').checked); }
 function devAxes(){ return ((cfgObj&&cfgObj.drives)||[]).map((d,i)=>({d,i})).filter(x=>isDeviceType(x.d.axisType)); }
+/* ---- haptics strip: one tile per effect, left to right; params write into
+   cfgObj.haptics (rig.global, saved by the normal Save; restart-free apply
+   comes later). Routes edit in a drawer below the strip so the strip stays
+   short. Waveform previews are drawn from the same math the engine runs. */
+const HAP_DEF={
+  detentClick:{ampPct:0,freqHz:90, durMs:18,order:2,jitter:0,  routes:[{axis:-2,gain:1}]},
+  rpmVibe:    {ampPct:0,freqHz:0,  durMs:0, order:2,jitter:0,  routes:[]},
+  abs:        {ampPct:0,freqHz:12, durMs:0, order:2,jitter:0,  routes:[]},
+  lockup:     {ampPct:0,freqHz:9,  durMs:0, order:2,jitter:0.2,routes:[]},
+  skid:       {ampPct:0,freqHz:35, durMs:0, order:2,jitter:0.5,routes:[]},
+  road:       {ampPct:0,freqHz:28, durMs:0, order:2,jitter:0.6,routes:[]}};
+const HAP_FX=[
+  {k:'detentClick',label:'Detent click',transient:true,
+   params:[['ampPct','amp%',0,100,1],['freqHz','Hz',10,500,5],['durMs','ms',5,100,1]],
+   tip:'One short click as the lever settles into a gate, scaled by entry speed.'},
+  {k:'rpmVibe',label:'RPM vibe',
+   params:[['ampPct','amp%',0,100,1],['order','order',0.25,8,0.25]],
+   tip:'Engine vibration: carrier follows rpm x order. Silent below 1000 rpm. Needs the rpm channel.'},
+  {k:'abs',label:'ABS',
+   params:[['ampPct','amp%',0,100,1],['freqHz','Hz',4,60,1]],
+   tip:'Pulses while ABS cycles under braking. Needs the absActive and brakePct channels.'},
+  {k:'lockup',label:'Lockup',
+   params:[['ampPct','amp%',0,100,1],['freqHz','Hz',4,60,1],['jitter','jit',0,1,0.05]],
+   tip:'Wheel-lock judder, scaled by the lockup channel (0-100).'},
+  {k:'skid',label:'Skid',
+   params:[['ampPct','amp%',0,100,1],['freqHz','Hz',10,120,1],['jitter','jit',0,1,0.05]],
+   tip:'Tyre-slip rumble, scaled by the skid channel (0-100).'},
+  {k:'road',label:'Road',
+   params:[['ampPct','amp%',0,100,1],['freqHz','Hz',10,120,1],['jitter','jit',0,1,0.05]],
+   tip:'Surface feel, scaled by the roadNoise channel (0-100).'}];
+
+function hapTorqueAxes(){
+  const out=[]; if(!cfgObj||!cfgObj.drives) return out;
+  cfgObj.drives.forEach((d,i)=>{
+    if(d.mode==='torque'||d.axisType==='shifter'||d.axisType==='pedal')
+      out.push({i,name:d.name||('Axis '+(i+1))}); });
+  return out;
+}
+
+function hapWave(svg,fx,dv){
+  const W=148,H=26,pts=[];
+  const n=64, amp=(dv.ampPct>0)?1:0;
+  for(let s=0;s<=n;s++){
+    const t=s/n; let y=0;
+    if(amp){
+      if(fx.transient){
+        const ramp=0.25, env=(t<=0||t>=1)?0:(t<ramp?0.5*(1-Math.cos(Math.PI*t/ramp))
+          :(t>1-ramp?0.5*(1-Math.cos(Math.PI*(1-t)/ramp)):1));
+        y=env*Math.sin(2*Math.PI*3.5*t);
+      }else{
+        const jit=dv.jitter?(Math.sin(s*12.9898)*0.5*dv.jitter):0;
+        y=Math.sin(2*Math.PI*(5+jit*3)*t);
+      }
+    }
+    pts.push((t*W).toFixed(1)+','+(H/2-y*(H/2-2)).toFixed(1));
+  }
+  svg.innerHTML='<polyline points="'+pts.join(' ')+'"/>';
+  svg.setAttribute('viewBox','0 0 '+W+' '+H);
+}
+
+function hapChipText(dv,transient){
+  const r=(dv.routes||[]).filter(x=>x&&x.gain>0);
+  if(!r.length) return transient?'→ own axis':'→ (off)';
+  const own=r.some(x=>x.axis===-2), ext=r.filter(x=>x.axis>=0).length;
+  if(own&&ext) return '→ own +'+ext;
+  if(own) return '→ own axis';
+  return '→ '+ext+' axis'+(ext>1?'es':'');
+}
+
+let hapOpenDrawer=null;
+function hapDrawerRender(fx){
+  const dr=$('hapDrawer'); if(!dr) return;
+  if(hapOpenDrawer===fx.k){ dr.hidden=true; hapOpenDrawer=null; return; }
+  hapOpenDrawer=fx.k;
+  const dv=cfgObj.haptics[fx.k];
+  const gain=(axis)=>{ const e=(dv.routes||[]).find(r=>r.axis===axis); return e?e.gain:0; };
+  let h='<div class="hd-t">'+fx.label+' · routes (gain 0 = not routed; up to 4 destinations)</div>';
+  if(fx.transient)
+    h+='<label>own axis <input type="number" min="0" max="2" step="0.1" data-axis="-2" value="'+gain(-2)+'"></label>';
+  for(const a of hapTorqueAxes())
+    h+='<label>'+a.name+' <input type="number" min="0" max="2" step="0.1" data-axis="'+a.i+'" value="'+gain(a.i)+'"></label>';
+  h+='<span class="fldtip" id="hapRouteMsg"></span>';
+  dr.className='hap-drawer'; dr.innerHTML=h; dr.hidden=false;
+  dr.querySelectorAll('input').forEach(inp=>{ inp.onchange=()=>{
+    const routes=[];
+    dr.querySelectorAll('input').forEach(x=>{
+      const g=+x.value; if(isFinite(g)&&g>0) routes.push({axis:+x.dataset.axis,gain:Math.min(2,g)}); });
+    const m=dr.querySelector('#hapRouteMsg');
+    if(routes.length>4){ if(m) m.textContent='Max 4 destinations - extra ones are not saved.'; }
+    else if(m) m.textContent='';
+    dv.routes=routes.slice(0,4);
+    hapOpenDrawer=null; dr.hidden=true;     // close; tiles re-render below
+    hapInit(); refreshDirtyUI();
+  }; });
+}
+
+function hapInit(){
+  const head=$('hapHead'), panel=$('hapPanel'), strip=$('hapStrip');
+  if(!head||!panel||!strip||!cfgObj) return;
+  if(!hapTorqueAxes().length){ head.hidden=true; panel.hidden=true; return; }
+  head.hidden=false; panel.hidden=false;
+  cfgObj.haptics=cfgObj.haptics||{};
+  for(const k in HAP_DEF)
+    cfgObj.haptics[k]=Object.assign({},HAP_DEF[k],cfgObj.haptics[k]||{});
+  strip.innerHTML='';
+  for(const fx of HAP_FX){
+    const dv=cfgObj.haptics[fx.k];
+    const tile=document.createElement('div');
+    tile.className='hap-tile'; tile.title=fx.tip;
+    let h='<div class="ht"><span>'+fx.label+'</span><span class="dot'+(dv.ampPct>0?' on':'')+'">●</span></div>';
+    h+='<svg class="hap-wave"></svg><div class="hp">';
+    for(const [key,lab,min,max,st] of fx.params)
+      h+='<label>'+lab+'<input type="number" min="'+min+'" max="'+max+'" step="'+st+'" data-k="'+key+'" value="'+dv[key]+'"></label>';
+    h+='</div><div class="hb"><button class="hap-routechip" type="button">'+hapChipText(dv,fx.transient)+'</button>'
+      +'<button class="btn btn-sm btn-action" type="button" data-test="1">Test</button></div>';
+    tile.innerHTML=h;
+    const svg=tile.querySelector('svg'); hapWave(svg,fx,dv);
+    tile.querySelectorAll('input').forEach(inp=>{ inp.onchange=()=>{
+      const v=+inp.value; if(!isFinite(v)) return;
+      dv[inp.dataset.k]=Math.max(+inp.min,Math.min(+inp.max,v));
+      inp.value=dv[inp.dataset.k];
+      hapWave(svg,fx,dv);
+      tile.querySelector('.dot').classList.toggle('on',dv.ampPct>0);
+      refreshDirtyUI();
+    }; });
+    tile.querySelector('.hap-routechip').onclick=()=>hapDrawerRender(fx);
+    tile.querySelector('[data-test]').onclick=async(ev)=>{
+      const b=ev.target; b.disabled=true;
+      try{
+        const r=await fetch(API+'/api/haptics/test',{method:'POST',
+          body:JSON.stringify({effect:fx.k})});
+        const j=await r.json();
+        b.textContent=j.ok?'Sent':'✗';
+        if(!j.ok&&j.error){ const m=$('devMsg'); if(m) m.textContent='Haptics test: '+j.error; }
+      }catch(_){ b.textContent='✗'; }
+      setTimeout(()=>{ b.textContent='Test'; b.disabled=false; },1200);
+    };
+    strip.appendChild(tile);
+  }
+}
+
 function devInit(){
   const row=$('devShowRow'); if(row) row.hidden=(meta.platform!=='linux');
   const cb=$('cf-showdev'); if(cb&&!cb._wired){ cb._wired=true; cb.addEventListener('change',devRender); }

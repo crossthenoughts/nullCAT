@@ -41,13 +41,34 @@
     </div>
   </header>
 
+  <!-- ===== view switch: Operate = the daily surfaces; Setup = host,
+       provisioning, commissioning test, bindings, updater ===== -->
+  <nav class="viewnav" id="viewNav">
+    <button type="button" id="vwBtn-op" class="vw-on">Operate</button>
+    <button type="button" id="vwBtn-setup">Setup</button>
+  </nav>
+
   <!-- ===== drives (hero) ===== -->
-  <div class="sec">
+  <div class="sec vw-op">
     <span class="t">Drives</span><span class="c" id="driveCount"> - </span>
     <span class="rule"></span>
     <span class="act" id="btn-reset-stats" title="Re-baseline peak accel, clip rate, binds and following-error on all cards - drives stay live">Reset peaks</span>
   </div>
-  <section class="grid" id="drive-grid"></section>
+  <section class="grid vw-op" id="drive-grid"></section>
+
+  <!-- ===== haptics strip (routable effects; rides on top of the feel) ===== -->
+  <div class="sec vw-op" id="hapHead" hidden>
+    <span class="t">Haptics</span><span class="c">routable effects</span>
+    <span class="rule"></span>
+  </div>
+  <section class="panel vw-op" id="hapPanel" hidden>
+    <div class="hap-strip" id="hapStrip"></div>
+    <div id="hapDrawer" hidden></div>
+    <div class="fldtip">Effects ride on top of the normal feel and are clamped inside each
+      axis's own limits. Amplitude 0 = off. The continuous effects need their NULLCATX
+      channels from the sender (see the SimHub plugin README); a missing channel leaves the
+      effect silent. Save, then re-initialize to apply changes.</div>
+  </section>
 
   <!-- ===== configuration (inline collapsible) ===== -->
   <div class="sec sec-toggle" id="cfgHead">
@@ -62,12 +83,12 @@
         Host settings (NIC, ports, timing, GPIO) are managed by the desktop app on this machine - read-only here. Rig &amp; axis settings below are editable.
       </div>
       <div class="cfg-note" id="cf-rignote" style="grid-column:1/-1"></div>
-      <div class="cgrp">
+      <div class="cgrp vw-setup">
         <div class="gt">Appearance</div>
         <label class="frow"><span>Theme</span>
           <select id="cf-theme"><option value="light">Light (cream)</option><option value="dark">Dark (signal)</option></select></label>
       </div>
-      <div class="cgrp">
+      <div class="cgrp vw-setup">
         <div class="gt">EtherCAT / Runtime</div>
         <label class="frow"><span>Simulation mode</span><input id="cf-sim" type="checkbox"></label>
         <label class="frow"><span>NIC</span><input id="cf-nic" value="eth0"></label>
@@ -82,7 +103,7 @@
         <label class="frow"><span>PDO watchdog</span><input id="cf-wd" value="100" type="number"><span class="u">ms</span></label>
         <label class="frow"><span>DC sync offset</span><input id="cf-dc" value="0" type="number"><span class="u">ns</span></label>
       </div>
-      <div class="cgrp">
+      <div class="cgrp vw-setup">
         <div class="gt">Network / telemetry</div>
         <label class="frow"><span>Web bind</span><input id="cf-bind" value="0.0.0.0"></label>
         <label class="frow"><span>Web port</span><input id="cf-wport" value="8080" type="number"></label>
@@ -92,7 +113,7 @@
         <label class="frow" title="THIS machine's address to listen on - never the game PC's. 0.0.0.0 or blank = all interfaces (recommended). A specific IP restricts to one interface and fails if the machine loses that address."><span>Telemetry bind</span><input id="cf-sbind" value="" placeholder="auto"></label>
         <div class="fldtip">This machine's listen address, not the sender's. Blank or 0.0.0.0 = all interfaces (recommended).</div>
       </div>
-      <div class="cgrp">
+      <div class="cgrp vw-setup">
         <div class="gt">Logging</div>
         <label class="frow"><span>Level</span>
           <select id="cf-loglvl"><option>debug</option><option selected>info</option><option>warning</option><option>error</option><option>critical</option></select></label>
@@ -104,26 +125,26 @@
           <button class="btn btn-sm btn-action" id="cf-logdl" type="button">Download logs</button></div>
         <div class="fldtip">Saves one file to this computer: recent log, app + soem log tails, rig and host config, version. Attach it when reporting a problem.</div>
       </div>
-      <div class="cgrp">
+      <div class="cgrp vw-op">
         <div class="gt">Motion blend</div>
         <label class="frow"><span>Blend time</span><input id="cf-blendt" type="number" step="0.01"><span class="u">s</span></label>
         <label class="frow"><span>Blend max vel</span><input id="cf-blendv" type="number" step="0.01"><span class="u">mm/s</span></label>
       </div>
-      <div class="cgrp">
+      <div class="cgrp vw-op">
         <div class="gt">Command conditioning</div>
         <label class="frow"><span>Mode</span>
           <select id="cf-condmode"><option value="bypass">Bypass</option><option value="interpolate">Interpolate</option><option value="filter">Filter</option></select></label>
         <div class="cfg-note" id="cf-condnote"></div>
         <div class="cfg-note" id="cf-udphint">UDP rate: - </div>
       </div>
-      <div class="cgrp" id="updBlock" hidden>
+      <div class="cgrp vw-setup" id="updBlock" hidden>
         <div class="gt">Software</div>
         <div class="cfg-note">Running <span id="updCur">-</span></div>
         <div class="cfg-note" id="updNote">Updates need the rig parked and EtherCAT stopped.</div>
         <button type="button" id="updCheck">Check for updates</button>
         <button type="button" id="updGo" hidden>Update</button>
       </div>
-      <div class="cgrp" id="devBlock" hidden style="grid-column:1/-1">
+      <div class="cgrp vw-op" id="devBlock" hidden style="grid-column:1/-1">
         <div class="gt">Devices</div>
         <div class="cfg-note">A device is an axis of type <code>shifter</code> or <code>pedal</code>. It homes
           by pushing gently against its travel stop, then rests limp (moves freely) until engaged.
@@ -131,7 +152,7 @@
           apply a preset as a starting point, edit if you like, then Save.</div>
         <div id="devCards"><p class="cfg-note">No device axes configured. Add an axis and set its type to shifter or pedal.</p></div>
       </div>
-      <div class="cgrp">
+      <div class="cgrp vw-setup">
         <div class="gt">Advanced / EtherCAT tuning</div>
         <label class="frow"><span>Command sync cycles</span><input id="cf-cmdsync" type="number"></label>
         <label class="frow"><span>WKC valid. cycles</span><input id="cf-wkccyc" type="number"></label>
@@ -140,7 +161,7 @@
         <label class="frow"><span>Require fault reset</span><input id="cf-reqreset" type="checkbox"></label>
         <label class="frow" id="devShowRow" hidden><span>Device controls</span><input id="cf-showdev" type="checkbox"></label>
       </div>
-      <div class="cgrp">
+      <div class="cgrp vw-setup">
         <div class="gt">GPIO control panel</div>
         <label class="frow"><span>Mode</span>
           <select id="cf-gpiomode">
@@ -153,7 +174,7 @@
           <button class="btn btn-sm btn-action" id="cf-ledtest" type="button">Run LED test</button></div>
         <div class="cfg-note" style="grid-column:1/-1">Pins use defaults (see wiring PDF); edit <code>host.json</code> for custom pins. Mode change needs a restart; LED test runs immediately.</div>
       </div>
-      <div class="cgrp" id="axisGrp" style="grid-column:1/-1">
+      <div class="cgrp vw-op" id="axisGrp" style="grid-column:1/-1">
         <div class="gt">Per-axis configuration</div>
         <div class="frow"><span>Axis</span>
           <span style="display:flex;gap:6px;align-items:center">
@@ -168,7 +189,7 @@
       <!-- Button bindings. One row
            per bindable command; capture flow = click Bind, press the button.
            Saves hot-apply (buttons.json) - no restart, no re-init. -->
-      <div class="cgrp" style="grid-column:1/-1">
+      <div class="cgrp vw-setup" style="grid-column:1/-1">
         <div class="gt bind-head" id="bindHead"><span class="arrow" id="bindArrow">▸</span>
           Button bindings <span class="c">HID box → rig commands · saved separately, applies live</span></div>
         <div class="bind-body collapsed" id="bindBody">
@@ -195,12 +216,12 @@
   </section>
 
   <!-- ===== drive provisioning reference (inline collapsible) ===== -->
-  <div class="sec sec-toggle" id="provHead">
+  <div class="sec sec-toggle vw-setup" id="provHead">
     <span class="arrow" id="provArrow">▸</span>
     <span class="t">Drive Provisioning</span><span class="c">panel reference</span>
     <span class="rule"></span>
   </div>
-  <section class="panel collapsed" id="provPanel">
+  <section class="panel collapsed vw-setup" id="provPanel">
     <div class="prov-body">
 
       <!-- Step 1: unlock + carrier, every drive, panel-only -->
@@ -297,12 +318,12 @@ sudo ./provision eth0 &lt;slave&gt; --verify    # confirm everything persisted</
   </section>
 
   <!-- ===== commissioning tests (inline collapsible) ===== -->
-  <div class="sec sec-toggle" id="testHead">
+  <div class="sec sec-toggle vw-setup" id="testHead">
     <span class="arrow" id="testArrow">▸</span>
     <span class="t">Commissioning Tests</span><span class="c">motion cycle · vibration · sweep · song</span>
     <span class="rule"></span>
   </div>
-  <section class="panel collapsed" id="testPanel">
+  <section class="panel collapsed vw-setup" id="testPanel">
     <div class="test-body">
       <div class="test-note">
         Runs only while the <b>loop is running</b> and the rig is
@@ -373,7 +394,7 @@ sudo ./provision eth0 &lt;slave&gt; --verify    # confirm everything persisted</
     <label class="log-tail-label"><input type="checkbox" id="chk-tail" checked> Auto-scroll</label>
     <span class="act" id="btn-clear-log">Clear</span>
   </div>
-  <section class="panel" id="logPanelWrap"><div class="log-panel" id="log-panel"></div></section>
+  <section class="panel vw-op" id="logPanelWrap"><div class="log-panel" id="log-panel"></div></section>
 
   <!-- link-lost guard: shown by app.js when the status poll goes dead (>=5s / 10 missed
        polls). All buttons grey with it, so a dead network path LOOKS dead instead of

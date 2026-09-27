@@ -7,6 +7,24 @@ middle number carries breaking changes and the last carries fixes.
 ## [0.9.6] - 2026-09-27
 
 ### Added
+- Haptics: a routable effect layer that rides on top of the normal
+  feel on any torque axis (devices AND belts) and is always clamped
+  inside each axis's own limits. Six effects, all off by default:
+  detent click (the lever settling into a gate, scaled by entry
+  speed), RPM vibe (carrier follows engine speed), ABS pulse, brake
+  lockup judder, tyre-skid rumble, and road surface feel. The last
+  five are driven by new NULLCATX channels (brakePct, absActive,
+  skid, lockup, roadNoise - wire protocol 1.1, now written down in
+  Docs/PROTOCOL.md); the SimHub plugin sends brake and ABS
+  automatically and lets you bind any SimHub property to the three
+  magnitude channels. A horizontal Haptics strip in the web UI holds
+  one tile per effect with a live waveform preview, per-effect
+  routing (a shifter click can thump the belts), and a Test button.
+- The web UI splits into Operate and Setup views: Operate keeps the
+  daily surfaces (drives, devices, haptics, per-axis config, log);
+  Setup holds the build-time ones (host settings, provisioning,
+  commissioning test, button bindings, updater). Nothing moved
+  underneath - it is the same page showing what you need.
 - Optional web password: tick Web password in the host settings, type
   one, save, restart the service - from then on every browser must
   enter it once before it can see or control the rig. Off by default
