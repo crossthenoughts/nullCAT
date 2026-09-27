@@ -1048,25 +1048,39 @@ function hapTorqueAxes(){
   return out;
 }
 
-function hapWave(svg,fx,dv){
+// Static picture of the CONFIGURED shape (flat = amp 0 = off), like the
+// device curve editors. ph scrolls the carrier - used only while a Test
+// is playing, so activity reads as motion and idle settles back static.
+function hapWave(svg,fx,dv,ph){
   const W=148,H=26,pts=[];
-  const n=64, amp=(dv.ampPct>0)?1:0;
+  const n=64, amp=(dv.ampPct>0)?1:0, p=ph||0;
   for(let s=0;s<=n;s++){
     const t=s/n; let y=0;
     if(amp){
       if(fx.transient){
         const ramp=0.25, env=(t<=0||t>=1)?0:(t<ramp?0.5*(1-Math.cos(Math.PI*t/ramp))
           :(t>1-ramp?0.5*(1-Math.cos(Math.PI*(1-t)/ramp)):1));
-        y=env*Math.sin(2*Math.PI*3.5*t);
+        y=env*Math.sin(2*Math.PI*3.5*t+p*18);
       }else{
         const jit=dv.jitter?(Math.sin(s*12.9898)*0.5*dv.jitter):0;
-        y=Math.sin(2*Math.PI*(5+jit*3)*t);
+        y=Math.sin(2*Math.PI*(5+jit*3)*t+p*10);
       }
     }
     pts.push((t*W).toFixed(1)+','+(H/2-y*(H/2-2)).toFixed(1));
   }
   svg.innerHTML='<polyline points="'+pts.join(' ')+'"/>';
   svg.setAttribute('viewBox','0 0 '+W+' '+H);
+}
+// Scroll the preview for ms, then settle back to the static shape.
+function hapAnimate(svg,fx,dv,ms){
+  const t0=performance.now();
+  const frame=(now)=>{
+    const el=now-t0;
+    if(el>=ms){ hapWave(svg,fx,dv); return; }
+    hapWave(svg,fx,dv,el/1000);
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
 }
 
 function hapChipText(dv){
@@ -1143,6 +1157,7 @@ function hapInit(){
           body:JSON.stringify({effect:fx.k})});
         const j=await r.json();
         b.textContent=j.ok?'Sent':'✗';
+        if(j.ok) hapAnimate(svg,fx,dv, fx.transient?Math.max(400,(+dv.durMs||18)*4):2000);
         if(!j.ok&&j.error){ const m=$('devMsg'); if(m) m.textContent='Haptics test: '+j.error; }
       }catch(_){ b.textContent='✗'; }
       setTimeout(()=>{ b.textContent='Test'; b.disabled=false; },1200);
