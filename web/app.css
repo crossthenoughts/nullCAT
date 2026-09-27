@@ -288,20 +288,26 @@ body.estop-active{ box-shadow:inset 0 0 0 4px var(--danger); }
 body[data-view="op"] .vw-setup{ display:none !important; }
 body[data-view="setup"] .vw-op{ display:none !important; }
 
-/* ---- haptics strip: horizontal, vertically short, one tile per effect ---- */
-.hap-strip{ display:flex; flex-wrap:wrap; gap:10px; padding:6px 0 4px; }
-.hap-tile{ flex:0 0 168px; background:var(--surface); border:1.5px solid var(--hair);
-  border-left:4px solid var(--live); padding:8px 10px 7px; }
-.hap-tile .ht{ font-family:var(--mono); font-size:.6rem; letter-spacing:.14em;
-  text-transform:uppercase; color:var(--ink-soft); display:flex; justify-content:space-between; }
-.hap-tile .ht .dot{ color:var(--hair); } .hap-tile .ht .dot.on{ color:var(--live); }
-.hap-wave{ width:100%; height:26px; display:block; margin:4px 0 2px; }
+/* ---- haptics: one tile per effect, echoing the drive cards (same chrome,
+   same header dot + name, same label-left / value-right rows, same column
+   rhythm as the drive grid so the two sections read as one system). ---- */
+.hap-strip{ display:grid; grid-template-columns:repeat(auto-fill,minmax(188px,1fr));
+  gap:10px; padding:6px 0 4px; }
+.hap-tile{ background:var(--surface); border:var(--bw) solid var(--ink); border-radius:12px;
+  padding:9px 11px; display:flex; flex-direction:column; gap:6px; }
+.hap-tile .dh .nm{ font-size:.82rem; }
+.hap-tile .dh .dot{ background:var(--ink-soft); }
+.hap-tile.on .dh .dot{ background:var(--live); }
+.hap-wave{ width:100%; height:26px; display:block; padding-bottom:5px;
+  border-bottom:1.5px solid var(--hair); }
 .hap-wave polyline{ fill:none; stroke:var(--live); stroke-width:1.5; }
-.hap-tile .hp{ display:flex; flex-wrap:wrap; gap:4px 8px; align-items:center; }
-.hap-tile .hp label{ display:flex; align-items:center; gap:3px; font-size:.62rem;
-  color:var(--ink-soft); }
-.hap-tile .hp input{ width:52px; font-size:.72rem; padding:.12rem .25rem; }
-.hap-tile .hb{ display:flex; justify-content:space-between; align-items:center; margin-top:5px; }
+.hrows{ display:flex; flex-direction:column; gap:3px; }
+.hr{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.hr .hk{ font-family:var(--mono); font-size:.6rem; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--ink-soft); }
+.hr input{ width:64px; font-size:.78rem; padding:.14rem .3rem; text-align:right;
+  font-variant-numeric:tabular-nums; }
+.hb{ display:flex; justify-content:space-between; align-items:center; margin-top:2px; }
 .hap-routechip{ font-family:var(--mono); font-size:.6rem; color:var(--ink-soft);
   cursor:pointer; text-decoration:underline dotted; background:none; border:none; padding:0; }
 .hap-drawer{ background:var(--surface); border:1.5px solid var(--hair);
@@ -311,3 +317,4 @@ body[data-view="setup"] .vw-op{ display:none !important; }
   text-transform:uppercase; color:var(--ink-soft); flex-basis:100%; }
 .hap-drawer label{ display:flex; align-items:center; gap:5px; font-size:.68rem; }
 .hap-drawer input{ width:56px; }
+.grid.collapsed{ display:none; }

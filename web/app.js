@@ -381,6 +381,20 @@ $('testHead').onclick=()=>{ const was=$('testPanel').classList.contains('collaps
 $('logHead').onclick=()=>toggle($('logPanelWrap'),$('logArrow'));
 $('logArrow').onclick=()=>toggle($('logPanelWrap'),$('logArrow'));
 
+/* Persisted collapse for the Operate sections (fight the sprawl): the
+   choice sticks per browser. Clicks on embedded actions (Reset peaks)
+   never toggle. */
+function wireCollapse(headId, arrowId, panelId, key){
+  const h=$(headId), a=$(arrowId), p=$(panelId); if(!h||!a||!p) return;
+  let c=false; try{ c=localStorage.getItem(key)==='1'; }catch(_){}
+  const apply=()=>{ p.classList.toggle('collapsed',c); a.textContent=c?'▸':'▾'; };
+  apply();
+  h.onclick=(e)=>{ if(e.target.closest('.act,button,input,select,label')) return;
+    c=!c; try{ localStorage.setItem(key,c?'1':'0'); }catch(_){} apply(); };
+}
+wireCollapse('drvHead','drvArrow','drive-grid','nullcat.sec.drives');
+wireCollapse('hapHead','hapArrow','hapPanel','nullcat.sec.haptics');
+
 /* ---- theme select ---- */
 const cfTheme=$('cf-theme');
 if(cfTheme){ cfTheme.value=theme; cfTheme.onchange=()=>{ theme=cfTheme.value; applyTheme(theme); localStorage.setItem(THEME_KEY,theme); }; }
@@ -1008,22 +1022,22 @@ const HAP_DEF={
   road:       {ampPct:0,freqHz:28, durMs:0, order:2,jitter:0.6,routes:[]}};
 const HAP_FX=[
   {k:'detentClick',label:'Detent click',transient:true,
-   params:[['ampPct','amp%',0,100,1],['freqHz','Hz',10,500,5],['durMs','ms',5,100,1]],
+   params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',10,500,5],['durMs','length ms',5,100,1]],
    tip:'One short click as the lever settles into a gate, scaled by entry speed.'},
   {k:'rpmVibe',label:'RPM vibe',
-   params:[['ampPct','amp%',0,100,1],['order','order',0.25,8,0.25]],
+   params:[['ampPct','amp %',0,100,1],['order','order',0.25,8,0.25]],
    tip:'Engine vibration: carrier follows rpm x order. Silent below 1000 rpm. Needs the rpm channel.'},
   {k:'abs',label:'ABS',
-   params:[['ampPct','amp%',0,100,1],['freqHz','Hz',4,60,1]],
+   params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',4,60,1]],
    tip:'Pulses while ABS cycles under braking. Needs the absActive and brakePct channels.'},
   {k:'lockup',label:'Lockup',
-   params:[['ampPct','amp%',0,100,1],['freqHz','Hz',4,60,1],['jitter','jit',0,1,0.05]],
+   params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',4,60,1],['jitter','jitter',0,1,0.05]],
    tip:'Wheel-lock judder, scaled by the lockup channel (0-100).'},
   {k:'skid',label:'Skid',
-   params:[['ampPct','amp%',0,100,1],['freqHz','Hz',10,120,1],['jitter','jit',0,1,0.05]],
+   params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',10,120,1],['jitter','jitter',0,1,0.05]],
    tip:'Tyre-slip rumble, scaled by the skid channel (0-100).'},
   {k:'road',label:'Road',
-   params:[['ampPct','amp%',0,100,1],['freqHz','Hz',10,120,1],['jitter','jit',0,1,0.05]],
+   params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',10,120,1],['jitter','jitter',0,1,0.05]],
    tip:'Surface feel, scaled by the roadNoise channel (0-100).'}];
 
 function hapTorqueAxes(){
@@ -1103,11 +1117,12 @@ function hapInit(){
   for(const fx of HAP_FX){
     const dv=cfgObj.haptics[fx.k];
     const tile=document.createElement('div');
-    tile.className='hap-tile'; tile.title=fx.tip;
-    let h='<div class="ht"><span>'+fx.label+'</span><span class="dot'+(dv.ampPct>0?' on':'')+'">●</span></div>';
-    h+='<svg class="hap-wave"></svg><div class="hp">';
+    tile.className='hap-tile'+(dv.ampPct>0?' on':''); tile.title=fx.tip;
+    let h='<div class="dh"><span class="dot"></span><span class="nm">'+fx.label+'</span></div>';
+    h+='<svg class="hap-wave"></svg><div class="hrows">';
     for(const [key,lab,min,max,st] of fx.params)
-      h+='<label>'+lab+'<input type="number" min="'+min+'" max="'+max+'" step="'+st+'" data-k="'+key+'" value="'+dv[key]+'"></label>';
+      h+='<div class="hr"><span class="hk">'+lab+'</span>'
+        +'<input type="number" min="'+min+'" max="'+max+'" step="'+st+'" data-k="'+key+'" value="'+dv[key]+'"></div>';
     h+='</div><div class="hb"><button class="hap-routechip" type="button">'+hapChipText(dv,fx.transient)+'</button>'
       +'<button class="btn btn-sm btn-action" type="button" data-test="1">Test</button></div>';
     tile.innerHTML=h;
@@ -1117,7 +1132,7 @@ function hapInit(){
       dv[inp.dataset.k]=Math.max(+inp.min,Math.min(+inp.max,v));
       inp.value=dv[inp.dataset.k];
       hapWave(svg,fx,dv);
-      tile.querySelector('.dot').classList.toggle('on',dv.ampPct>0);
+      tile.classList.toggle('on',dv.ampPct>0);
       refreshDirtyUI();
     }; });
     tile.querySelector('.hap-routechip').onclick=()=>hapDrawerRender(fx);
