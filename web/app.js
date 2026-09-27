@@ -1157,9 +1157,16 @@ function hapInit(){
           body:JSON.stringify({effect:fx.k})});
         const j=await r.json();
         b.textContent=j.ok?'Sent':'✗';
-        if(j.ok) hapAnimate(svg,fx,dv, fx.transient?Math.max(400,(+dv.durMs||18)*4):2000);
-        if(!j.ok&&j.error){ const m=$('devMsg'); if(m) m.textContent='Haptics test: '+j.error; }
-      }catch(_){ b.textContent='✗'; }
+        const m=$('hapMsg');
+        if(j.ok){
+          if(m) m.textContent='';
+          hapAnimate(svg,fx,dv, fx.transient?Math.max(400,(+dv.durMs||18)*4):2000);
+        }else if(m){
+          m.textContent='Test refused: '+(j.error||'no response');
+          setTimeout(()=>{ if(m.textContent.startsWith('Test refused')) m.textContent=''; },6000);
+        }
+      }catch(_){ b.textContent='✗';
+        const m=$('hapMsg'); if(m) m.textContent='Test failed: no response from the controller.'; }
       setTimeout(()=>{ b.textContent='Test'; b.disabled=false; },1200);
     };
     strip.appendChild(tile);
