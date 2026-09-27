@@ -74,6 +74,9 @@ void MotionController::configure(const AppConfig& config)
                        :                                              CommandConditioner::Mode::Bypass;
     m_needsRehome = true;
 
+    // Haptic transient layer: tuning + routes are rig-global config.
+    m_haptics.configure(haptics::EventType::DetentClick, config.hapticsDetentClick);
+
     // NULLCATX channel bindings (rig-level): resolve token strings once so
     // the RT path only does index lookups.
     m_ncxMap.configure(config.ncxBindings);
@@ -1638,7 +1641,9 @@ double MotionController::stepDeviceBlending(int i, AxisMotionState& state,
                                                &m_ratioLearner.ratios());
     mods.forceScale    *= bf;
     mods.textureAmpPct *= bf;
-    const double f = rt.deviceModel.step(posRev, mods);
+    HapticTriggers trig;
+    const double f = rt.deviceModel.step(posRev, mods, &trig);
+    fireHaptics(i, trig);
     rt.lastTension    = f;
     output.torques[i] = f;
 
@@ -1650,6 +1655,14 @@ double MotionController::stepDeviceBlending(int i, AxisMotionState& state,
     return rt.currentPos;
 }
 
+// Model detected, layer synthesizes: velocity scale gets a 0.25 floor so a
+// slow, deliberate gate entry still clicks softly instead of going silent.
+void MotionController::fireHaptics(int axis, const HapticTriggers& t)
+{
+    if (t.detentEnter)
+        m_haptics.fire(haptics::EventType::DetentClick, axis, 0.25 + 0.75 * t.detentVel);
+}
+
 double MotionController::stepDeviceOnline(int i, AxisMotionState& /*state*/,
     const TelemetryData& td, MotionOutput& output, A6Drive** drives, int numHwDrives)
 {
@@ -1658,7 +1671,9 @@ double MotionController::stepDeviceOnline(int i, AxisMotionState& /*state*/,
     const double posRev = deviceCurrentRev(i, d);
     const DeviceStateMods mods = rt.deviceState.step(posRev, m_ncxMap.extract(td),
                                                      &m_ratioLearner.ratios());
-    const double f = rt.deviceModel.step(posRev, mods);
+    HapticTriggers trig;
+    const double f = rt.deviceModel.step(posRev, mods, &trig);
+    fireHaptics(i, trig);
     rt.lastTension    = f;
     output.torques[i] = f;
     return rt.currentPos;
@@ -1758,6 +1773,12 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
 
     if (estopNow)
         m_estopElapsed += m_cycleTimeSec;
+
+    // Haptics: e-stop kills every transient instantly (no click tail rides
+    // an emergency ramp); otherwise advance the pool once per cycle so
+    // overlayFor() below serves this cycle's values.
+    if (estopNow) m_haptics.clearAll();
+    m_haptics.step(m_cycleTimeSec);
 
     for (int i = 0; i < m_numDrives; ++i)
     {
@@ -1971,6 +1992,30 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
         // future unhomed park captures a fresh resting position.
         if (state != AxisMotionState::PARKED)
             rt.parkHoldLatched = false;
+
+        // Haptics overlay: rides ON TOP of whatever the state machine
+        // commanded, torque-mode axes only, live states only (a limp or
+        // parking axis never buzzes), and the SUM is clamped inside the
+        // axis's own limits - the layer can never exceed the guard rails.
+        if ((state == AxisMotionState::ONLINE || state == AxisMotionState::BLENDING)
+            && (ac.torqueMode || ac.caps.isDevice()))
+        {
+            const double ov = m_haptics.overlayFor(i);
+            if (ov != 0.0)
+            {
+                double t = output.torques[i] + ov;
+                if (ac.caps.isDevice())
+                {
+                    const double cap = ac.device.maxForcePct;
+                    t = std::max(-cap, std::min(cap, t));
+                }
+                else
+                {
+                    t = std::max(0.0, std::min(ac.torqueMaxPct, t));
+                }
+                output.torques[i] = t;
+            }
+        }
 
         rt.currentPos = outPos;
         rt.prevPos = outPos;

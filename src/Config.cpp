@@ -177,6 +177,24 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
         }
         obj["ncxBindings"] = arr;
     }
+    // Haptic transients (HapticsLayer.h). Same always-write rule as
+    // ncxBindings: schema merge would make a deleted route immortal.
+    {
+        const auto writeFx = [](const haptics::EffectParams& p)
+        {
+            QJsonObject o;
+            o["ampPct"] = p.ampPct; o["freqHz"] = p.freqHz; o["durMs"] = p.durMs;
+            QJsonArray r;
+            for (const haptics::Route& rt : p.routes)
+                if (rt.axis != -1 && rt.gain > 0.0)
+                { QJsonObject ro; ro["axis"] = rt.axis; ro["gain"] = rt.gain; r.append(ro); }
+            o["routes"] = r;
+            return o;
+        };
+        QJsonObject h;
+        h["detentClick"] = writeFx(c.hapticsDetentClick);
+        obj["haptics"] = h;
+    }
 }
 
 static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
@@ -198,6 +216,30 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
             b.offset = o.value("offset").toDouble(0.0);
             c.ncxBindings.push_back(b);
         }
+    }
+    if (obj.contains("haptics"))
+    {
+        const QJsonObject h = obj.value("haptics").toObject();
+        const auto readFx = [](const QJsonObject& o, haptics::EffectParams& p)
+        {
+            p.ampPct = o.value("ampPct").toDouble(p.ampPct);
+            p.freqHz = o.value("freqHz").toDouble(p.freqHz);
+            p.durMs  = o.value("durMs").toDouble(p.durMs);
+            if (o.contains("routes"))
+            {
+                for (haptics::Route& rt : p.routes) { rt.axis = -1; rt.gain = 0.0; }
+                int n = 0;
+                for (const QJsonValue& v : o.value("routes").toArray())
+                {
+                    if (n >= haptics::MAX_ROUTES) break;
+                    const QJsonObject ro = v.toObject();
+                    p.routes[n].axis = ro.value("axis").toInt(-1);
+                    p.routes[n].gain = ro.value("gain").toDouble(0.0);
+                    ++n;
+                }
+            }
+        };
+        if (h.contains("detentClick")) readFx(h.value("detentClick").toObject(), c.hapticsDetentClick);
     }
 }
 
@@ -999,6 +1041,30 @@ std::vector<std::string> AppConfig::validate() const
             if (p.breakoutScale < 0.2 || p.breakoutScale > 10.0)
                 errors.push_back(pfx + "device.breakoutScale out of range [0.2, 10]");
         }
+    }
+
+    // ---- Haptic transient layer (rig global) ----
+    {
+        const auto checkFx = [&errors](const char* name, const haptics::EffectParams& p)
+        {
+            const std::string pfx = std::string("haptics.") + name + ": ";
+            if (p.ampPct < 0.0 || p.ampPct > 100.0)
+                errors.push_back(pfx + "ampPct out of range [0, 100]");
+            if (p.ampPct > 0.0 && (p.freqHz < 10.0 || p.freqHz > 500.0))
+                errors.push_back(pfx + "freqHz out of range [10, 500]");
+            if (p.ampPct > 0.0 && (p.durMs < 5.0 || p.durMs > 100.0))
+                errors.push_back(pfx + "durMs out of range [5, 100]");
+            for (const haptics::Route& r : p.routes)
+            {
+                if (r.axis == -1 && r.gain <= 0.0) continue;   // unused slot
+                if (r.axis != haptics::ROUTE_SOURCE_AXIS &&
+                    (r.axis < 0 || r.axis >= haptics::MAX_HAPTIC_AXES))
+                    errors.push_back(pfx + "route axis out of range");
+                if (r.gain < 0.0 || r.gain > 2.0)
+                    errors.push_back(pfx + "route gain out of range [0, 2]");
+            }
+        };
+        checkFx("detentClick", hapticsDetentClick);
     }
 
     // ---- NULLCATX channel bindings (rig global) ----

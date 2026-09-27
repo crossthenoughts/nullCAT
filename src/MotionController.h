@@ -25,6 +25,7 @@
 #include "HomingSequence.h"
 #include "TorqueHomingSequence.h"
 #include "DeviceForceModel.h"
+#include "HapticsLayer.h"
 #include "DeviceStateLayer.h"
 #include "GearRatioLearner.h"
 #include "SpscQueue.h"
@@ -419,6 +420,8 @@ private:
     HomingSequence   m_homing[MAX_DRIVES];
     TorqueHomingSequence m_torqueHoming[MAX_DRIVES];   // device axes (HomingKind::Torque)
     NcxMap           m_ncxMap;   // rig-level NULLCATX binding table (strings resolved once)
+    haptics::Layer   m_haptics;  // routable one-shot transients (RT-owned; see HapticsLayer.h)
+    void fireHaptics(int axis, const HapticTriggers& t);
     // Per-car gear-ratio learner (survives configure(): re-init must not
     // forget a session's driving; only setCarCache() reseeds the cache).
     GearRatioLearner m_ratioLearner;

@@ -312,7 +312,7 @@ if(NULLCAT_FULL_TESTS)
               TestConfigTwoFile TestRTLogging TestLogControls TestTrackingFilter
               TestAxisKind TestFaultCodes TestCommissioning
               TestCommissioningFlow TestB222O TestDeviceForce
-              TestTorqueHoming TestDeviceState TestGearRatio TestRecoveryGate)
+              TestTorqueHoming TestDeviceState TestGearRatio TestRecoveryGate TestHaptics)
         add_logic_test(${T})
     endforeach()
 

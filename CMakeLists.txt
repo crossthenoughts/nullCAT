@@ -464,6 +464,7 @@ add_motion_test(TestTorqueHoming tests/TestTorqueHoming.cpp)
 add_motion_test(TestDeviceState tests/TestDeviceState.cpp)
 add_motion_test(TestGearRatio tests/TestGearRatio.cpp)
 add_motion_test(TestRecoveryGate tests/TestRecoveryGate.cpp)
+add_motion_test(TestHaptics tests/TestHaptics.cpp)
 
 # ---- Build 72: TestInitSequence - EtherCATMaster init sequence (sim mode) ----
 #

@@ -18,6 +18,7 @@
 
 #include <string>
 #include <vector>
+#include "HapticsLayer.h"   // haptics::EffectParams (rig-global haptic tuning)
 
 // One node of a piecewise-linear curve (x = position in the device's unit,
 // y = force in % of rated). The web curve editor edits exactly these.
@@ -243,6 +244,12 @@ struct AppConfig
     double  blendTimeSec          = 2.0;
     double  blendMaxVelocityMmS   = 20.0;
     int     dcSyncOffsetNs        = 0;
+
+    // Haptic transient layer (rig-global, routable across torque axes;
+    // see HapticsLayer.h). ampPct 0 = effect off, the default. A route
+    // axis of haptics::ROUTE_SOURCE_AXIS (-2) means "the axis that fired
+    // it" - the default single route.
+    haptics::EffectParams hapticsDetentClick { 0.0,  90.0, 18.0 };
 
     // DC phase-lock compensator. Default OFF - when disabled the loop and
     // pump free-run exactly as before (byte-identical). When enabled, a
