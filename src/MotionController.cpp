@@ -308,21 +308,12 @@ void MotionController::drainCommands(A6Drive** /*drives*/, int /*numHwDrives*/)
             break;
         case MotionCommand::Type::HapticsTest:
             // Runs on the RT thread (this dispatch), so fire()/preview writes
-            // never race the layer. Transient: fire on the first live device
-            // axis so ROUTE_SOURCE_AXIS resolves sensibly; continuous: force
-            // full level for 2 s via the preview countdown.
+            // never race the layer. Routing is the effect's own axis table;
+            // the overlay gate keeps non-live axes silent regardless.
             if (cmd.intVal < 0)
-            {
-                for (int i = 0; i < m_numDrives; ++i)
-                    if (m_axisConfig[i].caps.isDevice()
-                        && (m_axisState[i] == AxisMotionState::ONLINE
-                            || m_axisState[i] == AxisMotionState::BLENDING))
-                    { m_haptics.fire(haptics::EventType::DetentClick, i, 1.0); break; }
-            }
+                m_haptics.fire(haptics::EventType::DetentClick, 1.0);
             else if (cmd.intVal < haptics::FX_TYPE_COUNT)
-            {
                 m_hapticsPreviewSec[cmd.intVal] = 2.0;
-            }
             break;
         default:
             break;
@@ -1666,7 +1657,7 @@ double MotionController::stepDeviceBlending(int i, AxisMotionState& state,
     mods.textureAmpPct *= bf;
     HapticTriggers trig;
     const double f = rt.deviceModel.step(posRev, mods, &trig);
-    fireHaptics(i, trig);
+    fireHaptics(trig);
     rt.lastTension    = f;
     output.torques[i] = f;
 
@@ -1680,10 +1671,11 @@ double MotionController::stepDeviceBlending(int i, AxisMotionState& state,
 
 // Model detected, layer synthesizes: velocity scale gets a 0.25 floor so a
 // slow, deliberate gate entry still clicks softly instead of going silent.
-void MotionController::fireHaptics(int axis, const HapticTriggers& t)
+// Routing is entirely the effect's own axis-gain table.
+void MotionController::fireHaptics(const HapticTriggers& t)
 {
     if (t.detentEnter)
-        m_haptics.fire(haptics::EventType::DetentClick, axis, 0.25 + 0.75 * t.detentVel);
+        m_haptics.fire(haptics::EventType::DetentClick, 0.25 + 0.75 * t.detentVel);
 }
 
 // The effect laws: NULLCATX channels -> per-effect level (0..1) + carrier.
@@ -1753,7 +1745,7 @@ double MotionController::stepDeviceOnline(int i, AxisMotionState& /*state*/,
                                                      &m_ratioLearner.ratios());
     HapticTriggers trig;
     const double f = rt.deviceModel.step(posRev, mods, &trig);
-    fireHaptics(i, trig);
+    fireHaptics(trig);
     rt.lastTension    = f;
     output.torques[i] = f;
     return rt.currentPos;

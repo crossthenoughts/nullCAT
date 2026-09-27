@@ -226,6 +226,9 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
     if (obj.contains("haptics"))
     {
         const QJsonObject h = obj.value("haptics").toObject();
+        // Routes are explicit axis indices only. Negative axis values are
+        // dropped on read: early 0.9.6 files carried a since-removed
+        // "own axis" (-2) route default.
         const auto readFx = [](const QJsonObject& o, haptics::EffectParams& p)
         {
             p.ampPct = o.value("ampPct").toDouble(p.ampPct);
@@ -241,7 +244,9 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
                 {
                     if (n >= haptics::MAX_ROUTES) break;
                     const QJsonObject ro = v.toObject();
-                    p.routes[n].axis = ro.value("axis").toInt(-1);
+                    const int axis = ro.value("axis").toInt(-1);
+                    if (axis < 0) continue;
+                    p.routes[n].axis = axis;
                     p.routes[n].gain = ro.value("gain").toDouble(0.0);
                     ++n;
                 }
@@ -1078,15 +1083,7 @@ std::vector<std::string> AppConfig::validate() const
             for (const haptics::Route& r : p.routes)
             {
                 if (r.axis == -1 && r.gain <= 0.0) continue;   // unused slot
-                if (r.axis == haptics::ROUTE_SOURCE_AXIS)
-                {
-                    // Only a LIVE continuous effect needs explicit axes; the
-                    // shipped default (amp 0 + source-axis route) stays valid.
-                    if (!transient && p.ampPct > 0.0)
-                        errors.push_back(pfx + "continuous effects need explicit route axes"
-                                               " (no firing axis to resolve)");
-                }
-                else if (r.axis < 0 || r.axis >= haptics::MAX_HAPTIC_AXES)
+                if (r.axis < 0 || r.axis >= haptics::MAX_HAPTIC_AXES)
                     errors.push_back(pfx + "route axis out of range");
                 if (r.gain < 0.0 || r.gain > 2.0)
                     errors.push_back(pfx + "route gain out of range [0, 2]");

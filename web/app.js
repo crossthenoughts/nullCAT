@@ -1014,7 +1014,7 @@ function devAxes(){ return ((cfgObj&&cfgObj.drives)||[]).map((d,i)=>({d,i})).fil
    comes later). Routes edit in a drawer below the strip so the strip stays
    short. Waveform previews are drawn from the same math the engine runs. */
 const HAP_DEF={
-  detentClick:{ampPct:0,freqHz:90, durMs:18,order:2,jitter:0,  routes:[{axis:-2,gain:1}]},
+  detentClick:{ampPct:0,freqHz:90, durMs:18,order:2,jitter:0,  routes:[]},
   rpmVibe:    {ampPct:0,freqHz:0,  durMs:0, order:2,jitter:0,  routes:[]},
   abs:        {ampPct:0,freqHz:12, durMs:0, order:2,jitter:0,  routes:[]},
   lockup:     {ampPct:0,freqHz:9,  durMs:0, order:2,jitter:0.2,routes:[]},
@@ -1069,13 +1069,9 @@ function hapWave(svg,fx,dv){
   svg.setAttribute('viewBox','0 0 '+W+' '+H);
 }
 
-function hapChipText(dv,transient){
-  const r=(dv.routes||[]).filter(x=>x&&x.gain>0);
-  if(!r.length) return transient?'→ own axis':'→ (off)';
-  const own=r.some(x=>x.axis===-2), ext=r.filter(x=>x.axis>=0).length;
-  if(own&&ext) return '→ own +'+ext;
-  if(own) return '→ own axis';
-  return '→ '+ext+' axis'+(ext>1?'es':'');
+function hapChipText(dv){
+  const n=(dv.routes||[]).filter(x=>x&&x.axis>=0&&x.gain>0).length;
+  return n ? '→ '+n+' axis'+(n>1?'es':'') : '→ not routed';
 }
 
 let hapOpenDrawer=null;
@@ -1085,9 +1081,7 @@ function hapDrawerRender(fx){
   hapOpenDrawer=fx.k;
   const dv=cfgObj.haptics[fx.k];
   const gain=(axis)=>{ const e=(dv.routes||[]).find(r=>r.axis===axis); return e?e.gain:0; };
-  let h='<div class="hd-t">'+fx.label+' · routes (gain 0 = not routed; up to 4 destinations)</div>';
-  if(fx.transient)
-    h+='<label>own axis <input type="number" min="0" max="2" step="0.1" data-axis="-2" value="'+gain(-2)+'"></label>';
+  let h='<div class="hd-t">'+fx.label+' · routes (gain 0 = not routed; any or all axes)</div>';
   for(const a of hapTorqueAxes())
     h+='<label>'+a.name+' <input type="number" min="0" max="2" step="0.1" data-axis="'+a.i+'" value="'+gain(a.i)+'"></label>';
   h+='<span class="fldtip" id="hapRouteMsg"></span>';
@@ -1096,10 +1090,7 @@ function hapDrawerRender(fx){
     const routes=[];
     dr.querySelectorAll('input').forEach(x=>{
       const g=+x.value; if(isFinite(g)&&g>0) routes.push({axis:+x.dataset.axis,gain:Math.min(2,g)}); });
-    const m=dr.querySelector('#hapRouteMsg');
-    if(routes.length>4){ if(m) m.textContent='Max 4 destinations - extra ones are not saved.'; }
-    else if(m) m.textContent='';
-    dv.routes=routes.slice(0,4);
+    dv.routes=routes.slice(0,10);
     hapOpenDrawer=null; dr.hidden=true;     // close; tiles re-render below
     hapInit(); refreshDirtyUI();
   }; });
@@ -1108,11 +1099,20 @@ function hapDrawerRender(fx){
 function hapInit(){
   const head=$('hapHead'), panel=$('hapPanel'), strip=$('hapStrip');
   if(!head||!panel||!strip||!cfgObj) return;
-  if(!hapTorqueAxes().length){ head.hidden=true; panel.hidden=true; return; }
+  // Experimental gate (the same tickbox as the device section) + needs a
+  // torque-capable axis to route anything to.
+  const cb=$('cf-showdev');
+  if(!(cb&&cb.checked)||!hapTorqueAxes().length){ head.hidden=true; panel.hidden=true; return; }
   head.hidden=false; panel.hidden=false;
   cfgObj.haptics=cfgObj.haptics||{};
   for(const k in HAP_DEF)
     cfgObj.haptics[k]=Object.assign({},HAP_DEF[k],cfgObj.haptics[k]||{});
+  // Routes are explicit axis indices only; drop anything else (early
+  // 0.9.6 configs carried a since-removed "own axis" -2 default - the
+  // server does the same on read).
+  for(const k in cfgObj.haptics)
+    if(Array.isArray(cfgObj.haptics[k].routes))
+      cfgObj.haptics[k].routes=cfgObj.haptics[k].routes.filter(r=>r&&r.axis>=0);
   strip.innerHTML='';
   for(const fx of HAP_FX){
     const dv=cfgObj.haptics[fx.k];
@@ -1123,7 +1123,7 @@ function hapInit(){
     for(const [key,lab,min,max,st] of fx.params)
       h+='<div class="hr"><span class="hk">'+lab+'</span>'
         +'<input type="number" min="'+min+'" max="'+max+'" step="'+st+'" data-k="'+key+'" value="'+dv[key]+'"></div>';
-    h+='</div><div class="hb"><button class="hap-routechip" type="button">'+hapChipText(dv,fx.transient)+'</button>'
+    h+='</div><div class="hb"><button class="hap-routechip" type="button">'+hapChipText(dv)+'</button>'
       +'<button class="btn btn-sm btn-action" type="button" data-test="1">Test</button></div>';
     tile.innerHTML=h;
     const svg=tile.querySelector('svg'); hapWave(svg,fx,dv);
@@ -1153,7 +1153,7 @@ function hapInit(){
 
 function devInit(){
   const row=$('devShowRow'); if(row) row.hidden=(meta.platform!=='linux');
-  const cb=$('cf-showdev'); if(cb&&!cb._wired){ cb._wired=true; cb.addEventListener('change',devRender); }
+  const cb=$('cf-showdev'); if(cb&&!cb._wired){ cb._wired=true; cb.addEventListener('change',()=>{ devRender(); hapInit(); }); }
   devRender();
   devLoadPresets();
 }

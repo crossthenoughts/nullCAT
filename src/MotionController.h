@@ -50,9 +50,9 @@ struct MotionCommand
         TensionBelts,     // torque axes only: blend 0 -> live tension; others untouched
         EngageDevice,     // device axes only: blend force field in; intVal = axis (-1 = all)
         ReleaseDevice,    // device axes only: ease force to 0 (limp); intVal = axis (-1 = all)
-        HapticsTest,      // web Test button: intVal = -1 fires the detent click on the
-                          // first live device axis; 0..FX_TYPE_COUNT-1 previews that
-                          // continuous effect at full level for ~2 s
+        HapticsTest,      // web Test button: intVal = -1 fires the detent click;
+                          // 0..FX_TYPE_COUNT-1 previews that continuous effect
+                          // at full level for ~2 s (routing = the effect's table)
     };
     Type type   = Type::StartHoming;
     int  intVal = -1;
@@ -425,7 +425,7 @@ private:
     NcxMap           m_ncxMap;   // rig-level NULLCATX binding table (strings resolved once)
     haptics::Layer   m_haptics;  // routable haptic layer (RT-owned; see HapticsLayer.h)
     double           m_hapticsPreviewSec[haptics::FX_TYPE_COUNT] = {};  // web Test countdowns
-    void fireHaptics(int axis, const HapticTriggers& t);
+    void fireHaptics(const HapticTriggers& t);
     void driveContinuousHaptics(const TelemetryData& td);
     double previewOr(haptics::FxType t, double level);
     // Per-car gear-ratio learner (survives configure(): re-init must not

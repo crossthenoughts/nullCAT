@@ -32,9 +32,8 @@
 namespace haptics {
 
 static constexpr int MAX_EVENTS          = 8;   // concurrent transients
-static constexpr int MAX_ROUTES          = 4;   // destinations per event type
 static constexpr int MAX_HAPTIC_AXES     = 10;  // == MAX_DRIVES
-static constexpr int ROUTE_SOURCE_AXIS   = -2;  // "the axis that fired it"
+static constexpr int MAX_ROUTES          = MAX_HAPTIC_AXES;  // an effect may route to EVERY axis
 
 enum class EventType { DetentClick = 0, COUNT };
 static constexpr int EVENT_TYPE_COUNT = static_cast<int>(EventType::COUNT);
@@ -49,7 +48,7 @@ static constexpr int EVENT_TYPE_COUNT = static_cast<int>(EventType::COUNT);
 enum class FxType { RpmVibe = 0, AbsPulse = 1, Lockup = 2, Skid = 3, Road = 4, COUNT };
 static constexpr int FX_TYPE_COUNT = static_cast<int>(FxType::COUNT);
 
-// One destination: axis index (or ROUTE_SOURCE_AXIS) and a gain multiplier.
+// One destination: explicit axis index and a gain multiplier.
 // gain 0 or axis -1 = slot unused.
 struct Route
 {
@@ -62,8 +61,11 @@ struct Route
 // carrier (durMs ignored) except RpmVibe, which uses `order` (carrier =
 // rpm/60 x order, the engine's firing frequency) and ignores freqHz.
 // jitter (0..1) roughens the carrier per cycle - skid and road feel like
-// texture, not a tone. Continuous effects have no meaningful "source
-// axis", so their routes must name axes explicitly.
+// texture, not a tone.
+//
+// Routing is one flat model for every effect: an explicit per-axis gain
+// table, empty by default (an unconfigured effect reaches nothing). No
+// implicit destinations of any kind.
 struct EffectParams
 {
     double ampPct = 0.0;    // % of rated torque at full scale
@@ -71,7 +73,7 @@ struct EffectParams
     double durMs  = 18.0;   // burst length (transients only)
     double order  = 2.0;    // RpmVibe only: carrier = rpm/60 x order
     double jitter = 0.0;    // 0..1 carrier roughness (Skid/Road)
-    Route  routes[MAX_ROUTES] = { { ROUTE_SOURCE_AXIS, 1.0 } };
+    Route  routes[MAX_ROUTES] = {};
 };
 
 class Layer
@@ -88,12 +90,11 @@ public:
         return m_params[static_cast<int>(t)];
     }
 
-    // Fire one transient. sourceAxis resolves ROUTE_SOURCE_AXIS routes;
-    // scale in [0,1] multiplies the configured amplitude (impact velocity).
-    // Inert when the effect's ampPct is 0 or every route is dead. When the
-    // pool is full the event is dropped (a missed click is harmless; a
-    // stalled RT loop is not).
-    void fire(EventType t, int sourceAxis, double scale = 1.0)
+    // Fire one transient. scale in [0,1] multiplies the configured
+    // amplitude (impact velocity). Inert when the effect's ampPct is 0 or
+    // every route is dead. When the pool is full the event is dropped (a
+    // missed click is harmless; a stalled RT loop is not).
+    void fire(EventType t, double scale = 1.0)
     {
         const EffectParams& p = m_params[static_cast<int>(t)];
         if (p.ampPct <= 0.0 || p.durMs <= 0.0) return;
@@ -104,7 +105,7 @@ public:
         for (Event& c : m_events) if (!c.active) { e = &c; break; }
         if (!e) return;                         // pool full: drop, never block
 
-        // Snapshot params + resolved routes at fire time.
+        // Snapshot params + routes at fire time.
         e->ampPct = p.ampPct * scale;
         e->freqHz = (p.freqHz > 0.0) ? p.freqHz : 90.0;
         e->durSec = p.durMs / 1000.0;
@@ -112,11 +113,9 @@ public:
         bool anyRoute = false;
         for (int i = 0; i < MAX_ROUTES; ++i)
         {
-            int axis = p.routes[i].axis;
-            if (axis == ROUTE_SOURCE_AXIS) axis = sourceAxis;
-            const bool ok = axis >= 0 && axis < MAX_HAPTIC_AXES
+            const bool ok = p.routes[i].axis >= 0 && p.routes[i].axis < MAX_HAPTIC_AXES
                             && p.routes[i].gain > 0.0;
-            e->routes[i].axis = ok ? axis : -1;
+            e->routes[i].axis = ok ? p.routes[i].axis : -1;
             e->routes[i].gain = ok ? p.routes[i].gain : 0.0;
             anyRoute |= ok;
         }

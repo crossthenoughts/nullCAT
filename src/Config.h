@@ -247,11 +247,11 @@ struct AppConfig
 
     // Haptic layer (rig-global, routable across torque axes; see
     // HapticsLayer.h). ampPct 0 = effect off, the default for every one.
-    // Transient: a route axis of haptics::ROUTE_SOURCE_AXIS (-2) means
-    // "the axis that fired it" - the default single route. The continuous
-    // effects are telemetry-driven (NULLCATX tokens brakePct, absActive,
-    // skid, lockup, roadNoise) and need explicit route axes.
-    // EffectParams field order: { ampPct, freqHz, durMs, order, jitter }.
+    // Routing is one flat model for every effect: an explicit per-axis
+    // gain table, empty by default - an unrouted effect reaches nothing.
+    // The continuous effects are telemetry-driven (NULLCATX tokens
+    // brakePct, absActive, skid, lockup, roadNoise).
+    // EffectParams: { ampPct, freqHz, durMs, order, jitter }.
     haptics::EffectParams hapticsDetentClick { 0.0,  90.0, 18.0 };
     haptics::EffectParams hapticsRpmVibe     { 0.0,   0.0,  0.0, 2.0, 0.0 };
     haptics::EffectParams hapticsAbs         { 0.0,  12.0,  0.0, 2.0, 0.0 };

@@ -6,7 +6,7 @@
 //
 // Pure-logic suite (no drives, no Qt Test). Pins: fire/step/overlay
 // lifecycle, envelope boundedness (zero start and end, bounded middle),
-// routing incl. ROUTE_SOURCE_AXIS resolution and gains, amp-0 inertness,
+// routing gains across explicit axes, amp-0 inertness,
 // pool exhaustion behaviour (drop, never block), clearAll, and the
 // edge-triggered detent capture in DeviceForceModel (fires once on entry,
 // never on dwell, re-fires on re-entry, never on the seed step, and
@@ -28,13 +28,13 @@ static void CHECK(bool ok, const char* what)
 using haptics::Layer;
 using haptics::EffectParams;
 using haptics::EventType;
-using haptics::ROUTE_SOURCE_AXIS;
 
 static EffectParams click(double amp = 10.0, double freq = 100.0, double ms = 20.0)
 {
     EffectParams p;
     p.ampPct = amp; p.freqHz = freq; p.durMs = ms;
-    return p;   // default route: { ROUTE_SOURCE_AXIS, 1.0 }
+    p.routes[0] = { 3, 1.0 };   // struct default is EMPTY routes: route to axis 3
+    return p;
 }
 
 int main()
@@ -46,7 +46,7 @@ int main()
         Layer L;
         L.configure(EventType::DetentClick, click());
         CHECK(!L.anyActive(), "fresh layer: nothing active");
-        L.fire(EventType::DetentClick, 3);
+        L.fire(EventType::DetentClick);
         CHECK(L.anyActive(), "fire activates an event");
         CHECK(L.fireCount() == 1, "fireCount counts");
 
@@ -70,10 +70,10 @@ int main()
     {
         Layer L;
         EffectParams p = click(20.0);
-        p.routes[0] = { ROUTE_SOURCE_AXIS, 1.0 };   // own axis, full
+        p.routes[0] = { 2, 1.0 };                   // full gain
         p.routes[1] = { 5, 0.5 };                   // belt at half gain
         L.configure(EventType::DetentClick, p);
-        L.fire(EventType::DetentClick, 2);
+        L.fire(EventType::DetentClick);
         double own = 0.0, belt = 0.0;
         for (int i = 0; i < 30; ++i)
         {
@@ -81,7 +81,7 @@ int main()
             own  = std::max(own,  std::fabs(L.overlayFor(2)));
             belt = std::max(belt, std::fabs(L.overlayFor(5)));
         }
-        CHECK(own > 1.0,                        "ROUTE_SOURCE_AXIS resolves to the firing axis");
+        CHECK(own > 1.0,                        "full-gain route receives the burst");
         CHECK(belt > 0.5,                       "explicit route receives the burst");
         CHECK(std::fabs(belt - own * 0.5) < 0.2, "route gain scales the burst");
         CHECK(L.overlayFor(0) == 0.0,           "unrouted axis stays silent");
@@ -90,21 +90,21 @@ int main()
     // ================= inertness + scale + bad input =================
     {
         Layer L;                                    // default config: amp 0
-        L.fire(EventType::DetentClick, 1);
+        L.fire(EventType::DetentClick);
         CHECK(!L.anyActive(), "amp 0 (the shipped default) is fully inert");
 
         L.configure(EventType::DetentClick, click());
-        L.fire(EventType::DetentClick, 1, 0.0);
+        L.fire(EventType::DetentClick, 0.0);
         CHECK(!L.anyActive(), "scale 0 fires nothing");
-        L.fire(EventType::DetentClick, 1, 7.0);     // clamps to 1
+        L.fire(EventType::DetentClick, 7.0);        // clamps to 1
         double peak = 0.0;
-        for (int i = 0; i < 40; ++i) { L.step(DT); peak = std::max(peak, std::fabs(L.overlayFor(1))); }
-        CHECK(peak <= 10.0 + 1e-9, "scale clamps at 1.0");
+        for (int i = 0; i < 40; ++i) { L.step(DT); peak = std::max(peak, std::fabs(L.overlayFor(3))); }
+        CHECK(peak > 1.0 && peak <= 10.0 + 1e-9, "scale clamps at 1.0");
 
         EffectParams unrouted = click();
         unrouted.routes[0] = { -1, 0.0 };
         Layer L2; L2.configure(EventType::DetentClick, unrouted);
-        L2.fire(EventType::DetentClick, 1);
+        L2.fire(EventType::DetentClick);
         CHECK(!L2.anyActive(), "fully unrouted event never activates");
 
         CHECK(L.overlayFor(-1) == 0.0 && L.overlayFor(99) == 0.0,
@@ -115,7 +115,7 @@ int main()
     {
         Layer L;
         L.configure(EventType::DetentClick, click(10.0, 100.0, 50.0));
-        for (int i = 0; i < 20; ++i) L.fire(EventType::DetentClick, 1);
+        for (int i = 0; i < 20; ++i) L.fire(EventType::DetentClick);
         CHECK(L.fireCount() == haptics::MAX_EVENTS,
               "pool full: extra fires drop (never block, never overwrite)");
         L.clearAll();
