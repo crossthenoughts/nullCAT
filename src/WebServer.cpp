@@ -666,32 +666,9 @@ bool WebServer::start()
         httplib::Server svr;
         m_svr.store(&svr);
 
-        // ---- optional web auth (host.json webAuthToken; empty = off) ----
-        // When a token is set, every /api/* request must carry it in the
-        // X-Nullcat-Auth header; the static page stays reachable so the
-        // browser can render the password prompt. Applied at boot like the
-        // other host settings (restart to change). Plain-HTTP transport, so
-        // this is a lock on the door, not a hostile-network defense.
-        svr.set_pre_routing_handler([this](const httplib::Request& req, httplib::Response& res)
-        {
-            if (!m_config || m_config->webAuthToken.empty())
-                return httplib::Server::HandlerResponse::Unhandled;
-            if (req.path.rfind("/api/", 0) != 0)
-                return httplib::Server::HandlerResponse::Unhandled;
-
-            // Constant-time compare: never leak the match length via timing.
-            const std::string& want = m_config->webAuthToken;
-            const std::string  got  = req.get_header_value("X-Nullcat-Auth");
-            unsigned char acc = (got.size() == want.size()) ? 0 : 1;
-            for (size_t i = 0; i < got.size() && i < want.size(); ++i)
-                acc |= static_cast<unsigned char>(got[i] ^ want[i]);
-            if (acc == 0)
-                return httplib::Server::HandlerResponse::Unhandled;
-
-            res.status = 401;
-            res.set_content("{\"ok\":false,\"error\":\"auth required\"}", "application/json");
-            return httplib::Server::HandlerResponse::Handled;
-        });
+        // NOTE: no pre-routing handler here - httplib supports exactly ONE
+        // (set_pre_routing_handler replaces), and it is registered further
+        // down with the Host-header defense + the optional web auth gate.
 
         // Serve any static asset straight from web/ (logo.svg, fonts/*.woff2, …).
         // Explicit Get() handlers below take precedence; this is the fallback.
@@ -1742,18 +1719,49 @@ bool WebServer::start()
                 }
             });
 
-        // Host-header allowlist, fail-closed BEFORE any route (including the
-        // static mount): the DNS-rebinding defense. A rebinding page's request
-        // carries its own hostname in Host, which never matches this machine.
+        // THE pre-routing handler. httplib's set_pre_routing_handler REPLACES
+        // (last registration wins, no chaining), so every pre-route check
+        // must live in this one lambda - a second registration elsewhere
+        // silently disables the first (the auth gate shipped dead that way
+        // once; TestHttpContract now pins both checks).
+        //
+        // 1. Host-header allowlist, fail-closed BEFORE any route (including
+        //    the static mount): the DNS-rebinding defense. A rebinding page's
+        //    request carries its own hostname in Host, which never matches
+        //    this machine.
+        // 2. Optional web auth (host.json webAuthToken; empty = off): every
+        //    /api/* request must carry the token; the static page stays
+        //    reachable so the password prompt can render. Constant-time
+        //    compare; boot-time config like the other host settings.
         svr.set_pre_routing_handler(
             [this](const httplib::Request& req, httplib::Response& res) -> httplib::Server::HandlerResponse
             {
-                if (hostAllowed(req.get_header_value("Host")))
-                    return httplib::Server::HandlerResponse::Unhandled;
-                res.status = 421;   // Misdirected Request
-                res.set_content("{\"ok\":false,\"error\":\"Host not allowed\"}",
-                                "application/json");
-                return httplib::Server::HandlerResponse::Handled;
+                if (!hostAllowed(req.get_header_value("Host")))
+                {
+                    res.status = 421;   // Misdirected Request
+                    res.set_content("{\"ok\":false,\"error\":\"Host not allowed\"}",
+                                    "application/json");
+                    return httplib::Server::HandlerResponse::Handled;
+                }
+
+                if (m_config && !m_config->webAuthToken.empty()
+                    && req.path.rfind("/api/", 0) == 0)
+                {
+                    const std::string& want = m_config->webAuthToken;
+                    const std::string  got  = req.get_header_value("X-Nullcat-Auth");
+                    unsigned char acc = (got.size() == want.size()) ? 0 : 1;
+                    for (size_t i = 0; i < got.size() && i < want.size(); ++i)
+                        acc |= static_cast<unsigned char>(got[i] ^ want[i]);
+                    if (acc != 0)
+                    {
+                        res.status = 401;
+                        res.set_content("{\"ok\":false,\"error\":\"auth required\"}",
+                                        "application/json");
+                        return httplib::Server::HandlerResponse::Handled;
+                    }
+                }
+
+                return httplib::Server::HandlerResponse::Unhandled;
             });
 
         // Retry binding in case the port is still held from a previous crash.
