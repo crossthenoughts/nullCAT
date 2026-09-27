@@ -74,8 +74,13 @@ void MotionController::configure(const AppConfig& config)
                        :                                              CommandConditioner::Mode::Bypass;
     m_needsRehome = true;
 
-    // Haptic transient layer: tuning + routes are rig-global config.
+    // Haptic layer: tuning + routes are rig-global config.
     m_haptics.configure(haptics::EventType::DetentClick, config.hapticsDetentClick);
+    m_haptics.configureFx(haptics::FxType::RpmVibe, config.hapticsRpmVibe);
+    m_haptics.configureFx(haptics::FxType::AbsPulse, config.hapticsAbs);
+    m_haptics.configureFx(haptics::FxType::Lockup,  config.hapticsLockup);
+    m_haptics.configureFx(haptics::FxType::Skid,    config.hapticsSkid);
+    m_haptics.configureFx(haptics::FxType::Road,    config.hapticsRoad);
 
     // NULLCATX channel bindings (rig-level): resolve token strings once so
     // the RT path only does index lookups.
@@ -300,6 +305,24 @@ void MotionController::drainCommands(A6Drive** /*drives*/, int /*numHwDrives*/)
             break;
         case MotionCommand::Type::ReleaseDevice:
             releaseDevices(cmd.intVal);
+            break;
+        case MotionCommand::Type::HapticsTest:
+            // Runs on the RT thread (this dispatch), so fire()/preview writes
+            // never race the layer. Transient: fire on the first live device
+            // axis so ROUTE_SOURCE_AXIS resolves sensibly; continuous: force
+            // full level for 2 s via the preview countdown.
+            if (cmd.intVal < 0)
+            {
+                for (int i = 0; i < m_numDrives; ++i)
+                    if (m_axisConfig[i].caps.isDevice()
+                        && (m_axisState[i] == AxisMotionState::ONLINE
+                            || m_axisState[i] == AxisMotionState::BLENDING))
+                    { m_haptics.fire(haptics::EventType::DetentClick, i, 1.0); break; }
+            }
+            else if (cmd.intVal < haptics::FX_TYPE_COUNT)
+            {
+                m_hapticsPreviewSec[cmd.intVal] = 2.0;
+            }
             break;
         default:
             break;
@@ -1663,6 +1686,63 @@ void MotionController::fireHaptics(int axis, const HapticTriggers& t)
         m_haptics.fire(haptics::EventType::DetentClick, axis, 0.25 + 0.75 * t.detentVel);
 }
 
+// The effect laws: NULLCATX channels -> per-effect level (0..1) + carrier.
+// Everything fails safe: a stale channel stream (500 ms window), an unbound
+// token, or a zero magnitude all drive level 0, and the layer's release
+// ramp fades the effect out rather than cutting it. Magnitude channels
+// (skid/lockup/roadNoise) are 0-100 by wire convention. A web Test button
+// can force one effect to full level for a short preview.
+void MotionController::driveContinuousHaptics(const TelemetryData& td)
+{
+    using haptics::FxType;
+    const NcxValues v = m_ncxMap.extract(td);
+    const bool live = v.fresh;
+
+    const auto mag = [&](NcxValues::Token t) -> double
+    {
+        if (!live || !v.have[t]) return 0.0;
+        const double m = v.val[t] / 100.0;
+        return (m < 0.0) ? 0.0 : (m > 1.0 ? 1.0 : m);
+    };
+
+    // RPM vibe: carrier follows the engine (rpm/60 x order), silent below
+    // a floor so an idling car does not buzz the rig all session.
+    {
+        double level = 0.0, freq = 0.0;
+        if (live && v.have[NcxValues::Rpm] && v.val[NcxValues::Rpm] > 1000.0)
+        {
+            level = 1.0;
+            freq  = v.val[NcxValues::Rpm] / 60.0
+                    * m_haptics.fxParams(FxType::RpmVibe).order;
+            freq  = std::max(4.0, std::min(500.0, freq));
+        }
+        m_haptics.driveFx(FxType::RpmVibe, previewOr(FxType::RpmVibe, level), freq);
+    }
+
+    // ABS pulse: only while the sim says ABS is cycling AND the brake is
+    // actually applied (some sims flicker the flag at zero brake).
+    {
+        const bool on = live && v.have[NcxValues::AbsActive] && v.val[NcxValues::AbsActive] > 0.5
+                        && v.have[NcxValues::BrakePct]  && v.val[NcxValues::BrakePct]  > 10.0;
+        m_haptics.driveFx(FxType::AbsPulse, previewOr(FxType::AbsPulse, on ? 1.0 : 0.0), 0.0);
+    }
+
+    m_haptics.driveFx(FxType::Lockup, previewOr(FxType::Lockup, mag(NcxValues::Lockup)),    0.0);
+    m_haptics.driveFx(FxType::Skid,   previewOr(FxType::Skid,   mag(NcxValues::Skid)),      0.0);
+    m_haptics.driveFx(FxType::Road,   previewOr(FxType::Road,   mag(NcxValues::RoadNoise)), 0.0);
+}
+
+// Web Test button: force one continuous effect to full level for a short
+// preview so routing and amplitude can be felt without driving. The timer
+// decays on the RT thread; requests arrive through the command queue.
+double MotionController::previewOr(haptics::FxType t, double level)
+{
+    double& left = m_hapticsPreviewSec[static_cast<int>(t)];
+    if (left <= 0.0) return level;
+    left -= m_cycleTimeSec;
+    return 1.0;
+}
+
 double MotionController::stepDeviceOnline(int i, AxisMotionState& /*state*/,
     const TelemetryData& td, MotionOutput& output, A6Drive** drives, int numHwDrives)
 {
@@ -1774,10 +1854,12 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
     if (estopNow)
         m_estopElapsed += m_cycleTimeSec;
 
-    // Haptics: e-stop kills every transient instantly (no click tail rides
-    // an emergency ramp); otherwise advance the pool once per cycle so
+    // Haptics: e-stop kills everything instantly (no click tail or effect
+    // drone rides an emergency ramp); otherwise drive the continuous
+    // effects from this cycle's channels and advance the layer once, so
     // overlayFor() below serves this cycle's values.
     if (estopNow) m_haptics.clearAll();
+    else          driveContinuousHaptics(telemetryData);
     m_haptics.step(m_cycleTimeSec);
 
     for (int i = 0; i < m_numDrives; ++i)

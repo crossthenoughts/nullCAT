@@ -26,6 +26,7 @@
 // ============================================================
 
 #include "WaveSynth.h"
+#include <algorithm>
 #include <cstdint>
 
 namespace haptics {
@@ -38,6 +39,16 @@ static constexpr int ROUTE_SOURCE_AXIS   = -2;  // "the axis that fired it"
 enum class EventType { DetentClick = 0, COUNT };
 static constexpr int EVENT_TYPE_COUNT = static_cast<int>(EventType::COUNT);
 
+// Telemetry-driven CONTINUOUS effects (SimHub-ShakeIt class, rendered as
+// servo torque). Each is an oscillator whose LEVEL (0..1) is driven per
+// cycle by the owner from the NULLCATX channels; the layer adds
+// attack/release smoothing so effects fade in and out instead of
+// clicking, and the same routing model as the transients. An unbound or
+// zero channel drives level 0 = silence; channel staleness (500 ms
+// fail-safe) must drive all levels to 0 at the owner.
+enum class FxType { RpmVibe = 0, AbsPulse = 1, Lockup = 2, Skid = 3, Road = 4, COUNT };
+static constexpr int FX_TYPE_COUNT = static_cast<int>(FxType::COUNT);
+
 // One destination: axis index (or ROUTE_SOURCE_AXIS) and a gain multiplier.
 // gain 0 or axis -1 = slot unused.
 struct Route
@@ -47,11 +58,19 @@ struct Route
 };
 
 // Per-event-type tuning (rig config). ampPct 0 = the effect is off.
+// Transients use freqHz + durMs; continuous effects use freqHz as their
+// carrier (durMs ignored) except RpmVibe, which uses `order` (carrier =
+// rpm/60 x order, the engine's firing frequency) and ignores freqHz.
+// jitter (0..1) roughens the carrier per cycle - skid and road feel like
+// texture, not a tone. Continuous effects have no meaningful "source
+// axis", so their routes must name axes explicitly.
 struct EffectParams
 {
     double ampPct = 0.0;    // % of rated torque at full scale
-    double freqHz = 90.0;   // burst carrier
-    double durMs  = 18.0;   // burst length
+    double freqHz = 90.0;   // burst/texture carrier
+    double durMs  = 18.0;   // burst length (transients only)
+    double order  = 2.0;    // RpmVibe only: carrier = rpm/60 x order
+    double jitter = 0.0;    // 0..1 carrier roughness (Skid/Road)
     Route  routes[MAX_ROUTES] = { { ROUTE_SOURCE_AXIS, 1.0 } };
 };
 
@@ -106,12 +125,15 @@ public:
         ++m_fired;
     }
 
-    // Advance every active event by one cycle and refresh the per-axis
-    // overlay sums. Call ONCE per control cycle, before overlayFor().
+    // Advance every active transient and continuous effect by one cycle
+    // and refresh the per-axis overlay sums. Call ONCE per control cycle
+    // (after driveFx calls), before overlayFor().
     void step(double dtSec)
     {
         for (double& o : m_overlay) o = 0.0;
         if (dtSec <= 0.0) return;
+
+        // One-shot transients.
         for (Event& e : m_events)
         {
             if (!e.active) continue;
@@ -124,6 +146,34 @@ public:
             for (const Route& r : e.routes)
                 if (r.axis >= 0) m_overlay[r.axis] += v * r.gain;
         }
+
+        // Continuous effects: attack/release-smoothed level on a free-running
+        // oscillator (phase-continuous through frequency changes), optional
+        // per-cycle carrier jitter for texture-class effects.
+        for (int i = 0; i < FX_TYPE_COUNT; ++i)
+        {
+            Fx& f = m_fx[i];
+            const EffectParams& p = m_fxParams[i];
+            // Level ramp: ~50 ms attack, ~120 ms release.
+            const double rate = (f.targetLevel > f.level) ? dtSec / 0.050 : dtSec / 0.120;
+            f.level += std::max(-rate, std::min(rate, f.targetLevel - f.level));
+            if (p.ampPct <= 0.0 || f.level < 1e-4) continue;
+
+            double freq = f.freqHz;
+            if (freq < 0.5) continue;   // no usable carrier = silence, not DC
+            if (p.jitter > 0.0)
+            {
+                // xorshift PRNG: pure arithmetic, RT-safe. Roughens the
+                // carrier so skid/road read as texture, not a tone.
+                f.rng ^= f.rng << 13; f.rng ^= f.rng >> 7; f.rng ^= f.rng << 17;
+                const double r = static_cast<double>(f.rng & 0xFFFF) / 65535.0; // 0..1
+                freq *= 1.0 + p.jitter * (r - 0.5);
+            }
+            const double v = p.ampPct * f.level * f.osc.step(freq, dtSec);
+            for (const Route& r : p.routes)
+                if (r.axis >= 0 && r.axis < MAX_HAPTIC_AXES && r.gain > 0.0)
+                    m_overlay[r.axis] += v * r.gain;
+        }
     }
 
     // Torque overlay (% of rated) for one axis this cycle. The caller adds
@@ -133,10 +183,37 @@ public:
         return (axis >= 0 && axis < MAX_HAPTIC_AXES) ? m_overlay[axis] : 0.0;
     }
 
+    // ---- continuous effects -------------------------------------------------
+
+    void configureFx(FxType t, const EffectParams& p)
+    {
+        m_fxParams[static_cast<int>(t)] = p;
+    }
+
+    const EffectParams& fxParams(FxType t) const
+    {
+        return m_fxParams[static_cast<int>(t)];
+    }
+
+    // Drive one continuous effect for THIS cycle: level 0..1 (silence to
+    // full configured amplitude) and the carrier frequency to use (RpmVibe
+    // passes rpm/60 x order; others pass their configured freqHz). Called
+    // every cycle by the owner BEFORE step(); a level not driven this
+    // cycle decays on the release ramp, so a crashed source fades out
+    // rather than droning.
+    void driveFx(FxType t, double level, double freqHz)
+    {
+        Fx& f = m_fx[static_cast<int>(t)];
+        f.targetLevel = (level < 0.0) ? 0.0 : (level > 1.0 ? 1.0 : level);
+        // No driven frequency = the effect's configured carrier.
+        f.freqHz = (freqHz > 0.0) ? freqHz : m_fxParams[static_cast<int>(t)].freqHz;
+    }
+
     // Kill every active transient instantly (e-stop, park, loop stop).
     void clearAll()
     {
         for (Event& e : m_events) e.active = false;
+        for (Fx& f : m_fx) { f.targetLevel = 0.0; f.level = 0.0; f.osc.reset(); }
         for (double& o : m_overlay) o = 0.0;
     }
 
@@ -157,8 +234,19 @@ private:
         Route  routes[MAX_ROUTES];
     };
 
+    struct Fx
+    {
+        double targetLevel = 0.0;   // driven per cycle by the owner
+        double level       = 0.0;   // attack/release-smoothed
+        double freqHz      = 30.0;
+        wavesynth::Oscillator osc;
+        uint64_t rng = 0x9E3779B97F4A7C15ull;   // xorshift state
+    };
+
     EffectParams m_params[EVENT_TYPE_COUNT];
+    EffectParams m_fxParams[FX_TYPE_COUNT];
     Event        m_events[MAX_EVENTS];
+    Fx           m_fx[FX_TYPE_COUNT];
     double       m_overlay[MAX_HAPTIC_AXES] = {};
     uint64_t     m_fired = 0;
 };

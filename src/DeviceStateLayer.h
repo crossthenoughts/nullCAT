@@ -33,9 +33,14 @@
 #include <vector>
 
 // Semantic channel values after binding resolution.
+// The 0.9.6 tokens feed the haptic effect suite: brakePct/absActive gate
+// the ABS pulse, skid/lockup/roadNoise are 0-100 magnitudes computed
+// SENDER-side (per-game adaptation lives in the sender; the wire carries
+// clean semantics; an unbound or zero channel leaves its effect inert).
 struct NcxValues
 {
-    enum Token { Rpm, SpeedKmh, Gear, ClutchPct, ThrottlePct, TokenCount };
+    enum Token { Rpm, SpeedKmh, Gear, ClutchPct, ThrottlePct,
+                 BrakePct, AbsActive, Skid, Lockup, RoadNoise, TokenCount };
     bool   fresh = false;             // channel stream alive (<500 ms)
     bool   have[TokenCount] = {};     // token bound AND present in the packet
     double val[TokenCount]  = {};
@@ -58,6 +63,11 @@ inline int ncxTokenIndex(const std::string& t)
     if (t == "gear")        return NcxValues::Gear;
     if (t == "clutchPct")   return NcxValues::ClutchPct;
     if (t == "throttlePct") return NcxValues::ThrottlePct;
+    if (t == "brakePct")    return NcxValues::BrakePct;
+    if (t == "absActive")   return NcxValues::AbsActive;
+    if (t == "skid")        return NcxValues::Skid;
+    if (t == "lockup")      return NcxValues::Lockup;
+    if (t == "roadNoise")   return NcxValues::RoadNoise;
     return -1;
 }
 

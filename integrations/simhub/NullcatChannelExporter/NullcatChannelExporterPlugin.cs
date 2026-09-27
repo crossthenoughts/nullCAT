@@ -3,18 +3,25 @@
 //
 // nullCAT Channel Exporter - a deliberately dumb SimHub plugin.
 //
-// Sends one UDP line per data tick:
-//   NULLCATX,<rpm>,<speedKmh>,<gear>,<clutchPct>,<throttlePct>
+// Sends one UDP line per data tick (protocol 1.1, Docs/PROTOCOL.md):
+//   NULLCATX,<rpm>,<speedKmh>,<gear>,<clutchPct>,<throttlePct>,
+//            <brakePct>,<absActive>,<skid>,<lockup>,<roadNoise>
 //
 // That is the whole job. No shaping, no game-specific logic, no state:
 // nullCAT owns all of that (the rig's ncxBindings config maps these
-// channels onto its effects). Channel order here matches the example
-// bindings in nullCAT's Docs/DEVICES.md; if you reorder or extend this
-// line, update the bindings to match - the wire is just numbered slots.
+// channels onto its effects). Channel order matches the protocol's token
+// registry; a channel the current game cannot feed sends 0, which leaves
+// its effect silently inert on the rig.
 //
 // Configuration: NullcatChannelExporter.json next to this DLL,
-//   { "host": "192.168.1.50", "port": 4444 }
+//   { "host": "192.168.1.50", "port": 4444,
+//     "skidProp": "", "lockupProp": "", "roadProp": "" }
 // Defaults to 127.0.0.1:4444 when the file is absent or unreadable.
+// The three *Prop keys are OPTIONAL full SimHub property names (any
+// property, including NCalc-computed ones) expected to yield 0..100;
+// empty or missing = that channel sends 0. This is where per-game
+// adaptation lives - bind whatever the game exposes for slip, lockup,
+// and road surface, and the wire stays semantically clean.
 
 using System;
 using System.Globalization;
@@ -36,6 +43,7 @@ namespace NullcatChannelExporter
 
         private UdpClient _udp;
         private IPEndPoint _target;
+        private string _skidProp, _lockupProp, _roadProp;
 
         public void Init(PluginManager pluginManager)
         {
@@ -53,6 +61,9 @@ namespace NullcatChannelExporter
                     if (!string.IsNullOrWhiteSpace(h)) host = h.Trim();
                     var p = ExtractNumber(text, "port");
                     if (p > 0 && p < 65536) port = p;
+                    _skidProp   = ExtractString(text, "skidProp");
+                    _lockupProp = ExtractString(text, "lockupProp");
+                    _roadProp   = ExtractString(text, "roadProp");
                 }
             }
             catch { /* keep defaults */ }
@@ -76,9 +87,19 @@ namespace NullcatChannelExporter
                 else double.TryParse(g, NumberStyles.Integer, CultureInfo.InvariantCulture, out gear);
             }
 
+            // ABS flag: StatusDataBase carries it where the game reports it;
+            // anything nonzero on the wire means "cycling".
+            double abs = 0;
+            try { abs = Convert.ToDouble(d.ABSActive, CultureInfo.InvariantCulture) > 0 ? 1 : 0; }
+            catch { abs = 0; }
+
             var line = string.Format(CultureInfo.InvariantCulture,
-                "NULLCATX,{0:0.#},{1:0.##},{2:0},{3:0.#},{4:0.#}",
-                d.Rpms, d.SpeedKmh, gear, d.Clutch, d.Throttle);
+                "NULLCATX,{0:0.#},{1:0.##},{2:0},{3:0.#},{4:0.#},{5:0.#},{6:0},{7:0.#},{8:0.#},{9:0.#}",
+                d.Rpms, d.SpeedKmh, gear, d.Clutch, d.Throttle,
+                d.Brake, abs,
+                ReadProp(pluginManager, _skidProp),
+                ReadProp(pluginManager, _lockupProp),
+                ReadProp(pluginManager, _roadProp));
 
             try
             {
@@ -92,6 +113,22 @@ namespace NullcatChannelExporter
         {
             _udp?.Close();
             _udp = null;
+        }
+
+        // Optional property channel: any SimHub property name, expected to
+        // yield 0..100. Unset, missing, or non-numeric = 0 (channel inert).
+        private static double ReadProp(PluginManager pm, string prop)
+        {
+            if (string.IsNullOrWhiteSpace(prop) || pm == null) return 0;
+            try
+            {
+                var v = pm.GetPropertyValue(prop.Trim());
+                if (v == null) return 0;
+                var d = Convert.ToDouble(v, CultureInfo.InvariantCulture);
+                return double.IsNaN(d) || double.IsInfinity(d) ? 0
+                     : (d < 0 ? 0 : (d > 100 ? 100 : d));
+            }
+            catch { return 0; }
         }
 
         private static string ExtractString(string json, string key)

@@ -1201,6 +1201,42 @@ bool WebServer::start()
         postCmd("/api/device/release", [deviceCmd](const httplib::Request& req, httplib::Response& res)
         { deviceCmd(MotionCommand::Type::ReleaseDevice, req, res); });
 
+        // Haptics Test button: fires the detent click (effect=detentClick) or
+        // previews one continuous effect at full level for ~2 s. Enqueued so
+        // the layer is only ever touched from the RT thread.
+        postCmd("/api/haptics/test", [this, okResp, errResp](const httplib::Request& req, httplib::Response& res)
+        {
+            if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
+            const std::string& b = req.body;
+            int iv = -999;
+            if      (b.find("detentClick") != std::string::npos) iv = -1;
+            else if (b.find("rpmVibe")     != std::string::npos) iv = 0;
+            else if (b.find("abs")         != std::string::npos) iv = 1;
+            else if (b.find("lockup")      != std::string::npos) iv = 2;
+            else if (b.find("skid")        != std::string::npos) iv = 3;
+            else if (b.find("road")        != std::string::npos) iv = 4;
+            if (iv == -999) { errResp(res, "Unknown effect."); return; }
+
+            // Something live has to feel it, or the button is a mystery.
+            const MotionStatus ms = m_motion->getMotionStatus();
+            bool anyLive = false;
+            for (int i = 0; i < ms.numDrives && !anyLive; ++i)
+            {
+                if (!m_config || static_cast<size_t>(i) >= m_config->drives.size()) break;
+                const AxisCaps c = axisCaps(m_config->drives[i].axisType,
+                                            m_config->drives[i].mode);
+                const bool torquey = c.isDevice() || m_config->drives[i].mode == "torque";
+                anyLive = torquey && (ms.axisState[i] == AxisMotionState::ONLINE
+                                      || ms.axisState[i] == AxisMotionState::BLENDING);
+            }
+            if (!anyLive)
+            { errResp(res, "Nothing live to feel it: engage a device or tension the belts first."); return; }
+
+            MotionCommand cmd; cmd.type = MotionCommand::Type::HapticsTest; cmd.intVal = iv;
+            if (!m_motion->enqueueCommand(cmd)) { errResp(res, "Command queue full."); return; }
+            okResp(res);
+        });
+
         // GPIO panel LED self-test (no-op if the panel/mode has no LEDs).
         postCmd("/api/gpio/ledtest", [this, okResp, errResp](const httplib::Request&, httplib::Response& res)
         {

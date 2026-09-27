@@ -124,6 +124,73 @@ int main()
         CHECK(L.overlayFor(1) == 0.0, "cleared pool contributes zero");
     }
 
+    // ================= continuous effects =================
+    {
+        using haptics::FxType;
+        Layer L;
+        EffectParams p;
+        p.ampPct = 10.0; p.freqHz = 35.0; p.jitter = 0.0;
+        p.routes[0] = { 4, 1.0 };                    // explicit axis
+        L.configureFx(FxType::Skid, p);
+
+        // Undriven: silent.
+        L.step(DT);
+        CHECK(L.overlayFor(4) == 0.0, "fx undriven: silent");
+
+        // Driven at full level: ramps in (attack), reaches near amp.
+        double peak = 0.0;
+        for (int i = 0; i < 400; ++i)                // 200 ms at 2 kHz
+        { L.driveFx(FxType::Skid, 1.0, 0.0); L.step(DT); peak = std::max(peak, std::fabs(L.overlayFor(4))); }
+        CHECK(peak > 8.0, "fx reaches near full amplitude when driven");
+        CHECK(peak <= 10.0 + 1e-9, "fx never exceeds configured amplitude");
+
+        // First cycles after drive start must be small (attack ramp).
+        Layer L2; L2.configureFx(FxType::Skid, p);
+        L2.driveFx(FxType::Skid, 1.0, 0.0); L2.step(DT);
+        CHECK(std::fabs(L2.overlayFor(4)) < 1.0, "fx attack ramps, never snaps on");
+
+        // Stop driving: release ramp decays to silence (fail-safe fade).
+        for (int i = 0; i < 800; ++i) { L.driveFx(FxType::Skid, 0.0, 0.0); L.step(DT); }
+        CHECK(L.overlayFor(4) == 0.0 || std::fabs(L.overlayFor(4)) < 0.05,
+              "fx released: fades to silence");
+
+        // Half level scales.
+        Layer L3; L3.configureFx(FxType::Skid, p);
+        double half = 0.0;
+        for (int i = 0; i < 400; ++i)
+        { L3.driveFx(FxType::Skid, 0.5, 0.0); L3.step(DT); half = std::max(half, std::fabs(L3.overlayFor(4))); }
+        CHECK(half > 3.0 && half < 6.0, "fx level scales amplitude");
+
+        // Amp 0 config: driven or not, silent.
+        Layer L4;                                     // defaults: amp 0
+        L4.driveFx(FxType::Road, 1.0, 0.0); L4.step(DT);
+        CHECK(!std::fabs(L4.overlayFor(4)), "fx amp 0 (shipped default) is inert");
+
+        // No usable carrier (freq 0 config, none driven): silence, not DC.
+        EffectParams pz = p; pz.freqHz = 0.0;
+        Layer L5; L5.configureFx(FxType::Skid, pz);
+        for (int i = 0; i < 200; ++i) { L5.driveFx(FxType::Skid, 1.0, 0.0); L5.step(DT); }
+        CHECK(L5.overlayFor(4) == 0.0, "fx with no carrier is silent, never DC");
+
+        // Driven frequency (RpmVibe style) is honored; clearAll silences.
+        EffectParams pr; pr.ampPct = 10.0; pr.freqHz = 0.0; pr.routes[0] = { 2, 1.0 };
+        Layer L6; L6.configureFx(FxType::RpmVibe, pr);
+        double vibe = 0.0;
+        for (int i = 0; i < 400; ++i)
+        { L6.driveFx(FxType::RpmVibe, 1.0, 120.0); L6.step(DT); vibe = std::max(vibe, std::fabs(L6.overlayFor(2))); }
+        CHECK(vibe > 8.0, "driven carrier frequency is honored");
+        L6.clearAll(); L6.step(DT);
+        CHECK(L6.overlayFor(2) == 0.0, "clearAll silences continuous effects instantly");
+
+        // Jitter keeps the output bounded.
+        EffectParams pj = p; pj.jitter = 1.0;
+        Layer L7; L7.configureFx(FxType::Road, pj);
+        double jp = 0.0;
+        for (int i = 0; i < 400; ++i)
+        { L7.driveFx(FxType::Road, 1.0, 0.0); L7.step(DT); jp = std::max(jp, std::fabs(L7.overlayFor(4))); }
+        CHECK(jp > 5.0 && jp <= 10.0 + 1e-9, "full jitter stays bounded by amp");
+    }
+
     // ================= model trigger: detent capture =================
     {
         DeviceParams p;

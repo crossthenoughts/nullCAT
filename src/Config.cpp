@@ -184,6 +184,7 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
         {
             QJsonObject o;
             o["ampPct"] = p.ampPct; o["freqHz"] = p.freqHz; o["durMs"] = p.durMs;
+            o["order"]  = p.order;  o["jitter"] = p.jitter;
             QJsonArray r;
             for (const haptics::Route& rt : p.routes)
                 if (rt.axis != -1 && rt.gain > 0.0)
@@ -193,6 +194,11 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
         };
         QJsonObject h;
         h["detentClick"] = writeFx(c.hapticsDetentClick);
+        h["rpmVibe"]     = writeFx(c.hapticsRpmVibe);
+        h["abs"]         = writeFx(c.hapticsAbs);
+        h["lockup"]      = writeFx(c.hapticsLockup);
+        h["skid"]        = writeFx(c.hapticsSkid);
+        h["road"]        = writeFx(c.hapticsRoad);
         obj["haptics"] = h;
     }
 }
@@ -225,6 +231,8 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
             p.ampPct = o.value("ampPct").toDouble(p.ampPct);
             p.freqHz = o.value("freqHz").toDouble(p.freqHz);
             p.durMs  = o.value("durMs").toDouble(p.durMs);
+            p.order  = o.value("order").toDouble(p.order);
+            p.jitter = o.value("jitter").toDouble(p.jitter);
             if (o.contains("routes"))
             {
                 for (haptics::Route& rt : p.routes) { rt.axis = -1; rt.gain = 0.0; }
@@ -240,6 +248,11 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
             }
         };
         if (h.contains("detentClick")) readFx(h.value("detentClick").toObject(), c.hapticsDetentClick);
+        if (h.contains("rpmVibe"))     readFx(h.value("rpmVibe").toObject(),     c.hapticsRpmVibe);
+        if (h.contains("abs"))         readFx(h.value("abs").toObject(),         c.hapticsAbs);
+        if (h.contains("lockup"))      readFx(h.value("lockup").toObject(),      c.hapticsLockup);
+        if (h.contains("skid"))        readFx(h.value("skid").toObject(),        c.hapticsSkid);
+        if (h.contains("road"))        readFx(h.value("road").toObject(),        c.hapticsRoad);
     }
 }
 
@@ -1045,31 +1058,52 @@ std::vector<std::string> AppConfig::validate() const
 
     // ---- Haptic transient layer (rig global) ----
     {
-        const auto checkFx = [&errors](const char* name, const haptics::EffectParams& p)
+        // transient=true validates durMs and allows the source-axis route;
+        // continuous effects have no firing axis, so their routes must name
+        // axes explicitly (and RpmVibe additionally checks order).
+        const auto checkFx = [&errors](const char* name, const haptics::EffectParams& p,
+                                       bool transient)
         {
             const std::string pfx = std::string("haptics.") + name + ": ";
             if (p.ampPct < 0.0 || p.ampPct > 100.0)
                 errors.push_back(pfx + "ampPct out of range [0, 100]");
-            if (p.ampPct > 0.0 && (p.freqHz < 10.0 || p.freqHz > 500.0))
-                errors.push_back(pfx + "freqHz out of range [10, 500]");
-            if (p.ampPct > 0.0 && (p.durMs < 5.0 || p.durMs > 100.0))
+            if (p.ampPct > 0.0 && p.freqHz > 0.0 && (p.freqHz < 4.0 || p.freqHz > 500.0))
+                errors.push_back(pfx + "freqHz out of range [4, 500]");
+            if (transient && p.ampPct > 0.0 && (p.durMs < 5.0 || p.durMs > 100.0))
                 errors.push_back(pfx + "durMs out of range [5, 100]");
+            if (p.order < 0.25 || p.order > 8.0)
+                errors.push_back(pfx + "order out of range [0.25, 8]");
+            if (p.jitter < 0.0 || p.jitter > 1.0)
+                errors.push_back(pfx + "jitter out of range [0, 1]");
             for (const haptics::Route& r : p.routes)
             {
                 if (r.axis == -1 && r.gain <= 0.0) continue;   // unused slot
-                if (r.axis != haptics::ROUTE_SOURCE_AXIS &&
-                    (r.axis < 0 || r.axis >= haptics::MAX_HAPTIC_AXES))
+                if (r.axis == haptics::ROUTE_SOURCE_AXIS)
+                {
+                    // Only a LIVE continuous effect needs explicit axes; the
+                    // shipped default (amp 0 + source-axis route) stays valid.
+                    if (!transient && p.ampPct > 0.0)
+                        errors.push_back(pfx + "continuous effects need explicit route axes"
+                                               " (no firing axis to resolve)");
+                }
+                else if (r.axis < 0 || r.axis >= haptics::MAX_HAPTIC_AXES)
                     errors.push_back(pfx + "route axis out of range");
                 if (r.gain < 0.0 || r.gain > 2.0)
                     errors.push_back(pfx + "route gain out of range [0, 2]");
             }
         };
-        checkFx("detentClick", hapticsDetentClick);
+        checkFx("detentClick", hapticsDetentClick, true);
+        checkFx("rpmVibe",     hapticsRpmVibe,     false);
+        checkFx("abs",         hapticsAbs,         false);
+        checkFx("lockup",      hapticsLockup,      false);
+        checkFx("skid",        hapticsSkid,        false);
+        checkFx("road",        hapticsRoad,        false);
     }
 
     // ---- NULLCATX channel bindings (rig global) ----
     {
-        static const char* kTokens[] = { "rpm", "speedKmh", "gear", "clutchPct", "throttlePct" };
+        static const char* kTokens[] = { "rpm", "speedKmh", "gear", "clutchPct", "throttlePct",
+                                         "brakePct", "absActive", "skid", "lockup", "roadNoise" };
         std::vector<std::string> seen;
         for (size_t i = 0; i < ncxBindings.size(); ++i)
         {
@@ -1079,7 +1113,8 @@ std::vector<std::string> AppConfig::validate() const
             for (const char* t : kTokens) if (b.token == t) { known = true; break; }
             if (!known)
                 errors.push_back(pfx + "unknown token \"" + b.token +
-                                 "\" (rpm, speedKmh, gear, clutchPct, throttlePct)");
+                                 "\" (rpm, speedKmh, gear, clutchPct, throttlePct, "
+                                 "brakePct, absActive, skid, lockup, roadNoise)");
             if (b.slot < 0 || b.slot >= 16)
                 errors.push_back(pfx + "slot out of range [0, 15]");
             if (b.scale == 0.0)
