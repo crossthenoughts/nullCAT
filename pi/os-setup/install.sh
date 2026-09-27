@@ -57,6 +57,42 @@ skip() { printf '    \033[1;33m. %s\033[0m\n' "$*"; }
 fail() { printf '    \033[1;31mx %s\033[0m\n' "$*" >&2; exit 1; }
 
 # ----------------------------------------------------------------------------
+# Stable by default: a fresh clone sits on main, which is a WORKING branch -
+# it may hold half of an in-progress batch at any moment. Unless told
+# otherwise, switch to the latest OFFICIAL release tag before building, so
+# "clone + install" always yields a released version.
+#   ./install.sh --main            build main HEAD (developers)
+#   git checkout vX.Y.Z            then install.sh leaves it alone
+#                                  (testers: pre-release tags work this way)
+# Runs only when the checkout is ON the main branch; any explicitly
+# checked-out tag, branch, or detached HEAD is respected as a choice.
+# ----------------------------------------------------------------------------
+if [ "${1:-}" != "--main" ] && [ -z "${NULLCAT_REF:-}" ] \
+   && [ "$(git -C "$REPO_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "main" ]; then
+    log "Resolving the latest official release (install.sh --main builds main instead)"
+    REL_TAG="$(curl -fsSL --max-time 10 \
+        https://api.github.com/repos/crossthenoughts/nullCAT/releases/latest 2>/dev/null \
+        | grep -o '"tag_name": *"[^"]*"' | head -1 | cut -d'"' -f4 || true)"
+    if [ -n "${REL_TAG:-}" ]; then
+        git -C "$REPO_DIR" fetch --tags --quiet origin || true
+        if git -C "$REPO_DIR" rev-parse -q --verify "refs/tags/$REL_TAG" >/dev/null; then
+            if [ "$(git -C "$REPO_DIR" rev-parse HEAD)" != "$(git -C "$REPO_DIR" rev-parse "$REL_TAG^{commit}")" ]; then
+                ok "checking out $REL_TAG (latest official release)"
+                git -C "$REPO_DIR" checkout --quiet "$REL_TAG"
+                # Hand over to THAT version's installer so tree and
+                # install logic can never disagree.
+                exec env NULLCAT_REF="$REL_TAG" "$REPO_DIR/pi/os-setup/install.sh" "$@"
+            fi
+            skip "already at $REL_TAG"
+        else
+            skip "tag $REL_TAG not found locally after fetch -- building main as-is"
+        fi
+    else
+        skip "could not reach GitHub to resolve the latest release -- building main as-is"
+    fi
+fi
+
+# ----------------------------------------------------------------------------
 # 0. Preflight
 # ----------------------------------------------------------------------------
 log "Preflight"

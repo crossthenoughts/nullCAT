@@ -88,6 +88,12 @@ it for boot, applies the boot tuning (two CPU cores are reserved for the
 control loop), builds the software, seeds the Pi's default configuration,
 and installs everything as a service that starts on boot.
 
+It always builds the **latest released version**, not whatever happens to
+be on the development branch that day. If you have been asked to test a
+pre-release, check out its tag first (`git checkout v0.9.6`) and the
+installer will respect that; `./pi/os-setup/install.sh --main` builds the
+development branch itself.
+
 ## Step 3: Verify
 
 SSH back in after the reboot and run:

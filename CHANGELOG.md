@@ -43,6 +43,12 @@ middle number carries breaking changes and the last carries fixes.
 - Docs/PROTOCOL.md is the written wire contract for anyone building a
   telemetry sender; the README gains an honest supported-hardware
   statement and a Start here path per builder.
+- The Pi installer is stable by default: run from the main branch it
+  switches to the latest official release tag before building, so
+  "clone + install" can never pick up half of an in-progress batch. An
+  explicitly checked-out tag or branch is respected (pre-release
+  testers check out the tag first); --main builds the development
+  branch deliberately.
 - CI now boots the real headless controller in simulation mode and
   drives a real headless browser at it on every push: the dashboard
   must reach Connected with zero script errors, so a page that renders
