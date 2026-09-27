@@ -317,28 +317,44 @@ int main()
     check(waitStatus("\"masterOp\":false", 15000), "status reaches masterOp:false");
 
     // ---- optional web auth: a set token gates every /api/*; static exempt ----
-    // (cfg is held by pointer, so flipping the token here is the same live
-    // config the server enforces from; empty = off is the shipped default and
-    // everything above this line ran with it.)
-    cfg.webAuthToken = "sesame";
+    // The token is BOOT-TIME config in production (host.json, read once,
+    // restart to change), so the test mirrors that exactly: a second server
+    // instance born with the token set, on its own port. (An earlier version
+    // mutated the shared cfg while the first server's threads were live - a
+    // data race x86 forgave and arm64 rightly did not.)
     {
-        httplib::Client cli(HOST, PORT);
-        cli.set_read_timeout(2, 0);
-        auto r1 = cli.Get("/api/status");
-        check(r1 && r1->status == 401 && has(r1->body, "auth required"),
-              "auth on: GET /api/* without token is 401");
-        auto r2 = cli.Get("/api/status", httplib::Headers{{"X-Nullcat-Auth", "sesame"}});
-        check(r2 && r2->status == 200 && has(r2->body, "\"loopRunning\""),
-              "auth on: correct token passes");
-        auto r3 = cli.Get("/api/status", httplib::Headers{{"X-Nullcat-Auth", "sesamE"}});
-        check(r3 && r3->status == 401, "auth on: wrong token is 401");
-        auto r4 = cli.Post("/api/stop", "", "application/json");
-        check(r4 && r4->status == 401, "auth on: POST without token is 401");
-        auto r5 = cli.Get("/");
-        check(r5 && r5->status != 401, "auth on: static page stays reachable (prompt can render)");
+        AppConfig acfg = makeCfg();
+        acfg.webAuthToken = "sesame";
+        WebServer aweb;
+        aweb.setComponents(&motion, &loop, &master, &acfg);
+        aweb.setPort(PORT + 1);
+        aweb.setBindAddr(HOST);
+        if (!aweb.start())
+        {
+            check(false, "auth-enabled WebServer starts");
+        }
+        else
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            httplib::Client cli(HOST, PORT + 1);
+            cli.set_read_timeout(2, 0);
+            auto r1 = cli.Get("/api/status");
+            check(r1 && r1->status == 401 && has(r1->body, "auth required"),
+                  "auth on: GET /api/* without token is 401");
+            auto r2 = cli.Get("/api/status", httplib::Headers{{"X-Nullcat-Auth", "sesame"}});
+            check(r2 && r2->status == 200 && has(r2->body, "\"loopRunning\""),
+                  "auth on: correct token passes");
+            auto r3 = cli.Get("/api/status", httplib::Headers{{"X-Nullcat-Auth", "sesamE"}});
+            check(r3 && r3->status == 401, "auth on: wrong token is 401");
+            auto r4 = cli.Post("/api/stop", "", "application/json");
+            check(r4 && r4->status == 401, "auth on: POST without token is 401");
+            auto r5 = cli.Get("/");
+            check(r5 && r5->status != 401, "auth on: static page stays reachable (prompt can render)");
+            aweb.stop();
+        }
     }
-    cfg.webAuthToken.clear();
-    check(has(get("/api/status"), "\"loopRunning\""), "auth cleared: /api/* open again");
+    check(has(get("/api/status"), "\"loopRunning\""),
+          "no-token server (shipped default) stays open throughout");
 
     // ---- teardown ----
     if (loop.isRunning()) loop.stop();
