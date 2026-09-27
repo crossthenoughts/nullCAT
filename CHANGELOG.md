@@ -39,8 +39,10 @@ middle number carries breaking changes and the last carries fixes.
   with the physical drive, not the rig config - a swapped-in belt
   drive with protection still on faults Er06.0 the moment the belt is
   back-driven, and the swapped-out one runs a position axis
-  unprotected. Found the hard way on the bench.
-
+  unprotected.
+- Docs/PROTOCOL.md is the written wire contract for anyone building a
+  telemetry sender; the README gains an honest supported-hardware
+  statement and a Start here path per builder.
 - CI now boots the real headless controller in simulation mode and
   drives a real headless browser at it on every push: the dashboard
   must reach Connected with zero script errors, so a page that renders
@@ -58,8 +60,7 @@ middle number carries breaking changes and the last carries fixes.
   lever unlike the one it was tuned on.
 - A refused config save now says so on the Devices card ("SAVE
   REFUSED - nothing was saved"), not only in the status line beside
-  the distant Save button. An evening of shifter tuning was lost to
-  refusals rendered out of view.
+  the distant Save button.
 - Changing a device's homing direction or mirror now warns that the
   taught travel, neutral, and gates were captured in the previous
   homed frame and need re-teaching.
