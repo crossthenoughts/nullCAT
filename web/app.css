@@ -320,3 +320,5 @@ body[data-view="setup"] .vw-op{ display:none !important; }
 .grid.collapsed{ display:none; }
 .btn.flash{ animation:nflash .75s ease-in-out 6; }
 @keyframes nflash{ 50%{ box-shadow:0 0 0 3px var(--warn); } }
+.hchan{ font-size:.56rem; letter-spacing:.06em; color:var(--ink-soft); margin-top:-3px; }
+.hchan.bad{ color:var(--danger); }

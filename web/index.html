@@ -116,6 +116,18 @@
         <label class="frow" title="THIS machine's address to listen on - never the game PC's. 0.0.0.0 or blank = all interfaces (recommended). A specific IP restricts to one interface and fails if the machine loses that address."><span>Telemetry bind</span><input id="cf-sbind" value="" placeholder="auto"></label>
         <div class="fldtip">This machine's listen address, not the sender's. Blank or 0.0.0.0 = all interfaces (recommended).</div>
       </div>
+      <div class="cgrp vw-setup" style="grid-column:1/-1">
+        <div class="gt">Sim channels (NULLCATX bindings)</div>
+        <div class="fldtip">Maps numbered wire channels from the sender (the SimHub plugin) onto
+          named tokens. The defaults match the plugin exactly - touch this only if you reorder
+          channels sender-side or add a custom sender. Saved with the rig config.</div>
+        <div id="ncxRows"></div>
+        <div class="frow" style="margin-top:6px">
+          <button class="btn btn-sm" id="ncxAdd" type="button">+ Add binding</button>
+          <button class="btn btn-sm" id="ncxDefaults" type="button">Reset to defaults</button>
+          <span class="fldtip" id="ncxMsg"></span>
+        </div>
+      </div>
       <div class="cgrp vw-setup">
         <div class="gt">Logging</div>
         <label class="frow"><span>Level</span>

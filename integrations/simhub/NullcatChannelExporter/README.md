@@ -45,11 +45,14 @@ with NCalc) in the same JSON:
 { "host": "192.168.1.50", "port": 4444,
   "skidProp":   "SomePlugin.ComputedWheelSlip",
   "lockupProp": "",
-  "roadProp":   "" }
+  "roadProp":   "",
+  "curbsProp":  "" }
 ```
 
 Empty or missing = that channel sends 0 and its effect stays off. Values
-are clamped to 0-100.
+are clamped to 0-100. Rev limiter and TC need no binding - the plugin
+computes the limiter from rpm vs the car max and sends TCActive from
+standard data.
 
 ## nullCAT side
 

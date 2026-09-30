@@ -40,6 +40,19 @@ middle number carries breaking changes and the last carries fixes.
   drive with protection still on faults Er06.0 the moment the belt is
   back-driven, and the swapped-out one runs a position axis
   unprotected.
+- Four more effects join the layer: a gear-shift thunk (fires on every
+  gear change, no new wire needed), rev-limiter buzz, traction-control
+  pulse, and kerb-strip rumble (wire protocol 1.2 adds limiter,
+  tcActive, curbs). Haptics tuning now applies LIVE on save - amp,
+  frequency, routing and the new master gain never need a
+  re-initialize - and a runtime Mute button silences the whole layer.
+  Each tile shows its channels with a live delivered/missing mark, and
+  tiles animate while their effect actually plays. A Sim channels
+  editor joins Setup, and channel bindings ship complete by default.
+- Fixed: the web rig save silently ERASED ncxBindings from rig.json
+  (the save writes the posted body verbatim and the page never sent
+  them) - bindings are now first-class edited state, always round-
+  tripped.
 - Docs/PROTOCOL.md is the written wire contract for anyone building a
   telemetry sender; the README gains an honest supported-hardware
   statement and a Start here path per builder.

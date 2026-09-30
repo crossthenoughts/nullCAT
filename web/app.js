@@ -85,7 +85,8 @@ let theme = localStorage.getItem(THEME_KEY)||'light'; applyTheme(theme);
 
 /* ---- transport: poll-only. httplib has no WebSocket server, so the old
    /ws reconnect-every-3s just churned failing connections. Pure polling. ---- */
-async function pollStatus(){ try{ const r=await fetch(API+'/api/status'); if(r.ok) applyState(await r.json()); }catch(_){} }
+async function pollStatus(){ try{ const r=await fetch(API+'/api/status');
+  if(r.ok){ const s=await r.json(); applyState(s); hapLive(s); } }catch(_){} }
 
 /* ---- apply status ---- */
 function applyState(s){
@@ -599,6 +600,7 @@ async function loadConfig(){
     applyHostOwnership();
     devInit();
     hapInit();
+    ncxInit();
     populateAxisEditor();
     cfgBaseline=snapshotCfg();   // loaded state = the clean baseline
     refreshDirtyUI();
@@ -628,7 +630,8 @@ async function saveConfig(){
   // rig.json (web owns it on both platforms)
   const g={ blendTimeSec:+$('cf-blendt').value, blendMaxVelocityMmS:+$('cf-blendv').value,
             conditioningMode:$('cf-condmode').value, requireUserFaultReset:$('cf-reqreset').checked,
-            haptics:cfgObj.haptics||{} };
+            haptics:cfgObj.haptics||{},
+            ncxBindings:cfgObj.ncxBindings||[] };
   cfgObj.conditioningMode=g.conditioningMode;   // keep merged view in sync for axis logic
   const rig={ configVersion:cfgObj._configVersion||2, numDrives:(cfgObj.drives||[]).length, global:g, axes:cfgObj.drives||[] };
   st.textContent='Saving…'; st.style.color='var(--ink-soft)';
@@ -1015,31 +1018,51 @@ function devAxes(){ return ((cfgObj&&cfgObj.drives)||[]).map((d,i)=>({d,i})).fil
    comes later). Routes edit in a drawer below the strip so the strip stays
    short. Waveform previews are drawn from the same math the engine runs. */
 const HAP_DEF={
-  detentClick:{ampPct:0,freqHz:90, durMs:18,order:2,jitter:0,  routes:[]},
-  rpmVibe:    {ampPct:0,freqHz:0,  durMs:0, order:2,jitter:0,  routes:[]},
-  abs:        {ampPct:0,freqHz:12, durMs:0, order:2,jitter:0,  routes:[]},
-  lockup:     {ampPct:0,freqHz:9,  durMs:0, order:2,jitter:0.2,routes:[]},
-  skid:       {ampPct:0,freqHz:35, durMs:0, order:2,jitter:0.5,routes:[]},
-  road:       {ampPct:0,freqHz:28, durMs:0, order:2,jitter:0.6,routes:[]}};
+  detentClick:{ampPct:0,freqHz:90, durMs:18,order:2,jitter:0,   routes:[]},
+  gearShift:  {ampPct:0,freqHz:60, durMs:25,order:2,jitter:0,   routes:[]},
+  rpmVibe:    {ampPct:0,freqHz:0,  durMs:0, order:2,jitter:0,   routes:[]},
+  abs:        {ampPct:0,freqHz:12, durMs:0, order:2,jitter:0,   routes:[]},
+  lockup:     {ampPct:0,freqHz:9,  durMs:0, order:2,jitter:0.2, routes:[]},
+  skid:       {ampPct:0,freqHz:35, durMs:0, order:2,jitter:0.5, routes:[]},
+  road:       {ampPct:0,freqHz:28, durMs:0, order:2,jitter:0.6, routes:[]},
+  limiter:    {ampPct:0,freqHz:45, durMs:0, order:2,jitter:0.15,routes:[]},
+  tc:         {ampPct:0,freqHz:15, durMs:0, order:2,jitter:0,   routes:[]},
+  kerb:       {ampPct:0,freqHz:40, durMs:0, order:2,jitter:0.4, routes:[]}};
+// Wire token order = the protocol registry (PROTOCOL.md) = s.ncxHave order.
+const NCX_TOKENS=['rpm','speedKmh','gear','clutchPct','throttlePct',
+  'brakePct','absActive','skid','lockup','roadNoise','limiter','tcActive','curbs'];
+const NCX_DEFAULT=NCX_TOKENS.map((t,i)=>({token:t,slot:i,scale:1,offset:0}));
 const HAP_FX=[
-  {k:'detentClick',label:'Detent click',transient:true,
+  {k:'detentClick',label:'Detent click',transient:true,chan:[],
    params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',10,500,5],['durMs','length ms',5,100,1]],
    tip:'One short click as the lever settles into a gate, scaled by entry speed.'},
-  {k:'rpmVibe',label:'RPM vibe',
+  {k:'gearShift',label:'Gear shift',transient:true,chan:['gear'],
+   params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',10,500,5],['durMs','length ms',5,100,1]],
+   tip:'A thunk on every gear change, ringing through the chassis. Needs the gear channel.'},
+  {k:'rpmVibe',label:'RPM vibe',fxIdx:0,chan:['rpm'],
    params:[['ampPct','amp %',0,100,1],['order','order',0.25,8,0.25]],
    tip:'Engine vibration: carrier follows rpm x order. Silent below 1000 rpm. Needs the rpm channel.'},
-  {k:'abs',label:'ABS',
+  {k:'abs',label:'ABS',fxIdx:1,chan:['brakePct','absActive'],
    params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',4,60,1]],
    tip:'Pulses while ABS cycles under braking. Needs the absActive and brakePct channels.'},
-  {k:'lockup',label:'Lockup',
+  {k:'lockup',label:'Lockup',fxIdx:2,chan:['lockup'],
    params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',4,60,1],['jitter','jitter',0,1,0.05]],
    tip:'Wheel-lock judder, scaled by the lockup channel (0-100).'},
-  {k:'skid',label:'Skid',
+  {k:'skid',label:'Skid',fxIdx:3,chan:['skid'],
    params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',10,120,1],['jitter','jitter',0,1,0.05]],
    tip:'Tyre-slip rumble, scaled by the skid channel (0-100).'},
-  {k:'road',label:'Road',
+  {k:'road',label:'Road',fxIdx:4,chan:['roadNoise'],
    params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',10,120,1],['jitter','jitter',0,1,0.05]],
-   tip:'Surface feel, scaled by the roadNoise channel (0-100).'}];
+   tip:'Surface feel, scaled by the roadNoise channel (0-100).'},
+  {k:'limiter',label:'Limiter',fxIdx:5,chan:['limiter'],
+   params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',10,120,1],['jitter','jitter',0,1,0.05]],
+   tip:'Bouncing off the rev limiter. The plugin computes it from rpm vs the car max.'},
+  {k:'tc',label:'TC pulse',fxIdx:6,chan:['tcActive'],
+   params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',4,60,1]],
+   tip:'Traction control cutting. Needs the tcActive channel.'},
+  {k:'kerb',label:'Kerb',fxIdx:7,chan:['curbs'],
+   params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',10,120,1],['jitter','jitter',0,1,0.05]],
+   tip:'Kerb-strip rumble, scaled by the curbs channel (0-100). Bind curbsProp in the plugin.'}];
 
 function hapTorqueAxes(){
   const out=[]; if(!cfgObj||!cfgObj.drives) return out;
@@ -1111,6 +1134,97 @@ function hapDrawerRender(fx){
   }; });
 }
 
+/* ---- NULLCATX bindings editor (Setup). Also the round-trip fix: the web
+   save used to omit ncxBindings and the server writes the posted body
+   verbatim, so every web Save silently ERASED the bindings from rig.json.
+   They are now first-class edited state, always sent with the save. ---- */
+function ncxInit(){
+  const rows=$('ncxRows'); if(!rows||!cfgObj) return;
+  if(!Array.isArray(cfgObj.ncxBindings)||!cfgObj.ncxBindings.length){
+    cfgObj.ncxBindings=NCX_DEFAULT.map(b=>Object.assign({},b));
+    const m=$('ncxMsg'); if(m) m.textContent='Defaults loaded (they match the SimHub plugin) - Save to persist.';
+  }
+  const render=()=>{
+    rows.innerHTML='';
+    cfgObj.ncxBindings.forEach((b,idx)=>{
+      const row=document.createElement('div');
+      row.className='frow';
+      row.innerHTML='<select data-f="token">'+NCX_TOKENS.map(t=>
+          '<option'+(t===b.token?' selected':'')+'>'+t+'</option>').join('')+'</select>'
+        +' slot <input type="number" min="0" max="15" style="width:52px" data-f="slot" value="'+b.slot+'">'
+        +' scale <input type="number" step="0.001" style="width:70px" data-f="scale" value="'+b.scale+'">'
+        +' offset <input type="number" step="0.001" style="width:70px" data-f="offset" value="'+b.offset+'">'
+        +' <button class="btn btn-sm" type="button" data-del="1">✕</button>';
+      row.querySelectorAll('[data-f]').forEach(el=>{ el.onchange=()=>{
+        const f=el.dataset.f;
+        b[f]=(f==='token')?el.value:+el.value;
+        refreshDirtyUI(); }; });
+      row.querySelector('[data-del]').onclick=()=>{
+        cfgObj.ncxBindings.splice(idx,1); render(); refreshDirtyUI(); };
+      rows.appendChild(row);
+    });
+  };
+  render();
+  const add=$('ncxAdd'); if(add) add.onclick=()=>{
+    cfgObj.ncxBindings.push({token:'rpm',slot:0,scale:1,offset:0});
+    render(); refreshDirtyUI(); };
+  const def=$('ncxDefaults'); if(def) def.onclick=()=>{
+    cfgObj.ncxBindings=NCX_DEFAULT.map(b=>Object.assign({},b));
+    render(); refreshDirtyUI(); };
+}
+
+const hapTiles={};        // per-effect {svg,fx,dv,tile,level,anim}
+let hapMutedNow=false;
+let hapLastFired=-1;
+
+// Live status hook (called from applyState): channel-health chips, mute
+// state, real-time animation - continuous tiles scroll while their engine
+// level is up, transient tiles flick on a fired-counter change.
+function hapLive(s){
+  const panel=$('hapPanel'); if(!panel||panel.hidden) return;
+  hapMutedNow=!!s.hapMuted;
+  const mb=$('hapMuteBtn'), mst=$('hapMuteState');
+  if(mb) mb.textContent=hapMutedNow?'UNMUTE':'MUTE';
+  if(mst) mst.textContent=hapMutedNow?'MUTED':'';
+  const fired=+s.hapFired||0;
+  const firedEdge=(hapLastFired>=0&&fired>hapLastFired);
+  hapLastFired=fired;
+  for(const k in hapTiles){
+    const t=hapTiles[k];
+    // Channel-health chip: token names with a live tick/cross.
+    const ch=t.tile.querySelector('[data-chan]');
+    if(ch&&t.fx.chan&&Array.isArray(s.ncxHave)){
+      let allOk=true;
+      ch.textContent=t.fx.chan.map(tok=>{
+        const ok=!!s.ncxHave[NCX_TOKENS.indexOf(tok)];
+        allOk=allOk&&ok;
+        return tok+(ok?' ✓':' ✗');
+      }).join('  ');
+      ch.classList.toggle('bad',!allOk);
+    }
+    if(t.fx.transient){
+      if(firedEdge&&t.dv.ampPct>0&&!t.anim){
+        t.anim=true;
+        hapAnimate(t.svg,t.fx,t.dv,Math.max(300,(+t.dv.durMs||18)*4));
+        setTimeout(()=>{ t.anim=false; },Math.max(300,(+t.dv.durMs||18)*4)+50);
+      }
+    }else if(t.fx.fxIdx!==undefined&&Array.isArray(s.hapFx)){
+      t.level=+s.hapFx[t.fx.fxIdx]||0;
+      if(t.level>0.05&&!t.anim){
+        t.anim=true;
+        const t0=performance.now();
+        const frame=(now)=>{
+          if(t.level<=0.05||!document.body.contains(t.svg)){
+            t.anim=false; hapWave(t.svg,t.fx,t.dv); return; }
+          hapWave(t.svg,t.fx,t.dv,(now-t0)/1000);
+          requestAnimationFrame(frame);
+        };
+        requestAnimationFrame(frame);
+      }
+    }
+  }
+}
+
 function hapInit(){
   const head=$('hapHead'), panel=$('hapPanel'), strip=$('hapStrip');
   if(!head||!panel||!strip||!cfgObj) return;
@@ -1128,12 +1242,38 @@ function hapInit(){
   for(const k in cfgObj.haptics)
     if(Array.isArray(cfgObj.haptics[k].routes))
       cfgObj.haptics[k].routes=cfgObj.haptics[k].routes.filter(r=>r&&r.axis>=0);
+  if(typeof cfgObj.haptics.masterGain!=='number') cfgObj.haptics.masterGain=1;
   strip.innerHTML='';
+  for(const k in hapTiles) delete hapTiles[k];
+
+  // Master trim card: overall gain (rig config, saved) + runtime MUTE.
+  {
+    const mc=document.createElement('div');
+    mc.className='hap-tile';
+    mc.innerHTML='<div class="dh"><span class="dot"></span><span class="nm">Master</span></div>'
+      +'<svg class="hap-wave"></svg><div class="hrows">'
+      +'<div class="hr"><span class="hk">gain x</span>'
+      +'<input type="number" min="0" max="2" step="0.05" id="hapMasterGain" value="'+cfgObj.haptics.masterGain+'"></div>'
+      +'</div><div class="hb"><span class="hk" id="hapMuteState"></span>'
+      +'<button class="btn btn-sm btn-action" type="button" id="hapMuteBtn">MUTE</button></div>';
+    const gi=mc.querySelector('#hapMasterGain');
+    gi.onchange=()=>{ const v=+gi.value; if(!isFinite(v)) return;
+      cfgObj.haptics.masterGain=Math.max(0,Math.min(2,v)); gi.value=cfgObj.haptics.masterGain;
+      refreshDirtyUI(); };
+    mc.querySelector('#hapMuteBtn').onclick=async()=>{
+      const on=!hapMutedNow;
+      try{ await fetch(API+'/api/haptics/mute',{method:'POST',body:JSON.stringify({on:on})}); }catch(_){}
+    };
+    strip.appendChild(mc);
+  }
+
   for(const fx of HAP_FX){
     const dv=cfgObj.haptics[fx.k];
     const tile=document.createElement('div');
     tile.className='hap-tile'+(dv.ampPct>0?' on':''); tile.title=fx.tip;
     let h='<div class="dh"><span class="dot"></span><span class="nm">'+fx.label+'</span></div>';
+    if(fx.chan&&fx.chan.length)
+      h+='<div class="hk hchan" data-chan="1">'+fx.chan.join(' ')+'</div>';
     h+='<svg class="hap-wave"></svg><div class="hrows">';
     for(const [key,lab,min,max,st] of fx.params)
       h+='<div class="hr"><span class="hk">'+lab+'</span>'
@@ -1150,6 +1290,7 @@ function hapInit(){
       tile.classList.toggle('on',dv.ampPct>0);
       refreshDirtyUI();
     }; });
+    hapTiles[fx.k]={svg,fx,dv,tile,level:0,anim:false};
     tile.querySelector('.hap-routechip').onclick=()=>hapDrawerRender(fx);
     tile.querySelector('[data-test]').onclick=async(ev)=>{
       const b=ev.target; b.disabled=true;
