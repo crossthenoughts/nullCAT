@@ -50,9 +50,10 @@ struct MotionCommand
         TensionBelts,     // torque axes only: blend 0 -> live tension; others untouched
         EngageDevice,     // device axes only: blend force field in; intVal = axis (-1 = all)
         ReleaseDevice,    // device axes only: ease force to 0 (limp); intVal = axis (-1 = all)
-        HapticsTest,      // web Test button: intVal = -1 fires the detent click;
-                          // 0..FX_TYPE_COUNT-1 previews that continuous effect
-                          // at full level for ~2 s (routing = the effect's table)
+        HapticsTest,      // web Test button: intVal = -1 detent click, -2 gear
+                          // shift; 0..FX_TYPE_COUNT-1 previews that continuous
+                          // effect at full level ~2 s (routing = effect's table)
+        HapticsMute,      // intVal 1 = mute the whole layer, 0 = unmute
     };
     Type type   = Type::StartHoming;
     int  intVal = -1;
@@ -107,6 +108,13 @@ struct MotionStatus
     bool            gearRatioKnown[MAX_GEARS]     = {};  // usable (learned or adopted)
     bool            gearRatioConfident[MAX_GEARS] = {};  // session-observed (persistable)
     bool            gearRatiosDirty               = false;
+    // Haptics surface: total transients fired, master mute, live smoothed
+    // level per continuous effect, and which NCX tokens the wire is
+    // actually delivering right now (the per-tile channel-health chips).
+    uint64_t        hapticsFired                  = 0;
+    bool            hapticsMuted                  = false;
+    double          hapticsFxLevel[haptics::FX_TYPE_COUNT] = {};
+    bool            ncxHave[NcxValues::TokenCount]          = {};
 };
 
 class MotionController
@@ -145,6 +153,12 @@ public:
     // Car cache handoff (main thread, at startup - before the RT loop runs).
     void setCarCache(const std::vector<CachedCar>& cars)
     { m_ratioLearner.setCache(cars.data(), (int)cars.size()); }
+
+    // ---- Haptics live-apply (the tuning path, same idea as devices) ----
+    // A rig save stages the new haptics tuning here (web thread, under the
+    // lock); the RT thread applies it at the top of the next cycle - amp,
+    // frequency, routing and master gain changes never need a re-init.
+    void stageHaptics(const AppConfig& c);
 
     // ---- Device live-apply (the tuning path) ----
     // A rig save stages new device params here (web thread, under the
@@ -428,6 +442,21 @@ private:
     void fireHaptics(const HapticTriggers& t);
     void driveContinuousHaptics(const TelemetryData& td);
     double previewOr(haptics::FxType t, double level);
+    void applyHaptics(const AppConfig& c);
+    // Live-apply stage (trivially copyable - no allocation on either side).
+    struct HapticsStage
+    {
+        haptics::EffectParams detentClick, gearShift, rpmVibe, abs,
+                              lockup, skid, road, limiter, tc, kerb;
+        double masterGain = 1.0;
+    };
+    HapticsStage     m_hapStage;
+    std::mutex       m_hapStageLock;
+    std::atomic<bool> m_hapStagePending{false};
+    // Gear-shift transient edge state + channel-health snapshot.
+    int              m_lastGear = 0;
+    bool             m_gearSeen = false;
+    bool             m_ncxHaveSnapshot[NcxValues::TokenCount] = {};
     // Per-car gear-ratio learner (survives configure(): re-init must not
     // forget a session's driving; only setCarCache() reseeds the cache).
     GearRatioLearner m_ratioLearner;

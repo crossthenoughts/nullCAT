@@ -40,7 +40,8 @@
 struct NcxValues
 {
     enum Token { Rpm, SpeedKmh, Gear, ClutchPct, ThrottlePct,
-                 BrakePct, AbsActive, Skid, Lockup, RoadNoise, TokenCount };
+                 BrakePct, AbsActive, Skid, Lockup, RoadNoise,
+                 Limiter, TcActive, Curbs, TokenCount };
     bool   fresh = false;             // channel stream alive (<500 ms)
     bool   have[TokenCount] = {};     // token bound AND present in the packet
     double val[TokenCount]  = {};
@@ -68,6 +69,9 @@ inline int ncxTokenIndex(const std::string& t)
     if (t == "skid")        return NcxValues::Skid;
     if (t == "lockup")      return NcxValues::Lockup;
     if (t == "roadNoise")   return NcxValues::RoadNoise;
+    if (t == "limiter")     return NcxValues::Limiter;
+    if (t == "tcActive")    return NcxValues::TcActive;
+    if (t == "curbs")       return NcxValues::Curbs;
     return -1;
 }
 

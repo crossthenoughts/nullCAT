@@ -253,11 +253,16 @@ struct AppConfig
     // brakePct, absActive, skid, lockup, roadNoise).
     // EffectParams: { ampPct, freqHz, durMs, order, jitter }.
     haptics::EffectParams hapticsDetentClick { 0.0,  90.0, 18.0 };
-    haptics::EffectParams hapticsRpmVibe     { 0.0,   0.0,  0.0, 2.0, 0.0 };
-    haptics::EffectParams hapticsAbs         { 0.0,  12.0,  0.0, 2.0, 0.0 };
-    haptics::EffectParams hapticsLockup      { 0.0,   9.0,  0.0, 2.0, 0.2 };
-    haptics::EffectParams hapticsSkid        { 0.0,  35.0,  0.0, 2.0, 0.5 };
-    haptics::EffectParams hapticsRoad        { 0.0,  28.0,  0.0, 2.0, 0.6 };
+    haptics::EffectParams hapticsGearShift   { 0.0,  60.0, 25.0 };
+    haptics::EffectParams hapticsRpmVibe     { 0.0,   0.0,  0.0, 2.0, 0.0  };
+    haptics::EffectParams hapticsAbs         { 0.0,  12.0,  0.0, 2.0, 0.0  };
+    haptics::EffectParams hapticsLockup      { 0.0,   9.0,  0.0, 2.0, 0.2  };
+    haptics::EffectParams hapticsSkid        { 0.0,  35.0,  0.0, 2.0, 0.5  };
+    haptics::EffectParams hapticsRoad        { 0.0,  28.0,  0.0, 2.0, 0.6  };
+    haptics::EffectParams hapticsLimiter     { 0.0,  45.0,  0.0, 2.0, 0.15 };
+    haptics::EffectParams hapticsTc          { 0.0,  15.0,  0.0, 2.0, 0.0  };
+    haptics::EffectParams hapticsKerb        { 0.0,  40.0,  0.0, 2.0, 0.4  };
+    double                hapticsMasterGain  = 1.0;   // 0..2, scales every overlay
 
     // DC phase-lock compensator. Default OFF - when disabled the loop and
     // pump free-run exactly as before (byte-identical). When enabled, a
@@ -312,6 +317,9 @@ struct AppConfig
         { "skid",        7, 1.0, 0.0 },
         { "lockup",      8, 1.0, 0.0 },
         { "roadNoise",   9, 1.0, 0.0 },
+        { "limiter",    10, 1.0, 0.0 },
+        { "tcActive",   11, 1.0, 0.0 },
+        { "curbs",      12, 1.0, 0.0 },
     };
 
     bool    requireUserFaultReset = false;

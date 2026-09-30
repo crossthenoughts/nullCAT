@@ -335,6 +335,20 @@ std::string WebServer::buildStatusJson() const
     // many gear ratios the learner currently considers usable.
     s += "\"ncxRx\":"              + jsonBool(m_telemetry && m_telemetry->hasRecentNcx()) + ",";
     {
+        // Haptics surface: fired counter, mute, live fx levels, and which
+        // NCX tokens the wire is delivering (per-tile channel-health chips;
+        // array order = NcxValues::Token order = the protocol registry).
+        s += "\"hapFired\":" + std::to_string(ms.hapticsFired) + ",";
+        s += "\"hapMuted\":" + jsonBool(ms.hapticsMuted) + ",";
+        s += "\"hapFx\":[";
+        for (int i = 0; i < haptics::FX_TYPE_COUNT; ++i)
+            s += (i ? "," : "") + jsonDouble(ms.hapticsFxLevel[i], 3);
+        s += "],\"ncxHave\":[";
+        for (int i = 0; i < NcxValues::TokenCount; ++i)
+            s += std::string(i ? "," : "") + (ms.ncxHave[i] ? "true" : "false");
+        s += "],";
+    }
+    {
         int known = 0;
         for (int g = 1; g < MAX_GEARS; ++g) if (ms.gearRatioKnown[g]) ++known;
         s += "\"gearsKnown\":" + jsonInt(known) + ",";
@@ -1021,6 +1035,13 @@ bool WebServer::start()
                     for (size_t i = 0; i < axes.size() && i < MAX_DRIVES; ++i)
                         if (axisCaps(axes[i].axisType, axes[i].mode).isDevice())
                             m_motion->stageDeviceParams((int)i, axes[i].device);
+                // Haptics live-apply: reload the just-written config from
+                // disk and stage its haptics tuning - amp/frequency/routing
+                // edits take effect immediately, no re-initialize. (A save
+                // is rare; the disk round-trip keeps one parser as truth.)
+                Config fresh;
+                if (fresh.load(m_configPath))
+                    m_motion->stageHaptics(fresh.get());
             }
         });
 
@@ -1187,11 +1208,15 @@ bool WebServer::start()
             const std::string& b = req.body;
             int iv = -999;
             if      (b.find("detentClick") != std::string::npos) iv = -1;
+            else if (b.find("gearShift")   != std::string::npos) iv = -2;
             else if (b.find("rpmVibe")     != std::string::npos) iv = 0;
             else if (b.find("abs")         != std::string::npos) iv = 1;
             else if (b.find("lockup")      != std::string::npos) iv = 2;
             else if (b.find("skid")        != std::string::npos) iv = 3;
             else if (b.find("road")        != std::string::npos) iv = 4;
+            else if (b.find("limiter")     != std::string::npos) iv = 5;
+            else if (b.find("kerb")        != std::string::npos) iv = 7;
+            else if (b.find("tc")          != std::string::npos) iv = 6;
             if (iv == -999) { errResp(res, "Unknown effect."); return; }
 
             // Something live has to feel it, or the button is a mystery.
@@ -1210,6 +1235,16 @@ bool WebServer::start()
             { errResp(res, "Nothing live to feel it: engage a device or tension the belts first."); return; }
 
             MotionCommand cmd; cmd.type = MotionCommand::Type::HapticsTest; cmd.intVal = iv;
+            if (!m_motion->enqueueCommand(cmd)) { errResp(res, "Command queue full."); return; }
+            okResp(res);
+        });
+
+        // Haptics master mute (runtime only, not persisted): body {"on":true|false}.
+        postCmd("/api/haptics/mute", [this, okResp, errResp](const httplib::Request& req, httplib::Response& res)
+        {
+            if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
+            MotionCommand cmd; cmd.type = MotionCommand::Type::HapticsMute;
+            cmd.intVal = (req.body.find("true") != std::string::npos) ? 1 : 0;
             if (!m_motion->enqueueCommand(cmd)) { errResp(res, "Command queue full."); return; }
             okResp(res);
         });

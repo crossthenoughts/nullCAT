@@ -3,9 +3,10 @@
 //
 // nullCAT Channel Exporter - a deliberately dumb SimHub plugin.
 //
-// Sends one UDP line per data tick (protocol 1.1, Docs/PROTOCOL.md):
+// Sends one UDP line per data tick (protocol 1.2, Docs/PROTOCOL.md):
 //   NULLCATX,<rpm>,<speedKmh>,<gear>,<clutchPct>,<throttlePct>,
-//            <brakePct>,<absActive>,<skid>,<lockup>,<roadNoise>
+//            <brakePct>,<absActive>,<skid>,<lockup>,<roadNoise>,
+//            <limiter>,<tcActive>,<curbs>
 //
 // That is the whole job. No shaping, no game-specific logic, no state:
 // nullCAT owns all of that (the rig's ncxBindings config maps these
@@ -43,7 +44,7 @@ namespace NullcatChannelExporter
 
         private UdpClient _udp;
         private IPEndPoint _target;
-        private string _skidProp, _lockupProp, _roadProp;
+        private string _skidProp, _lockupProp, _roadProp, _curbsProp;
 
         public void Init(PluginManager pluginManager)
         {
@@ -64,6 +65,7 @@ namespace NullcatChannelExporter
                     _skidProp   = ExtractString(text, "skidProp");
                     _lockupProp = ExtractString(text, "lockupProp");
                     _roadProp   = ExtractString(text, "roadProp");
+                    _curbsProp  = ExtractString(text, "curbsProp");
                 }
             }
             catch { /* keep defaults */ }
@@ -87,19 +89,34 @@ namespace NullcatChannelExporter
                 else double.TryParse(g, NumberStyles.Integer, CultureInfo.InvariantCulture, out gear);
             }
 
-            // ABS flag: StatusDataBase carries it where the game reports it;
-            // anything nonzero on the wire means "cycling".
-            double abs = 0;
+            // ABS / TC flags: StatusDataBase carries them where the game
+            // reports them; anything nonzero on the wire means "active".
+            double abs = 0, tc = 0;
             try { abs = Convert.ToDouble(d.ABSActive, CultureInfo.InvariantCulture) > 0 ? 1 : 0; }
             catch { abs = 0; }
+            try { tc  = Convert.ToDouble(d.TCActive,  CultureInfo.InvariantCulture) > 0 ? 1 : 0; }
+            catch { tc = 0; }
+
+            // Rev limiter: bouncing off the top of the tach. Computed here
+            // (rpm within 1.5% of the car's max rpm) because few games
+            // expose a limiter flag directly; MaxRpm 0/unknown = never on.
+            double limiter = 0;
+            try
+            {
+                var maxRpm = Convert.ToDouble(d.MaxRpm, CultureInfo.InvariantCulture);
+                if (maxRpm > 0 && d.Rpms >= maxRpm * 0.985) limiter = 1;
+            }
+            catch { limiter = 0; }
 
             var line = string.Format(CultureInfo.InvariantCulture,
-                "NULLCATX,{0:0.#},{1:0.##},{2:0},{3:0.#},{4:0.#},{5:0.#},{6:0},{7:0.#},{8:0.#},{9:0.#}",
+                "NULLCATX,{0:0.#},{1:0.##},{2:0},{3:0.#},{4:0.#},{5:0.#},{6:0},{7:0.#},{8:0.#},{9:0.#},{10:0},{11:0},{12:0.#}",
                 d.Rpms, d.SpeedKmh, gear, d.Clutch, d.Throttle,
                 d.Brake, abs,
                 ReadProp(pluginManager, _skidProp),
                 ReadProp(pluginManager, _lockupProp),
-                ReadProp(pluginManager, _roadProp));
+                ReadProp(pluginManager, _roadProp),
+                limiter, tc,
+                ReadProp(pluginManager, _curbsProp));
 
             try
             {

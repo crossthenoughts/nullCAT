@@ -5,7 +5,7 @@ the nullCAT exporter plugin, or any tool that can emit a text line) and the
 nullCAT controller (the **receiver**). This document is the contract: the
 wire only ever changes here, version-bumped, and senders adapt to it.
 
-**Protocol version: 1.1** (nullCAT 0.9.6). History at the bottom.
+**Protocol version: 1.2** (nullCAT 0.9.6). History at the bottom.
 
 ## Transport
 
@@ -58,7 +58,7 @@ Channel staleness fail-safe: if the NULLCATX stream stops for 500 ms, all
 channel-driven behaviour (shift blocking, grind, revmatch, haptic effects)
 goes inert until it returns.
 
-### Token registry (protocol 1.1)
+### Token registry (protocol 1.2)
 
 | Slot | Token | Unit / convention |
 |---|---|---|
@@ -71,7 +71,10 @@ goes inert until it returns.
 | 6 | `absActive` | 0 or 1; ABS currently cycling *(since 1.1)* |
 | 7 | `skid` | tyre slip magnitude, 0..100 *(since 1.1)* |
 | 8 | `lockup` | wheel-lock-under-braking severity, 0..100 *(since 1.1)* |
-| 9 | `roadNoise` | road/kerb surface activity, 0..100 *(since 1.1)* |
+| 9 | `roadNoise` | road surface activity, 0..100 *(since 1.1)* |
+| 10 | `limiter` | 0 or 1; engine bouncing off the rev limiter *(since 1.2)* |
+| 11 | `tcActive` | 0 or 1; traction control currently cutting *(since 1.2)* |
+| 12 | `curbs` | kerb-strip contact magnitude, 0..100 *(since 1.2)* |
 
 **Sender-side adaptation rule:** per-game knowledge lives in the sender.
 The magnitude channels (skid, lockup, roadNoise) are semantic summaries
@@ -99,6 +102,9 @@ conditioning mode from them.
 
 ## Version history
 
+- **1.2** (nullCAT 0.9.6): added tokens `limiter`, `tcActive`, `curbs` for
+  the limiter buzz, TC pulse, and kerb rumble effects. No change to line
+  formats or parsing; older senders remain fully compatible.
 - **1.1** (nullCAT 0.9.6): added tokens `brakePct`, `absActive`, `skid`,
   `lockup`, `roadNoise` for the haptic effect layer. No change to line
   formats or parsing; senders that predate 1.1 remain fully compatible.

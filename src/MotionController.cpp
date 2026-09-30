@@ -74,13 +74,10 @@ void MotionController::configure(const AppConfig& config)
                        :                                              CommandConditioner::Mode::Bypass;
     m_needsRehome = true;
 
-    // Haptic layer: tuning + routes are rig-global config.
-    m_haptics.configure(haptics::EventType::DetentClick, config.hapticsDetentClick);
-    m_haptics.configureFx(haptics::FxType::RpmVibe, config.hapticsRpmVibe);
-    m_haptics.configureFx(haptics::FxType::AbsPulse, config.hapticsAbs);
-    m_haptics.configureFx(haptics::FxType::Lockup,  config.hapticsLockup);
-    m_haptics.configureFx(haptics::FxType::Skid,    config.hapticsSkid);
-    m_haptics.configureFx(haptics::FxType::Road,    config.hapticsRoad);
+    // Haptic layer: tuning + routes are rig-global config. applyHaptics is
+    // shared with the live-apply staging path (a rig save applies without
+    // a re-initialize).
+    applyHaptics(config);
 
     // NULLCATX channel bindings (rig-level): resolve token strings once so
     // the RT path only does index lookups.
@@ -310,10 +307,16 @@ void MotionController::drainCommands(A6Drive** /*drives*/, int /*numHwDrives*/)
             // Runs on the RT thread (this dispatch), so fire()/preview writes
             // never race the layer. Routing is the effect's own axis table;
             // the overlay gate keeps non-live axes silent regardless.
-            if (cmd.intVal < 0)
+            // intVal: -1 detent click, -2 gear-shift thunk, 0.. = fx preview.
+            if (cmd.intVal == -1)
                 m_haptics.fire(haptics::EventType::DetentClick, 1.0);
-            else if (cmd.intVal < haptics::FX_TYPE_COUNT)
+            else if (cmd.intVal == -2)
+                m_haptics.fire(haptics::EventType::GearShift, 1.0);
+            else if (cmd.intVal >= 0 && cmd.intVal < haptics::FX_TYPE_COUNT)
                 m_hapticsPreviewSec[cmd.intVal] = 2.0;
+            break;
+        case MotionCommand::Type::HapticsMute:
+            m_haptics.setMuted(cmd.intVal != 0);
             break;
         default:
             break;
@@ -685,6 +688,13 @@ void MotionController::publishStatus()
         m_statusSnapshot.gearRatioConfident[g] = m_ratioLearner.gearSessionConfident(g);
     }
     m_statusSnapshot.gearRatiosDirty = m_ratioLearner.dirty();
+
+    m_statusSnapshot.hapticsFired = m_haptics.fireCount();
+    m_statusSnapshot.hapticsMuted = m_haptics.muted();
+    for (int i = 0; i < haptics::FX_TYPE_COUNT; ++i)
+        m_statusSnapshot.hapticsFxLevel[i] = m_haptics.fxLevel(i);
+    for (int i = 0; i < NcxValues::TokenCount; ++i)
+        m_statusSnapshot.ncxHave[i] = m_ncxHaveSnapshot[i];
 }
 
 void MotionController::startUnpark(A6Drive** drives, int numHwDrives)
@@ -1678,6 +1688,36 @@ void MotionController::fireHaptics(const HapticTriggers& t)
         m_haptics.fire(haptics::EventType::DetentClick, 0.25 + 0.75 * t.detentVel);
 }
 
+void MotionController::applyHaptics(const AppConfig& c)
+{
+    m_haptics.configure(haptics::EventType::DetentClick, c.hapticsDetentClick);
+    m_haptics.configure(haptics::EventType::GearShift,   c.hapticsGearShift);
+    m_haptics.configureFx(haptics::FxType::RpmVibe,  c.hapticsRpmVibe);
+    m_haptics.configureFx(haptics::FxType::AbsPulse, c.hapticsAbs);
+    m_haptics.configureFx(haptics::FxType::Lockup,   c.hapticsLockup);
+    m_haptics.configureFx(haptics::FxType::Skid,     c.hapticsSkid);
+    m_haptics.configureFx(haptics::FxType::Road,     c.hapticsRoad);
+    m_haptics.configureFx(haptics::FxType::Limiter,  c.hapticsLimiter);
+    m_haptics.configureFx(haptics::FxType::TcPulse,  c.hapticsTc);
+    m_haptics.configureFx(haptics::FxType::Kerb,     c.hapticsKerb);
+    m_haptics.setMasterGain(c.hapticsMasterGain);
+}
+
+// Live-apply: a rig save stages the new haptics config here (web thread,
+// under the lock); the RT thread applies it at the top of the next cycle.
+// Same pattern as the device-params staging - feel tuning never needs a
+// re-initialize. The stage is a plain member (trivially copyable), so
+// neither side ever allocates.
+void MotionController::stageHaptics(const AppConfig& c)
+{
+    std::lock_guard<std::mutex> lk(m_hapStageLock);
+    m_hapStage = HapticsStage{
+        c.hapticsDetentClick, c.hapticsGearShift, c.hapticsRpmVibe, c.hapticsAbs,
+        c.hapticsLockup, c.hapticsSkid, c.hapticsRoad, c.hapticsLimiter,
+        c.hapticsTc, c.hapticsKerb, c.hapticsMasterGain };
+    m_hapStagePending.store(true, std::memory_order_release);
+}
+
 // The effect laws: NULLCATX channels -> per-effect level (0..1) + carrier.
 // Everything fails safe: a stale channel stream (500 ms window), an unbound
 // token, or a zero magnitude all drive level 0, and the layer's release
@@ -1722,6 +1762,36 @@ void MotionController::driveContinuousHaptics(const TelemetryData& td)
     m_haptics.driveFx(FxType::Lockup, previewOr(FxType::Lockup, mag(NcxValues::Lockup)),    0.0);
     m_haptics.driveFx(FxType::Skid,   previewOr(FxType::Skid,   mag(NcxValues::Skid)),      0.0);
     m_haptics.driveFx(FxType::Road,   previewOr(FxType::Road,   mag(NcxValues::RoadNoise)), 0.0);
+
+    // Limiter buzz / TC pulse: on while the sim says so (0/1 channels).
+    const auto flag = [&](NcxValues::Token t) -> double
+    { return (live && v.have[t] && v.val[t] > 0.5) ? 1.0 : 0.0; };
+    m_haptics.driveFx(FxType::Limiter, previewOr(FxType::Limiter, flag(NcxValues::Limiter)),  0.0);
+    m_haptics.driveFx(FxType::TcPulse, previewOr(FxType::TcPulse, flag(NcxValues::TcActive)), 0.0);
+    m_haptics.driveFx(FxType::Kerb,    previewOr(FxType::Kerb,    mag(NcxValues::Curbs)),     0.0);
+
+    // Gear-shift thunk: a transient on every gear-channel CHANGE (up or
+    // down). Edge state seeds on first sight and clears on staleness, so
+    // a returning stream never fires a stale crossing.
+    if (live && v.have[NcxValues::Gear])
+    {
+        const int g = (int)(v.val[NcxValues::Gear] < 0.0
+                          ? v.val[NcxValues::Gear] - 0.5
+                          : v.val[NcxValues::Gear] + 0.5);
+        if (m_gearSeen && g != m_lastGear)
+            m_haptics.fire(haptics::EventType::GearShift, 1.0);
+        m_lastGear = g;
+        m_gearSeen = true;
+    }
+    else
+    {
+        m_gearSeen = false;
+    }
+
+    // Publish the channel-health + live-level snapshot the status surface
+    // shows (which tokens the wire is actually delivering right now).
+    for (int i = 0; i < NcxValues::TokenCount; ++i)
+        m_ncxHaveSnapshot[i] = live && v.have[i];
 }
 
 // Web Test button: force one continuous effect to full level for a short
@@ -1846,10 +1916,28 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
     if (estopNow)
         m_estopElapsed += m_cycleTimeSec;
 
-    // Haptics: e-stop kills everything instantly (no click tail or effect
-    // drone rides an emergency ramp); otherwise drive the continuous
-    // effects from this cycle's channels and advance the layer once, so
+    // Haptics: apply any staged live config first (rig save, no re-init);
+    // e-stop kills everything instantly (no click tail or effect drone
+    // rides an emergency ramp); otherwise drive the continuous effects
+    // from this cycle's channels and advance the layer once, so
     // overlayFor() below serves this cycle's values.
+    if (m_hapStagePending.load(std::memory_order_acquire))
+    {
+        HapticsStage s;   // trivially copyable, no allocation on this thread
+        { std::lock_guard<std::mutex> lk(m_hapStageLock); s = m_hapStage; }
+        m_hapStagePending.store(false, std::memory_order_release);
+        m_haptics.configure(haptics::EventType::DetentClick, s.detentClick);
+        m_haptics.configure(haptics::EventType::GearShift,   s.gearShift);
+        m_haptics.configureFx(haptics::FxType::RpmVibe,  s.rpmVibe);
+        m_haptics.configureFx(haptics::FxType::AbsPulse, s.abs);
+        m_haptics.configureFx(haptics::FxType::Lockup,   s.lockup);
+        m_haptics.configureFx(haptics::FxType::Skid,     s.skid);
+        m_haptics.configureFx(haptics::FxType::Road,     s.road);
+        m_haptics.configureFx(haptics::FxType::Limiter,  s.limiter);
+        m_haptics.configureFx(haptics::FxType::TcPulse,  s.tc);
+        m_haptics.configureFx(haptics::FxType::Kerb,     s.kerb);
+        m_haptics.setMasterGain(s.masterGain);
+    }
     if (estopNow) m_haptics.clearAll();
     else          driveContinuousHaptics(telemetryData);
     m_haptics.step(m_cycleTimeSec);

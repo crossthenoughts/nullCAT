@@ -194,11 +194,16 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
         };
         QJsonObject h;
         h["detentClick"] = writeFx(c.hapticsDetentClick);
+        h["gearShift"]   = writeFx(c.hapticsGearShift);
         h["rpmVibe"]     = writeFx(c.hapticsRpmVibe);
         h["abs"]         = writeFx(c.hapticsAbs);
         h["lockup"]      = writeFx(c.hapticsLockup);
         h["skid"]        = writeFx(c.hapticsSkid);
         h["road"]        = writeFx(c.hapticsRoad);
+        h["limiter"]     = writeFx(c.hapticsLimiter);
+        h["tc"]          = writeFx(c.hapticsTc);
+        h["kerb"]        = writeFx(c.hapticsKerb);
+        h["masterGain"]  = c.hapticsMasterGain;
         obj["haptics"] = h;
     }
 }
@@ -253,11 +258,16 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
             }
         };
         if (h.contains("detentClick")) readFx(h.value("detentClick").toObject(), c.hapticsDetentClick);
+        if (h.contains("gearShift"))   readFx(h.value("gearShift").toObject(),   c.hapticsGearShift);
         if (h.contains("rpmVibe"))     readFx(h.value("rpmVibe").toObject(),     c.hapticsRpmVibe);
         if (h.contains("abs"))         readFx(h.value("abs").toObject(),         c.hapticsAbs);
         if (h.contains("lockup"))      readFx(h.value("lockup").toObject(),      c.hapticsLockup);
         if (h.contains("skid"))        readFx(h.value("skid").toObject(),        c.hapticsSkid);
         if (h.contains("road"))        readFx(h.value("road").toObject(),        c.hapticsRoad);
+        if (h.contains("limiter"))     readFx(h.value("limiter").toObject(),     c.hapticsLimiter);
+        if (h.contains("tc"))          readFx(h.value("tc").toObject(),          c.hapticsTc);
+        if (h.contains("kerb"))        readFx(h.value("kerb").toObject(),        c.hapticsKerb);
+        if (h.contains("masterGain"))  c.hapticsMasterGain = h.value("masterGain").toDouble(1.0);
     }
 }
 
@@ -1090,17 +1100,24 @@ std::vector<std::string> AppConfig::validate() const
             }
         };
         checkFx("detentClick", hapticsDetentClick, true);
+        checkFx("gearShift",   hapticsGearShift,   true);
         checkFx("rpmVibe",     hapticsRpmVibe,     false);
         checkFx("abs",         hapticsAbs,         false);
         checkFx("lockup",      hapticsLockup,      false);
         checkFx("skid",        hapticsSkid,        false);
         checkFx("road",        hapticsRoad,        false);
+        checkFx("limiter",     hapticsLimiter,     false);
+        checkFx("tc",          hapticsTc,          false);
+        checkFx("kerb",        hapticsKerb,        false);
+        if (hapticsMasterGain < 0.0 || hapticsMasterGain > 2.0)
+            errors.push_back("haptics.masterGain out of range [0, 2]");
     }
 
     // ---- NULLCATX channel bindings (rig global) ----
     {
         static const char* kTokens[] = { "rpm", "speedKmh", "gear", "clutchPct", "throttlePct",
-                                         "brakePct", "absActive", "skid", "lockup", "roadNoise" };
+                                         "brakePct", "absActive", "skid", "lockup", "roadNoise",
+                                         "limiter", "tcActive", "curbs" };
         std::vector<std::string> seen;
         for (size_t i = 0; i < ncxBindings.size(); ++i)
         {
@@ -1111,7 +1128,8 @@ std::vector<std::string> AppConfig::validate() const
             if (!known)
                 errors.push_back(pfx + "unknown token \"" + b.token +
                                  "\" (rpm, speedKmh, gear, clutchPct, throttlePct, "
-                                 "brakePct, absActive, skid, lockup, roadNoise)");
+                                 "brakePct, absActive, skid, lockup, roadNoise, "
+                                 "limiter, tcActive, curbs)");
             if (b.slot < 0 || b.slot >= 16)
                 errors.push_back(pfx + "slot out of range [0, 15]");
             if (b.scale == 0.0)

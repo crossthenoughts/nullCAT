@@ -35,7 +35,9 @@ static constexpr int MAX_EVENTS          = 8;   // concurrent transients
 static constexpr int MAX_HAPTIC_AXES     = 10;  // == MAX_DRIVES
 static constexpr int MAX_ROUTES          = MAX_HAPTIC_AXES;  // an effect may route to EVERY axis
 
-enum class EventType { DetentClick = 0, COUNT };
+// Transients: one-shot bursts. GearShift is the sim-driven one (fired on a
+// gear-channel change - the thunk of a shift ringing through the chassis).
+enum class EventType { DetentClick = 0, GearShift = 1, COUNT };
 static constexpr int EVENT_TYPE_COUNT = static_cast<int>(EventType::COUNT);
 
 // Telemetry-driven CONTINUOUS effects (SimHub-ShakeIt class, rendered as
@@ -45,7 +47,8 @@ static constexpr int EVENT_TYPE_COUNT = static_cast<int>(EventType::COUNT);
 // clicking, and the same routing model as the transients. An unbound or
 // zero channel drives level 0 = silence; channel staleness (500 ms
 // fail-safe) must drive all levels to 0 at the owner.
-enum class FxType { RpmVibe = 0, AbsPulse = 1, Lockup = 2, Skid = 3, Road = 4, COUNT };
+enum class FxType { RpmVibe = 0, AbsPulse = 1, Lockup = 2, Skid = 3, Road = 4,
+                    Limiter = 5, TcPulse = 6, Kerb = 7, COUNT };
 static constexpr int FX_TYPE_COUNT = static_cast<int>(FxType::COUNT);
 
 // One destination: explicit axis index and a gain multiplier.
@@ -173,6 +176,10 @@ public:
                 if (r.axis >= 0 && r.axis < MAX_HAPTIC_AXES && r.gain > 0.0)
                     m_overlay[r.axis] += v * r.gain;
         }
+
+        // Master trim last: per-effect settings stay untouched underneath.
+        const double mg = m_muted ? 0.0 : m_masterGain;
+        if (mg != 1.0) for (double& o : m_overlay) o *= mg;
     }
 
     // Torque overlay (% of rated) for one axis this cycle. The caller adds
@@ -207,6 +214,17 @@ public:
         // No driven frequency = the effect's configured carrier.
         f.freqHz = (freqHz > 0.0) ? freqHz : m_fxParams[static_cast<int>(t)].freqHz;
     }
+
+    // ---- master trim (RT-thread writes only, like everything here) ----
+    // gain scales EVERY overlay (0..2); mute is a hard zero. Both applied
+    // at the final sum, so per-effect settings stay untouched underneath.
+    void setMasterGain(double g) { m_masterGain = (g < 0.0) ? 0.0 : (g > 2.0 ? 2.0 : g); }
+    void setMuted(bool m)        { m_muted = m; }
+    bool muted() const           { return m_muted; }
+
+    // Live level of one continuous effect (0..1 smoothed) - status surface.
+    double fxLevel(int i) const
+    { return (i >= 0 && i < FX_TYPE_COUNT) ? m_fx[i].level : 0.0; }
 
     // Kill every active transient instantly (e-stop, park, loop stop).
     void clearAll()
@@ -247,6 +265,8 @@ private:
     Event        m_events[MAX_EVENTS];
     Fx           m_fx[FX_TYPE_COUNT];
     double       m_overlay[MAX_HAPTIC_AXES] = {};
+    double       m_masterGain = 1.0;
+    bool         m_muted      = false;
     uint64_t     m_fired = 0;
 };
 
