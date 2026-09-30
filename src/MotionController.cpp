@@ -1737,18 +1737,26 @@ void MotionController::driveContinuousHaptics(const TelemetryData& td)
         return (m < 0.0) ? 0.0 : (m > 1.0 ? 1.0 : m);
     };
 
-    // RPM vibe: carrier follows the engine (rpm/60 x order), silent below
-    // a floor so an idling car does not buzz the rig all session.
+    // Engine: pulse-train firing model. Firing rate = rpm/60 x cyl/2
+    // (four-stroke); alive from just above cranking so idle CHUNKS instead
+    // of being gated away; throttle scales pulse strength (load); the
+    // limiter flag makes the synth drop firings (the bounce IS missing
+    // events). A web Test preview with no sim runs a canned idle.
     {
-        double level = 0.0, freq = 0.0;
-        if (live && v.have[NcxValues::Rpm] && v.val[NcxValues::Rpm] > 1000.0)
+        const double cyl = std::max(1.0, m_haptics.fxParams(FxType::RpmVibe).cylinders);
+        double level = 0.0, fireHz = 0.0, load = 0.5;
+        const bool lim = live && v.have[NcxValues::Limiter] && v.val[NcxValues::Limiter] > 0.5;
+        if (live && v.have[NcxValues::Rpm] && v.val[NcxValues::Rpm] > 400.0)
         {
-            level = 1.0;
-            freq  = v.val[NcxValues::Rpm] / 60.0
-                    * m_haptics.fxParams(FxType::RpmVibe).order;
-            freq  = std::max(4.0, std::min(500.0, freq));
+            level  = 1.0;
+            fireHz = v.val[NcxValues::Rpm] / 60.0 * cyl / 2.0;
+            if (v.have[NcxValues::ThrottlePct])
+                load = std::max(0.0, std::min(1.0, v.val[NcxValues::ThrottlePct] / 100.0));
         }
-        m_haptics.driveFx(FxType::RpmVibe, previewOr(FxType::RpmVibe, level), freq);
+        const double lv = previewOr(FxType::RpmVibe, level);
+        if (lv > 0.0 && fireHz < 0.5)
+            fireHz = 1100.0 / 60.0 * cyl / 2.0;   // preview: a canned lumpy idle
+        m_haptics.driveEngine(lv, fireHz, load, lim);
     }
 
     // ABS pulse: only while the sim says ABS is cycling AND the brake is

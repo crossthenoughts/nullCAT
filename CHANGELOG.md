@@ -42,7 +42,11 @@ middle number carries breaking changes and the last carries fixes.
   unprotected.
 - Four more effects join the layer: a gear-shift thunk (fires on every
   gear change, no new wire needed), rev-limiter buzz, traction-control
-  pulse, and kerb-strip rumble (wire protocol 1.2 adds limiter,
+  pulse, and kerb-strip rumble; the RPM effect grows into a real
+  PULSE-TRAIN ENGINE - discrete firing thumps at idle (with adjustable
+  lope and a cylinders setting) merge naturally into buzz as rpm
+  rises, throttle loads it, and the limiter drops firings so the
+  bounce feels like missing combustion events, exactly as it is (wire protocol 1.2 adds limiter,
   tcActive, curbs). Haptics tuning now applies LIVE on save - amp,
   frequency, routing and the new master gain never need a
   re-initialize - and a runtime Mute button silences the whole layer.

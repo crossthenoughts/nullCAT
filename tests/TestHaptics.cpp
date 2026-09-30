@@ -172,12 +172,13 @@ int main()
         for (int i = 0; i < 200; ++i) { L5.driveFx(FxType::Skid, 1.0, 0.0); L5.step(DT); }
         CHECK(L5.overlayFor(4) == 0.0, "fx with no carrier is silent, never DC");
 
-        // Driven frequency (RpmVibe style) is honored; clearAll silences.
+        // Driven frequency is honored (Lockup slot; the RpmVibe slot is
+        // the pulse-train engine and ignores a driven carrier by design).
         EffectParams pr; pr.ampPct = 10.0; pr.freqHz = 0.0; pr.routes[0] = { 2, 1.0 };
-        Layer L6; L6.configureFx(FxType::RpmVibe, pr);
+        Layer L6; L6.configureFx(FxType::Lockup, pr);
         double vibe = 0.0;
         for (int i = 0; i < 400; ++i)
-        { L6.driveFx(FxType::RpmVibe, 1.0, 120.0); L6.step(DT); vibe = std::max(vibe, std::fabs(L6.overlayFor(2))); }
+        { L6.driveFx(FxType::Lockup, 1.0, 120.0); L6.step(DT); vibe = std::max(vibe, std::fabs(L6.overlayFor(2))); }
         CHECK(vibe > 8.0, "driven carrier frequency is honored");
         L6.clearAll(); L6.step(DT);
         CHECK(L6.overlayFor(2) == 0.0, "clearAll silences continuous effects instantly");
@@ -189,6 +190,67 @@ int main()
         for (int i = 0; i < 400; ++i)
         { L7.driveFx(FxType::Road, 1.0, 0.0); L7.step(DT); jp = std::max(jp, std::fabs(L7.overlayFor(4))); }
         CHECK(jp > 5.0 && jp <= 10.0 + 1e-9, "full jitter stays bounded by amp");
+    }
+
+    // ================= pulse-train engine =================
+    {
+        using haptics::FxType;
+        EffectParams p;
+        p.ampPct = 10.0; p.jitter = 0.0; p.cylinders = 8.0;
+        p.routes[0] = { 6, 1.0 };
+
+        // Low firing rate: discrete thumps with real GAPS between them.
+        Layer L; L.configureFx(FxType::RpmVibe, p);
+        int quiet = 0, loud = 0; double peak = 0.0;
+        for (int i = 0; i < 2000; ++i)                  // 1 s at 2 kHz
+        {
+            L.driveEngine(1.0, 20.0, 1.0, false);       // 20 firings/s
+            L.step(DT);
+            const double a = std::fabs(L.overlayFor(6));
+            peak = std::max(peak, a);
+            if (a < 0.01) ++quiet; else ++loud;
+        }
+        CHECK(peak > 5.0,               "engine pulses produce torque");
+        CHECK(peak <= 10.0 + 1e-9,      "engine pulses bounded by amp (full load)");
+        CHECK(quiet > loud,             "low rpm: chunky - more gap than pulse");
+
+        // High firing rate: pulses merge - little to no gap.
+        Layer Lh; Lh.configureFx(FxType::RpmVibe, p);
+        int run = 0, maxRun = 0;
+        for (int i = 0; i < 2000; ++i)
+        {
+            Lh.driveEngine(1.0, 300.0, 1.0, false);
+            Lh.step(DT);
+            if (i > 200 && std::fabs(Lh.overlayFor(6)) < 0.01) { ++run; maxRun = std::max(maxRun, run); }
+            else run = 0;
+        }
+        CHECK(maxRun <= 4, "high rpm: no long gaps - pulses merge into buzz");
+
+        // Load scales pulse strength.
+        Layer Ll; Ll.configureFx(FxType::RpmVibe, p);
+        double peakLow = 0.0;
+        for (int i = 0; i < 2000; ++i)
+        { Ll.driveEngine(1.0, 20.0, 0.0, false); Ll.step(DT);
+          peakLow = std::max(peakLow, std::fabs(Ll.overlayFor(6))); }
+        CHECK(peakLow > 1.0 && peakLow < peak * 0.6,
+              "coasting hits softer than full load");
+
+        // Limiter drops roughly half the firings: pulse energy falls.
+        auto energy = [&](bool lim){
+            Layer Le; Le.configureFx(FxType::RpmVibe, p);
+            double e = 0.0;
+            for (int i = 0; i < 4000; ++i)
+            { Le.driveEngine(1.0, 60.0, 1.0, lim); Le.step(DT);
+              e += std::fabs(Le.overlayFor(6)); }
+            return e;
+        };
+        const double eOn = energy(true), eOff = energy(false);
+        CHECK(eOn < eOff * 0.8, "limiter drops firings (the bounce is missing events)");
+
+        // No firing rate = silence even when driven.
+        Layer Lz; Lz.configureFx(FxType::RpmVibe, p);
+        for (int i = 0; i < 200; ++i) { Lz.driveEngine(1.0, 0.0, 1.0, false); Lz.step(DT); }
+        CHECK(Lz.overlayFor(6) == 0.0, "engine with no rpm is silent");
     }
 
     // ================= model trigger: detent capture =================

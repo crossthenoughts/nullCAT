@@ -74,8 +74,9 @@ struct EffectParams
     double ampPct = 0.0;    // % of rated torque at full scale
     double freqHz = 90.0;   // burst/texture carrier
     double durMs  = 18.0;   // burst length (transients only)
-    double order  = 2.0;    // RpmVibe only: carrier = rpm/60 x order
-    double jitter = 0.0;    // 0..1 carrier roughness (Skid/Road)
+    double order  = 2.0;    // (legacy, unused since the pulse-train engine)
+    double jitter = 0.0;    // 0..1 carrier roughness; ENGINE: idle-lope amount
+    double cylinders = 4.0; // ENGINE only: firing rate = rpm/60 x cylinders/2
     Route  routes[MAX_ROUTES] = {};
 };
 
@@ -161,6 +162,43 @@ public:
             f.level += std::max(-rate, std::min(rate, f.targetLevel - f.level));
             if (p.ampPct <= 0.0 || f.level < 1e-4) continue;
 
+            // The engine slot runs the pulse-train synth, not the oscillator.
+            if (i == static_cast<int>(FxType::RpmVibe))
+            {
+                if (m_eng.fireHz < 0.5) continue;
+                m_eng.firePhase += m_eng.fireHz * dtSec;
+                if (m_eng.firePhase >= 1.0)
+                {
+                    m_eng.firePhase -= (double)(int)m_eng.firePhase;
+                    // Misfire under the limiter: drop about half the firings.
+                    f.rng ^= f.rng << 13; f.rng ^= f.rng >> 7; f.rng ^= f.rng << 17;
+                    const double r1 = (double)(f.rng & 0xFFFF) / 65535.0;
+                    if (!(m_eng.limiter && r1 < 0.55))
+                    {
+                        f.rng ^= f.rng << 13; f.rng ^= f.rng >> 7; f.rng ^= f.rng << 17;
+                        const double r2 = (double)(f.rng & 0xFFFF) / 65535.0;
+                        // One thump: raised-cosine envelope, one carrier cycle.
+                        m_eng.pulseDur = std::max(0.003, std::min(0.020, 0.55 / m_eng.fireHz));
+                        m_eng.pulseAmp = p.ampPct * f.level
+                                       * (0.35 + 0.65 * m_eng.load)
+                                       * (1.0 + p.jitter * (r2 - 0.5));
+                        m_eng.pulseT   = 0.0;
+                    }
+                }
+                if (m_eng.pulseT < m_eng.pulseDur)
+                {
+                    const double env = wavesynth::envelope(m_eng.pulseT, m_eng.pulseDur,
+                                                           m_eng.pulseDur * 0.30);
+                    const double v = m_eng.pulseAmp * env
+                                   * std::sin(2.0 * wavesynth::kPi * (m_eng.pulseT / m_eng.pulseDur));
+                    m_eng.pulseT += dtSec;
+                    for (const Route& r : p.routes)
+                        if (r.axis >= 0 && r.axis < MAX_HAPTIC_AXES && r.gain > 0.0)
+                            m_overlay[r.axis] += v * r.gain;
+                }
+                continue;
+            }
+
             double freq = f.freqHz;
             if (freq < 0.5) continue;   // no usable carrier = silence, not DC
             if (p.jitter > 0.0)
@@ -226,11 +264,29 @@ public:
     double fxLevel(int i) const
     { return (i >= 0 && i < FX_TYPE_COUNT) ? m_fx[i].level : 0.0; }
 
+    // ---- pulse-train engine (replaces the generic oscillator for the
+    // RpmVibe slot). A real engine FIRES rather than hums: each firing is
+    // a short damped thump at rpm/60 x cylinders/2. Low rpm = discrete
+    // chunky pulses; rising rpm merges them into buzz by physics, not by
+    // crossfade. load scales pulse strength (lugging hits harder than
+    // coasting), the lope amount (EffectParams.jitter) roughens idle
+    // per-pulse, and the limiter flag DROPS pulses in bursts - a limiter
+    // cuts firings, so the stumble is missing events, exactly as felt. ----
+    void driveEngine(double level, double fireHz, double load01, bool limiterOn)
+    {
+        Fx& f = m_fx[static_cast<int>(FxType::RpmVibe)];
+        f.targetLevel = (level < 0.0) ? 0.0 : (level > 1.0 ? 1.0 : level);
+        m_eng.fireHz   = (fireHz > 0.0) ? fireHz : 0.0;
+        m_eng.load     = (load01 < 0.0) ? 0.0 : (load01 > 1.0 ? 1.0 : load01);
+        m_eng.limiter  = limiterOn;
+    }
+
     // Kill every active transient instantly (e-stop, park, loop stop).
     void clearAll()
     {
         for (Event& e : m_events) e.active = false;
         for (Fx& f : m_fx) { f.targetLevel = 0.0; f.level = 0.0; f.osc.reset(); }
+        m_eng.pulseT = 1e9; m_eng.firePhase = 0.0;
         for (double& o : m_overlay) o = 0.0;
     }
 
@@ -260,6 +316,14 @@ private:
         uint64_t rng = 0x9E3779B97F4A7C15ull;   // xorshift state
     };
 
+    struct Engine
+    {
+        double fireHz = 0.0, load = 0.5;
+        bool   limiter = false;
+        double firePhase = 0.0;
+        double pulseT = 1e9, pulseDur = 0.01, pulseAmp = 0.0;
+    };
+    Engine       m_eng;
     EffectParams m_params[EVENT_TYPE_COUNT];
     EffectParams m_fxParams[FX_TYPE_COUNT];
     Event        m_events[MAX_EVENTS];
