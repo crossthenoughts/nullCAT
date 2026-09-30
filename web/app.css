@@ -318,3 +318,5 @@ body[data-view="setup"] .vw-op{ display:none !important; }
 .hap-drawer label{ display:flex; align-items:center; gap:5px; font-size:.68rem; }
 .hap-drawer input{ width:56px; }
 .grid.collapsed{ display:none; }
+.btn.flash{ animation:nflash .75s ease-in-out 6; }
+@keyframes nflash{ 50%{ box-shadow:0 0 0 3px var(--warn); } }

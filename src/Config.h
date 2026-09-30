@@ -297,7 +297,22 @@ struct AppConfig
     std::vector<DriveConfig> drives;
 
     // NULLCATX channel bindings (rig.json global; empty = no channel wire).
-    std::vector<NcxBinding> ncxBindings;
+    // Default = the full protocol 1.1 token registry at its recommended
+    // slots (Docs/PROTOCOL.md), so a fresh rig works with the SimHub plugin
+    // with NO hand-edited JSON. A rig.json that carries its own ncxBindings
+    // key replaces this wholesale, as ever - configs are never mutated.
+    std::vector<NcxBinding> ncxBindings = {
+        { "rpm",         0, 1.0, 0.0 },
+        { "speedKmh",    1, 1.0, 0.0 },
+        { "gear",        2, 1.0, 0.0 },
+        { "clutchPct",   3, 1.0, 0.0 },
+        { "throttlePct", 4, 1.0, 0.0 },
+        { "brakePct",    5, 1.0, 0.0 },
+        { "absActive",   6, 1.0, 0.0 },
+        { "skid",        7, 1.0, 0.0 },
+        { "lockup",      8, 1.0, 0.0 },
+        { "roadNoise",   9, 1.0, 0.0 },
+    };
 
     bool    requireUserFaultReset = false;
     // Runs 24+ SDO reads per drive during init -- useful for first-time setup,

@@ -1005,7 +1005,8 @@ const DEV_PRESETS={
 let DEV_USER_PRESETS={};   // devicepresets.json, loaded at config load
 const isDeviceType=t=>t==='shifter'||t==='pedal';
 const devLive={};   // latest per-axis lever position (revs) from the status poll
-const devSweep={};  // per-axis {min,max} travel swept since homing (Capture travel)
+const devSweep={};  // per-axis {min,max} travel swept since homing (diagnostic row)
+const devCapA={};   // two-press travel capture: first end, awaiting the second
 const devDot={};    // per-svg live-dot updaters (curve editors)
 function devEnabled(){ return meta.platform==='linux' && !!($('cf-showdev')&&$('cf-showdev').checked); }
 function devAxes(){ return ((cfgObj&&cfgObj.drives)||[]).map((d,i)=>({d,i})).filter(x=>isDeviceType(x.d.axisType)); }
@@ -1222,7 +1223,7 @@ function devRender(){
     const dv=d.device||{};
     const gv=(k,def)=>((dv[k]!==undefined&&dv[k]!==null)?dv[k]:def);
     h+=`<div class="devgeo" style="grid-column:1/-1">
-      <label title="End of usable travel, motor revs in the homed frame. Capture by sweep, or type. Err small: a wall just inside the physical stop is fine."><span>Travel min · rev</span><input type="number" step="0.001" id="devF-${n}-stopMinRev" value="${gv('stopMinRev',-0.07)}"></label>
+      <label title="End of usable travel, motor revs in the homed frame. Two-press capture fills this, or type. Err small: a wall just inside the physical stop is fine."><span>Travel min · rev</span><input type="number" step="0.001" id="devF-${n}-stopMinRev" value="${gv('stopMinRev',-0.07)}"></label>
       <label title="End of usable travel, motor revs in the homed frame."><span>Travel max · rev</span><input type="number" step="0.001" id="devF-${n}-stopMaxRev" value="${gv('stopMaxRev',0.07)}"></label>
       <label title="Rest position the centring spring pulls toward."><span>Neutral · rev</span><input type="number" step="0.001" id="devF-${n}-neutralRev" value="${gv('neutralRev',0)}"></label>
       <label title="Detent centre positions (engagement points). Derive from a layout, or type."><span>Gates · rev, comma-sep</span><input type="text" id="devF-${n}-detents" value="${(dv.detents||[]).join(', ')}" placeholder="-0.055, 0.055"></label>
@@ -1251,7 +1252,7 @@ function devRender(){
       <label><span id="devLayPL-${n}">Throw · rev (blank = auto)</span><input type="number" step="0.001" id="devLayP-${n}" value="" placeholder="auto"></label>
       <button type="button" class="btn btn-sm btn-warn" id="devT-${n}-lay">Derive layout</button>
     </div>
-    <div class="cfg-note" style="grid-column:1/-1">The device homes only from its own button (never with the rig): first press homes and rests limp, next press engages. Feel and geometry edits apply LIVE while the device is limp - Save, feel, adjust; if it is engaged when you save, they land on release. Teach by hand: while limp, hold the lever at a position and press the matching capture button, then Save.</div>
+    <div class="cfg-note" style="grid-column:1/-1">The device homes only from its own button (never with the rig): first press homes and rests limp, next press engages. Feel and geometry edits apply LIVE while the device is limp - Save, feel, adjust; if it is engaged when you save, they land on release. Teach by hand while limp: Capture travel is TWO presses - hold the lever at one end, press, hold it at the other end, press again (either order); then Derive layout and Save.</div>
       <div style="grid-column:1/-1;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">
         <div><div class="cfg-note">Centring spring</div><svg id="devSpring-${n}" class="devCurve"></svg></div>
         <div><div class="cfg-note">Detent profile</div><svg id="devDetent-${n}" class="devCurve"></svg></div>
@@ -1316,9 +1317,8 @@ function devRender(){
     wire('homeDir',(el,dv)=>{ dv.homeDir=+el.value; frameWarn(); });
     wire('dir',   (el,dv)=>{ dv.dir=+el.value; frameWarn(); });
     wire('detents',(el,dv)=>{ dv.detents=el.value.split(',').map(s=>+s.trim()).filter(v=>isFinite(v)); });
-    // Teach: travel is a HARDWARE property, taught once by sweep - home
-    // the device (it rests limp), waggle the lever end to end, press
-    // Capture travel. Layout is a USE-CASE property, DERIVED from that
+    // Teach: travel is a HARDWARE property, taught once - home the device
+    // (it rests limp), then the TWO-PRESS capture (one press per end). Layout is a USE-CASE property, DERIVED from that
     // range by profile (never taught per position: an H-pattern's lateral
     // select is mechanical and invisible here, so every column shares one
     // fore/neutral/aft geometry; a selector splits the range into slots).
@@ -1327,12 +1327,32 @@ function devRender(){
       setF('neutralRev',dv.neutralRev);
       const df=$(`devF-${n}-detents`); if(df) df.value=(dv.detents||[]).join(', '); };
     const msg=(t)=>{ const m=$('devMsg'); if(m) m.textContent=t; };
+    // Two-press travel capture: hold the lever at one end, press; hold it
+    // at the other end, press again. Order does not matter (ends are
+    // sorted). The button itself carries the state so the flow can never
+    // be missed, and a completed capture flashes Derive layout as the
+    // next step.
     const cap=$(`devT-${n}-cap`); if(cap) cap.onclick=()=>{
-      const sw=devSweep[n];
-      if(!sw||!(sw.max>sw.min+0.002)){ msg('Capture travel: home the device, then move the lever end to end by hand first.'); return; }
+      const lv=devLive[n];
+      if(lv===undefined){ msg('Capture travel: home the device first (its own Home button).'); return; }
+      if(devCapA[n]===undefined){
+        devCapA[n]=lv;
+        cap.textContent='CAPTURE OTHER END';
+        msg('End 1 captured at '+lv.toFixed(4)+' rev. Hold the lever at the OTHER end and press again.');
+        return;
+      }
+      const a=devCapA[n], b=lv;
+      delete devCapA[n]; cap.textContent='CAPTURE TRAVEL';
+      if(Math.abs(b-a)<0.002){
+        msg('Capture travel: both presses were at the same spot - hold the lever at the opposite end for the second press.');
+        return; }
       const dd=cfgObj.drives[i]; dd.device=dd.device||{};
-      dd.device.stopMinRev=+sw.min.toFixed(4); dd.device.stopMaxRev=+sw.max.toFixed(4);
-      reflect(dd.device); msg('Travel captured - derive a layout (or set neutral), then Save.');
+      dd.device.stopMinRev=+Math.min(a,b).toFixed(4);
+      dd.device.stopMaxRev=+Math.max(a,b).toFixed(4);
+      reflect(dd.device);
+      msg('Travel captured: '+dd.device.stopMinRev+' … '+dd.device.stopMaxRev+' rev. Now press Derive layout, then Save.');
+      const lay=$(`devT-${n}-lay`);
+      if(lay){ lay.classList.add('flash'); setTimeout(()=>lay.classList.remove('flash'),4500); }
       refreshDirtyUI(); };
     const neu=$(`devT-${n}-neu`); if(neu) neu.onclick=()=>{
       const lv=devLive[n];
