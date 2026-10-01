@@ -264,6 +264,26 @@ public:
     double fxLevel(int i) const
     { return (i >= 0 && i < FX_TYPE_COUNT) ? m_fx[i].level : 0.0; }
 
+    // What the effect is actually PUTTING OUT, not what it is being driven
+    // with: zero when its amplitude is 0, it has no route with gain, or the
+    // layer is muted. The web wave draws this, so a tile only animates when
+    // something can be felt (a bench session read a full wave on an effect
+    // at amp 0 / no route as "fires visually, nothing felt").
+    double fxOutputLevel(int i) const
+    {
+        if (i < 0 || i >= FX_TYPE_COUNT || m_muted || m_masterGain <= 0.0) return 0.0;
+        const EffectParams& p = m_fxParams[i];
+        if (p.ampPct <= 0.0 || !hasRoute(p)) return 0.0;
+        return m_fx[i].level;
+    }
+
+    static bool hasRoute(const EffectParams& p)
+    {
+        for (const Route& r : p.routes)
+            if (r.axis >= 0 && r.axis < MAX_HAPTIC_AXES && r.gain > 0.0) return true;
+        return false;
+    }
+
     // ---- pulse-train engine (replaces the generic oscillator for the
     // RpmVibe slot). A real engine FIRES rather than hums: each firing is
     // a short damped thump at rpm/60 x cylinders/2. Low rpm = discrete

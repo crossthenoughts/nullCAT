@@ -1,0 +1,24 @@
+{
+  "_help": "nullCAT Channel Exporter settings. Put this file next to NullcatChannelExporter.dll in your SimHub folder and restart SimHub. Lines starting with _ are notes and are ignored.",
+
+  "_help_host": "Where nullCAT listens: the Pi or PC running nullCAT, and the same UDP port as your motion telemetry (default 4444). nullCAT tells the two streams apart by their headers.",
+  "host": "127.0.0.1",
+  "port": 4444,
+
+  "_help_channels": "Nine channels need no setup and are always sent: rpm, speed, gear, clutch, throttle, brake, ABS active, rev limiter (computed from rpm vs the car max) and TC active. They drive the Engine, Gear shift, ABS, Limiter and TC effects in nullCAT.",
+
+  "_help_props": "The four below are OPTIONAL 0..100 magnitudes that SimHub has no standard property for (they vary by game). Each value is the full name of ANY SimHub property that yields 0..100. Find names in SimHub under Settings, Properties (copy the exact text, dots included), or make your own with an NCalc formula. ShakeIt effects can also be exported as properties from the effect's settings and then appear in the same list. Leave a value empty and that channel sends 0, so its effect stays silent.",
+  "_help_name_shape": "A property name looks like PluginName.Section.ValueName, for example DataCorePlugin.GameData.Brake (that one is the brake, 0..100, and is already sent automatically).",
+
+  "_help_skidProp": "Tyre slip / skid magnitude 0..100: drives the Skid effect.",
+  "skidProp": "",
+
+  "_help_lockupProp": "Brake lockup magnitude 0..100: drives the Lockup effect.",
+  "lockupProp": "",
+
+  "_help_roadProp": "Road surface texture 0..100: drives the Road effect.",
+  "roadProp": "",
+
+  "_help_curbsProp": "Kerb strike magnitude 0..100: drives the Kerb effect.",
+  "curbsProp": ""
+}

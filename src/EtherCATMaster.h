@@ -4,7 +4,6 @@
 #include "A6Drive.h"
 #include "Config.h"
 #include "Logging.h"
-#include "RecoveryGate.h"
 #include <string>
 #include <vector>
 #include <functional>
@@ -146,15 +145,9 @@ public:
     static void dumpSlaveStateForTest(ecx_contextt* ctx, int slaveCount, const char* location);
 
     // DS402 / CANopen error-code description lookup.
-    // Public-static so tests can verify the table; also called internally by
-    // readDriveFaultHistory. Returns "unknown" for codes not in the table.
+    // Public-static so tests can verify the table. Returns "unknown" for
+    // codes not in the table.
     static const char* ds402ErrorCodeString(uint16_t code);
-
-    // Test-only wrapper for readDriveFaultHistory state-gating logic.
-    // Exposes the readback path so unit tests can verify it skips correctly
-    // on slaves whose state is below PRE_OP (where SDO reads would risk
-    // triggering the SDO crash family).
-    void readDriveFaultHistoryForTest(uint16_t slaveIdx) { readDriveFaultHistory(slaveIdx); }
 
     void setDriveConfigs(const std::vector<DriveConfig>& configs);
     void setControlLoopHz(int hz)             { m_controlLoopHz = hz; }
@@ -238,13 +231,6 @@ public:
     // the slave back to OP.
     void signalRecoveryNeeded();
     bool isRecoveryThreadRunning() const { return m_recoveryThreadRunning.load(); }
-
-    // Request a one-shot SDO read of 0x203F (precise panel/Er fault code) for
-    // a faulted drive. RT-safe (single fetch_or); the blocking mailbox read
-    // itself runs on the recovery thread's 10ms tick. One transaction per
-    // fault event -- NOT a poll (sustained SDO polling destabilises DC sync
-    // on Windows; see the temperature-poll history).
-    void requestPanelCodeRead(int driveIndex);
 
     // Re-apply PP profile SDOs (0x6081/6083/6084) for a slave that
     // has been recovered via ecx_recover_slave(). SDO values are recalculated
@@ -349,11 +335,17 @@ private:
     // as dropped one scan later, so the delay costs nothing real.
     std::vector<uint8_t> m_recoveryLostPending;
 
-    // Read drive fault history via SDO before recovery acts.
-    // Reads 0x603F (current error), 0x1001 (error register), 0x1003 (error
-    // history list, capped at 5 entries). Gated on state >= PRE_OP so we
-    // don't trigger the SDO crash family on slaves that have dropped.
-    void readDriveFaultHistory(uint16_t slaveIdx);
+    // NO diagnostic SDO reads from the recovery thread. The 0x203F panel-code
+    // and 0x1003 fault-history reads that used to live here held
+    // m_soemAccessMutex across ecx_SDOread; with the slaves on the cyclic
+    // mailbox handler that read can only complete when the RT loop services
+    // the queue, and the RT loop needs that same mutex. Net effect: a
+    // guaranteed EC_TIMEOUTTXM (20 ms) stall of the PDO exchange per attempt,
+    // every drive to SafeOp+Error, and never a single successful read
+    // (0 of 48 across two builds of bench logs). The 603F fault code already
+    // arrives in the TPDO every cycle; the exact Er sub-code is on the drive
+    // panel. Any future diagnostic SDO goes through SdoWorker (the path the
+    // temperature poll proves), never from here.
 
     // Mailbox-work hint for the processCyclicMailbox idle fast-path.
     // m_mbxWorkPending is cross-thread (SdoWorker writes, RT loop reads);
@@ -365,17 +357,6 @@ private:
     std::thread       m_recoveryThread;
     std::atomic<bool> m_needsRecovery{false};
     std::atomic<bool> m_recoveryStop{false};
-    std::atomic<uint32_t> m_panelReadMask{0};   // bit n = read 0x203F from drive n
-    // PDO pump-cycle counter: incremented by every completed sendReceive().
-    // The recovery thread's direct mailbox reads pace themselves on this
-    // ADVANCING (RecoveryGate) - a verified frame between any two access-
-    // lock holds, so diagnostic reads can never stack into a PDO gap that
-    // breaches the watchdog. Also gates the inter-read gaps in the
-    // fault-history walk (waitPumpAdvance).
-    std::atomic<uint64_t> m_pumpCycles{0};
-    RecoveryGate m_panelGate;                    // recovery-thread-only state
-    uint32_t readPanelCodeLocked(A6Drive* d);
-    bool     waitPumpAdvance(uint64_t& snap, int maxWaitMs);
     std::atomic<bool> m_recoveryThreadRunning{false};
 
     // Serialises SOEM port access between the RT control loop / pump

@@ -23,56 +23,53 @@ silently inert on the rig.
 
 ## Point it at your controller
 
-By default it sends to `127.0.0.1:4444`. If nullCAT runs on another
-machine (a Pi or NUC), create `NullcatChannelExporter.json` next to the
-DLL:
+Copy the `NullcatChannelExporter.json` from this folder next to the DLL
+and edit it. It is annotated: every `_help...` line explains the setting
+below it and is ignored by the plugin. The two settings everyone needs:
 
 ```json
-{ "host": "192.168.1.50", "port": 4444 }
+"host": "192.168.1.50",
+"port": 4444
 ```
 
-Use the same port as your motion telemetry - nullCAT tells the two
-streams apart by their headers.
+`host` is the Pi or PC running nullCAT; use the same port as your motion
+telemetry (nullCAT tells the two streams apart by their headers). Without
+the file the plugin sends to `127.0.0.1:4444`.
 
-## Optional: slip, lockup, and road channels
+## What is sent without any setup
 
-Brake and ABS come from SimHub's standard data automatically. The three
-magnitude channels (skid, lockup, roadNoise: 0-100 each) vary by game, so
-you bind them yourself to ANY SimHub property (including one you compute
-with NCalc) in the same JSON:
+Nine channels come from SimHub's standard data and need nothing from you:
+rpm, speed, gear, clutch, throttle, brake, ABS active, rev limiter
+(computed from rpm vs the car's max) and TC active. They drive the Engine,
+Gear shift, ABS, Limiter and TC effects.
+
+## Optional: skid, lockup, road and kerb channels
+
+These four are 0-100 magnitudes that SimHub has no standard property for
+(they vary by game), so you point each at ANY SimHub property that yields
+0-100. The annotated JSON has one line per channel:
 
 ```json
-{ "host": "192.168.1.50", "port": 4444,
-  "skidProp":   "SomePlugin.ComputedWheelSlip",
-  "lockupProp": "",
-  "roadProp":   "",
-  "curbsProp":  "" }
+"skidProp":   "",
+"lockupProp": "",
+"roadProp":   "",
+"curbsProp":  ""
 ```
 
-Empty or missing = that channel sends 0 and its effect stays off. Values
-are clamped to 0-100. Rev limiter and TC need no binding - the plugin
-computes the limiter from rpm vs the car max and sends TCActive from
-standard data.
+To find a property name: SimHub, Settings, Properties lists every
+property with its live value; copy the exact text, dots included. A name
+looks like `PluginName.Section.ValueName`, for example
+`DataCorePlugin.GameData.Brake` (that one is the brake, already sent).
+You can also build your own with an NCalc formula, and ShakeIt effects can
+be exported as properties from the effect's settings; both then appear in
+the same list. Empty = that channel sends 0 and its effect stays silent.
+Values are clamped to 0-100.
 
 ## nullCAT side
 
-Bind the channels in your rig config (`ncxBindings`) - with this
-plugin's channel order that is:
-
-```json
-"ncxBindings": [
-  { "token": "rpm",         "slot": 0, "scale": 1.0, "offset": 0.0 },
-  { "token": "speedKmh",    "slot": 1, "scale": 1.0, "offset": 0.0 },
-  { "token": "gear",        "slot": 2, "scale": 1.0, "offset": 0.0 },
-  { "token": "clutchPct",   "slot": 3, "scale": 1.0, "offset": 0.0 },
-  { "token": "throttlePct", "slot": 4, "scale": 1.0, "offset": 0.0 },
-  { "token": "brakePct",    "slot": 5, "scale": 1.0, "offset": 0.0 },
-  { "token": "absActive",   "slot": 6, "scale": 1.0, "offset": 0.0 },
-  { "token": "skid",        "slot": 7, "scale": 1.0, "offset": 0.0 },
-  { "token": "lockup",      "slot": 8, "scale": 1.0, "offset": 0.0 },
-  { "token": "roadNoise",   "slot": 9, "scale": 1.0, "offset": 0.0 }
-]
-```
+Nothing to bind: a fresh rig config ships with all 13 channels bound in
+this plugin's slot order. If you have edited `ncxBindings`, the Bindings
+editor in the web Setup view has a "defaults" button that restores them.
 
 See `Docs/DEVICES.md` in the nullCAT repository for what the effects do
 and how to tune them.

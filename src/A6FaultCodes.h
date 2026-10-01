@@ -195,7 +195,7 @@ inline const char* a6BusFaultCandidates(uint16_t bus)
     case 0xFF00: return "manufacturer group: overspeed at power-on (Er11.0), "
                         "S-ON failure (Er45.0), home position error (Er84.3), "
                         "or EXCESSIVE POSITION INCREMENT (Er87.1-87.4) -- "
-                        "panel/203F has the exact code";
+                        "the drive panel shows the exact code";
     default:     return "unknown 603F code (see A6 manual Table 10-1)";
     }
 }

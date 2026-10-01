@@ -66,11 +66,17 @@
   <section class="panel vw-op" id="hapPanel" hidden>
     <div class="hap-strip" id="hapStrip"></div>
     <div id="hapDrawer" hidden></div>
+    <div class="hap-savebar" id="hapSaveBar" hidden>
+      <span class="hk" id="hapDirtyMsg">unsaved changes</span>
+      <button class="btn btn-start btn-sm" id="hapSave" type="button">Save</button>
+    </div>
     <div class="fldtip" id="hapMsg" style="color:var(--warn)"></div>
     <div class="fldtip">Effects ride on top of the normal feel and are clamped inside each
-      axis's own limits. Amplitude 0 = off. The continuous effects need their NULLCATX
-      channels from the sender (see the SimHub plugin README); a missing channel leaves the
-      effect silent. Save, then re-initialize to apply changes.</div>
+      axis's own limits. Amplitude 0 = off; an effect also needs a route (the chip on its
+      tile) to a torque axis that is live (belt tensioned, device engaged). Changes apply
+      live on Save, no re-initialize. The continuous effects need their NULLCATX channels
+      from the sender (see the SimHub plugin README); a missing channel leaves the effect
+      silent.</div>
   </section>
 
   <!-- ===== configuration (inline collapsible) ===== -->
@@ -221,8 +227,8 @@
       </div>
     </div>
     <div class="cfg-foot">
-      <span class="cfg-note">Theme applies live (saved in browser); device feel applies live
-        while the device is limp. All other rig fields (global + per-axis) write to
+      <span class="cfg-note">Theme applies live (saved in browser); haptics apply live on Save;
+        device feel applies live while the device is limp. All other rig fields (global + per-axis) write to
         <code>rig.json</code> and take effect on the next <strong>EtherCAT Initialize</strong>;
         host/network settings need a <strong>service restart</strong> (Pi) or app restart.</span>
       <span class="spacer"></span>

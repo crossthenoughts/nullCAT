@@ -211,6 +211,9 @@ bool A6Drive::stepEnableStateMachine()
         // Write target = actual every sync cycle (direct counts, no offset/clamping)
         if (m_pTargetPosition)
             *m_pTargetPosition = m_lastActualCounts;
+        // Torque drives: the command the 0x0F snapshot will see must already
+        // be valid (CST, zero torque, nonzero clamp), not a zero-filled IOmap.
+        primeTorqueCommand();
 
         if (m_commandSyncCount < m_commandSyncCycles)
         {
@@ -512,6 +515,14 @@ void A6Drive::setTargetTorque(double pct)
     // C06.20=0 provisioning -- not an overspeed clamp problem.)
     if (m_pMaxProfileVel)
         *m_pMaxProfileVel = m_maxProfileVelCounts;
+}
+
+void A6Drive::primeTorqueCommand()
+{
+    if (!m_torqueMode) return;
+    if (m_pTargetTorque)    *m_pTargetTorque = 0;
+    if (m_pModeOfOperation) *m_pModeOfOperation = 10;
+    if (m_pMaxProfileVel)   *m_pMaxProfileVel = m_maxProfileVelCounts;
 }
 
 // ============================================================

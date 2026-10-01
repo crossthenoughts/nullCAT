@@ -692,7 +692,7 @@ void MotionController::publishStatus()
     m_statusSnapshot.hapticsFired = m_haptics.fireCount();
     m_statusSnapshot.hapticsMuted = m_haptics.muted();
     for (int i = 0; i < haptics::FX_TYPE_COUNT; ++i)
-        m_statusSnapshot.hapticsFxLevel[i] = m_haptics.fxLevel(i);
+        m_statusSnapshot.hapticsFxLevel[i] = m_haptics.fxOutputLevel(i);   // felt, not driven
     for (int i = 0; i < NcxValues::TokenCount; ++i)
         m_statusSnapshot.ncxHave[i] = m_ncxHaveSnapshot[i];
 }
@@ -1945,6 +1945,7 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
         m_haptics.configureFx(haptics::FxType::TcPulse,  s.tc);
         m_haptics.configureFx(haptics::FxType::Kerb,     s.kerb);
         m_haptics.setMasterGain(s.masterGain);
+        RT_LOG_INFO("MotionController: haptics settings applied live.");
     }
     if (estopNow) m_haptics.clearAll();
     else          driveContinuousHaptics(telemetryData);

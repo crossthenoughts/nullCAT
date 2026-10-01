@@ -28,6 +28,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 #include <chrono>
 #include <sys/stat.h>
@@ -85,6 +86,58 @@ static std::string siblingFile(const std::string& anchor, const char* name)
     auto pos = anchor.find_last_of("/\\");
     std::string dir = (pos == std::string::npos) ? std::string() : anchor.substr(0, pos + 1);
     return dir + name;
+}
+
+static long long fileMtime(const std::string& path)
+{
+    struct stat st{};
+    return (::stat(path.c_str(), &st) == 0) ? static_cast<long long>(st.st_mtime) : 0;
+}
+
+static bool readWholeFile(const std::string& path, std::string& out)
+{
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+    out.assign((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    return true;
+}
+
+// Structural JSON equality (key order and number formatting do not count),
+// so a save that changes nothing is recognised as such and not written.
+static bool jsonEqual(const std::string& a, const std::string& b)
+{
+    const QJsonDocument da = QJsonDocument::fromJson(QByteArray::fromStdString(a));
+    const QJsonDocument db = QJsonDocument::fromJson(QByteArray::fromStdString(b));
+    if (da.isNull() || db.isNull()) return false;
+    return da == db;
+}
+
+// True when two rig bodies differ ONLY in the parts the running process
+// applies live on save (haptics tuning + per-device feel), i.e. nothing that
+// needs an Initialize changed. Unparseable bodies count as "needs init".
+static bool rigDiffIsLiveOnly(const std::string& oldBody, const std::string& newBody)
+{
+    auto strip = [](const std::string& s, QJsonObject& out) -> bool
+    {
+        const QJsonDocument d = QJsonDocument::fromJson(QByteArray::fromStdString(s));
+        if (!d.isObject()) return false;
+        out = d.object();
+        QJsonObject g = out.value("global").toObject();
+        g.remove("haptics");
+        out.insert("global", g);
+        QJsonArray axes = out.value("axes").toArray();
+        for (int i = 0; i < axes.size(); ++i)
+        {
+            QJsonObject a = axes.at(i).toObject();
+            a.remove("device");
+            axes.replace(i, a);
+        }
+        out.insert("axes", axes);
+        return true;
+    };
+    QJsonObject a, b;
+    if (!strip(oldBody, a) || !strip(newBody, b)) return false;
+    return a == b;
 }
 
 // Who owns host.json on THIS build. Keyed off HAS_QT_CONFIG (a native config UI
@@ -468,20 +521,14 @@ std::string WebServer::buildStatusJson() const
            + ",\"fault\":"   + jsonBool(ind.fault)
            + ",\"cls\":"     + jsonStr(stl.webClass)
            + ",\"pattern\":" + jsonStr(stl.pattern);
-        // Decoded fault identity (additive). Precise Er name when the
-        // recovery thread's one-shot 0x203F read has landed; otherwise the
-        // coarse 603F class + candidate list from the live PDO word.
+        // Decoded fault identity (additive): the 603F class from the live
+        // PDO word plus the candidate Er codes it covers. The exact sub-code
+        // is on the drive panel; nothing here reads the mailbox.
         if (ind.fault && hasSw)
         {
             A6Drive* dp = m_master->getDrive(i);
-            uint16_t bus   = dp ? dp->getFaultCode() : 0;
-            uint32_t panel = dp ? dp->getPanelCode() : 0;
-            const A6FaultInfo* fi = a6PanelFault(static_cast<uint16_t>(panel & 0xFFFF));
-            if (fi)
-                s += ",\"faultCode\":" + jsonStr(fi->er)
-                   + ",\"faultText\":" + jsonStr(std::string(fi->name)
-                        + (fi->resettable ? "" : " -- not resettable, power cycle"));
-            else if (bus != 0)
+            uint16_t bus = dp ? dp->getFaultCode() : 0;
+            if (bus != 0)
                 s += ",\"faultCode\":" + jsonStr(strf("0x%04x", bus))
                    + ",\"faultText\":" + jsonStr(a6BusFaultCandidates(bus));
         }
@@ -653,6 +700,14 @@ bool WebServer::start()
                     if (m_configReloader && !m_configReloader())
                         LOG_WARNING("WebServer: config reload from disk failed -- "
                                     "initializing with the in-memory config.");
+                    else
+                    {
+                        // rig.json is now what this process runs: the pill
+                        // for it goes out (host.json still needs a restart).
+                        m_rigNeedsInit.store(false);
+                        if (!m_configPath.empty())
+                            m_rigKnownMtime.store(fileMtime(siblingFile(m_configPath, "rig.json")));
+                    }
                     m_motion->configure(*m_config);
                 }
 
@@ -888,19 +943,19 @@ bool WebServer::start()
         // The web shows/edits the host section only when it owns it.
         svr.Get("/api/meta", [this](const httplib::Request&, httplib::Response& res)
         {
-            // Pending-restart truth is SERVER-owned so it
-            // survives page reloads and every client agrees. A namespace is
-            // "pending" when its file was modified after this process started
-            // (one stat() per file per poll; meta is polled at UI cadence only).
-            auto pendingSince = [this](const char* which) -> bool
+            // Pending truth is SERVER-owned so it survives page reloads and
+            // every client agrees: a web save that changed something this
+            // process has not picked up (see WebServer.h), or a file whose
+            // mtime is newer than the last one we wrote/loaded (external edit).
+            auto pending = [this](const char* which, bool flag, long long known) -> bool
             {
+                if (flag) return true;
                 if (m_configPath.empty()) return false;
-                struct stat st{};
-                if (::stat(siblingFile(m_configPath, which).c_str(), &st) != 0) return false;
-                return st.st_mtime > m_processStart;
+                const long long mt = fileMtime(siblingFile(m_configPath, which));
+                return mt > (known ? known : static_cast<long long>(m_processStart));
             };
-            const bool rigPend  = pendingSince("rig.json");
-            const bool hostPend = pendingSince("host.json");
+            const bool rigPend  = pending("rig.json",  m_rigNeedsInit.load(),     m_rigKnownMtime.load());
+            const bool hostPend = pending("host.json", m_hostNeedsRestart.load(), m_hostKnownMtime.load());
 #ifndef NULLCAT_VERSION
 #define NULLCAT_VERSION "dev"
 #endif
@@ -989,42 +1044,78 @@ bool WebServer::start()
         });
 
         // Shared: validate `body` for namespace `which` against the other
-        // namespace on disk, then atomically replace <which>.json. Restart to
-        // apply. Single writer per file: rig = web (both platforms); host =
-        // web only on headless builds (refused here when natively owned).
+        // namespace on disk, then atomically replace <which>.json. Single
+        // writer per file: rig = web (both platforms); host = web only on
+        // headless builds (refused there when natively owned). A body that
+        // is structurally identical to the file is NOT written (no mtime
+        // bump, no pending pill): a bench session lost an afternoon to the
+        // pill lighting on every save and every restart being a first init.
+        // Returns -1 on failure (response already set), 0 unchanged, 1 written.
         auto writeConfigNamespace = [this, errResp](const char* which,
-            const std::vector<std::string>& errs, const std::string& body, httplib::Response& res) -> bool
+            const std::vector<std::string>& errs, const std::string& body,
+            httplib::Response& res, std::string* oldBodyOut) -> int
         {
             if (!errs.empty())
             {
                 std::string m; for (auto& e : errs) m += (m.empty() ? "" : "; ") + e;
                 errResp(res, m);
-                return false;
+                return -1;
             }
             const std::string path = siblingFile(m_configPath, which);
+            std::string oldBody;
+            const bool haveOld = readWholeFile(path, oldBody);
+            if (oldBodyOut) *oldBodyOut = haveOld ? oldBody : std::string();
+            if (haveOld && jsonEqual(oldBody, body))
+            {
+                LOG_INFO(std::string("WebServer: ") + which + " save received - no changes, not written.");
+                return 0;
+            }
             const std::string tmp  = path + ".tmp";
             { std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
-              if (!o) { errResp(res, "Cannot write temp file."); return false; } o << body; }
+              if (!o) { errResp(res, "Cannot write temp file."); return -1; } o << body; }
             // std::filesystem::rename is an atomic replace-if-exists on BOTH
             // platforms (MSVC -> MoveFileEx(MOVEFILE_REPLACE_EXISTING), Linux ->
             // rename(2)). Plain std::rename fails with EEXIST on the Windows CRT
             // when the target exists, which would break every save after the
             // first on a Windows build.
+            // On Windows the replace fails with a sharing violation while
+            // another reader (AV scan, the native app's file watcher) has the
+            // target open for a few tens of ms after the previous write; a
+            // short retry turns that into a non-event instead of a refused save.
             std::error_code ec;
-            std::filesystem::rename(tmp, path, ec);
+            for (int attempt = 0; attempt < 8; ++attempt)
+            {
+                std::filesystem::rename(tmp, path, ec);
+                if (!ec) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
             if (ec)
-            { std::error_code ec2; std::filesystem::remove(tmp, ec2); errResp(res, "Save failed (rename)."); return false; }
-            LOG_INFO(std::string("WebServer: ") + which + " updated via web - applies on the next Initialize (host/service settings on restart).");
-            res.set_content("{\"ok\":true,\"restartRequired\":true}", "application/json");
-            return true;
+            { std::error_code ec2; std::filesystem::remove(tmp, ec2); errResp(res, "Save failed (rename)."); return -1; }
+            return 1;
         };
 
         // POST /api/rig - the web owns rig.json on both platforms.
         postCmd("/api/rig", [this, errResp, writeConfigNamespace](const httplib::Request& req, httplib::Response& res)
         {
             if (m_configPath.empty()) { errResp(res, "No config path configured."); return; }
-            if (!writeConfigNamespace("rig.json", Config::validateRigBody(m_configPath, req.body), req.body, res))
+            std::string oldBody;
+            const int wr = writeConfigNamespace("rig.json", Config::validateRigBody(m_configPath, req.body),
+                                                req.body, res, &oldBody);
+            if (wr < 0) return;
+            if (wr == 0)
+            {
+                res.set_content(std::string("{\"ok\":true,\"changed\":false,\"needsInit\":")
+                                + (m_rigNeedsInit.load() ? "true" : "false") + "}", "application/json");
                 return;
+            }
+            // What changed decides the pill: haptics + device feel apply live
+            // below; anything else waits for the next Initialize.
+            const bool liveOnly = rigDiffIsLiveOnly(oldBody, req.body);
+            if (!liveOnly) m_rigNeedsInit.store(true);
+            m_rigKnownMtime.store(fileMtime(siblingFile(m_configPath, "rig.json")));
+            LOG_INFO(liveOnly
+                ? "WebServer: rig.json updated via web - haptics/device tuning only, applied live (no re-initialize needed)."
+                : "WebServer: rig.json updated via web - applies on the next Initialize.");
             // Device live-apply: stage each device axis's fresh params with
             // the motion controller - they land the moment that device is
             // (or next becomes) limp. Feel tuning never needs a restart.
@@ -1043,6 +1134,8 @@ bool WebServer::start()
                 if (fresh.load(m_configPath))
                     m_motion->stageHaptics(fresh.get());
             }
+            res.set_content(std::string("{\"ok\":true,\"changed\":true,\"needsInit\":")
+                            + (m_rigNeedsInit.load() ? "true" : "false") + "}", "application/json");
         });
 
         // POST /api/host - only honored on headless builds (hostOwner == "web").
@@ -1059,7 +1152,18 @@ bool WebServer::start()
                 return;
             }
             if (m_configPath.empty()) { errResp(res, "No config path configured."); return; }
-            writeConfigNamespace("host.json", Config::validateHostBody(m_configPath, req.body), req.body, res);
+            const int wr = writeConfigNamespace("host.json", Config::validateHostBody(m_configPath, req.body),
+                                                req.body, res, nullptr);
+            if (wr < 0) return;
+            if (wr == 1)
+            {
+                m_hostNeedsRestart.store(true);
+                m_hostKnownMtime.store(fileMtime(siblingFile(m_configPath, "host.json")));
+                LOG_INFO("WebServer: host.json updated via web - applies on the next service/app restart.");
+            }
+            res.set_content(std::string("{\"ok\":true,\"changed\":") + (wr == 1 ? "true" : "false")
+                            + ",\"needsRestart\":" + (m_hostNeedsRestart.load() ? "true" : "false") + "}",
+                            "application/json");
         });
 
         // /api/start - start the control loop (drive must already be operational)
@@ -1219,20 +1323,51 @@ bool WebServer::start()
             else if (b.find("tc")          != std::string::npos) iv = 6;
             if (iv == -999) { errResp(res, "Unknown effect."); return; }
 
-            // Something live has to feel it, or the button is a mystery.
-            const MotionStatus ms = m_motion->getMotionStatus();
-            bool anyLive = false;
-            for (int i = 0; i < ms.numDrives && !anyLive; ++i)
+            // The effect as SAVED has to be able to produce something, and
+            // one of the axes it routes to has to be live, or the button is
+            // a mystery (a bench session read a full wave on an effect at
+            // amp 0 / no route as "fires visually, nothing felt"). Disk is
+            // truth: unsaved edits in the browser are not what would play.
+            Config saved;
+            if (!saved.load(m_configPath)) { errResp(res, "Cannot read the saved config."); return; }
+            const AppConfig& sc = saved.get();
+            const haptics::EffectParams* ep = nullptr;
+            switch (iv)
             {
-                if (!m_config || static_cast<size_t>(i) >= m_config->drives.size()) break;
-                const AxisCaps c = axisCaps(m_config->drives[i].axisType,
-                                            m_config->drives[i].mode);
-                const bool torquey = c.isDevice() || m_config->drives[i].mode == "torque";
-                anyLive = torquey && (ms.axisState[i] == AxisMotionState::ONLINE
-                                      || ms.axisState[i] == AxisMotionState::BLENDING);
+                case -1: ep = &sc.hapticsDetentClick; break;
+                case -2: ep = &sc.hapticsGearShift;   break;
+                case 0:  ep = &sc.hapticsRpmVibe;     break;
+                case 1:  ep = &sc.hapticsAbs;         break;
+                case 2:  ep = &sc.hapticsLockup;      break;
+                case 3:  ep = &sc.hapticsSkid;        break;
+                case 4:  ep = &sc.hapticsRoad;        break;
+                case 5:  ep = &sc.hapticsLimiter;     break;
+                case 6:  ep = &sc.hapticsTc;          break;
+                default: ep = &sc.hapticsKerb;        break;
             }
-            if (!anyLive)
-            { errResp(res, "Nothing live to feel it: engage a device or tension the belts first."); return; }
+            if (ep->ampPct <= 0.0)
+            { errResp(res, "Effect amplitude is 0 in the saved config: set amp % and Save first."); return; }
+            if (!haptics::Layer::hasRoute(*ep))
+            { errResp(res, "Effect has no route in the saved config: open its route chip, set a gain, then Save."); return; }
+            if (sc.hapticsMasterGain <= 0.0)
+            { errResp(res, "Master gain is 0: nothing can be felt."); return; }
+
+            const MotionStatus ms = m_motion->getMotionStatus();
+            bool routedLive = false;
+            std::string routedNames;
+            for (const haptics::Route& r : ep->routes)
+            {
+                if (r.axis < 0 || r.gain <= 0.0) continue;
+                if (static_cast<size_t>(r.axis) < sc.drives.size())
+                    routedNames += (routedNames.empty() ? "" : ", ") + sc.drives[r.axis].name;
+                // numDrives is 0 until the loop runs: nothing is live then.
+                if (r.axis < ms.numDrives
+                    && (ms.axisState[r.axis] == AxisMotionState::ONLINE
+                        || ms.axisState[r.axis] == AxisMotionState::BLENDING))
+                    routedLive = true;
+            }
+            if (!routedLive)
+            { errResp(res, "Routed axis not live (" + routedNames + "): start the loop, then engage the device or tension the belt."); return; }
 
             MotionCommand cmd; cmd.type = MotionCommand::Type::HapticsTest; cmd.intVal = iv;
             if (!m_motion->enqueueCommand(cmd)) { errResp(res, "Command queue full."); return; }

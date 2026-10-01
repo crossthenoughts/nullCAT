@@ -6,7 +6,7 @@
 // Unit tests for B222J changes:
 //   J-6a    A6: ds402ErrorCodeString covers expected DS402/CiA 402 codes
 //   J-6b    A6: unknown codes return "unknown" rather than null/crashing
-//   J-6c    A6: readDriveFaultHistory skips when state < PRE_OP (state-gating)
+//   (J-6c, the readDriveFaultHistory placeholder, removed with the reads)
 //   J-3     A3: dumpSlaveState DIAG line includes coembxoverrun=N
 // ============================================================
 
@@ -75,48 +75,6 @@ private slots:
                  QString("unknown"));
         QCOMPARE(QString(EtherCATMaster::ds402ErrorCodeString(0xABCD)),
                  QString("unknown"));
-    }
-
-    // --------------------------------------------------------------
-    // J-6c: readDriveFaultHistory must skip when state < PRE_OP.
-    // Constructing a slave in state=INIT (0x01) and calling the
-    // readback should produce the "skipping fault-history readback"
-    // log line, not attempt the SDO reads (which would trigger the
-    // SDO crash family on a dropped slave).
-    // --------------------------------------------------------------
-    void j6c_readDriveFaultHistory_skips_when_state_below_preop()
-    {
-#ifdef SOEM_AVAILABLE
-        EtherCATMaster master;
-        // Sim mode + 1 drive to make m_initialized true via applyConfig.
-        AppConfig cfg;
-        cfg.numDrives = 1;
-        cfg.controlLoopHz = 500;
-        cfg.simulationMode = true;
-        DriveConfig d;
-        d.slaveIndex = 1; d.axisType = "linear_vertical"; d.name = "A";
-        d.encoderCountsPerRev = 10000; d.ballscrewPitch = 5.0; d.countsPerMm = 2000.0;
-        cfg.drives.push_back(d);
-        master.applyConfig(cfg);
-
-        // In sim mode, readDriveFaultHistory returns early at the
-        // !m_initialized / m_simulationMode check (top of function).
-        // This is the only path we can exercise without real hardware
-        // because real SDO calls require an open SOEM context.
-        // The state-gating logic itself is verified via code inspection
-        // (state >= PRE_OP && state != BOOT). On hardware, the JL-6c
-        // path will be exercised by the recovery thread firing on a
-        // dropped slave during the cable-pull test.
-        Logger::instance().setMinLevel(LogLevel::LVL_DEBUG);
-        master.readDriveFaultHistoryForTest(1);
-        Logger::instance().setMinLevel(LogLevel::LVL_CRITICAL);
-
-        // The call must not crash. We don't assert on log output here
-        // because sim mode short-circuits at the top of the function.
-        QVERIFY(true);
-#else
-        QSKIP("SOEM not available - fault-history readback test requires SOEM headers");
-#endif
     }
 
     // --------------------------------------------------------------

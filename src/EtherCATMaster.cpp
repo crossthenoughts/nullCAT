@@ -2733,72 +2733,6 @@ void EtherCATMaster::signalRecoveryNeeded()
     m_needsRecovery.store(true, std::memory_order_release);
 }
 
-void EtherCATMaster::requestPanelCodeRead(int driveIndex)
-{
-    if (driveIndex < 0 || driveIndex >= 32) return;
-    m_panelReadMask.fetch_or(uint32_t(1) << driveIndex, std::memory_order_acq_rel);
-}
-
-// Recovery-thread SDO timeout: short enough that a single access-lock hold
-// against an unresponsive slave (50 ms) stays well inside the 100 ms PDO
-// watchdog. Healthy A6 mailboxes answer in single-digit milliseconds; a
-// slave that needs longer gets a counter-gated retry, never a longer wait.
-static constexpr int RECOVERY_SDO_TIMEOUT_US = 50000;
-
-// The panel-code read, done RIGHT: owned by the master (mailbox concurrency
-// is the master's job, not a drive object's), transfer->access lock order,
-// SEH-wrapped, short single attempt. Replaces the raw unserialised read
-// that raced the RT exchange on the shared SOEM context.
-uint32_t EtherCATMaster::readPanelCodeLocked(A6Drive* d)
-{
-    if (!d || m_simulationMode || !m_initialized) return 0;
-    ecx_contextt* ctx = ctxPtr(m_ctx);
-    if (!ctx) return 0;
-
-    uint32_t panel = 0;
-    int size = sizeof(panel);
-    uint32_t exCode = 0;
-    int wkc = 0;
-    {
-        std::lock_guard<std::mutex> xfer(m_sdoTransferMutex);
-        std::lock_guard<std::mutex> lk(m_soemAccessMutex);
-        PlatformRT::safeCall([&]() {
-            wkc = ecx_SDOread(ctx, (uint16)d->getSlaveIndex(), 0x203F, 0x00,
-                              FALSE, &size, &panel, RECOVERY_SDO_TIMEOUT_US);
-        }, &exCode);
-    }
-    if (exCode != 0)
-    {
-        LOG_WARNING(strf("RecoveryThread: drive %d 0x203F read crashed (0x%08x)",
-                         d->getSlaveIndex(), exCode));
-        return 0;
-    }
-    if (wkc > 0)
-    {
-        d->setPanelCode(panel);
-        return panel;
-    }
-    return 0;
-}
-
-// Wait (briefly) until the PDO pump counter advances past `snap`, proving
-// the RT loop exchanged a frame since our last mailbox hold. When the loop
-// is NOT running the counter never moves - then there is no RT thread to
-// starve, so proceeding immediately is correct; the bounded wait keeps the
-// recovery thread from hanging on a stopped pump.
-bool EtherCATMaster::waitPumpAdvance(uint64_t& snap, int maxWaitMs)
-{
-    const uint64_t before = snap;
-    for (int i = 0; i < maxWaitMs; ++i)
-    {
-        const uint64_t now = m_pumpCycles.load(std::memory_order_relaxed);
-        if (RecoveryGate::advanced(before, now)) { snap = now; return true; }
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    snap = m_pumpCycles.load(std::memory_order_relaxed);
-    return false;
-}
-
 void EtherCATMaster::startRecoveryThread()
 {
     if (m_recoveryThreadRunning.load() || m_simulationMode) return;
@@ -2875,51 +2809,9 @@ void EtherCATMaster::recoveryThreadMain()
             doRecoveryScan();
         }
 
-        // One-shot precise fault decode: the RT loop flags a faulted drive
-        // via requestPanelCodeRead(); the 0x203F mailbox read runs here,
-        // off the RT path, properly locked, at a SHORT (50 ms) single
-        // attempt. Retries are gated on the PDO pump counter ADVANCING
-        // (RecoveryGate): never two adjacent access-lock holds, at most
-        // one drive per loop pass, so diagnosing a fault can never stack
-        // holds into a watchdog-breaching PDO gap.
-        {
-            const uint32_t newMask = m_panelReadMask.exchange(0, std::memory_order_acq_rel);
-            if (newMask != 0)
-                m_panelGate.arm(newMask, m_pumpCycles.load(std::memory_order_relaxed));
-            if (m_initialized && !m_simulationMode && m_panelGate.pending())
-            {
-                const int i = m_panelGate.nextDue(m_pumpCycles.load(std::memory_order_relaxed));
-                A6Drive* d = (i >= 0 && i < getDriveCount()) ? getDrive(i) : nullptr;
-                if (d)
-                {
-                    const uint32_t panel = readPanelCodeLocked(d);
-                    const bool ok = (panel != 0);
-                    const bool gaveUp = m_panelGate.noteAttempt(
-                        i, m_pumpCycles.load(std::memory_order_relaxed), ok);
-                    if (ok)
-                    {
-                        const uint16_t er = static_cast<uint16_t>(panel & 0xFFFF);
-                        const A6FaultInfo* fi = a6PanelFault(er);
-                        if (fi)
-                            LOG_ERROR(strf("Drive %d panel fault 0x%03x = %s: %s (%s)",
-                                d->getSlaveIndex(), er, fi->er, fi->name,
-                                fi->resettable ? "resettable" : "NOT resettable -- power cycle"));
-                        else
-                            LOG_ERROR(strf("Drive %d panel fault 0x203F=0x%08x (low16=0x%04x not in table -- "
-                                "check A6 manual Table 10-1)", d->getSlaveIndex(), panel, er));
-                    }
-                    else if (gaveUp)
-                        LOG_WARNING(strf("Drive %d panel code unavailable after %d attempts -- "
-                            "read the Er code off the drive panel.",
-                            d->getSlaveIndex(), RecoveryGate::MAX_ATTEMPTS));
-                    else
-                        LOG_INFO(strf("Drive %d panel code unavailable -- will retry after "
-                            "a confirmed PDO cycle.", d->getSlaveIndex()));
-                }
-                else if (i >= 0)
-                    m_panelGate.noteAttempt(i, m_pumpCycles.load(std::memory_order_relaxed), true);
-            }
-        }
+        // Deliberately NO diagnostic mailbox reads on this thread: see the
+        // note in EtherCATMaster.h. The recovery scan reads slave AL state
+        // (FPRD) and writes ACK/state requests only.
 
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -2961,161 +2853,6 @@ const char* EtherCATMaster::ds402ErrorCodeString(uint16_t code)
         case 0x8700: return "sync error";
         case 0xFF00: return "manufacturer-specific";
         default:     return "unknown";
-    }
-}
-
-void EtherCATMaster::readDriveFaultHistory(uint16_t slaveIdx)
-{
-    if (m_simulationMode || !m_initialized) return;
-    ecx_contextt* ctx = ctxPtr(m_ctx);
-    if (!ctx) return;
-    if (slaveIdx < 1 || (int)slaveIdx > m_slaveCount) return;
-
-    // State gating: SDO reads from the recovery thread can
-    // race with cyclic mailbox routing; the AS715N returns wkc=0
-    // on 0x603F when slaves are in SafeOp+Error. Only attempt
-    // the readback when the slave is in PRE_OP, SAFE_OP, or OP without the
-    // error bit set. SafeOp+Error (0x14) is skipped - the drives don't
-    // respond to SDO in that state, and Branch 1 will ACK it back to plain
-    // SafeOp where the read would work; let the next recovery scan iteration
-    // pick it up.
-    uint16_t state = ctx->slavelist[slaveIdx].state;
-    bool mailboxFunctional =
-        (state == EC_STATE_PRE_OP) ||
-        (state == EC_STATE_SAFE_OP) ||
-        (state == EC_STATE_OPERATIONAL);
-    if (!mailboxFunctional)
-    {
-        LOG_INFO(strf("RecoveryThread: slave %d state=0x%02x - fault-history readback skipped (mailbox not in a known-good state)",
-            slaveIdx, state));
-        return;
-    }
-
-    // Hold the whole-transfer mutex for the entire fault-history SDO
-    // sequence so the SdoWorker cannot interleave a temp/one-off transfer between
-    // these reads (mailbox-interleave protection). Lock order is transfer(outer) ->
-    // soemAccess(inner, taken per read below). Each read is capped at
-    // RECOVERY_SDO_TIMEOUT_US (one hold stays well inside the PDO watchdog)
-    // and each is preceded by waitPumpAdvance(): a VERIFIED PDO frame
-    // between holds, not a scheduler hope - std::mutex guarantees no
-    // fairness, so releasing between reads alone is not enough.
-    std::lock_guard<std::mutex> xfer(m_sdoTransferMutex);
-    uint64_t pumpSnap = m_pumpCycles.load(std::memory_order_relaxed);
-
-    // 0x6041 - DS402 statusword (always available in PreOp+; 2 bytes).
-    // Read this first as a sanity check before the optional CANopen objects.
-    // If 0x6041 returns wkc=0 the slave isn't responding to SDO at all, so
-    // skip the rest rather than wasting timeouts.
-    uint16_t statusword = 0;
-    int sz = sizeof(statusword);
-    uint32_t exCode = 0;
-    int wkc = 0;
-    {
-        waitPumpAdvance(pumpSnap, 5);   // verified PDO frame since the last hold
-        std::lock_guard<std::mutex> lk(m_soemAccessMutex);
-        PlatformRT::safeCall([&]() {
-            wkc = ecx_SDOread(ctx, slaveIdx, 0x6041, 0x00, FALSE, &sz, &statusword, RECOVERY_SDO_TIMEOUT_US);
-        }, &exCode);
-    }
-    if (exCode != 0)
-    {
-        LOG_WARNING(strf("RecoveryThread: slave %d 0x6041 SDO read crashed (0x%08x) - aborting readback", slaveIdx, exCode));
-        return;
-    }
-    if (wkc <= 0)
-    {
-        LOG_INFO(strf("RecoveryThread: slave %d 0x6041 SDO read wkc=%d - slave not responding to SDO, aborting readback", slaveIdx, wkc));
-        return;
-    }
-    LOG_INFO(strf("RecoveryThread: slave %d 0x6041 DS402 statusword = 0x%04x", slaveIdx, statusword));
-
-    // 0x603F - current error code (DS402, 2 bytes)
-    uint16_t curErr = 0;
-    sz = sizeof(curErr);
-    {
-        waitPumpAdvance(pumpSnap, 5);   // verified PDO frame since the last hold
-        std::lock_guard<std::mutex> lk(m_soemAccessMutex);
-        PlatformRT::safeCall([&]() {
-            wkc = ecx_SDOread(ctx, slaveIdx, 0x603F, 0x00, FALSE, &sz, &curErr, RECOVERY_SDO_TIMEOUT_US);
-        }, &exCode);
-    }
-    if (exCode != 0)
-    {
-        LOG_WARNING(strf("RecoveryThread: slave %d 0x603F SDO read crashed (0x%08x)", slaveIdx, exCode));
-        return;
-    }
-    if (wkc > 0)
-    {
-        LOG_INFO(strf("RecoveryThread: slave %d 0x603F current error = 0x%04x (%s)",
-            slaveIdx, curErr, ds402ErrorCodeString(curErr)));
-    }
-    else
-    {
-        LOG_INFO(strf("RecoveryThread: slave %d 0x603F SDO read wkc=%d (drive may not support)", slaveIdx, wkc));
-    }
-
-    // 0x1001 - error register (DS301, 1 byte bit-coded category)
-    //   bit 0: generic  | bit 1: current     | bit 2: voltage
-    //   bit 3: temperature | bit 4: communication | bit 5: device-specific
-    //   bit 7: manufacturer-specific
-    uint8_t errReg = 0;
-    sz = sizeof(errReg);
-    {
-        waitPumpAdvance(pumpSnap, 5);   // verified PDO frame since the last hold
-        std::lock_guard<std::mutex> lk(m_soemAccessMutex);
-        PlatformRT::safeCall([&]() {
-            wkc = ecx_SDOread(ctx, slaveIdx, 0x1001, 0x00, FALSE, &sz, &errReg, RECOVERY_SDO_TIMEOUT_US);
-        }, &exCode);
-    }
-    if (exCode == 0 && wkc > 0)
-    {
-        LOG_INFO(strf("RecoveryThread: slave %d 0x1001 error register = 0x%02x", slaveIdx, errReg));
-    }
-
-    // 0x1003:0 - number of stored errors (DS301)
-    uint8_t numStored = 0;
-    sz = sizeof(numStored);
-    {
-        waitPumpAdvance(pumpSnap, 5);   // verified PDO frame since the last hold
-        std::lock_guard<std::mutex> lk(m_soemAccessMutex);
-        PlatformRT::safeCall([&]() {
-            wkc = ecx_SDOread(ctx, slaveIdx, 0x1003, 0x00, FALSE, &sz, &numStored, RECOVERY_SDO_TIMEOUT_US);
-        }, &exCode);
-    }
-    if (exCode != 0 || wkc <= 0) return;
-    if (numStored == 0)
-    {
-        LOG_INFO(strf("RecoveryThread: slave %d 0x1003 history empty (no stored errors)", slaveIdx));
-        return;
-    }
-
-    // 0x1003:N - each stored error: low 16 bits = code, high 16 = manuf info.
-    // Cap at 5 entries to bound scan time (each SDO ~1-2ms).
-    int maxRead = (numStored > 5) ? 5 : numStored;
-    LOG_INFO(strf("RecoveryThread: slave %d 0x1003 history has %d entries (reading first %d)",
-        slaveIdx, numStored, maxRead));
-    for (int j = 1; j <= maxRead; ++j)
-    {
-        uint32_t entry = 0;
-        sz = sizeof(entry);
-        {
-            waitPumpAdvance(pumpSnap, 5);   // verified PDO frame since the last hold
-            std::lock_guard<std::mutex> lk(m_soemAccessMutex);
-            PlatformRT::safeCall([&]() {
-                wkc = ecx_SDOread(ctx, slaveIdx, 0x1003, (uint8)j, FALSE, &sz, &entry, RECOVERY_SDO_TIMEOUT_US);
-            }, &exCode);
-        }
-        if (exCode != 0)
-        {
-            LOG_WARNING(strf("RecoveryThread: slave %d 0x1003:%d SDO read crashed (0x%08x)",
-                slaveIdx, j, exCode));
-            return;
-        }
-        if (wkc <= 0) break;
-        uint16_t code = static_cast<uint16_t>(entry & 0xFFFF);
-        uint16_t manuf = static_cast<uint16_t>((entry >> 16) & 0xFFFF);
-        LOG_INFO(strf("RecoveryThread: slave %d 0x1003:%d = 0x%08x [code=0x%04x %s | manuf=0x%04x]",
-            slaveIdx, j, entry, code, ds402ErrorCodeString(code), manuf));
     }
 }
 
@@ -3189,12 +2926,6 @@ void EtherCATMaster::doRecoveryScan()
             m_recoveryLostPending[i] = 0;
 
         if (s->state == EC_STATE_OPERATIONAL) continue;
-
-        // Read structured fault history before deciding what to do.
-        // Gates on state internally; safe to call even on dropped slaves
-        // (will just skip and return). Provides "why did it fault" data
-        // that pure ALstatuscode + statusword don't give us.
-        readDriveFaultHistory(static_cast<uint16_t>(i));
 
         // Branch 1: SafeOp + Error -> ACK
         if (s->state == (EC_STATE_SAFE_OP + EC_STATE_ERROR))
@@ -3502,11 +3233,6 @@ int EtherCATMaster::sendReceive()
         return -1;
     }
 
-    // Pump heartbeat for the recovery thread's pacing (RecoveryGate /
-    // waitPumpAdvance): a completed exchange, whatever its WKC, proves the
-    // PDO path got the bus between diagnostic mailbox reads.
-    m_pumpCycles.fetch_add(1, std::memory_order_relaxed);
-
     // DC phase: where the reference clock sits within the cycle, captured each
     // frame. With a DC-locked loop this is ~constant; on a free-running loop it
     // walks across the whole period as the Pi clock drifts vs the DC reference.
@@ -3626,8 +3352,13 @@ void EtherCATMaster::assignPDOPointers()
                 LOG_INFO(strf("  Slave %d: CST velocity clamp (0x607F) = %.0f rpm (%u counts/s)",
                               idx, dcfg->beltMaxRpm, cps));
             }
-            LOG_INFO(strf("  Slave %d '%s': Torque PDO layout (1702h, 19 bytes out). Mode writable via PDO.",
-                idx, drive->getName().c_str()));
+            // The first frame out must already carry a valid CST command: the
+            // IOmap is zeroed once per process and mode 0 / clamp 0 at the
+            // first enable is the first-init belt lunge.
+            drive->primeTorqueCommand();
+            LOG_INFO(strf("  Slave %d '%s': Torque PDO layout (1702h, 19 bytes out). Mode writable via PDO; "
+                "command primed (CST, 0%% torque, clamp %u counts/s).",
+                idx, drive->getName().c_str(), drive->getMaxProfileVelocityCounts()));
         }
         else
         {

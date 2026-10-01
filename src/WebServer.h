@@ -178,10 +178,18 @@ private:
 
     std::string m_webRoot   = "web";
     std::string m_configPath;          // config.json path (for /api/config)
-    // /api/meta reports <ns>PendingRestart when a config
-    // file's mtime is newer than this (saved, but this process hasn't reloaded
-    // it). Server-owned so the pill survives page reloads / multiple clients.
+    // /api/meta reports <ns>PendingRestart. Server-owned so the pill survives
+    // page reloads / multiple clients. A namespace is pending when (a) a web
+    // save changed something this process has not picked up (rig: anything
+    // outside the live-applied haptics/device tuning, cleared on Initialize;
+    // host: anything, cleared only by a restart), or (b) the file's mtime is
+    // newer than the last one this process wrote or loaded (an external
+    // edit). Unchanged saves are not written, so they never light the pill.
     time_t      m_processStart = ::time(nullptr);
+    std::atomic<bool>      m_rigNeedsInit{false};
+    std::atomic<bool>      m_hostNeedsRestart{false};
+    std::atomic<long long> m_rigKnownMtime{0};    // 0 = use m_processStart
+    std::atomic<long long> m_hostKnownMtime{0};
     ButtonBackendHooks m_buttonHooks;
     int         m_port      = 8080;
     std::string m_bindAddr  = "127.0.0.1";

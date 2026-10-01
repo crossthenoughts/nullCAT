@@ -133,18 +133,6 @@ public:
     virtual bool stepFaultReset();
     bool isFaultResetPending() const { return m_faultResetPending; }
     void startFaultReset();
-    // Precise fault identity: SDO-read 0x203F (UInt32; low 16 bits = the
-    // panel/Er code, e.g. 0x871 = Er87.1). Blocking mailbox transaction --
-    // recovery thread only, NEVER the RT loop. Returns 0 on failure.
-    // The last successful read is cached for the UI (atomic: written by the
-    // recovery thread, read by web/UI threads).
-    // The 0x203F panel-code READ lives in EtherCATMaster::readPanelCodeLocked
-    // (mailbox concurrency is the master's job); the drive object only
-    // caches the value for the status surface.
-    void     setPanelCode(uint32_t v) { m_panelCode.store(v, std::memory_order_release); }
-    uint32_t getPanelCode() const { return m_panelCode.load(std::memory_order_acquire); }
-    void     clearPanelCode()     { m_panelCode.store(0, std::memory_order_release); }
-
     // Homing mode -- retained for compatibility but mode 35 should NOT
     // be used (it can't return to CSP during operation).
     void startHomingMode(ModeOfOperation mode, ecx_contextt* ctx = nullptr);
@@ -220,8 +208,20 @@ public:
     // (An 0x8400 fault here is Er06.0 RUNAWAY PROTECTION, not overspeed --
     // addressed by C06.20=0 in torque-drive provisioning.)
     void setMaxProfileVelocityCounts(uint32_t v) { m_maxProfileVelCounts = v; }
+    uint32_t getMaxProfileVelocityCounts() const { return m_maxProfileVelCounts; }
     void setTargetTorque(double pct);  // clamped ±300% (0.1%-of-rated DS402 units;
                                        // the drive's 0x6072 is the hard ceiling)
+
+    // Fill the 1702h command bytes with a safe, VALID command (CST, zero
+    // torque, the 0x607F clamp) before the drive is ever enabled. The IOmap
+    // is zeroed once per process, and setTargetTorque() only runs once the
+    // drive reports OperationEnabled, so without this the very first enable
+    // of a process sends 0x0F with mode 0 / 0x607F 0 / target position 0:
+    // on a belt wound away from zero the drive lunges and faults (0xff00).
+    // Re-enables in the same process never saw it because the bytes were
+    // already filled. Called at PDO pointer setup and again on every
+    // pre-enable cycle; a no-op on position drives.
+    void primeTorqueCommand();
 
     void   setSimPosition(double pos) { m_simActualPos = pos; }
     void   setSimTarget(double pos) { m_simTargetPos = pos; }
@@ -329,7 +329,6 @@ private:
     uint32_t* m_pMaxProfileVel = nullptr;  // 0x607F in 1702h -- MUST be written (0 = motion locked)
     uint32_t  m_maxProfileVelCounts = 0x80000000u;  // 0x607F value (counts/s); see setter
     uint16_t* m_pFaultCode     = nullptr;  // 0x603F, in+0 of 1B01h (both layouts) -- live read
-    std::atomic<uint32_t> m_panelCode{0};  // last 0x203F read (low 16 = Er panel code)
 
     DriveState parseStatusword(uint16_t sw) const;
     void       writeControlword(DriveCommand cmd);

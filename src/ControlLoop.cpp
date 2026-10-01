@@ -700,12 +700,9 @@ void ControlLoopWorker::run()
                                 a6BusFaultCandidates(drive->getFaultCode()),
                                 faultMonitor.getRetryCount(i),
                                 DriveFaultMonitor::MAX_FAULT_RETRIES);
-                            // Precise decode: flag the recovery thread to
-                            // SDO-read 0x203F (exact Er panel code) off-RT.
-                            // Single atomic fetch_or here -- no mailbox
-                            // traffic from the RT path.
-                            if (m_master)
-                                m_master->requestPanelCodeRead(i);
+                            // No mailbox read follows: the exact Er sub-code
+                            // is on the drive panel. (The old off-RT 0x203F
+                            // read stalled the exchange and never succeeded.)
                             if (m_motion)
                             {
                                 m_motion->setNeedsRehome(true);

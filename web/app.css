@@ -307,7 +307,20 @@ body[data-view="setup"] .vw-op{ display:none !important; }
   text-transform:uppercase; color:var(--ink-soft); }
 .hr input{ width:64px; font-size:.78rem; padding:.14rem .3rem; text-align:right;
   font-variant-numeric:tabular-nums; }
-.hb{ display:flex; justify-content:space-between; align-items:center; margin-top:2px; }
+/* Bottom row pinned to the card bottom: tiles differ in row count (channel
+   chip, 2 vs 3 params) and the grid stretches them to the tallest, so the
+   rows block takes the slack and every mute/route/Test line sits level. */
+.hrows{ flex:1 1 auto; }
+.hb{ display:flex; justify-content:space-between; align-items:center; margin-top:auto; padding-top:2px; }
+.hap-savebar{ display:flex; align-items:center; justify-content:flex-end; gap:12px;
+  padding:6px 2px 2px; border-top:1.5px solid var(--hair); margin-top:4px; }
+.hap-savebar[hidden]{ display:none; }
+/* Every tile reserves the channel-chip row (empty where an effect has no
+   channels, and on the Master tile) so the wave line sits at one height
+   across the strip. */
+.hchan{ min-height:1.1em; }
+.hap-savebar .hk{ font-family:var(--mono); font-size:.62rem; letter-spacing:.1em;
+  text-transform:uppercase; color:var(--warn); }
 .hap-routechip{ font-family:var(--mono); font-size:.6rem; color:var(--ink-soft);
   cursor:pointer; text-decoration:underline dotted; background:none; border:none; padding:0; }
 .hap-drawer{ background:var(--surface); border:1.5px solid var(--hair);

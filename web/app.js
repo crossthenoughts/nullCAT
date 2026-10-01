@@ -439,13 +439,22 @@ let cfgBaseline=null;
 function fieldVal(el){ return el.type==='checkbox'?el.checked:el.value; }
 function snapshotCfg(){
   const f={}; for(const id of CFG_WATCH_IDS){ const el=$(id); if(el) f[id]=fieldVal(el); }
-  return { fields:f, drives:((cfgObj&&cfgObj.drives)||[]).map(d=>JSON.stringify(d)) };
+  return { fields:f, drives:((cfgObj&&cfgObj.drives)||[]).map(d=>JSON.stringify(d)),
+           haptics:JSON.stringify((cfgObj&&cfgObj.haptics)||{}),
+           ncx:JSON.stringify((cfgObj&&cfgObj.ncxBindings)||[]) };
 }
+/* Dirty = anything saveConfig() would post that differs from the loaded
+   baseline. Haptics and bindings MUST be in here: they used to be left out,
+   so a haptics-only edit left Save greyed out and could never reach the
+   controller (a bench session concluded the changes "were not sticking"). */
 function dirtyState(){
-  const out={count:0, ids:new Set(), axisKeys:new Set()};
+  const out={count:0, ids:new Set(), axisKeys:new Set(), host:false, haptics:false};
   if(!cfgBaseline) return out;
   for(const id of CFG_WATCH_IDS){ const el=$(id); if(!el) continue;
-    if(fieldVal(el)!==cfgBaseline.fields[id]){ out.count++; out.ids.add(id); } }
+    if(fieldVal(el)!==cfgBaseline.fields[id]){ out.count++; out.ids.add(id);
+      if(HOST_INPUT_IDS.includes(id)) out.host=true; } }
+  if(JSON.stringify((cfgObj&&cfgObj.haptics)||{})!==cfgBaseline.haptics){ out.count++; out.haptics=true; }
+  if(JSON.stringify((cfgObj&&cfgObj.ncxBindings)||[])!==cfgBaseline.ncx) out.count++;
   const drv=(cfgObj&&cfgObj.drives)||[];
   for(let i=0;i<Math.max(drv.length,cfgBaseline.drives.length);i++){
     const base=cfgBaseline.drives[i]?JSON.parse(cfgBaseline.drives[i]):null;
@@ -466,7 +475,11 @@ function refreshDirtyUI(){
   const sel=$('axisSel'); const ai=sel?(+sel.value||0):0;
   document.querySelectorAll('#axisFields [data-k]').forEach(el=>{ const row=el.closest('.frow');
     (row||el).classList.toggle('dirty', d.axisKeys.has(ai+':'+el.dataset.k)); });
-  const b=$('cfgSave'); if(b){ b.textContent=d.count?`Save (${d.count} change${d.count>1?'s':''})`:'Save to config.json'; b.disabled=!d.count; }
+  const b=$('cfgSave'); if(b){ b.textContent=d.count?`Save (${d.count} change${d.count>1?'s':''})`:'Save to rig.json'; b.disabled=!d.count; }
+  // The haptics strip lives in the Operate view, a screen away from the
+  // Setup save bar: it carries its own unsaved marker + Save.
+  const hb=$('hapSaveBar'); if(hb){ hb.hidden=!d.count;
+    const m=$('hapDirtyMsg'); if(m) m.textContent=d.haptics?'unsaved haptics changes (nothing plays until saved)':`${d.count} unsaved change${d.count>1?'s':''}`; }
   window.__cfgDirty=d.count;
 }
 window.addEventListener('beforeunload',e=>{ if(window.__cfgDirty){ e.preventDefault(); e.returnValue=''; } });
@@ -487,9 +500,14 @@ async function refreshPendingPill(fetchMeta){
     }
   }
   const pill=$('cfgPending'); if(!pill) return;
-  const pend=!!(meta.rigPendingRestart||meta.hostPendingRestart);
-  pill.style.display=pend?'':'none';
-  pill.textContent='config saved - re-initialize to apply';
+  const rig=!!meta.rigPendingRestart, host=!!meta.hostPendingRestart;
+  pill.style.display=(rig||host)?'':'none';
+  // Say which action is actually owed. Haptics/device saves never light
+  // this (they apply live); the server only flags what it has not picked up.
+  const restart=(meta.hostOwner==='native')?'restart nullCAT':'restart the service';
+  pill.textContent=(rig&&host)?`rig + host saved - re-initialize, then ${restart}`
+                  :rig?'rig saved - re-initialize to apply'
+                  :`host settings saved - ${restart} to apply`;
 }
 setInterval(()=>refreshPendingPill(true),15000);
 
@@ -634,7 +652,9 @@ async function saveConfig(){
             ncxBindings:cfgObj.ncxBindings||[] };
   cfgObj.conditioningMode=g.conditioningMode;   // keep merged view in sync for axis logic
   const rig={ configVersion:cfgObj._configVersion||2, numDrives:(cfgObj.drives||[]).length, global:g, axes:cfgObj.drives||[] };
+  const dirty=dirtyState();
   st.textContent='Saving…'; st.style.color='var(--ink-soft)';
+  const hm=$('hapMsg');
   try{
     const rr=await fetch(API+'/api/rig',{method:'POST',body:JSON.stringify(rig)}); const rj=await rr.json();
     if(!rj.ok){ st.textContent='✗ rig: '+(rj.error||'save failed'); st.style.color='var(--danger)';
@@ -642,9 +662,14 @@ async function saveConfig(){
       // can be a screen away from the Devices card (a bench session lost
       // an evening to a refusal rendered out of view).
       const m=$('devMsg'); if(m) m.textContent='SAVE REFUSED - nothing was saved: '+(rj.error||'save failed');
+      if(hm) hm.textContent='SAVE REFUSED - nothing was saved: '+(rj.error||'save failed');
       return; }
-    // host.json - only when the web owns it (headless); on "native" the desktop app owns it.
-    if(meta.hostOwner==='web'){
+    let hj=null;
+    // host.json - only when the web owns it (headless; on "native" the
+    // desktop app owns it) AND a host field actually changed. Posting it
+    // on every save used to bump its mtime and light the restart pill
+    // every time, and every restart was a first init.
+    if(meta.hostOwner==='web'&&dirty.host){
       // Web password tickbox semantics: unticked -> "" (auth off); ticked
       // needs an actual password (an empty one would lock nobody out and
       // read as protection).
@@ -665,18 +690,25 @@ async function saveConfig(){
         wkcValidationThreshold:+$('cf-wkcthr').value, enableCapabilityScan:$('cf-capscan').checked,
         gpioMode:$('cf-gpiomode').value, gpioEnabled:($('cf-gpiomode').value!=='off'),
         webShowDevices:$('cf-showdev').checked };
-      const hr=await fetch(API+'/api/host',{method:'POST',body:JSON.stringify(host)}); const hj=await hr.json();
+      const hr=await fetch(API+'/api/host',{method:'POST',body:JSON.stringify(host)}); hj=await hr.json();
       if(!hj.ok){ st.textContent='✗ host: '+(hj.error||'save failed'); st.style.color='var(--danger)'; return; }
     }
-    // Native (desktop) reloads config in-process on save (QFileSystemWatcher) -     // no app restart; it applies live when EtherCAT is offline, or on the next
-    // Stop→Re-initialize. Headless (hostOwner 'web', systemd) still needs a restart.
-    const applyMsg=(meta.hostOwner==='native')
-      ?'Saved ✓ Re-initialize EtherCAT to apply (no app restart).'
-      :'Saved ✓ Re-initialize EtherCAT to apply rig & axis settings (device feel applies live; host/network settings need a service restart).';
+    // Say exactly what is owed, from what the server reports it could not
+    // apply live: haptics + device feel land immediately; other rig fields
+    // wait for a re-initialize; host fields wait for a restart. Native
+    // (desktop) reloads config in-process (QFileSystemWatcher), so host
+    // changes there never go through here.
+    const restart=(meta.hostOwner==='native')?'restart nullCAT':'restart the service';
+    const owed=[];
+    if(rj.needsInit) owed.push('re-initialize EtherCAT to apply axis/rig settings');
+    if(hj&&hj.needsRestart) owed.push(restart+' to apply host settings');
+    const applyMsg=owed.length?'Saved ✓ '+owed.join('; ')+'.'
+                  :(rj.changed?'Saved ✓ applied live.':'Saved ✓ nothing changed.');
     st.textContent=applyMsg+(clamped?` (${clamped} field${clamped>1?'s':''} clamped to safe range)`:''); st.style.color='var(--ok)';
     { const m=$('devMsg'); if(m&&m.textContent.startsWith('SAVE REFUSED')) m.textContent='Saved.'; }
+    if(hm){ hm.textContent=dirty.haptics?(rj.changed?'Saved - haptics applied live.':'Saved.'):''; setTimeout(()=>{ if(hm.textContent.startsWith('Saved')) hm.textContent=''; },4000); }
     cfgBaseline=snapshotCfg(); refreshDirtyUI();   // saved = new clean baseline
-    refreshPendingPill(true);                      // server now reports pending-restart
+    refreshPendingPill(true);                      // server now reports what is pending
   }catch(e){ st.textContent='✗ '+e; st.style.color='var(--danger)'; }
 }
 /* ---- per-axis editor: writes into cfgObj.drives[i]; saved by saveConfig ---- */
@@ -1075,27 +1107,44 @@ function hapTorqueAxes(){
 // The wave has ONE meaning: playing right now. Idle draws a flat line
 // whatever the amplitude (the header dot is the enabled indicator); a
 // live Test passes a scrolling phase and the shape appears only then.
-function hapWave(svg,fx,dv,ph){
+/* The tile wave is a flat line when idle and, while the effect plays, a
+   picture of THIS effect as configured: height = amp % x master gain
+   (x the live level for telemetry-driven effects), cycle density follows
+   the carrier frequency on a log scale (9 Hz slow and fat, 45 Hz dense),
+   jitter roughens it, and a transient's envelope width follows its length
+   in ms with the carrier cycles it really fits. ph = animation phase
+   (seconds); level = 0..1 live level, default 1 (Test preview). */
+function hapWave(svg,fx,dv,ph,level){
   const W=148,H=26,pts=[];
-  const live=(ph!==undefined&&dv.ampPct>0), p=ph||0, n=64;
+  const mg=(cfgObj&&cfgObj.haptics&&typeof cfgObj.haptics.masterGain==='number')?cfgObj.haptics.masterGain:1;
+  const A=Math.max(0,Math.min(1,(dv.ampPct/100)*mg*(level===undefined?1:level)));
+  const live=(ph!==undefined&&A>0), p=ph||0, n=96;
+  // Engine has no fixed carrier (freq 0 = follows rpm): draw the canned
+  // idle the Test preview plays, 1100 rpm x cylinders / 2.
+  const f=(+dv.freqHz>0)?+dv.freqHz:(1100/60*(+dv.cylinders||4)/2);
+  const cyc=Math.max(1.5,Math.min(14,2+3*Math.log2(f/8)));
   for(let s=0;s<=n;s++){
     const t=s/n; let y=0;
     if(live){
       if(fx.transient){
-        const ramp=0.25, env=(t<=0||t>=1)?0:(t<ramp?0.5*(1-Math.cos(Math.PI*t/ramp))
-          :(t>1-ramp?0.5*(1-Math.cos(Math.PI*(1-t)/ramp)):1));
-        y=env*Math.sin(2*Math.PI*3.5*t+p*18);
+        const w=Math.max(0.2,Math.min(1,(+dv.durMs||18)/60));         // envelope width
+        const u=t/w, ramp=0.3;
+        const env=(u<=0||u>=1)?0:(u<ramp?0.5*(1-Math.cos(Math.PI*u/ramp))
+          :(u>1-ramp?0.5*(1-Math.cos(Math.PI*(1-u)/ramp)):1));
+        const tc=Math.max(1,Math.min(8,f*(+dv.durMs||18)/1000*1.5));  // carrier cycles inside
+        y=env*Math.sin(2*Math.PI*tc*u+p*18);
       }else{
         const jit=dv.jitter?(Math.sin(s*12.9898)*0.5*dv.jitter):0;
-        y=Math.sin(2*Math.PI*(5+jit*3)*t+p*10);
+        y=Math.sin(2*Math.PI*(cyc+jit*cyc*0.6)*t+p*10);
       }
+      y*=A;
     }
     pts.push((t*W).toFixed(1)+','+(H/2-y*(H/2-2)).toFixed(1));
   }
   svg.innerHTML='<polyline points="'+pts.join(' ')+'"/>';
   svg.setAttribute('viewBox','0 0 '+W+' '+H);
 }
-// Scroll the preview for ms, then settle back to the static shape.
+// Scroll the preview for ms, then settle back to the flat line.
 function hapAnimate(svg,fx,dv,ms){
   const t0=performance.now();
   const frame=(now)=>{
@@ -1119,18 +1168,21 @@ function hapDrawerRender(fx){
   hapOpenDrawer=fx.k;
   const dv=cfgObj.haptics[fx.k];
   const gain=(axis)=>{ const e=(dv.routes||[]).find(r=>r.axis===axis); return e?e.gain:0; };
-  let h='<div class="hd-t">'+fx.label+' · routes (gain 0 = not routed; any or all axes)</div>';
+  let h='<div class="hd-t">'+fx.label+' · routes (gain 0 = not routed; any or all axes; Save to apply)</div>';
   for(const a of hapTorqueAxes())
     h+='<label>'+a.name+' <input type="number" min="0" max="2" step="0.1" data-axis="'+a.i+'" value="'+gain(a.i)+'"></label>';
   h+='<span class="fldtip" id="hapRouteMsg"></span>';
   dr.className='hap-drawer'; dr.innerHTML=h; dr.hidden=false;
+  // The drawer stays open across edits so "belt 1, shifter 1" is one
+  // visit, not two (it used to close on the first change, dropping the
+  // field being typed into). The tile's chip mirrors the routes in place.
   dr.querySelectorAll('input').forEach(inp=>{ inp.onchange=()=>{
     const routes=[];
     dr.querySelectorAll('input').forEach(x=>{
       const g=+x.value; if(isFinite(g)&&g>0) routes.push({axis:+x.dataset.axis,gain:Math.min(2,g)}); });
     dv.routes=routes.slice(0,10);
-    hapOpenDrawer=null; dr.hidden=true;     // close; tiles re-render below
-    hapInit(); refreshDirtyUI();
+    const t=hapTiles[fx.k]; if(t){ const c=t.tile.querySelector('.hap-routechip'); if(c) c.textContent=hapChipText(dv); }
+    refreshDirtyUI();
   }; });
 }
 
@@ -1216,7 +1268,7 @@ function hapLive(s){
         const frame=(now)=>{
           if(t.level<=0.05||!document.body.contains(t.svg)){
             t.anim=false; hapWave(t.svg,t.fx,t.dv); return; }
-          hapWave(t.svg,t.fx,t.dv,(now-t0)/1000);
+          hapWave(t.svg,t.fx,t.dv,(now-t0)/1000,t.level);   // live level scales height
           requestAnimationFrame(frame);
         };
         requestAnimationFrame(frame);
@@ -1234,8 +1286,13 @@ function hapInit(){
   if(!(cb&&cb.checked)||!hapTorqueAxes().length){ head.hidden=true; panel.hidden=true; return; }
   head.hidden=false; panel.hidden=false;
   cfgObj.haptics=cfgObj.haptics||{};
-  for(const k in HAP_DEF)
-    cfgObj.haptics[k]=Object.assign({},HAP_DEF[k],cfgObj.haptics[k]||{});
+  // Fill defaults IN PLACE: the route drawer and the tiles hold references
+  // to these objects, so re-rendering must never swap them for copies.
+  for(const k in HAP_DEF){
+    const cur=cfgObj.haptics[k]||(cfgObj.haptics[k]={});
+    for(const p in HAP_DEF[k]) if(cur[p]===undefined)
+      cur[p]=Array.isArray(HAP_DEF[k][p])?HAP_DEF[k][p].slice():HAP_DEF[k][p];
+  }
   // Routes are explicit axis indices only; drop anything else (early
   // 0.9.6 configs carried a since-removed "own axis" -2 default - the
   // server does the same on read).
@@ -1243,6 +1300,7 @@ function hapInit(){
     if(Array.isArray(cfgObj.haptics[k].routes))
       cfgObj.haptics[k].routes=cfgObj.haptics[k].routes.filter(r=>r&&r.axis>=0);
   if(typeof cfgObj.haptics.masterGain!=='number') cfgObj.haptics.masterGain=1;
+  const sb=$('hapSave'); if(sb&&!sb._wired){ sb._wired=true; sb.onclick=saveConfig; }
   strip.innerHTML='';
   for(const k in hapTiles) delete hapTiles[k];
 
@@ -1251,6 +1309,7 @@ function hapInit(){
     const mc=document.createElement('div');
     mc.className='hap-tile';
     mc.innerHTML='<div class="dh"><span class="dot"></span><span class="nm">Master</span></div>'
+      +'<div class="hk hchan"></div>'
       +'<svg class="hap-wave"></svg><div class="hrows">'
       +'<div class="hr"><span class="hk">gain x</span>'
       +'<input type="number" min="0" max="2" step="0.05" id="hapMasterGain" value="'+cfgObj.haptics.masterGain+'"></div>'
@@ -1272,8 +1331,11 @@ function hapInit(){
     const tile=document.createElement('div');
     tile.className='hap-tile'+(dv.ampPct>0?' on':''); tile.title=fx.tip;
     let h='<div class="dh"><span class="dot"></span><span class="nm">'+fx.label+'</span></div>';
-    if(fx.chan&&fx.chan.length)
-      h+='<div class="hk hchan" data-chan="1">'+fx.chan.join(' ')+'</div>';
+    // The chip row is always present (empty for channel-less effects) so
+    // the wave line lands at the same height on every tile.
+    h+=(fx.chan&&fx.chan.length)
+      ?'<div class="hk hchan" data-chan="1">'+fx.chan.join(' ')+'</div>'
+      :'<div class="hk hchan"></div>';
     h+='<svg class="hap-wave"></svg><div class="hrows">';
     for(const [key,lab,min,max,st] of fx.params)
       h+='<div class="hr"><span class="hk">'+lab+'</span>'

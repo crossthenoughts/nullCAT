@@ -110,8 +110,8 @@ int main()
     // ---- 603F fallbacks ----
     CHECK(std::strstr(a6BusFaultCandidates(0x1234), "unknown") != nullptr,
           "unknown 603F -> explicit unknown string");
-    CHECK(std::strstr(a6BusFaultCandidates(0xFF00), "203F") != nullptr,
-          "0xFF00 string points at the panel code");
+    CHECK(std::strstr(a6BusFaultCandidates(0xFF00), "drive panel") != nullptr,
+          "0xFF00 string sends the operator to the drive panel for the exact code");
 
     std::printf("TestFaultCodes: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

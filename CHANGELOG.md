@@ -87,6 +87,46 @@ middle number carries breaking changes and the last carries fixes.
 - Changing a device's homing direction or mirror now warns that the
   taught travel, neutral, and gates were captured in the previous
   homed frame and need re-teaching.
+- Belt (and shifter) lunge and fault on the first Initialize after a
+  start or restart. A torque drive was switched on before its command
+  bytes had ever been written, so the drive saw mode 0 and a zero
+  velocity clamp at the enable instant; with the belt wound away from
+  zero it lunged and tripped 0xff00. Later Initializes in the same run
+  were clean because the bytes were already filled, which is why it
+  only ever showed on the first one. The command (CST, zero torque,
+  clamp) is now written before the drive is ever enabled, and a new
+  test pins the bytes at the enable instant.
+- A single drive fault no longer takes the other drives down with it.
+  The fault handler used to request a mailbox read of the drive's
+  panel code from the recovery thread; that read held the bus lock the
+  control loop needs, could never complete (it never once succeeded),
+  and each attempt froze the exchange for 20 ms, which dropped every
+  drive to a sync fault and blocked automatic recovery. The read and
+  its fault-history companion are gone; the drive card still shows the
+  603F fault code and candidates from the live PDO, and the exact Er
+  sub-code is on the drive panel.
+- Haptics edits could not be saved. The unsaved-changes tracking did
+  not count the haptics strip (or bindings), so a haptics-only edit
+  left Save greyed out and nothing reached the controller. Haptics and
+  bindings now count, the strip has its own unsaved marker and Save,
+  the route drawer stays open across edits, and the controller logs
+  "haptics settings applied live" when a save lands.
+- Saving no longer lights the restart pill on its own. Every save wrote
+  host.json even when nothing host-level changed, so the pill asked for
+  a restart after every save and each restart was a first Initialize.
+  Unchanged files are not written, host.json is only posted when a host
+  field changed, and the pill names the action actually owed (re-
+  initialize for rig fields, restart for host fields; haptics and
+  device feel apply live and never light it).
+- A haptic tile only animates when its effect can be felt: the wave
+  now shows what the effect is putting out (zero at amplitude 0, no
+  route, or muted), and Test refuses with the reason when the saved
+  effect has no amplitude, no route, or none of its routed axes is
+  live, instead of waving at nothing.
+- Haptic tiles keep their mute/route/Test row level across the strip.
+- The SimHub plugin ships an annotated settings file: every line is
+  explained in place, including how to find a property name for the
+  four optional magnitude channels.
 
 ## [0.9.5] - 2026-08-29
 

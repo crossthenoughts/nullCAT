@@ -463,8 +463,10 @@ add_motion_test(TestDeviceForce tests/TestDeviceForce.cpp)
 add_motion_test(TestTorqueHoming tests/TestTorqueHoming.cpp)
 add_motion_test(TestDeviceState tests/TestDeviceState.cpp)
 add_motion_test(TestGearRatio tests/TestGearRatio.cpp)
-add_motion_test(TestRecoveryGate tests/TestRecoveryGate.cpp)
 add_motion_test(TestHaptics tests/TestHaptics.cpp)
+# Torque drive (1702h) command bytes before and at the enable instant: the
+# first-init belt lunge class of bug, invisible to every MockA6Drive test.
+add_motion_test(TestTorqueEnableBytes tests/TestTorqueEnableBytes.cpp)
 
 # ---- Build 72: TestInitSequence - EtherCATMaster init sequence (sim mode) ----
 #

@@ -16,10 +16,8 @@
 //   K-2   EtherCATMaster::shutdown() resets m_mbxHandlerInit so a re-init
 //         within the same process triggers initCyclicMailboxHandler again.
 //
-//   K-3   readDriveFaultHistory state-gating refinement: skip when state
-//         is anything other than PRE_OP / SAFE_OP / OPERATIONAL (no error
-//         bit). Verified by setting state=0x14 (SafeOp+Error) and confirming
-//         the skip-log fires.
+//   (K-3, the readDriveFaultHistory gate placeholder, was removed with the
+//    recovery-thread SDO reads themselves.)
 // ============================================================
 
 #include <QtTest>
@@ -152,33 +150,6 @@ private slots:
         // without crash, hang, or stale-state lock-out.
     }
 
-    // --------------------------------------------------------------
-    // K-3: readDriveFaultHistory must skip on states other than the
-    // mailbox-functional set (PRE_OP / SAFE_OP / OP). Specifically,
-    // SafeOp+Error (0x14) is what B222J R11 saw - drives don't respond
-    // to SDO in that state, so attempting the read just wastes timeouts.
-    // --------------------------------------------------------------
-    void k3_fault_history_skips_safeop_error()
-    {
-#ifdef SOEM_AVAILABLE
-        // We can't construct an EtherCATMaster with a real ecx_contextt
-        // pre-populated to slave state 0x14 without significant fixture
-        // plumbing. Instead, exercise the path via the simulation guard
-        // which short-circuits before touching state, and rely on the
-        // (already-tested) state-gate logic via inspection plus the
-        // implicit coverage in K-1 (which doesn't crash from spurious
-        // SDO reads). The hardware test will exercise the actual gate
-        // when the recovery thread fires on a faulted slave.
-        EtherCATMaster master;
-        master.setSimulationMode(true);
-        AppConfig cfg = makeSimConfig(100);
-        master.applyConfig(cfg);
-        master.readDriveFaultHistoryForTest(1);
-        QVERIFY(true);  // no crash
-#else
-        QSKIP("SOEM not available");
-#endif
-    }
 };
 
 QTEST_MAIN(TestB222K)
