@@ -4,149 +4,84 @@ Notable changes to nullCAT. Format follows [Keep a Changelog](https://keepachang
 versioning is [Semantic Versioning](https://semver.org/) - while on `0.x`, the
 middle number carries breaking changes and the last carries fixes.
 
-## [0.9.6] - 2026-09-27
+## [0.9.6] - unreleased (pre-release)
 
 ### Added
 - Haptics: a routable effect layer that rides on top of the normal
-  feel on any torque axis (devices AND belts) and is always clamped
-  inside each axis's own limits. Six effects, all off by default:
-  detent click (the lever settling into a gate, scaled by entry
-  speed), RPM vibe (carrier follows engine speed), ABS pulse, brake
-  lockup judder, tyre-skid rumble, and road surface feel. The last
-  five are driven by new NULLCATX channels (brakePct, absActive,
-  skid, lockup, roadNoise - wire protocol 1.1, now written down in
-  Docs/PROTOCOL.md); the SimHub plugin sends brake and ABS
-  automatically and lets you bind any SimHub property to the three
-  magnitude channels. A horizontal Haptics strip in the web UI holds
-  one tile per effect with a live waveform preview, per-effect
-  routing (a shifter click can thump the belts), and a Test button.
-- The web UI splits into Operate and Setup views: Operate keeps the
-  daily surfaces (drives, devices, haptics, per-axis config, log);
-  Setup holds the build-time ones (host settings, provisioning,
-  commissioning test, button bindings, updater). Nothing moved
-  underneath - it is the same page showing what you need.
+  feel on any torque axis (devices and belts), always clamped inside
+  each axis's own limits. Ten effects, all off by default: detent
+  click, gear-shift thunk, engine, ABS pulse, brake lockup, tyre skid,
+  road surface, rev-limiter buzz, traction-control pulse and kerb
+  rumble. A Haptics strip in the web UI gives each effect a tile with
+  its settings, the sim channels it needs (with a live delivered or
+  missing mark), a waveform showing what it is actually putting out,
+  routing to any torque axis, and a Test button that says why when
+  nothing can be felt. Tuning applies live on Save, with no
+  re-initialize; a master gain and a Mute button sit on the strip.
+- Engine model: at idle you feel the block rocking at crank rate with
+  each firing as a low thump on top; above idle a buzz takes over,
+  rising in pitch with rpm and building to the limiter. Describe the
+  engine (cylinders or rotors, litres, and layout: inline, V,
+  flat/boxer or Wankel) and it scales from a sub-litre triple to a
+  V12. The redline is set on the tile or learned while you drive.
+  "rock x", "thump x" and "buzz x" mix the three parts by feel, and
+  the limiter bounce has its own strength, rate and roughness
+  controls.
+- Wire protocol 1.2 (Docs/PROTOCOL.md): brake, ABS, skid, lockup,
+  road, limiter, traction-control and kerb channels. The SimHub plugin
+  sends nine channels automatically and ships an annotated settings
+  file explaining how to bind the other four (skid, lockup, road,
+  kerb) to a SimHub property. Channel bindings ship complete, and a
+  Sim channels editor in Setup changes them if you need to.
+- Operate and Setup views: Operate keeps the daily surfaces (drives,
+  haptics, devices, per-axis config, log); Setup holds the build-time
+  ones (host settings, provisioning, commissioning test, bindings,
+  updater).
 - Optional web password: tick Web password in the host settings, type
-  one, save, restart the service - from then on every browser must
-  enter it once before it can see or control the rig. Off by default
-  (nothing changes on existing installs); recommended once the rig
-  shares a network. Plain HTTP transport, so it locks the door against
-  casual access rather than encrypting traffic.
-- Provisioning role check: a Check drive settings button (Drive
-  Provisioning section) reads the role-critical drive-resident params
-  (runaway protection C06.20 first) from every drive with the loop
-  stopped and flags any that disagree with the axis's configured role,
-  with the panel fix instruction. Settings saved inside a drive move
-  with the physical drive, not the rig config - a swapped-in belt
-  drive with protection still on faults Er06.0 the moment the belt is
-  back-driven, and the swapped-out one runs a position axis
-  unprotected.
-- Four more effects join the layer: a gear-shift thunk (fires on every
-  gear change, no new wire needed), rev-limiter buzz, traction-control
-  pulse, and kerb-strip rumble; the RPM effect grows into a real
-  ENGINE MODEL - at idle you feel the block rocking at crank rate
-  (lumpy, with a lope setting for per-rev unevenness and big-cam
-  half-order content), fading out by about 2500 rpm, with each firing
-  as a low thump on top ("thump hz" sets its weight), and above idle a
-  buzz takes over: the firing-order vibration with pitch rising with
-  rpm, kept at a lower order the actuator can carry ("buzz order" x
-  crank rate), growing with rpm and throttle to the limiter. "rock x",
-  "thump x" and "buzz x" mix the three so the engine is set by feel.
-  The engine is described, not tuned: cylinders (or rotors), litres
-  and layout (inline, V, flat/boxer, Wankel) set the physics - a 1.0 L
-  triple is light and busy with a strong first-order shake, a 6.5 L V8
-  hits hard and lopes, a V12 is turbine-smooth, a Wankel has no
-  reciprocating rock and the classic uneven beat at idle - and it
-  scales from sub-litre three-cylinders to twelve-plus. The redline is
-  set on the tile or learned from the stream (peak hold, snapped exactly
-  on the first limiter hit), and the top-end laws scale to it: the buzz
-  order is automatic so the redline lands at the top of the band and the
-  level keeps building to it, so a 6000 rpm V8 and a 16000 rpm V12 both
-  use the whole effect; thumps fade out where firings can no longer be
-  resolved and the buzz carries the engine. Throttle loads it, and the
-  limiter cuts whole bursts of firings and comes back at full load,
-  which is the bounce; it has its own controls on the Engine tile:
-  "limiter x" (strength of each return hit), "limiter hz" (cut rate,
-  default 12) and "limiter jit" (irregular cut timing for a rougher
-  limiter). Wire protocol 1.2 adds limiter, tcActive, curbs. Haptics tuning now applies LIVE on save - amp,
-  frequency, routing and the new master gain never need a
-  re-initialize - and a runtime Mute button silences the whole layer.
-  Each tile shows its channels with a live delivered/missing mark, and
-  tiles animate while their effect actually plays. A Sim channels
-  editor joins Setup, and channel bindings ship complete by default.
-- Fixed: the web rig save silently ERASED ncxBindings from rig.json
-  (the save writes the posted body verbatim and the page never sent
-  them) - bindings are now first-class edited state, always round-
-  tripped.
-- Docs/PROTOCOL.md is the written wire contract for anyone building a
-  telemetry sender; the README gains an honest supported-hardware
-  statement and a Start here path per builder.
-- The Pi installer is stable by default: run from the main branch it
-  switches to the latest official release tag before building, so
-  "clone + install" can never pick up half of an in-progress batch. An
-  explicitly checked-out tag or branch is respected (pre-release
-  testers check out the tag first); --main builds the development
-  branch deliberately.
-- CI now boots the real headless controller in simulation mode and
-  drives a real headless browser at it on every push: the dashboard
-  must reach Connected with zero script errors, so a page that renders
-  but never runs (the issue #1 class) can no longer ship. The wire
-  telemetry parser is also fuzzed (coverage-guided, sanitized) on
-  every push - it eats raw network datagrams on the RT thread, so any
-  finding there is a remote-input bug.
+  one, save and restart the service; every browser then enters it
+  once. Off by default. Plain HTTP, so it keeps out casual access but
+  does not encrypt.
+- Provisioning role check: Check drive settings reads the
+  role-critical settings stored in each drive (runaway protection
+  C06.20 first) with the loop stopped, and flags any drive that does
+  not match its axis's role, with the panel fix. Those settings travel
+  with the physical drive, so a swapped or replaced drive is caught
+  before it faults.
+- The Pi installer is stable by default: a fresh clone installs the
+  latest official release, never a half-finished change. A checked-out
+  tag is respected, and --main builds the development branch on
+  purpose.
+- Every change is now tested by starting the real controller in
+  simulation mode and loading the dashboard in a real browser, so a
+  page that loads but doesn't work can no longer ship; the telemetry
+  input is also stress-tested with malformed data.
 
 ### Fixed
-- The H layout derive now places the engagement gates from the taught
-  travel itself (just inside each stop, neutral at centre), the same
-  way the selector derive always worked; the Throw field is an
-  optional override, kept inside the stops. The old fixed default
-  planted gates outside (or nowhere near) the real travel on any
-  lever unlike the one it was tuned on.
-- A refused config save now says so on the Devices card ("SAVE
-  REFUSED - nothing was saved"), not only in the status line beside
-  the distant Save button.
-- Changing a device's homing direction or mirror now warns that the
-  taught travel, neutral, and gates were captured in the previous
-  homed frame and need re-teaching.
-- Belt (and shifter) lunge and fault on the first Initialize after a
-  start or restart. A torque drive was switched on before its command
-  bytes had ever been written, so the drive saw mode 0 and a zero
-  velocity clamp at the enable instant; with the belt wound away from
-  zero it lunged and tripped 0xff00. Later Initializes in the same run
-  were clean because the bytes were already filled, which is why it
-  only ever showed on the first one. The command (CST, zero torque,
-  clamp) is now written before the drive is ever enabled, and a new
-  test pins the bytes at the enable instant.
-- A single drive fault no longer takes the other drives down with it.
-  The fault handler used to request a mailbox read of the drive's
-  panel code from the recovery thread; that read held the bus lock the
-  control loop needs, could never complete (it never once succeeded),
-  and each attempt froze the exchange for 20 ms, which dropped every
-  drive to a sync fault and blocked automatic recovery. The read and
-  its fault-history companion are gone; the drive card still shows the
-  603F fault code and candidates from the live PDO, and the exact Er
-  sub-code is on the drive panel.
-- Haptics edits could not be saved. The unsaved-changes tracking did
-  not count the haptics strip (or bindings), so a haptics-only edit
-  left Save greyed out and nothing reached the controller. Haptics and
-  bindings now count, the strip has its own unsaved marker and Save,
-  the route drawer stays open across edits, and the controller logs
-  "haptics settings applied live" when a save lands.
-- Saving no longer lights the restart pill on its own. Every save wrote
-  host.json even when nothing host-level changed, so the pill asked for
-  a restart after every save and each restart was a first Initialize.
-  Unchanged files are not written, host.json is only posted when a host
-  field changed, and the pill names the action actually owed (re-
-  initialize for rig fields, restart for host fields; haptics and
-  device feel apply live and never light it).
-- A haptic tile only animates when its effect can be felt: the wave
-  now shows what the effect is putting out (zero at amplitude 0, no
-  route, or muted), and Test refuses with the reason when the saved
-  effect has no amplitude, no route, or none of its routed axes is
-  live, instead of waving at nothing.
-- Haptic tiles keep their mute/route/Test row level across the strip.
-- The SimHub plugin ships an annotated settings file: every line is
-  explained in place, including how to find a property name for the
-  four optional magnitude channels.
+- Belt or shifter lunge and fault on the first Initialize after a
+  start or restart: a torque drive was switched on before it had been
+  given a valid command, so with the belt or lever away from zero it
+  lunged and faulted (0xff00). The command is now set before the drive
+  is enabled.
+- One drive fault no longer takes every drive down. A diagnostic read
+  made after a fault stalled the EtherCAT bus, dropped every drive to a
+  sync fault and blocked recovery; it has been removed. Drive cards
+  still show the fault code; the exact Er code is on the drive panel.
+- Haptics changes could not be saved: a haptics-only edit left Save
+  disabled. The strip now has its own unsaved marker and Save, and the
+  route editor keeps every value you type.
+- Saving no longer asks for a restart it doesn't need. Unchanged files
+  are not rewritten, and the pending pill says what is actually owed:
+  re-initialize for rig settings, restart for host settings; haptics
+  and device feel apply live.
+- A web save no longer erases the sim channel bindings from rig.json.
+- The H layout derive places the gates from the taught travel (just
+  inside each stop, neutral at centre); the Throw field is an optional
+  override. The old fixed default could put gates outside the real
+  travel.
+- A refused save now says so on the Devices card, not only beside the
+  distant Save button.
+- Changing a device's homing direction or mirror warns that the taught
+  travel, neutral and gates need re-teaching.
 
 ## [0.9.5] - 2026-08-29
 

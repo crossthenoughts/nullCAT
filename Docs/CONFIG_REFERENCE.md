@@ -116,7 +116,34 @@ Top level: `configVersion`, `numDrives` (1 to 10, must match `axes[]`),
 | `blendTimeSec` | double | `2.0` | Smoothing time constant for cross-axis blended motion. |
 | `blendMaxVelocityMmS` | double | `20.0` | Cap on the blended-axis velocity contribution. |
 | `requireUserFaultReset` | bool | `false` | If true, faulted drives need a manual reset from the UI before motion resumes. Safety policy, so it travels with the rig. |
-| `ncxBindings` | array | `[]` | NULLCATX channel bindings for the device state effects. Each entry is `{"token", "slot", "scale", "offset"}`: the wire's numbered channel `slot` (0 to 15) maps onto the semantic `token`, with `value = raw * scale + offset`. Tokens: `rpm`, `speedKmh`, `gear`, `clutchPct` (0 = pedal up, 100 = floored), `throttlePct`. Each token binds at most once. Empty = no channel wire; the devices then run their plain configured feel. |
+| `ncxBindings` | array | all 13 tokens, slots 0 to 12 | NULLCATX channel bindings for the device and haptic effects. Each entry is `{"token", "slot", "scale", "offset"}`: the wire's numbered channel `slot` (0 to 15) maps onto the semantic `token`, with `value = raw * scale + offset`. Tokens: `rpm`, `speedKmh`, `gear`, `clutchPct` (0 = pedal up, 100 = floored), `throttlePct`, `brakePct`, `absActive`, `skid`, `lockup`, `roadNoise`, `limiter`, `tcActive`, `curbs` (see Docs/PROTOCOL.md for units). Each token binds at most once. The default matches the SimHub plugin's channel order, so it needs no editing; the Sim channels section of the web Setup view edits it and can reset it. An unbound token leaves the effects that use it silent. |
+| `haptics` | object | all effects off | Haptic effect layer tuning, one entry per effect plus `masterGain`. See below; normally edited on the web Haptics strip. |
+
+### global.haptics
+
+One object per effect: `detentClick`, `gearShift`, `rpmVibe` (the engine), `abs`, `lockup`, `skid`, `road`, `limiter`, `tc`, `kerb`, plus `masterGain` (number, 0 to 2, default `1`, scales every effect). Every effect is off until it has an amplitude above 0 and at least one route. Saves apply live, with no re-initialize.
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `ampPct` | double | `0` | Effect strength at full scale, % of the routed axis's rated torque (0 to 100). 0 = off. |
+| `freqHz` | double | per effect | Carrier frequency (4 to 500 Hz). For the engine this is the weight of each firing thump (default 30). |
+| `durMs` | double | per effect | Length of a one-shot effect (detent click, gear shift), 5 to 100 ms. |
+| `jitter` | double | per effect | 0 to 1. Roughens the carrier so skid, road and kerb feel like texture rather than a tone. For the engine it is the idle lope (per-revolution unevenness). |
+| `routes` | array | `[]` | Where the effect goes: `[{"axis": <index>, "gain": <0 to 2>}]`, up to 10 entries, torque axes only (belts and devices). No routes = the effect reaches nothing. |
+
+Engine-only fields (`rpmVibe`):
+
+| Field | Default | Notes |
+|---|---|---|
+| `cylinders` | `4` | Cylinders, or rotors when `layout` is Wankel (1 to 16). Sets how often it fires. |
+| `litres` | `2` | Total displacement (0.1 to 30). Litres per cylinder set how hard each firing hits. |
+| `layout` | `0` | 0 inline, 1 V, 2 flat/boxer, 3 Wankel. Sets how much the block shakes. |
+| `maxRpm` | `0` | Redline. 0 = learned while you drive (highest rpm seen, set exactly on the first limiter hit). |
+| `rock`, `thump`, `buzz` | `1` | Mix of the three parts (0 to 1): the idle rock, the firing thumps, the rpm-following buzz. |
+| `order` | `0` | Buzz pitch as a multiple of crank speed (0.25 to 8). 0 = automatic, so the redline lands at the top of the range. |
+| `limHit` | `1` | Limiter: strength of each return hit (0 to 2). |
+| `limHz` | `12` | Limiter: cut rate (4 to 30 Hz). |
+| `limJit` | `0` | Limiter: irregularity of the cut timing (0 to 1). |
 
 ### axes[] (one object per drive)
 
@@ -248,7 +275,7 @@ NULLCAT,<axis1>,<axis2>,...,<axisN>
   considered lost after ~300 ms without a fresh motion packet; axes hold
   center until it resumes.
 
-### NULLCATX channel packets (device state effects)
+### NULLCATX channel packets (device and haptic effects)
 
 A second line format on the SAME port feeds the force-device effects
 (shifter/pedal - see the Devices section of the web UI):

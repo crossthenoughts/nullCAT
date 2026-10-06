@@ -66,19 +66,24 @@ With a sim feeding raw telemetry, the shifter can refuse and grind
 shifts made without the clutch. Two pieces:
 
 **The channel stream.** A `NULLCATX` UDP line carries raw values (rpm,
-speed, gear, clutch, throttle) to the same port as motion telemetry:
+speed, gear, clutch, throttle, and the haptic channels below) to the
+same port as motion telemetry:
 
 - **SimHub:** install the nullCAT Channel Exporter plugin from
-  `integrations/simhub/` in the repository. It sends the line above,
-  nothing else.
+  `integrations/simhub/` in the repository. It sends all 13 channels;
+  see its README for the settings file.
 - **FlyPT Mover / other tools:** any tool that can compose a text UDP
   line from telemetry fields works. Send
   `NULLCATX,<rpm>,<speedKmh>,<gear>,<clutchPct>,<throttlePct>` at
-  100 Hz or more (clutch: 0 = pedal up, 100 = floored).
+  100 Hz or more (clutch: 0 = pedal up, 100 = floored), adding the
+  haptic channels in the order given in `Docs/PROTOCOL.md` if your
+  tool can supply them.
 
-**The bindings.** Tell the rig which channel means what with
-`ncxBindings` in rig.json (example in the plugin README). The Devices
-section shows whether the stream is being received.
+**The bindings.** The rig already knows which channel means what: the
+default bindings match the SimHub plugin's order. Change them only if
+your sender uses a different order, in the Sim channels section of the
+web Setup view (it has a Reset to defaults button). The Devices section
+shows whether the stream is being received.
 
 **The effects.** On a shifter with detents configured:
 
@@ -100,6 +105,97 @@ section shows whether the stream is being received.
 All of these are off by default. If the channel stream stops for half a
 second, every effect drops out and the plain feel remains - a lost
 connection can never lock your shifter.
+
+## Haptics
+
+Haptics are short vibrations and textures that ride on top of the
+normal feel of any torque axis: the belt tensioners and devices like the
+shifter. They are always kept inside each axis's own force limits. They
+live on the **Haptics** strip in the Operate view, which appears once
+Experimental features is ticked in the host settings.
+
+### Setting one up
+
+Every effect starts off. To make one work it needs three things:
+
+1. **Amplitude** above 0 (`amp %`, a share of the axis's rated torque).
+2. **A route**: click the "not routed" link on the tile and give the
+   belt, the shifter, or any torque axis a gain above 0. One effect can
+   go to several axes.
+3. **Save**: the strip has its own Save bar. Changes apply immediately,
+   with no re-initialize.
+
+The routed axis must also be live (belt tensioned, device engaged) to be
+felt. **Test** plays the effect for a moment and, if nothing could be
+felt, says why: amplitude 0, no route, or the routed axis not live. The
+tile's waveform only moves while the effect is actually producing force,
+and its shape follows the amplitude and frequency you set.
+
+**Master** scales every effect at once; **Mute** silences the whole
+layer without changing any settings (press again to bring it back).
+
+### The effects
+
+Each tile lists the sim channels it needs, with a tick when the channel
+is arriving and a cross when it is not. A missing channel leaves that
+effect silent.
+
+| Effect | What you feel | Channels |
+|---|---|---|
+| Detent click | the lever dropping into a gate | none (from the shifter itself) |
+| Gear shift | a thunk on every gear change | gear |
+| Engine | the engine running, from idle to the limiter (below) | rpm, throttle, limiter |
+| ABS | a regular pulse while ABS works and the brake is on | brake, ABS active |
+| Lockup | brake lockup judder | lockup |
+| Skid | tyre slip texture | skid |
+| Road | road surface texture | road |
+| Limiter | an extra hammer while on the rev limiter | limiter |
+| TC pulse | a pulse while traction control cuts | TC active |
+| Kerb | kerb strip rumble | kerbs |
+
+With the SimHub plugin, rpm, speed, gear, clutch, throttle, brake, ABS,
+limiter and traction control arrive automatically. Skid, lockup, road
+and kerbs need a SimHub property named in the plugin's settings file
+(see the plugin README).
+
+`freq hz` sets the carrier: lower is a heavier, slower shake, higher is
+a finer buzz. `jitter` roughens it so slip, road and kerbs feel like
+texture rather than a tone.
+
+### The engine
+
+Describe the engine and the effect follows it:
+
+- **cyl / rotors**, **litres**, **layout** (inline, V, flat/boxer,
+  Wankel). Bigger cylinders hit harder; more cylinders and a V or flat
+  layout run smoother; a Wankel has no shake at idle but an uneven beat.
+- **max rpm**: the redline. Leave it at 0 and it is learned while you
+  drive (set exactly the first time you hit the limiter).
+- **rock x / thump x / buzz x** mix the three parts, 0 to switch one
+  off: the block rocking at idle, the individual firings, and the
+  vibration that rises in pitch and strength up the rev range.
+- **buzz order**: 0 picks the pitch automatically so the redline sits
+  at the top of the range; set it by hand to move it.
+- **thump hz**: the weight of each firing (lower = heavier).
+- **lope**: idle unevenness; 0.15 to 0.3 for a big-cam V8.
+
+**The limiter.** On the limiter the engine cuts whole bursts of firings
+and comes back hard, which is the bounce. Three controls:
+
+- **limiter x**: how hard each return hits (1 = full load).
+- **limiter hz**: how often it cuts. Lower (6 to 10) for big, slow
+  engines and heavy flywheels, a lazy "bap bap bap"; around 12 for most
+  cars; higher (15 to 25) for small high-revving engines and race ECUs,
+  a tight stutter. If it feels like the engine is just running at a
+  different speed, go lower; if it feels like separate knocks, go
+  higher.
+- **limiter jit**: 0 for a clean modern ECU, 0.2 to 0.4 for a road car,
+  0.5 and up for something rough like a carburettor classic or a rotary.
+
+The separate **Limiter** tile adds an extra hammer on top; keep it at
+around 12 Hz so it lands in time with the cuts.
+
+If the channel stream stops for half a second, every effect fades out.
 
 ## Troubleshooting
 

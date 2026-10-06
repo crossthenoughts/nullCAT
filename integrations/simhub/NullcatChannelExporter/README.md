@@ -2,10 +2,11 @@
 
 Sends raw sim telemetry to nullCAT for the force-device effects (shifter,
 active pedal) and the haptic effect layer. One UDP line per tick, nothing
-else (wire protocol 1.1, see `Docs/PROTOCOL.md` in the nullCAT repo):
+else (wire protocol 1.2, see `Docs/PROTOCOL.md` in the nullCAT repo):
 
     NULLCATX,<rpm>,<speedKmh>,<gear>,<clutchPct>,<throttlePct>,
-             <brakePct>,<absActive>,<skid>,<lockup>,<roadNoise>
+             <brakePct>,<absActive>,<skid>,<lockup>,<roadNoise>,
+             <limiter>,<tcActive>,<curbs>
 
 All the feel and logic lives in nullCAT - this plugin never changes when
 effects do. Gear is numeric on the wire: `0` = neutral, `-1` = reverse.
@@ -68,8 +69,8 @@ Values are clamped to 0-100.
 ## nullCAT side
 
 Nothing to bind: a fresh rig config ships with all 13 channels bound in
-this plugin's slot order. If you have edited `ncxBindings`, the Bindings
-editor in the web Setup view has a "defaults" button that restores them.
+this plugin's slot order. If you have changed them, the Sim channels
+section of the web Setup view has a "Reset to defaults" button.
 
-See `Docs/DEVICES.md` in the nullCAT repository for what the effects do
-and how to tune them.
+See the Haptics section of `Docs/DEVICES.md` in the nullCAT repository
+for what each effect does, which channels it needs, and how to tune it.
