@@ -61,8 +61,9 @@ struct Route
 
 // Per-event-type tuning (rig config). ampPct 0 = the effect is off.
 // Transients use freqHz + durMs; continuous effects use freqHz as their
-// carrier (durMs ignored) except RpmVibe, which uses `order` (carrier =
-// rpm/60 x order, the engine's firing frequency) and ignores freqHz.
+// carrier (durMs ignored). RpmVibe (the engine) uses freqHz as the THUMP
+// carrier of each firing (default 30 Hz, 0 = default), cylinders for the
+// firing density, and jitter as the idle lope amount.
 // jitter (0..1) roughens the carrier per cycle - skid and road feel like
 // texture, not a tone.
 //
@@ -165,37 +166,11 @@ public:
             // The engine slot runs the pulse-train synth, not the oscillator.
             if (i == static_cast<int>(FxType::RpmVibe))
             {
-                if (m_eng.fireHz < 0.5) continue;
-                m_eng.firePhase += m_eng.fireHz * dtSec;
-                if (m_eng.firePhase >= 1.0)
-                {
-                    m_eng.firePhase -= (double)(int)m_eng.firePhase;
-                    // Misfire under the limiter: drop about half the firings.
-                    f.rng ^= f.rng << 13; f.rng ^= f.rng >> 7; f.rng ^= f.rng << 17;
-                    const double r1 = (double)(f.rng & 0xFFFF) / 65535.0;
-                    if (!(m_eng.limiter && r1 < 0.55))
-                    {
-                        f.rng ^= f.rng << 13; f.rng ^= f.rng >> 7; f.rng ^= f.rng << 17;
-                        const double r2 = (double)(f.rng & 0xFFFF) / 65535.0;
-                        // One thump: raised-cosine envelope, one carrier cycle.
-                        m_eng.pulseDur = std::max(0.003, std::min(0.020, 0.55 / m_eng.fireHz));
-                        m_eng.pulseAmp = p.ampPct * f.level
-                                       * (0.35 + 0.65 * m_eng.load)
-                                       * (1.0 + p.jitter * (r2 - 0.5));
-                        m_eng.pulseT   = 0.0;
-                    }
-                }
-                if (m_eng.pulseT < m_eng.pulseDur)
-                {
-                    const double env = wavesynth::envelope(m_eng.pulseT, m_eng.pulseDur,
-                                                           m_eng.pulseDur * 0.30);
-                    const double v = m_eng.pulseAmp * env
-                                   * std::sin(2.0 * wavesynth::kPi * (m_eng.pulseT / m_eng.pulseDur));
-                    m_eng.pulseT += dtSec;
+                const double v = stepEngine(f, p, dtSec);
+                if (v != 0.0)
                     for (const Route& r : p.routes)
                         if (r.axis >= 0 && r.axis < MAX_HAPTIC_AXES && r.gain > 0.0)
                             m_overlay[r.axis] += v * r.gain;
-                }
                 continue;
             }
 
@@ -306,7 +281,9 @@ public:
     {
         for (Event& e : m_events) e.active = false;
         for (Fx& f : m_fx) { f.targetLevel = 0.0; f.level = 0.0; f.osc.reset(); }
-        m_eng.pulseT = 1e9; m_eng.firePhase = 0.0;
+        for (double& t : m_eng.pulseT) t = 1e9;
+        m_eng.firePhase = 0.0; m_eng.crankPhase = 0.0; m_eng.rockPhase = 0.0;
+        m_eng.cutPhase = 0.0; m_eng.revScale = 1.0;
         for (double& o : m_overlay) o = 0.0;
     }
 
@@ -336,14 +313,122 @@ private:
         uint64_t rng = 0x9E3779B97F4A7C15ull;   // xorshift state
     };
 
+    // ---- engine model state ----------------------------------------------
+    // What you feel from an engine at idle is not the firing frequency (a
+    // V8 at 800 rpm fires at 53 Hz, a buzz); it is the block rocking on its
+    // mounts at crank rate (13 Hz) with the firing as texture on top, and a
+    // big cam adds a half-order lope. So: firings are thumps with a FIXED
+    // low carrier (EffectParams.freqHz, default 30 Hz) that overlap in a
+    // small pool; a crank-rate rock rides underneath, full at idle and gone
+    // by ~2500 rpm; the lope amount (EffectParams.jitter) is a per-revolution
+    // random unevenness plus half-order content. Cylinders only set firing
+    // density, which is the right physics. The limiter is a CUT GATE: the
+    // ECU drops whole bursts of firings (~12 Hz, half on / half off) and the
+    // engine comes back at full load, which is the bounce; random single
+    // misfires only read as "a different rpm".
+    static constexpr int ENGINE_PULSES = 4;
     struct Engine
     {
         double fireHz = 0.0, load = 0.5;
         bool   limiter = false;
-        double firePhase = 0.0;
-        double pulseT = 1e9, pulseDur = 0.01, pulseAmp = 0.0;
+        double firePhase  = 0.0;     // 0..1 per firing
+        double crankPhase = 0.0;     // 0..1 per revolution (per-rev lope draw)
+        double rockPhase  = 0.0;     // 0..1 per TWO revolutions (half-order)
+        double revScale   = 1.0;     // this revolution's unevenness
+        double cutPhase   = 0.0;     // limiter gate 0..1
+        double pulseDur   = 0.033;
+        double pulseT[ENGINE_PULSES]   = { 1e9, 1e9, 1e9, 1e9 };
+        double pulseAmp[ENGINE_PULSES] = { 0.0, 0.0, 0.0, 0.0 };
     };
     Engine       m_eng;
+
+    // One cycle of the engine model; returns the overlay value (% of rated,
+    // before routing gain). f.level is the attack/release-smoothed drive
+    // level, p the RpmVibe params.
+    double stepEngine(Fx& f, const EffectParams& p, double dtSec)
+    {
+        Engine& E = m_eng;
+        const double thumpHz = (p.freqHz >= 5.0) ? p.freqHz : 30.0;
+        E.pulseDur = 1.0 / thumpHz;                       // one carrier cycle
+        const double cyl     = std::max(1.0, p.cylinders);
+        const double crankHz = E.fireHz / (cyl / 2.0);     // four-stroke
+
+        // Limiter cut gate.
+        bool cut = false;
+        if (E.limiter && E.fireHz >= 0.5)
+        {
+            E.cutPhase += 12.0 * dtSec;
+            if (E.cutPhase >= 1.0) E.cutPhase -= (double)(int)E.cutPhase;
+            cut = (E.cutPhase < 0.5);
+        }
+        else E.cutPhase = 0.0;
+
+        if (E.fireHz >= 0.5)
+        {
+            E.crankPhase += crankHz * dtSec;
+            if (E.crankPhase >= 1.0)
+            {
+                E.crankPhase -= (double)(int)E.crankPhase;
+                f.rng ^= f.rng << 13; f.rng ^= f.rng >> 7; f.rng ^= f.rng << 17;
+                const double r = (double)(f.rng & 0xFFFF) / 65535.0;
+                E.revScale = 1.0 + p.jitter * (r - 0.5) * 2.0;   // +-lope
+            }
+            E.rockPhase += 0.5 * crankHz * dtSec;
+            if (E.rockPhase >= 1.0) E.rockPhase -= (double)(int)E.rockPhase;
+
+            E.firePhase += E.fireHz * dtSec;
+            if (E.firePhase >= 1.0)
+            {
+                E.firePhase -= (double)(int)E.firePhase;
+                if (!cut)
+                {
+                    // Free slot, else the one closest to finishing.
+                    int slot = 0;
+                    for (int s = 1; s < ENGINE_PULSES; ++s)
+                        if (E.pulseT[s] > E.pulseT[slot]) slot = s;
+                    // Under the limiter the engine comes back hard: full load.
+                    const double hit = E.limiter ? 1.0 : (0.35 + 0.65 * E.load);
+                    // Thumps overlap once firings come faster than one
+                    // carrier cycle; normalise so the merged buzz keeps the
+                    // configured amplitude instead of stacking past it.
+                    const double overlap = E.fireHz * E.pulseDur;
+                    const double norm    = 1.0 / std::max(1.0, std::sqrt(overlap));
+                    E.pulseAmp[slot] = p.ampPct * f.level * 0.6 * hit * norm * E.revScale;
+                    E.pulseT[slot]   = 0.0;
+                }
+            }
+        }
+
+        // Sum the thumps in flight (they may overlap at high firing rates).
+        double v = 0.0;
+        for (int s = 0; s < ENGINE_PULSES; ++s)
+        {
+            if (E.pulseT[s] >= E.pulseDur) continue;
+            const double env = wavesynth::envelope(E.pulseT[s], E.pulseDur, E.pulseDur * 0.30);
+            v += E.pulseAmp[s] * env
+               * std::sin(2.0 * wavesynth::kPi * (E.pulseT[s] / E.pulseDur));
+            E.pulseT[s] += dtSec;
+        }
+
+        // Crank-rate rock: full below ~840 rpm, gone above ~2500 rpm, and
+        // it sags during a limiter cut like the real thing.
+        if (E.fireHz >= 0.5 && !cut)
+        {
+            const double fade = std::max(0.0, std::min(1.0, (42.0 - crankHz) / 28.0));
+            if (fade > 0.0)
+            {
+                const double ph   = 2.0 * wavesynth::kPi * E.rockPhase;   // one cycle = 2 revs
+                const double rock = std::sin(2.0 * ph)                      // crank rate
+                                  + 0.6 * p.jitter * std::sin(ph);          // half-order lope
+                // A loaded block rocks harder than a coasting one.
+                v += p.ampPct * f.level * 0.4 * fade * (0.7 + 0.3 * E.load) * E.revScale * rock;
+            }
+        }
+        // The engine never exceeds its own amplitude; the axis clamp is the
+        // guard rail above this, not the shaping.
+        const double cap = p.ampPct * f.level;
+        return std::max(-cap, std::min(cap, v));
+    }
     EffectParams m_params[EVENT_TYPE_COUNT];
     EffectParams m_fxParams[FX_TYPE_COUNT];
     Event        m_events[MAX_EVENTS];

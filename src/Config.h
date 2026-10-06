@@ -254,12 +254,12 @@ struct AppConfig
     // EffectParams: { ampPct, freqHz, durMs, order, jitter }.
     haptics::EffectParams hapticsDetentClick { 0.0,  90.0, 18.0 };
     haptics::EffectParams hapticsGearShift   { 0.0,  60.0, 25.0 };
-    haptics::EffectParams hapticsRpmVibe     { 0.0,   0.0,  0.0, 2.0, 0.0  };
+    haptics::EffectParams hapticsRpmVibe     { 0.0,  30.0,  0.0, 2.0, 0.15 };   // freqHz = thump carrier, jitter = lope
     haptics::EffectParams hapticsAbs         { 0.0,  12.0,  0.0, 2.0, 0.0  };
     haptics::EffectParams hapticsLockup      { 0.0,   9.0,  0.0, 2.0, 0.2  };
     haptics::EffectParams hapticsSkid        { 0.0,  35.0,  0.0, 2.0, 0.5  };
     haptics::EffectParams hapticsRoad        { 0.0,  28.0,  0.0, 2.0, 0.6  };
-    haptics::EffectParams hapticsLimiter     { 0.0,  45.0,  0.0, 2.0, 0.15 };
+    haptics::EffectParams hapticsLimiter     { 0.0,  12.0,  0.0, 2.0, 0.15 };   // a slow hammer, not a buzz
     haptics::EffectParams hapticsTc          { 0.0,  15.0,  0.0, 2.0, 0.0  };
     haptics::EffectParams hapticsKerb        { 0.0,  40.0,  0.0, 2.0, 0.4  };
     double                hapticsMasterGain  = 1.0;   // 0..2, scales every overlay

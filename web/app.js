@@ -1052,12 +1052,12 @@ function devAxes(){ return ((cfgObj&&cfgObj.drives)||[]).map((d,i)=>({d,i})).fil
 const HAP_DEF={
   detentClick:{ampPct:0,freqHz:90, durMs:18,order:2,jitter:0,   routes:[]},
   gearShift:  {ampPct:0,freqHz:60, durMs:25,order:2,jitter:0,   routes:[]},
-  rpmVibe:    {ampPct:0,freqHz:0,  durMs:0, order:2,jitter:0.15,cylinders:4,routes:[]},
+  rpmVibe:    {ampPct:0,freqHz:30, durMs:0, order:2,jitter:0.15,cylinders:4,routes:[]},
   abs:        {ampPct:0,freqHz:12, durMs:0, order:2,jitter:0,   routes:[]},
   lockup:     {ampPct:0,freqHz:9,  durMs:0, order:2,jitter:0.2, routes:[]},
   skid:       {ampPct:0,freqHz:35, durMs:0, order:2,jitter:0.5, routes:[]},
   road:       {ampPct:0,freqHz:28, durMs:0, order:2,jitter:0.6, routes:[]},
-  limiter:    {ampPct:0,freqHz:45, durMs:0, order:2,jitter:0.15,routes:[]},
+  limiter:    {ampPct:0,freqHz:12, durMs:0, order:2,jitter:0.15,routes:[]},
   tc:         {ampPct:0,freqHz:15, durMs:0, order:2,jitter:0,   routes:[]},
   kerb:       {ampPct:0,freqHz:40, durMs:0, order:2,jitter:0.4, routes:[]}};
 // Wire token order = the protocol registry (PROTOCOL.md) = s.ncxHave order.
@@ -1072,8 +1072,8 @@ const HAP_FX=[
    params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',10,500,5],['durMs','length ms',5,100,1]],
    tip:'A thunk on every gear change, ringing through the chassis. Needs the gear channel.'},
   {k:'rpmVibe',label:'Engine',fxIdx:0,chan:['rpm','throttlePct','limiter'],
-   params:[['ampPct','amp %',0,100,1],['cylinders','cylinders',1,16,1],['jitter','lope',0,1,0.05]],
-   tip:'Pulse-train engine: discrete firing thumps at idle merge into buzz as rpm rises; throttle loads it, the limiter drops firings for the bounce. Needs rpm (throttle and limiter optional).'},
+   params:[['ampPct','amp %',0,100,1],['cylinders','cylinders',1,16,1],['freqHz','thump hz',10,80,1],['jitter','lope',0,1,0.05]],
+   tip:'Engine: the block rocking at crank rate at idle (lumpy, fades out by ~2500 rpm) with each firing as a low thump on top; cylinders set the firing density, thump hz the weight of each firing, lope the per-rev unevenness. Throttle loads it; the limiter cuts whole bursts of firings for the bounce. Needs rpm (throttle and limiter optional).'},
   {k:'abs',label:'ABS',fxIdx:1,chan:['brakePct','absActive'],
    params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',4,60,1]],
    tip:'Pulses while ABS cycles under braking. Needs the absActive and brakePct channels.'},
@@ -1088,7 +1088,7 @@ const HAP_FX=[
    tip:'Surface feel, scaled by the roadNoise channel (0-100).'},
   {k:'limiter',label:'Limiter',fxIdx:5,chan:['limiter'],
    params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',10,120,1],['jitter','jitter',0,1,0.05]],
-   tip:'Bouncing off the rev limiter. The plugin computes it from rpm vs the car max.'},
+   tip:'Extra hammer on top of the engine effect while the limiter is in (the engine effect already cuts bursts of firings for the bounce). Keep it slow, ~10-15 hz. The plugin computes the flag from rpm vs the car max.'},
   {k:'tc',label:'TC pulse',fxIdx:6,chan:['tcActive'],
    params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',4,60,1]],
    tip:'Traction control cutting. Needs the tcActive channel.'},
@@ -1158,7 +1158,7 @@ function hapAnimate(svg,fx,dv,ms){
 
 function hapChipText(dv){
   const n=(dv.routes||[]).filter(x=>x&&x.axis>=0&&x.gain>0).length;
-  return n ? '→ '+n+' axis'+(n>1?'es':'') : '→ not routed';
+  return n ? '→ '+n+(n>1?' axes':' axis') : '→ not routed';
 }
 
 let hapOpenDrawer=null;

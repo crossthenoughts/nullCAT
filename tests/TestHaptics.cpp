@@ -17,6 +17,8 @@
 #include "../src/DeviceForceModel.h"
 #include <cstdio>
 #include <cmath>
+#include <utility>
+#include <vector>
 
 static int g_pass = 0, g_fail = 0;
 static void CHECK(bool ok, const char* what)
@@ -199,53 +201,89 @@ int main()
         p.ampPct = 10.0; p.jitter = 0.0; p.cylinders = 8.0;
         p.routes[0] = { 6, 1.0 };
 
-        // Low firing rate: discrete thumps with real GAPS between them.
-        Layer L; L.configureFx(FxType::RpmVibe, p);
-        int quiet = 0, loud = 0; double peak = 0.0;
-        for (int i = 0; i < 2000; ++i)                  // 1 s at 2 kHz
+        // Run one second of the engine at a firing rate (V8: fireHz =
+        // rpm/60 x 4) and return the raw peak plus a 20 ms moving average,
+        // which strips the 30 Hz thumps and leaves the crank-rate rock.
+        struct Run { double peak = 0.0; std::vector<double> lp; };
+        auto run = [&](double fireHz, double load, bool lim) {
+            Layer L; L.configureFx(FxType::RpmVibe, p);
+            Run r; std::vector<double> raw;
+            for (int i = 0; i < 2000; ++i)                  // 1 s at 2 kHz
+            {
+                L.driveEngine(1.0, fireHz, load, lim);
+                L.step(DT);
+                const double v = L.overlayFor(6);
+                raw.push_back(v);
+                r.peak = std::max(r.peak, std::fabs(v));
+            }
+            for (size_t i = 40; i < raw.size(); ++i)
+            { double s = 0.0; for (size_t k = i - 40; k < i; ++k) s += raw[k]; r.lp.push_back(s / 40.0); }
+            return r;
+        };
+        auto crossings = [](const std::vector<double>& x) {
+            int n = 0; for (size_t i = 1; i < x.size(); ++i) if ((x[i] >= 0.0) != (x[i-1] >= 0.0)) ++n; return n; };
+        auto lpEnergy = [](const std::vector<double>& x) {
+            double e = 0.0; for (double v : x) e += std::fabs(v); return e; };
+
+        // V8 idle, 800 rpm: fireHz 53.3, crank 13.3 Hz. The felt content is
+        // the crank-rate rock: the low-passed signal crosses zero ~27 times
+        // a second (2 per rev), not at the 53 Hz firing rate.
+        const Run idle = run(53.3, 1.0, false);
+        CHECK(idle.peak > 5.0,            "engine produces torque at idle");
+        CHECK(idle.peak <= 10.0 + 1e-9,   "engine bounded by its own amp");
+        const int xIdle = crossings(idle.lp);
+        CHECK(xIdle >= 20 && xIdle <= 34, "idle rock runs at crank rate (~27 crossings/s), not firing rate");
+
+        // 6000 rpm: fireHz 400, crank 100 Hz. The rock is gone, the thumps
+        // merge into a continuous buzz with no long gaps, still bounded.
+        const Run high = run(400.0, 1.0, false);
+        CHECK(high.peak <= 10.0 + 1e-9,   "high rpm still bounded by amp (overlap normalised)");
+        CHECK(lpEnergy(high.lp) < 0.3 * lpEnergy(idle.lp), "rock fades out by high rpm");
         {
-            L.driveEngine(1.0, 20.0, 1.0, false);       // 20 firings/s
-            L.step(DT);
-            const double a = std::fabs(L.overlayFor(6));
-            peak = std::max(peak, a);
-            if (a < 0.01) ++quiet; else ++loud;
+            Layer Lh; Lh.configureFx(FxType::RpmVibe, p);
+            int g = 0, maxGap = 0;
+            for (int i = 0; i < 2000; ++i)
+            {
+                Lh.driveEngine(1.0, 400.0, 1.0, false); Lh.step(DT);
+                if (i > 200 && std::fabs(Lh.overlayFor(6)) < 0.01) { ++g; maxGap = std::max(maxGap, g); }
+                else g = 0;
+            }
+            CHECK(maxGap <= 4, "high rpm: no long gaps - pulses merge into buzz");
         }
-        CHECK(peak > 5.0,               "engine pulses produce torque");
-        CHECK(peak <= 10.0 + 1e-9,      "engine pulses bounded by amp (full load)");
-        CHECK(quiet > loud,             "low rpm: chunky - more gap than pulse");
 
-        // High firing rate: pulses merge - little to no gap.
-        Layer Lh; Lh.configureFx(FxType::RpmVibe, p);
-        int run = 0, maxRun = 0;
-        for (int i = 0; i < 2000; ++i)
+        // Fewer cylinders = sparser firings, same character: a 4-cyl at
+        // 800 rpm (fireHz 26.7) still rocks at the same crank rate.
         {
-            Lh.driveEngine(1.0, 300.0, 1.0, false);
-            Lh.step(DT);
-            if (i > 200 && std::fabs(Lh.overlayFor(6)) < 0.01) { ++run; maxRun = std::max(maxRun, run); }
-            else run = 0;
+            EffectParams p4 = p; p4.cylinders = 4.0;
+            Layer L4; L4.configureFx(FxType::RpmVibe, p4);
+            std::vector<double> raw, lp;
+            for (int i = 0; i < 2000; ++i) { L4.driveEngine(1.0, 26.7, 1.0, false); L4.step(DT); raw.push_back(L4.overlayFor(6)); }
+            for (size_t i = 40; i < raw.size(); ++i)
+            { double s = 0.0; for (size_t k = i - 40; k < i; ++k) s += raw[k]; lp.push_back(s / 40.0); }
+            const int x4 = crossings(lp);
+            CHECK(x4 >= 20 && x4 <= 34,   "4-cyl idle rocks at the same crank rate");
         }
-        CHECK(maxRun <= 4, "high rpm: no long gaps - pulses merge into buzz");
 
-        // Load scales pulse strength.
-        Layer Ll; Ll.configureFx(FxType::RpmVibe, p);
-        double peakLow = 0.0;
-        for (int i = 0; i < 2000; ++i)
-        { Ll.driveEngine(1.0, 20.0, 0.0, false); Ll.step(DT);
-          peakLow = std::max(peakLow, std::fabs(Ll.overlayFor(6))); }
-        CHECK(peakLow > 1.0 && peakLow < peak * 0.6,
-              "coasting hits softer than full load");
+        // Load: coasting hits softer than full load.
+        const Run coast = run(53.3, 0.0, false);
+        CHECK(coast.peak > 1.0 && coast.peak < idle.peak * 0.75, "coasting hits softer than full load");
 
-        // Limiter drops roughly half the firings: pulse energy falls.
+        // Limiter: whole bursts are cut (~12 Hz gate, half off), so energy
+        // drops AND the output has real holes of >= 30 ms, which is the
+        // bounce. Random single misfires never produce holes that long.
         auto energy = [&](bool lim){
             Layer Le; Le.configureFx(FxType::RpmVibe, p);
-            double e = 0.0;
+            double e = 0.0; int g = 0, maxGap = 0;
             for (int i = 0; i < 4000; ++i)
             { Le.driveEngine(1.0, 60.0, 1.0, lim); Le.step(DT);
-              e += std::fabs(Le.overlayFor(6)); }
-            return e;
+              const double a = std::fabs(Le.overlayFor(6)); e += a;
+              if (a < 0.01) { ++g; maxGap = std::max(maxGap, g); } else g = 0; }
+            return std::make_pair(e, maxGap);
         };
-        const double eOn = energy(true), eOff = energy(false);
-        CHECK(eOn < eOff * 0.8, "limiter drops firings (the bounce is missing events)");
+        const auto on = energy(true), off = energy(false);
+        CHECK(on.first < off.first * 0.8, "limiter cuts firings: energy falls");
+        CHECK(on.second >= 50,            "limiter leaves holes of >= 25 ms (the bounce)");
+        CHECK(off.second < 50,            "no such holes without the limiter");
 
         // No firing rate = silence even when driven.
         Layer Lz; Lz.configureFx(FxType::RpmVibe, p);
