@@ -62,12 +62,12 @@ middle number carries breaking changes and the last carries fixes.
   order is automatic so the redline lands at the top of the band and the
   level keeps building to it, so a 6000 rpm V8 and a 16000 rpm V12 both
   use the whole effect; thumps fade out where firings can no longer be
-  resolved and the buzz carries the engine. The limiter bounce has its
-  own controls on the Engine tile: "limiter x" (strength of each
-  return hit), "limiter hz" (cut rate, default 12) and "limiter jit"
-  (irregular cut timing for a rougher limiter). Throttle loads it, and the limiter cuts whole
-  bursts of firings and comes back at full load, which is the bounce
-  (wire protocol 1.2 adds limiter, tcActive, curbs). Haptics tuning now applies LIVE on save - amp,
+  resolved and the buzz carries the engine. Throttle loads it, and the
+  limiter cuts whole bursts of firings and comes back at full load,
+  which is the bounce; it has its own controls on the Engine tile:
+  "limiter x" (strength of each return hit), "limiter hz" (cut rate,
+  default 12) and "limiter jit" (irregular cut timing for a rougher
+  limiter). Wire protocol 1.2 adds limiter, tcActive, curbs. Haptics tuning now applies LIVE on save - amp,
   frequency, routing and the new master gain never need a
   re-initialize - and a runtime Mute button silences the whole layer.
   Each tile shows its channels with a live delivered/missing mark, and
