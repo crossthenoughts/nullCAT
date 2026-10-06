@@ -46,7 +46,8 @@ middle number carries breaking changes and the last carries fixes.
   ENGINE MODEL - at idle you feel the block rocking at crank rate
   (lumpy, with a lope setting for per-rev unevenness and big-cam
   half-order content), fading out by about 2500 rpm, with each firing
-  as a low thump on top (a "thump hz" setting sets its weight;
+  as a low thump on top ("thump hz" sets its weight; "rock x" and
+  "thump x" mix the two components so the engine is set by feel;
   cylinders set the firing density, so a V8 is lumpier than a four,
   not higher pitched). Throttle loads it, and the limiter cuts whole
   bursts of firings and comes back at full load, which is the bounce

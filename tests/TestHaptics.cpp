@@ -264,6 +264,29 @@ int main()
             CHECK(x4 >= 20 && x4 <= 34,   "4-cyl idle rocks at the same crank rate");
         }
 
+        // Component mix: rock 0 leaves only thumps (low-passed signal
+        // collapses), thump 0 leaves only the rock (no gaps, no 30 Hz
+        // content), both 0 is silence. Set-by-feel on the tile.
+        {
+            auto lpOf = [&](const EffectParams& q, double fireHz) {
+                Layer L; L.configureFx(FxType::RpmVibe, q);
+                std::vector<double> raw, lp; double pk = 0.0;
+                for (int i = 0; i < 2000; ++i) { L.driveEngine(1.0, fireHz, 1.0, false); L.step(DT);
+                    raw.push_back(L.overlayFor(6)); pk = std::max(pk, std::fabs(raw.back())); }
+                for (size_t i = 40; i < raw.size(); ++i)
+                { double s = 0.0; for (size_t k = i - 40; k < i; ++k) s += raw[k]; lp.push_back(s / 40.0); }
+                return std::make_pair(pk, lpEnergy(lp));
+            };
+            EffectParams noRock = p;  noRock.rock  = 0.0;
+            EffectParams noThump = p; noThump.thump = 0.0;
+            EffectParams none = p;    none.rock = 0.0; none.thump = 0.0;
+            const auto full = lpOf(p, 53.3), nr = lpOf(noRock, 53.3), nt = lpOf(noThump, 53.3), z = lpOf(none, 53.3);
+            CHECK(nr.second < 0.15 * full.second, "rock x 0: crank-rate content gone, thumps remain");
+            CHECK(nr.first > 2.0,                 "rock x 0: thumps still produce torque");
+            CHECK(nt.second > 0.8 * full.second,  "thump x 0: the rock is untouched");
+            CHECK(z.first == 0.0,                 "rock 0 + thump 0: silence");
+        }
+
         // Load: coasting hits softer than full load.
         const Run coast = run(53.3, 0.0, false);
         CHECK(coast.peak > 1.0 && coast.peak < idle.peak * 0.75, "coasting hits softer than full load");

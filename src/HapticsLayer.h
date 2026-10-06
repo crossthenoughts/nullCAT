@@ -78,6 +78,8 @@ struct EffectParams
     double order  = 2.0;    // (legacy, unused since the pulse-train engine)
     double jitter = 0.0;    // 0..1 carrier roughness; ENGINE: idle-lope amount
     double cylinders = 4.0; // ENGINE only: firing rate = rpm/60 x cylinders/2
+    double rock  = 1.0;     // ENGINE only: crank-rate rock component gain 0..1
+    double thump = 1.0;     // ENGINE only: firing thump component gain 0..1
     Route  routes[MAX_ROUTES] = {};
 };
 
@@ -393,7 +395,7 @@ private:
                     // configured amplitude instead of stacking past it.
                     const double overlap = E.fireHz * E.pulseDur;
                     const double norm    = 1.0 / std::max(1.0, std::sqrt(overlap));
-                    E.pulseAmp[slot] = p.ampPct * f.level * 0.6 * hit * norm * E.revScale;
+                    E.pulseAmp[slot] = p.ampPct * f.level * 0.6 * p.thump * hit * norm * E.revScale;
                     E.pulseT[slot]   = 0.0;
                 }
             }
@@ -421,7 +423,7 @@ private:
                 const double rock = std::sin(2.0 * ph)                      // crank rate
                                   + 0.6 * p.jitter * std::sin(ph);          // half-order lope
                 // A loaded block rocks harder than a coasting one.
-                v += p.ampPct * f.level * 0.4 * fade * (0.7 + 0.3 * E.load) * E.revScale * rock;
+                v += p.ampPct * f.level * 0.4 * p.rock * fade * (0.7 + 0.3 * E.load) * E.revScale * rock;
             }
         }
         // The engine never exceeds its own amplitude; the axis clamp is the
