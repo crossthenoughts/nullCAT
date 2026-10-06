@@ -187,6 +187,7 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
             o["order"]  = p.order;  o["jitter"] = p.jitter; o["cylinders"] = p.cylinders;
             o["rock"]   = p.rock;   o["thump"]  = p.thump;  o["buzz"] = p.buzz;
             o["litres"] = p.litres; o["layout"] = p.layout; o["maxRpm"] = p.maxRpm;
+            o["limHit"] = p.limHit; o["limHz"] = p.limHz; o["limJit"] = p.limJit;
             QJsonArray r;
             for (const haptics::Route& rt : p.routes)
                 if (rt.axis != -1 && rt.gain > 0.0)
@@ -250,6 +251,9 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
             p.litres    = o.value("litres").toDouble(p.litres);
             p.layout    = o.value("layout").toDouble(p.layout);
             p.maxRpm    = o.value("maxRpm").toDouble(p.maxRpm);
+            p.limHit    = o.value("limHit").toDouble(p.limHit);
+            p.limHz     = o.value("limHz").toDouble(p.limHz);
+            p.limJit    = o.value("limJit").toDouble(p.limJit);
             if (o.contains("routes"))
             {
                 for (haptics::Route& rt : p.routes) { rt.axis = -1; rt.gain = 0.0; }
@@ -1099,6 +1103,12 @@ std::vector<std::string> AppConfig::validate() const
                 errors.push_back(pfx + "order out of range [0.25, 8] (0 = auto)");
             if (p.maxRpm < 0.0 || p.maxRpm > 30000.0)
                 errors.push_back(pfx + "maxRpm out of range [0, 30000] (0 = learn)");
+            if (p.limHit < 0.0 || p.limHit > 2.0)
+                errors.push_back(pfx + "limHit out of range [0, 2]");
+            if (p.limHz < 4.0 || p.limHz > 30.0)
+                errors.push_back(pfx + "limHz out of range [4, 30]");
+            if (p.limJit < 0.0 || p.limJit > 1.0)
+                errors.push_back(pfx + "limJit out of range [0, 1]");
             if (p.jitter < 0.0 || p.jitter > 1.0)
                 errors.push_back(pfx + "jitter out of range [0, 1]");
             if (p.cylinders < 1.0 || p.cylinders > 16.0)

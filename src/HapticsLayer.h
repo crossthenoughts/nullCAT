@@ -84,6 +84,9 @@ struct EffectParams
     double litres = 2.0;    // ENGINE only: total displacement; per-cylinder size sets impulse weight
     double layout = 0.0;    // ENGINE only: 0 inline, 1 V, 2 flat/boxer, 3 Wankel (cylinders = rotors)
     double maxRpm = 0.0;    // ENGINE only: redline; 0 = learn it (peak hold, limiter snap)
+    double limHit = 1.0;    // ENGINE only: limiter hammer strength 0..2 (each return hit, 1 = full load)
+    double limHz  = 12.0;   // ENGINE only: limiter cut rate Hz (6..25)
+    double limJit = 0.0;    // ENGINE only: limiter cut-timing irregularity 0..1
     Route  routes[MAX_ROUTES] = {};
 };
 
@@ -342,6 +345,7 @@ private:
         double rockPhase  = 0.0;     // 0..1 per TWO revolutions (half-order)
         double revScale   = 1.0;     // this revolution's unevenness
         double cutPhase   = 0.0;     // limiter gate 0..1
+        double cutRate    = 12.0;    // this cut cycle's rate (jittered per cycle)
         double buzzPhase  = 0.0;     // rpm-following vibration carrier 0..1
         double beatPhase  = 0.0;     // rotary idle beat 0..1
         double learnedMax = 7000.0;  // redline learned from the stream (peak hold; limiter hit snaps it)
@@ -417,11 +421,20 @@ private:
         bool cut = false;
         if (E.limiter && E.fireHz >= 0.5)
         {
-            E.cutPhase += 12.0 * dtSec;
-            if (E.cutPhase >= 1.0) E.cutPhase -= (double)(int)E.cutPhase;
+            // Rate per cut cycle: limHz, jittered by limJit (+-40% at 1) so a
+            // rough limiter stumbles irregularly instead of a clean metronome.
+            E.cutPhase += E.cutRate * dtSec;
+            if (E.cutPhase >= 1.0)
+            {
+                E.cutPhase -= (double)(int)E.cutPhase;
+                const double base = std::max(4.0, std::min(30.0, p.limHz > 0.0 ? p.limHz : 12.0));
+                f.rng ^= f.rng << 13; f.rng ^= f.rng >> 7; f.rng ^= f.rng << 17;
+                const double r = (double)(f.rng & 0xFFFF) / 65535.0;
+                E.cutRate = base * (1.0 + 0.8 * std::max(0.0, std::min(1.0, p.limJit)) * (r - 0.5));
+            }
             cut = (E.cutPhase < 0.5);
         }
-        else E.cutPhase = 0.0;
+        else { E.cutPhase = 0.0; E.cutRate = std::max(4.0, std::min(30.0, p.limHz > 0.0 ? p.limHz : 12.0)); }
 
         if (E.fireHz >= 0.5)
         {
@@ -447,7 +460,7 @@ private:
                     for (int s = 1; s < ENGINE_PULSES; ++s)
                         if (E.pulseT[s] > E.pulseT[slot]) slot = s;
                     // Under the limiter the engine comes back hard: full load.
-                    const double hit = E.limiter ? 1.0 : (0.35 + 0.65 * E.load);
+                    const double hit = E.limiter ? std::max(0.0, std::min(2.0, p.limHit)) : (0.35 + 0.65 * E.load);
                     // Thumps overlap once firings come faster than one
                     // carrier cycle; normalise so the merged buzz keeps the
                     // configured amplitude instead of stacking past it.

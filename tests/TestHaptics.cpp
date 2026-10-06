@@ -17,6 +17,7 @@
 #include "../src/DeviceForceModel.h"
 #include <cstdio>
 #include <cmath>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -354,6 +355,30 @@ int main()
             double tpk = 0.0;
             for (int i = 0; i < 2000; ++i) { Lt.driveEngine(1.0, 400.0, 1.0, false); Lt.step(DT); tpk = std::max(tpk, std::fabs(Lt.overlayFor(6))); }
             CHECK(tpk < 0.5,                             "thumps fade out where firings cannot be resolved");
+        }
+
+        // Limiter controls on the engine: limiter x scales the return hit,
+        // limiter hz sets the cut rate (count of silent holes per second),
+        // limiter jit makes the cut timing irregular.
+        {
+            auto limRun = [&](double hit, double hz, double jit) {
+                EffectParams q = p; q.limHit = hit; q.limHz = hz; q.limJit = jit; q.rock = 0.0; q.buzz = 0.0;
+                Layer L; L.configureFx(FxType::RpmVibe, q);
+                double e = 0.0; int holes = 0, g = 0; std::vector<int> lens;
+                for (int i = 0; i < 4000; ++i)                    // 2 s
+                { L.driveEngine(1.0, 60.0, 1.0, true); L.step(DT);
+                  const double a = std::fabs(L.overlayFor(6)); e += a;
+                  if (a < 0.01) ++g; else { if (g >= 40) { ++holes; lens.push_back(g); } g = 0; } }
+                return std::make_tuple(e, holes, lens);
+            };
+            const auto base = limRun(1.0, 12.0, 0.0), hard = limRun(1.5, 12.0, 0.0), slow = limRun(1.0, 6.0, 0.0);
+            CHECK(std::get<0>(hard) > std::get<0>(base) * 1.3, "limiter x scales the return hit");
+            CHECK(std::get<1>(base) >= 18 && std::get<1>(base) <= 26, "limiter hz 12: ~24 cuts in 2 s");
+            CHECK(std::get<1>(slow) >= 8 && std::get<1>(slow) <= 13,  "limiter hz 6: ~12 cuts in 2 s");
+            const auto rough = limRun(1.0, 12.0, 1.0);
+            const auto& L = std::get<2>(rough);
+            int mn = 1 << 30, mx = 0; for (int x : L) { mn = std::min(mn, x); mx = std::max(mx, x); }
+            CHECK(!L.empty() && mx > mn + 20,       "limiter jit: cut lengths vary");
         }
 
         // Engine size and layout. Same 800 rpm idle, thumps only (rock and
