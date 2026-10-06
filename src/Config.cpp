@@ -185,7 +185,8 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
             QJsonObject o;
             o["ampPct"] = p.ampPct; o["freqHz"] = p.freqHz; o["durMs"] = p.durMs;
             o["order"]  = p.order;  o["jitter"] = p.jitter; o["cylinders"] = p.cylinders;
-            o["rock"]   = p.rock;   o["thump"]  = p.thump;
+            o["rock"]   = p.rock;   o["thump"]  = p.thump;  o["buzz"] = p.buzz;
+            o["litres"] = p.litres; o["layout"] = p.layout;
             QJsonArray r;
             for (const haptics::Route& rt : p.routes)
                 if (rt.axis != -1 && rt.gain > 0.0)
@@ -245,6 +246,9 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
             p.cylinders = o.value("cylinders").toDouble(p.cylinders);
             p.rock      = o.value("rock").toDouble(p.rock);
             p.thump     = o.value("thump").toDouble(p.thump);
+            p.buzz      = o.value("buzz").toDouble(p.buzz);
+            p.litres    = o.value("litres").toDouble(p.litres);
+            p.layout    = o.value("layout").toDouble(p.layout);
             if (o.contains("routes"))
             {
                 for (haptics::Route& rt : p.routes) { rt.axis = -1; rt.gain = 0.0; }
@@ -1096,8 +1100,12 @@ std::vector<std::string> AppConfig::validate() const
                 errors.push_back(pfx + "jitter out of range [0, 1]");
             if (p.cylinders < 1.0 || p.cylinders > 16.0)
                 errors.push_back(pfx + "cylinders out of range [1, 16]");
-            if (p.rock < 0.0 || p.rock > 1.0 || p.thump < 0.0 || p.thump > 1.0)
-                errors.push_back(pfx + "rock/thump mix out of range [0, 1]");
+            if (p.rock < 0.0 || p.rock > 1.0 || p.thump < 0.0 || p.thump > 1.0 || p.buzz < 0.0 || p.buzz > 1.0)
+                errors.push_back(pfx + "rock/thump/buzz mix out of range [0, 1]");
+            if (p.litres < 0.1 || p.litres > 30.0)
+                errors.push_back(pfx + "litres out of range [0.1, 30]");
+            if (p.layout < 0.0 || p.layout > 3.0)
+                errors.push_back(pfx + "layout out of range [0, 3] (inline, V, flat, wankel)");
             for (const haptics::Route& r : p.routes)
             {
                 if (r.axis == -1 && r.gain <= 0.0) continue;   // unused slot

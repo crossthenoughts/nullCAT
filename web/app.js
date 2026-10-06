@@ -1052,7 +1052,7 @@ function devAxes(){ return ((cfgObj&&cfgObj.drives)||[]).map((d,i)=>({d,i})).fil
 const HAP_DEF={
   detentClick:{ampPct:0,freqHz:90, durMs:18,order:2,jitter:0,   routes:[]},
   gearShift:  {ampPct:0,freqHz:60, durMs:25,order:2,jitter:0,   routes:[]},
-  rpmVibe:    {ampPct:0,freqHz:30, durMs:0, order:2,jitter:0.15,cylinders:4,rock:1,thump:1,routes:[]},
+  rpmVibe:    {ampPct:0,freqHz:30, durMs:0, order:1,jitter:0.15,cylinders:4,litres:2,layout:0,rock:1,thump:1,buzz:1,routes:[]},
   abs:        {ampPct:0,freqHz:12, durMs:0, order:2,jitter:0,   routes:[]},
   lockup:     {ampPct:0,freqHz:9,  durMs:0, order:2,jitter:0.2, routes:[]},
   skid:       {ampPct:0,freqHz:35, durMs:0, order:2,jitter:0.5, routes:[]},
@@ -1072,8 +1072,8 @@ const HAP_FX=[
    params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',10,500,5],['durMs','length ms',5,100,1]],
    tip:'A thunk on every gear change, ringing through the chassis. Needs the gear channel.'},
   {k:'rpmVibe',label:'Engine',fxIdx:0,chan:['rpm','throttlePct','limiter'],
-   params:[['ampPct','amp %',0,100,1],['cylinders','cylinders',1,16,1],['rock','rock x',0,1,0.1],['thump','thump x',0,1,0.1],['freqHz','thump hz',10,80,1],['jitter','lope',0,1,0.05]],
-   tip:'Engine: the block rocking at crank rate at idle (lumpy, fades out by ~2500 rpm) with each firing as a low thump on top. rock x and thump x mix the two components (0 = off) so you can set it by feel; cylinders set the firing density, thump hz the weight of each firing, lope the per-rev unevenness. Throttle loads it; the limiter cuts whole bursts of firings for the bounce. Needs rpm (throttle and limiter optional).'},
+   params:[['ampPct','amp %',0,100,1],['cylinders','cyl / rotors',1,16,1],['litres','litres',0.1,30,0.1],['layout','layout',0,3,1,['inline','V','flat / boxer','wankel']],['rock','rock x',0,1,0.1],['thump','thump x',0,1,0.1],['buzz','buzz x',0,1,0.1],['order','buzz order',1,4,1],['freqHz','thump hz',10,80,1],['jitter','lope',0,1,0.05]],
+   tip:'Engine: the block rocking at crank rate at idle (lumpy, fades out by ~2500 rpm) with each firing as a low thump on top. Above idle the rock hands over to the buzz: the firing-order vibration with pitch rising with rpm, kept at a lower order (buzz order x crank rate, 1 = 13 Hz at 800 rpm to ~117 Hz at 7000) because the real 400 Hz is beyond any actuator here; level grows with rpm and throttle up to the limiter. rock x, thump x and buzz x mix the three (0 = off) so you set it by feel; cylinders set the firing density, thump hz the weight of each firing, lope the per-rev unevenness. Throttle loads it; the limiter cuts whole bursts of firings for the bounce. Needs rpm (throttle and limiter optional).'},
   {k:'abs',label:'ABS',fxIdx:1,chan:['brakePct','absActive'],
    params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',4,60,1]],
    tip:'Pulses while ABS cycles under braking. Needs the absActive and brakePct channels.'},
@@ -1337,17 +1337,21 @@ function hapInit(){
       ?'<div class="hk hchan" data-chan="1">'+fx.chan.join(' ')+'</div>'
       :'<div class="hk hchan"></div>';
     h+='<svg class="hap-wave"></svg><div class="hrows">';
-    for(const [key,lab,min,max,st] of fx.params)
-      h+='<div class="hr"><span class="hk">'+lab+'</span>'
-        +'<input type="number" min="'+min+'" max="'+max+'" step="'+st+'" data-k="'+key+'" value="'+dv[key]+'"></div>';
+    for(const [key,lab,min,max,st,opts] of fx.params){
+      h+='<div class="hr"><span class="hk">'+lab+'</span>';
+      if(opts)   // a choice, not a number: value = option index
+        h+='<select data-k="'+key+'">'+opts.map((o,i)=>'<option value="'+i+'"'+(Math.round(+dv[key])===i?' selected':'')+'>'+o+'</option>').join('')+'</select></div>';
+      else
+        h+='<input type="number" min="'+min+'" max="'+max+'" step="'+st+'" data-k="'+key+'" value="'+dv[key]+'"></div>';
+    }
     h+='</div><div class="hb"><button class="hap-routechip" type="button">'+hapChipText(dv)+'</button>'
       +'<button class="btn btn-sm btn-action" type="button" data-test="1">Test</button></div>';
     tile.innerHTML=h;
     const svg=tile.querySelector('svg'); hapWave(svg,fx,dv);
-    tile.querySelectorAll('input').forEach(inp=>{ inp.onchange=()=>{
+    tile.querySelectorAll('input,select').forEach(inp=>{ inp.onchange=()=>{
       const v=+inp.value; if(!isFinite(v)) return;
-      dv[inp.dataset.k]=Math.max(+inp.min,Math.min(+inp.max,v));
-      inp.value=dv[inp.dataset.k];
+      dv[inp.dataset.k]=(inp.tagName==='SELECT')?v:Math.max(+inp.min,Math.min(+inp.max,v));
+      if(inp.tagName!=='SELECT') inp.value=dv[inp.dataset.k];
       hapWave(svg,fx,dv);
       tile.classList.toggle('on',dv.ampPct>0);
       refreshDirtyUI();

@@ -46,10 +46,17 @@ middle number carries breaking changes and the last carries fixes.
   ENGINE MODEL - at idle you feel the block rocking at crank rate
   (lumpy, with a lope setting for per-rev unevenness and big-cam
   half-order content), fading out by about 2500 rpm, with each firing
-  as a low thump on top ("thump hz" sets its weight; "rock x" and
-  "thump x" mix the two components so the engine is set by feel;
-  cylinders set the firing density, so a V8 is lumpier than a four,
-  not higher pitched). Throttle loads it, and the limiter cuts whole
+  as a low thump on top ("thump hz" sets its weight), and above idle a
+  buzz takes over: the firing-order vibration with pitch rising with
+  rpm, kept at a lower order the actuator can carry ("buzz order" x
+  crank rate), growing with rpm and throttle to the limiter. "rock x",
+  "thump x" and "buzz x" mix the three so the engine is set by feel.
+  The engine is described, not tuned: cylinders (or rotors), litres
+  and layout (inline, V, flat/boxer, Wankel) set the physics - a 1.0 L
+  triple is light and busy with a strong first-order shake, a 6.5 L V8
+  hits hard and lopes, a V12 is turbine-smooth, a Wankel has no
+  reciprocating rock and the classic uneven beat at idle - and it
+  scales from sub-litre three-cylinders to twelve-plus. Throttle loads it, and the limiter cuts whole
   bursts of firings and comes back at full load, which is the bounce
   (wire protocol 1.2 adds limiter, tcActive, curbs). Haptics tuning now applies LIVE on save - amp,
   frequency, routing and the new master gain never need a

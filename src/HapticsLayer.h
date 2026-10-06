@@ -75,11 +75,14 @@ struct EffectParams
     double ampPct = 0.0;    // % of rated torque at full scale
     double freqHz = 90.0;   // burst/texture carrier
     double durMs  = 18.0;   // burst length (transients only)
-    double order  = 2.0;    // (legacy, unused since the pulse-train engine)
+    double order  = 2.0;    // ENGINE: buzz carrier order (x crank rate); unused elsewhere
     double jitter = 0.0;    // 0..1 carrier roughness; ENGINE: idle-lope amount
     double cylinders = 4.0; // ENGINE only: firing rate = rpm/60 x cylinders/2
     double rock  = 1.0;     // ENGINE only: crank-rate rock component gain 0..1
     double thump = 1.0;     // ENGINE only: firing thump component gain 0..1
+    double buzz  = 1.0;     // ENGINE only: rpm-following vibration gain 0..1 (carrier = crank x order)
+    double litres = 2.0;    // ENGINE only: total displacement; per-cylinder size sets impulse weight
+    double layout = 0.0;    // ENGINE only: 0 inline, 1 V, 2 flat/boxer, 3 Wankel (cylinders = rotors)
     Route  routes[MAX_ROUTES] = {};
 };
 
@@ -285,7 +288,7 @@ public:
         for (Fx& f : m_fx) { f.targetLevel = 0.0; f.level = 0.0; f.osc.reset(); }
         for (double& t : m_eng.pulseT) t = 1e9;
         m_eng.firePhase = 0.0; m_eng.crankPhase = 0.0; m_eng.rockPhase = 0.0;
-        m_eng.cutPhase = 0.0; m_eng.revScale = 1.0;
+        m_eng.cutPhase = 0.0; m_eng.buzzPhase = 0.0; m_eng.beatPhase = 0.0; m_eng.revScale = 1.0;
         for (double& o : m_overlay) o = 0.0;
     }
 
@@ -338,6 +341,8 @@ private:
         double rockPhase  = 0.0;     // 0..1 per TWO revolutions (half-order)
         double revScale   = 1.0;     // this revolution's unevenness
         double cutPhase   = 0.0;     // limiter gate 0..1
+        double buzzPhase  = 0.0;     // rpm-following vibration carrier 0..1
+        double beatPhase  = 0.0;     // rotary idle beat 0..1
         double pulseDur   = 0.033;
         double pulseT[ENGINE_PULSES]   = { 1e9, 1e9, 1e9, 1e9 };
         double pulseAmp[ENGINE_PULSES] = { 0.0, 0.0, 0.0, 0.0 };
@@ -353,7 +358,42 @@ private:
         const double thumpHz = (p.freqHz >= 5.0) ? p.freqHz : 30.0;
         E.pulseDur = 1.0 / thumpHz;                       // one carrier cycle
         const double cyl     = std::max(1.0, p.cylinders);
-        const double crankHz = E.fireHz / (cyl / 2.0);     // four-stroke
+        const int    layout  = static_cast<int>(p.layout + 0.5);
+        const bool   rotary  = (layout == 3);
+        // Four-stroke: each cylinder fires every 2 revs. Wankel: each rotor
+        // fires once per eccentric-shaft rev (3 faces per rotor rev, shaft
+        // turns 3x), so "cylinders" = rotors and density is 1 per rotor.
+        const double crankHz = rotary ? E.fireHz / cyl : E.fireHz / (cyl / 2.0);
+
+        // Engine size, two physical factors from litres + cylinders:
+        //  heavy   - displacement PER CYLINDER sets each firing impulse
+        //            (0.5 L/cyl = 1.0; a 1.0 L triple 0.67, a 6.5 L V8 1.6,
+        //            a 1.6 L V6 0.55, a 6.0 L V12 1.0). Scales thumps and idle
+        //            lumpiness. A sub-litre engine is light and busy, a big
+        //            block hits hard, whatever the cylinder count.
+        //  balance - inherent shake by cylinder count: a triple has a strong
+        //            first-order rocking couple, a four shakes, a six is
+        //            smooth, a V12 is turbine-smooth. Scales the rock only.
+        //            Layout scales it: a V engine is mechanically smoother than
+        //            an inline of the same count, a flat/boxer cancels most of
+        //            its primary shake, a Wankel has no reciprocating mass at all.
+        const double perCyl  = std::max(0.05, p.litres) / cyl;
+        const double heavy   = std::max(0.4, std::min(1.6, perCyl / 0.5));
+        const double layoutK = (layout == 1) ? 0.85 : (layout == 2) ? 0.7 : 1.0;
+        const double balance = rotary ? 0.25
+                             : layoutK * std::max(0.3, std::min(1.3, 2.3 / std::sqrt(cyl)));   // inline 3:1.3 4:1.15 6:0.94 8:0.81 12:0.66 16:0.58
+
+        // Rotary beat: the rotors' combustion is uneven at idle (port
+        // overlap, the classic rough "brap"), felt as a slow 2-3 Hz swell
+        // and fade of the firing pulses that smooths out by ~2500 rpm.
+        double beat = 1.0;
+        if (rotary && E.fireHz >= 0.5)
+        {
+            E.beatPhase += 2.5 * dtSec;
+            if (E.beatPhase >= 1.0) E.beatPhase -= (double)(int)E.beatPhase;
+            const double depth = 0.5 * std::max(0.0, std::min(1.0, (42.0 - crankHz) / 28.0));
+            beat = 1.0 + depth * std::sin(2.0 * wavesynth::kPi * E.beatPhase);
+        }
 
         // Limiter cut gate.
         bool cut = false;
@@ -395,7 +435,7 @@ private:
                     // configured amplitude instead of stacking past it.
                     const double overlap = E.fireHz * E.pulseDur;
                     const double norm    = 1.0 / std::max(1.0, std::sqrt(overlap));
-                    E.pulseAmp[slot] = p.ampPct * f.level * 0.6 * p.thump * hit * norm * E.revScale;
+                    E.pulseAmp[slot] = p.ampPct * f.level * 0.6 * p.thump * heavy * beat * hit * norm * E.revScale;
                     E.pulseT[slot]   = 0.0;
                 }
             }
@@ -423,7 +463,31 @@ private:
                 const double rock = std::sin(2.0 * ph)                      // crank rate
                                   + 0.6 * p.jitter * std::sin(ph);          // half-order lope
                 // A loaded block rocks harder than a coasting one.
-                v += p.ampPct * f.level * 0.4 * p.rock * fade * (0.7 + 0.3 * E.load) * E.revScale * rock;
+                v += p.ampPct * f.level * 0.4 * p.rock * heavy * balance * fade * (0.7 + 0.3 * E.load) * E.revScale * rock;
+            }
+        }
+
+        // Buzz: the rest of the rev range. Above idle the block stops
+        // rocking and what you feel is the firing-order vibration through
+        // the structure, pitch rising with rpm. At 6000 rpm on a V8 that is
+        // 400 Hz, beyond any actuator here, so the TRUE relationship (pitch
+        // proportional to rpm) is kept at a lower order the actuator can
+        // carry: carrier = crank rate x order (default 1: 13 Hz at 800 rpm
+        // to ~117 Hz at 7000), clamped to 150 Hz. Level rises from ~1200 rpm
+        // to full at ~3600 and with throttle, taking over as the rock fades,
+        // and keeps growing to the limiter; it sags in every limiter cut.
+        if (E.fireHz >= 0.5 && p.buzz > 0.0)
+        {
+            const double order = (p.order > 0.0) ? p.order : 1.0;
+            const double carrier = std::max(8.0, std::min(150.0, crankHz * order));
+            E.buzzPhase += carrier * dtSec;
+            if (E.buzzPhase >= 1.0) E.buzzPhase -= (double)(int)E.buzzPhase;
+            const double rise = std::max(0.0, std::min(1.0, (crankHz - 20.0) / 40.0));   // 1200..3600 rpm
+            if (rise > 0.0 && !cut)
+            {
+                const double lvl = rise * (0.5 + 0.5 * E.load);
+                v += p.ampPct * f.level * 0.5 * p.buzz * (0.6 + 0.4 * heavy) * lvl
+                   * std::sin(2.0 * wavesynth::kPi * E.buzzPhase);
             }
         }
         // The engine never exceeds its own amplitude; the axis clamp is the

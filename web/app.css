@@ -305,6 +305,7 @@ body[data-view="setup"] .vw-op{ display:none !important; }
 .hr{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .hr .hk{ font-family:var(--mono); font-size:.6rem; letter-spacing:.08em;
   text-transform:uppercase; color:var(--ink-soft); }
+.hr select{ width:92px; font-size:.72rem; padding:.1rem .2rem; }
 .hr input{ width:64px; font-size:.78rem; padding:.14rem .3rem; text-align:right;
   font-variant-numeric:tabular-nums; }
 /* Bottom row pinned to the card bottom: tiles differ in row count (channel

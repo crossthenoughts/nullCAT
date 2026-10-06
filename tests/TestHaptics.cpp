@@ -198,7 +198,7 @@ int main()
     {
         using haptics::FxType;
         EffectParams p;
-        p.ampPct = 10.0; p.jitter = 0.0; p.cylinders = 8.0;
+        p.ampPct = 10.0; p.jitter = 0.0; p.cylinders = 8.0; p.litres = 4.0;   // 0.5 L/cyl = unit weight
         p.routes[0] = { 6, 1.0 };
 
         // Run one second of the engine at a firing rate (V8: fireHz =
@@ -285,6 +285,79 @@ int main()
             CHECK(nr.first > 2.0,                 "rock x 0: thumps still produce torque");
             CHECK(nt.second > 0.8 * full.second,  "thump x 0: the rock is untouched");
             CHECK(z.first == 0.0,                 "rock 0 + thump 0: silence");
+        }
+
+        // The rest of the rev range: at 4000 rpm (V8 fireHz 267, crank 67 Hz)
+        // the buzz carries the engine - real level, carrier at crank x order
+        // (order 1 here: 67 Hz, ~134 raw zero crossings/s), rising with
+        // throttle; and it is silent at idle so the rock is untouched.
+        {
+            EffectParams pb = p; pb.order = 1.0; pb.thump = 0.0; pb.rock = 0.0;   // buzz alone
+            auto buzzRun = [&](double fireHz, double load) {
+                Layer L; L.configureFx(FxType::RpmVibe, pb);
+                std::vector<double> raw; double pk = 0.0;
+                for (int i = 0; i < 2000; ++i) { L.driveEngine(1.0, fireHz, load, false); L.step(DT);
+                    raw.push_back(L.overlayFor(6)); pk = std::max(pk, std::fabs(raw.back())); }
+                return std::make_pair(pk, crossings(raw));
+            };
+            const auto mid = buzzRun(266.7, 1.0), midCoast = buzzRun(266.7, 0.0), idleB = buzzRun(53.3, 1.0);
+            CHECK(mid.first > 3.0,                       "4000 rpm: the buzz carries real level");
+            CHECK(mid.second >= 110 && mid.second <= 160, "4000 rpm: carrier at crank x order (67 Hz)");
+            CHECK(midCoast.first < mid.first * 0.7,      "buzz grows with throttle");
+            CHECK(idleB.first < 0.5,                     "buzz is silent at idle (rock territory)");
+            EffectParams p2 = pb; p2.order = 2.0;
+            Layer L2; L2.configureFx(FxType::RpmVibe, p2);
+            std::vector<double> r2;
+            for (int i = 0; i < 2000; ++i) { L2.driveEngine(1.0, 266.7, 1.0, false); L2.step(DT); r2.push_back(L2.overlayFor(6)); }
+            const int x2 = crossings(r2);
+            CHECK(x2 >= 230 && x2 <= 310,                "buzz order 2 doubles the carrier (133 Hz)");
+        }
+
+        // Engine size and layout. Same 800 rpm idle, thumps only (rock and
+        // buzz off), so the peak is the firing impulse: a 6.5 L V8 hits
+        // harder than a 2.0 L four, which hits harder than a 1.0 L triple;
+        // and the rock (alone) is strongest on the triple, weaker on the V8,
+        // weakest on the V12 - a many-cylinder engine is smooth.
+        {
+            auto peakAt = [&](double cyl, double litres, double layout, bool thumpsOnly) {
+                EffectParams q = p; q.cylinders = cyl; q.litres = litres; q.layout = layout;
+                if (thumpsOnly) { q.rock = 0.0; q.buzz = 0.0; } else { q.thump = 0.0; q.buzz = 0.0; }
+                Layer L; L.configureFx(FxType::RpmVibe, q);
+                const double fireHz = (layout > 2.5) ? 800.0 / 60.0 * cyl : 800.0 / 60.0 * cyl / 2.0;
+                double pk = 0.0;
+                for (int i = 0; i < 2000; ++i) { L.driveEngine(1.0, fireHz, 1.0, false); L.step(DT);
+                    pk = std::max(pk, std::fabs(L.overlayFor(6))); }
+                return pk;
+            };
+            const double v8 = peakAt(8, 6.5, 1, true), i4 = peakAt(4, 2.0, 0, true), i3 = peakAt(3, 1.0, 0, true);
+            CHECK(v8 > i4 && i4 > i3,          "thump weight follows displacement per cylinder (V8 > I4 > triple)");
+            // Balance alone: equal 0.5 L per cylinder, inline layout.
+            const double r3 = peakAt(3, 1.5, 0, false), r8 = peakAt(8, 4.0, 0, false), r12 = peakAt(12, 6.0, 0, false);
+            CHECK(r3 > r8 && r8 > r12,         "rock follows inherent balance (triple > eight > twelve at equal size)");
+            const double flat4 = peakAt(4, 2.0, 2, false), in4 = peakAt(4, 2.0, 0, false);
+            CHECK(flat4 < in4,                 "a boxer rocks less than the inline of the same count");
+        }
+
+        // Wankel: cylinders = rotors, one firing per rotor per shaft rev (a
+        // 2-rotor at 800 rpm fires at 26.7 Hz, like a four), near-zero rock,
+        // and the idle beat: the thump peaks swell and fade at ~2.5 Hz.
+        {
+            EffectParams w = p; w.cylinders = 2; w.litres = 1.3; w.layout = 3; w.rock = 1.0; w.buzz = 0.0; w.thump = 1.0;
+            EffectParams wr = w; wr.thump = 0.0;                      // rock alone
+            Layer Lr; Lr.configureFx(FxType::RpmVibe, wr);
+            double rockPk = 0.0;
+            for (int i = 0; i < 2000; ++i) { Lr.driveEngine(1.0, 26.7, 1.0, false); Lr.step(DT); rockPk = std::max(rockPk, std::fabs(Lr.overlayFor(6))); }
+            CHECK(rockPk < 2.0,                "Wankel: almost no reciprocating rock");
+            EffectParams wt = w; wt.rock = 0.0;                       // thumps alone: the beat
+            Layer Lt; Lt.configureFx(FxType::RpmVibe, wt);
+            double hi = 0.0, lo = 1e9;                                // peak per 100 ms window
+            for (int win = 0; win < 20; ++win)
+            {
+                double pk = 0.0;
+                for (int i = 0; i < 200; ++i) { Lt.driveEngine(1.0, 26.7, 1.0, false); Lt.step(DT); pk = std::max(pk, std::fabs(Lt.overlayFor(6))); }
+                if (win >= 4) { hi = std::max(hi, pk); lo = std::min(lo, pk); }
+            }
+            CHECK(hi > lo * 1.5,               "Wankel idle beat: firing pulses swell and fade");
         }
 
         // Load: coasting hits softer than full load.
