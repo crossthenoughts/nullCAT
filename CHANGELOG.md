@@ -56,7 +56,13 @@ middle number carries breaking changes and the last carries fixes.
   triple is light and busy with a strong first-order shake, a 6.5 L V8
   hits hard and lopes, a V12 is turbine-smooth, a Wankel has no
   reciprocating rock and the classic uneven beat at idle - and it
-  scales from sub-litre three-cylinders to twelve-plus. Throttle loads it, and the limiter cuts whole
+  scales from sub-litre three-cylinders to twelve-plus. The redline is
+  set on the tile or learned from the stream (peak hold, snapped exactly
+  on the first limiter hit), and the top-end laws scale to it: the buzz
+  order is automatic so the redline lands at the top of the band and the
+  level keeps building to it, so a 6000 rpm V8 and a 16000 rpm V12 both
+  use the whole effect; thumps fade out where firings can no longer be
+  resolved and the buzz carries the engine. Throttle loads it, and the limiter cuts whole
   bursts of firings and comes back at full load, which is the bounce
   (wire protocol 1.2 adds limiter, tcActive, curbs). Haptics tuning now applies LIVE on save - amp,
   frequency, routing and the new master gain never need a

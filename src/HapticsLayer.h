@@ -75,7 +75,7 @@ struct EffectParams
     double ampPct = 0.0;    // % of rated torque at full scale
     double freqHz = 90.0;   // burst/texture carrier
     double durMs  = 18.0;   // burst length (transients only)
-    double order  = 2.0;    // ENGINE: buzz carrier order (x crank rate); unused elsewhere
+    double order  = 2.0;    // ENGINE: buzz carrier order (x crank rate), 0 = auto from max rpm; unused elsewhere
     double jitter = 0.0;    // 0..1 carrier roughness; ENGINE: idle-lope amount
     double cylinders = 4.0; // ENGINE only: firing rate = rpm/60 x cylinders/2
     double rock  = 1.0;     // ENGINE only: crank-rate rock component gain 0..1
@@ -83,6 +83,7 @@ struct EffectParams
     double buzz  = 1.0;     // ENGINE only: rpm-following vibration gain 0..1 (carrier = crank x order)
     double litres = 2.0;    // ENGINE only: total displacement; per-cylinder size sets impulse weight
     double layout = 0.0;    // ENGINE only: 0 inline, 1 V, 2 flat/boxer, 3 Wankel (cylinders = rotors)
+    double maxRpm = 0.0;    // ENGINE only: redline; 0 = learn it (peak hold, limiter snap)
     Route  routes[MAX_ROUTES] = {};
 };
 
@@ -343,6 +344,7 @@ private:
         double cutPhase   = 0.0;     // limiter gate 0..1
         double buzzPhase  = 0.0;     // rpm-following vibration carrier 0..1
         double beatPhase  = 0.0;     // rotary idle beat 0..1
+        double learnedMax = 7000.0;  // redline learned from the stream (peak hold; limiter hit snaps it)
         double pulseDur   = 0.033;
         double pulseT[ENGINE_PULSES]   = { 1e9, 1e9, 1e9, 1e9 };
         double pulseAmp[ENGINE_PULSES] = { 0.0, 0.0, 0.0, 0.0 };
@@ -382,6 +384,22 @@ private:
         const double layoutK = (layout == 1) ? 0.85 : (layout == 2) ? 0.7 : 1.0;
         const double balance = rotary ? 0.25
                              : layoutK * std::max(0.3, std::min(1.3, 2.3 / std::sqrt(cyl)));   // inline 3:1.3 4:1.15 6:0.94 8:0.81 12:0.66 16:0.58
+
+        // Redline: set on the tile, or LEARNED from the stream - peak hold
+        // of the rpm seen (seeded at 7000 so nothing is wrong before the
+        // first full-throttle run) and snapped exactly the first time the
+        // limiter flag comes in (the plugin raises it at 98.5% of the car's
+        // max), down as well as up, so a car change corrects itself on its
+        // first limiter hit. The top-end laws below scale to this, so a
+        // 6000 rpm V8 and a 16000 rpm V12 both use the whole effect.
+        const double rpmNow = crankHz * 60.0;
+        if (E.fireHz >= 0.5)
+        {
+            if (rpmNow > E.learnedMax) E.learnedMax = rpmNow;
+            if (E.limiter && rpmNow > 1000.0) E.learnedMax = rpmNow / 0.985;
+        }
+        const double maxRpm = (p.maxRpm > 0.0) ? p.maxRpm : E.learnedMax;
+        const double x      = std::max(0.0, std::min(1.0, rpmNow / std::max(1000.0, maxRpm)));   // 0..1 of redline
 
         // Rotary beat: the rotors' combustion is uneven at idle (port
         // overlap, the classic rough "brap"), felt as a slow 2-3 Hz swell
@@ -435,7 +453,11 @@ private:
                     // configured amplitude instead of stacking past it.
                     const double overlap = E.fireHz * E.pulseDur;
                     const double norm    = 1.0 / std::max(1.0, std::sqrt(overlap));
-                    E.pulseAmp[slot] = p.ampPct * f.level * 0.6 * p.thump * heavy * beat * hit * norm * E.revScale;
+                    // Once firings can no longer be resolved (more than ~4 per
+                    // thump cycle) they are not felt as thumps any more: fade
+                    // them out and let the buzz carry the engine.
+                    const double resolve = std::max(0.0, std::min(1.0, 1.0 - (overlap - 4.0) / 8.0));
+                    E.pulseAmp[slot] = p.ampPct * f.level * 0.6 * p.thump * heavy * beat * hit * norm * resolve * E.revScale;
                     E.pulseT[slot]   = 0.0;
                 }
             }
@@ -478,14 +500,22 @@ private:
         // and keeps growing to the limiter; it sags in every limiter cut.
         if (E.fireHz >= 0.5 && p.buzz > 0.0)
         {
-            const double order = (p.order > 0.0) ? p.order : 1.0;
+            // Order: set on the tile, or AUTO so the redline lands at the top
+            // of the band (120 Hz): pitch stays proportional to rpm and the
+            // whole rev range fits whatever the engine revs to (a 7000 rpm
+            // V8 gets ~1.0, a 16000 rpm V12 ~0.45, a 5500 rpm diesel ~1.3).
+            const double order = (p.order > 0.0) ? p.order
+                               : std::max(0.25, std::min(4.0, 120.0 / (maxRpm / 60.0)));
             const double carrier = std::max(8.0, std::min(150.0, crankHz * order));
             E.buzzPhase += carrier * dtSec;
             if (E.buzzPhase >= 1.0) E.buzzPhase -= (double)(int)E.buzzPhase;
-            const double rise = std::max(0.0, std::min(1.0, (crankHz - 20.0) / 40.0));   // 1200..3600 rpm
+            // Level: in from 15% of redline, full body by 55%, and still
+            // building to the top so the last part of the range is the
+            // angriest, as it is.
+            const double rise = std::max(0.0, std::min(1.0, (x - 0.15) / 0.40));
             if (rise > 0.0 && !cut)
             {
-                const double lvl = rise * (0.5 + 0.5 * E.load);
+                const double lvl = rise * (0.75 + 0.25 * x) * (0.5 + 0.5 * E.load);
                 v += p.ampPct * f.level * 0.5 * p.buzz * (0.6 + 0.4 * heavy) * lvl
                    * std::sin(2.0 * wavesynth::kPi * E.buzzPhase);
             }

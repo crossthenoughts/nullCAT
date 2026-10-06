@@ -254,7 +254,7 @@ struct AppConfig
     // EffectParams: { ampPct, freqHz, durMs, order, jitter }.
     haptics::EffectParams hapticsDetentClick { 0.0,  90.0, 18.0 };
     haptics::EffectParams hapticsGearShift   { 0.0,  60.0, 25.0 };
-    haptics::EffectParams hapticsRpmVibe     { 0.0,  30.0,  0.0, 1.0, 0.15 };   // freqHz = thump carrier, order = buzz order, jitter = lope
+    haptics::EffectParams hapticsRpmVibe     { 0.0,  30.0,  0.0, 0.0, 0.15 };   // freqHz = thump carrier, order 0 = auto buzz order, jitter = lope
     haptics::EffectParams hapticsAbs         { 0.0,  12.0,  0.0, 2.0, 0.0  };
     haptics::EffectParams hapticsLockup      { 0.0,   9.0,  0.0, 2.0, 0.2  };
     haptics::EffectParams hapticsSkid        { 0.0,  35.0,  0.0, 2.0, 0.5  };

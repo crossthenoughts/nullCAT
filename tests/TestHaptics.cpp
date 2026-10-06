@@ -199,6 +199,7 @@ int main()
         using haptics::FxType;
         EffectParams p;
         p.ampPct = 10.0; p.jitter = 0.0; p.cylinders = 8.0; p.litres = 4.0;   // 0.5 L/cyl = unit weight
+        p.freqHz = 30.0;                                                   // the shipped thump carrier
         p.routes[0] = { 6, 1.0 };
 
         // Run one second of the engine at a firing rate (V8: fireHz =
@@ -313,6 +314,48 @@ int main()
             CHECK(x2 >= 230 && x2 <= 310,                "buzz order 2 doubles the carrier (133 Hz)");
         }
 
+        // Redline scaling. Auto order puts the redline at the top of the
+        // band whatever the engine revs to; max rpm is set on the tile or
+        // LEARNED (peak hold, limiter snap); level keeps building to the top;
+        // thumps fade out once firings cannot be resolved.
+        {
+            auto buzzOnly = [&](double cyl, double maxRpm, double order, double rpm, bool lim, int warmCycles) {
+                EffectParams q = p; q.cylinders = cyl; q.maxRpm = maxRpm; q.order = order; q.rock = 0.0; q.thump = 0.0;
+                Layer L; L.configureFx(FxType::RpmVibe, q);
+                const double fireHz = rpm / 60.0 * cyl / 2.0;
+                for (int i = 0; i < warmCycles; ++i) { L.driveEngine(1.0, fireHz, 1.0, lim); L.step(DT); }
+                std::vector<double> raw; double pk = 0.0;
+                for (int i = 0; i < 2000; ++i) { L.driveEngine(1.0, fireHz, 1.0, false); L.step(DT);
+                    raw.push_back(L.overlayFor(6)); pk = std::max(pk, std::fabs(raw.back())); }
+                return std::make_pair(pk, crossings(raw));
+            };
+            // V8, manual redline 7000, 4000 rpm: auto order ~1.03 -> ~69 Hz.
+            const auto v8mid = buzzOnly(8, 7000, 0, 4000, false, 0);
+            CHECK(v8mid.second >= 115 && v8mid.second <= 160, "auto order: 7000 rpm V8 at 4000 rpm sits mid-band (~69 Hz)");
+            // V12, manual redline 16000, 14000 rpm: auto order ~0.45 -> ~105 Hz,
+            // not clamped at the top.
+            const auto f1 = buzzOnly(12, 16000, 0, 14000, false, 0);
+            CHECK(f1.second >= 190 && f1.second <= 232, "auto order: 16000 rpm V12 at 14000 rpm near the band top (~105 Hz)");
+            CHECK(f1.first > 3.0,                        "16000 rpm V12 carries real level at 14000");
+            // Learned: no redline set, seeded 7000; 14000 rpm seen -> the
+            // peak hold raises it and the carrier lands at the band top.
+            const auto learned = buzzOnly(12, 0, 0, 14000, false, 400);
+            CHECK(learned.second >= 225 && learned.second <= 260, "learned redline: peak hold rescales the band (~120 Hz)");
+            // Limiter snap: bouncing at 6000 on a 7000-seeded engine pulls
+            // the redline DOWN to ~6090, so 6000 is now ~98% of it (band top).
+            const auto snapped = buzzOnly(8, 0, 0, 6000, true, 400);
+            CHECK(snapped.second >= 225 && snapped.second <= 260, "limiter snap: redline follows the limiter hit, down as well as up");
+            // Top end builds: 95% of redline is stronger than 60%.
+            const auto p60 = buzzOnly(8, 7000, 1, 4200, false, 0), p95 = buzzOnly(8, 7000, 1, 6650, false, 0);
+            CHECK(p95.first > p60.first * 1.05,          "level keeps building to the redline");
+            // Thumps fade: a V8 at 6000 rpm (400 firings/s) has no resolvable thumps.
+            EffectParams t = p; t.rock = 0.0; t.buzz = 0.0; t.maxRpm = 7000;
+            Layer Lt; Lt.configureFx(FxType::RpmVibe, t);
+            double tpk = 0.0;
+            for (int i = 0; i < 2000; ++i) { Lt.driveEngine(1.0, 400.0, 1.0, false); Lt.step(DT); tpk = std::max(tpk, std::fabs(Lt.overlayFor(6))); }
+            CHECK(tpk < 0.5,                             "thumps fade out where firings cannot be resolved");
+        }
+
         // Engine size and layout. Same 800 rpm idle, thumps only (rock and
         // buzz off), so the peak is the firing impulse: a 6.5 L V8 hits
         // harder than a 2.0 L four, which hits harder than a 1.0 L triple;
@@ -329,8 +372,11 @@ int main()
                     pk = std::max(pk, std::fabs(L.overlayFor(6))); }
                 return pk;
             };
-            const double v8 = peakAt(8, 6.5, 1, true), i4 = peakAt(4, 2.0, 0, true), i3 = peakAt(3, 1.0, 0, true);
-            CHECK(v8 > i4 && i4 > i3,          "thump weight follows displacement per cylinder (V8 > I4 > triple)");
+            // Same eight cylinders, three displacements: the impulse follows
+            // litres per cylinder. And a 1.0 L triple hits softer than a big V8.
+            const double big = peakAt(8, 6.5, 1, true), mid = peakAt(8, 4.0, 1, true), small = peakAt(8, 2.7, 1, true);
+            CHECK(big > mid && mid > small,    "thump weight follows displacement per cylinder (6.5 > 4.0 > 2.7 L V8)");
+            CHECK(peakAt(3, 1.0, 0, true) < big, "a 1.0 L triple hits softer than a 6.5 L V8");
             // Balance alone: equal 0.5 L per cylinder, inline layout.
             const double r3 = peakAt(3, 1.5, 0, false), r8 = peakAt(8, 4.0, 0, false), r12 = peakAt(12, 6.0, 0, false);
             CHECK(r3 > r8 && r8 > r12,         "rock follows inherent balance (triple > eight > twelve at equal size)");

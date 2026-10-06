@@ -1052,7 +1052,7 @@ function devAxes(){ return ((cfgObj&&cfgObj.drives)||[]).map((d,i)=>({d,i})).fil
 const HAP_DEF={
   detentClick:{ampPct:0,freqHz:90, durMs:18,order:2,jitter:0,   routes:[]},
   gearShift:  {ampPct:0,freqHz:60, durMs:25,order:2,jitter:0,   routes:[]},
-  rpmVibe:    {ampPct:0,freqHz:30, durMs:0, order:1,jitter:0.15,cylinders:4,litres:2,layout:0,rock:1,thump:1,buzz:1,routes:[]},
+  rpmVibe:    {ampPct:0,freqHz:30, durMs:0, order:0,jitter:0.15,cylinders:4,litres:2,layout:0,maxRpm:0,rock:1,thump:1,buzz:1,routes:[]},
   abs:        {ampPct:0,freqHz:12, durMs:0, order:2,jitter:0,   routes:[]},
   lockup:     {ampPct:0,freqHz:9,  durMs:0, order:2,jitter:0.2, routes:[]},
   skid:       {ampPct:0,freqHz:35, durMs:0, order:2,jitter:0.5, routes:[]},
@@ -1072,7 +1072,7 @@ const HAP_FX=[
    params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',10,500,5],['durMs','length ms',5,100,1]],
    tip:'A thunk on every gear change, ringing through the chassis. Needs the gear channel.'},
   {k:'rpmVibe',label:'Engine',fxIdx:0,chan:['rpm','throttlePct','limiter'],
-   params:[['ampPct','amp %',0,100,1],['cylinders','cyl / rotors',1,16,1],['litres','litres',0.1,30,0.1],['layout','layout',0,3,1,['inline','V','flat / boxer','wankel']],['rock','rock x',0,1,0.1],['thump','thump x',0,1,0.1],['buzz','buzz x',0,1,0.1],['order','buzz order',1,4,1],['freqHz','thump hz',10,80,1],['jitter','lope',0,1,0.05]],
+   params:[['ampPct','amp %',0,100,1],['cylinders','cyl / rotors',1,16,1],['litres','litres',0.1,30,0.1],['layout','layout',0,3,1,['inline','V','flat / boxer','wankel']],['maxRpm','max rpm (0=learn)',0,30000,100],['rock','rock x',0,1,0.1],['thump','thump x',0,1,0.1],['buzz','buzz x',0,1,0.1],['order','buzz order (0=auto)',0,4,0.25],['freqHz','thump hz',10,80,1],['jitter','lope',0,1,0.05]],
    tip:'Engine: the block rocking at crank rate at idle (lumpy, fades out by ~2500 rpm) with each firing as a low thump on top. Above idle the rock hands over to the buzz: the firing-order vibration with pitch rising with rpm, kept at a lower order (buzz order x crank rate, 1 = 13 Hz at 800 rpm to ~117 Hz at 7000) because the real 400 Hz is beyond any actuator here; level grows with rpm and throttle up to the limiter. rock x, thump x and buzz x mix the three (0 = off) so you set it by feel; cylinders set the firing density, thump hz the weight of each firing, lope the per-rev unevenness. Throttle loads it; the limiter cuts whole bursts of firings for the bounce. Needs rpm (throttle and limiter optional).'},
   {k:'abs',label:'ABS',fxIdx:1,chan:['brakePct','absActive'],
    params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',4,60,1]],
