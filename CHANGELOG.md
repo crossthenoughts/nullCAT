@@ -4,6 +4,13 @@ Notable changes to nullCAT. Format follows [Keep a Changelog](https://keepachang
 versioning is [Semantic Versioning](https://semver.org/) - while on `0.x`, the
 middle number carries breaking changes and the last carries fixes.
 
+## [0.9.7] - unreleased
+
+Development branch. Haptics: the effect registry becomes one table, the
+engine model moves to its own file, position (CSP) axes and shaker
+channels become routing destinations, and the skid effects are rebuilt
+on per-axle slip data. Nothing here is in a release yet.
+
 ## [0.9.6] - 2026-10-07
 
 0.9.5 was a pre-release that never became an official release. If you
