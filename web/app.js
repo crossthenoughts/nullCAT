@@ -593,7 +593,7 @@ async function saveBindings(){
 
 async function loadConfig(){
   try{
-    const [mR,hR,rR]=await Promise.all([fetch(API+'/api/meta'),fetch(API+'/api/host'),fetch(API+'/api/rig')]);
+    const [mR,hR,rR]=await Promise.all([fetch(API+'/api/meta'),fetch(API+'/api/host'),fetch(API+'/api/rig'),hapLoadSchema()]);
     meta=mR.ok?await mR.json():{hostOwner:'web'};
     updInit();
     const host=hR.ok?await hR.json():{};
@@ -1049,52 +1049,25 @@ function devAxes(){ return ((cfgObj&&cfgObj.drives)||[]).map((d,i)=>({d,i})).fil
    cfgObj.haptics (rig.global, saved by the normal Save; restart-free apply
    comes later). Routes edit in a drawer below the strip so the strip stays
    short. Waveform previews are drawn from the same math the engine runs. */
-const HAP_DEF={
-  detentClick:{ampPct:0,freqHz:90, durMs:18,order:2,jitter:0,   routes:[]},
-  gearShift:  {ampPct:0,freqHz:60, durMs:25,order:2,jitter:0,   routes:[]},
-  rpmVibe:    {ampPct:0,freqHz:30, durMs:0, order:0,jitter:0.15,cylinders:4,litres:2,layout:0,maxRpm:0,limHit:1,limHz:12,limJit:0,rock:1,thump:1,buzz:1,routes:[]},
-  abs:        {ampPct:0,freqHz:12, durMs:0, order:2,jitter:0,   routes:[]},
-  lockup:     {ampPct:0,freqHz:9,  durMs:0, order:2,jitter:0.2, routes:[]},
-  skid:       {ampPct:0,freqHz:35, durMs:0, order:2,jitter:0.5, routes:[]},
-  road:       {ampPct:0,freqHz:28, durMs:0, order:2,jitter:0.6, routes:[]},
-  limiter:    {ampPct:0,freqHz:12, durMs:0, order:2,jitter:0.15,routes:[]},
-  tc:         {ampPct:0,freqHz:15, durMs:0, order:2,jitter:0,   routes:[]},
-  kerb:       {ampPct:0,freqHz:40, durMs:0, order:2,jitter:0.4, routes:[]}};
-// Wire token order = the protocol registry (PROTOCOL.md) = s.ncxHave order.
-const NCX_TOKENS=['rpm','speedKmh','gear','clutchPct','throttlePct',
-  'brakePct','absActive','skid','lockup','roadNoise','limiter','tcActive','curbs'];
-const NCX_DEFAULT=NCX_TOKENS.map((t,i)=>({token:t,slot:i,scale:1,offset:0}));
-const HAP_FX=[
-  {k:'detentClick',label:'Detent click',transient:true,chan:[],
-   params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',10,500,5],['durMs','length ms',5,100,1]],
-   tip:'One short click as the lever settles into a gate, scaled by entry speed.'},
-  {k:'gearShift',label:'Gear shift',transient:true,chan:['gear'],
-   params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',10,500,5],['durMs','length ms',5,100,1]],
-   tip:'A thunk on every gear change, ringing through the chassis. Needs the gear channel.'},
-  {k:'rpmVibe',label:'Engine',fxIdx:0,chan:['rpm','throttlePct','limiter'],
-   params:[['ampPct','amp %',0,100,1],['cylinders','cyl / rotors',1,16,1],['litres','litres',0.1,30,0.1],['layout','layout',0,3,1,['inline','V','flat / boxer','wankel']],['maxRpm','max rpm (0=learn)',0,30000,100],['rock','rock x',0,1,0.1],['thump','thump x',0,1,0.1],['buzz','buzz x',0,1,0.1],['order','buzz order (0=auto)',0,4,0.25],['limHit','limiter x',0,2,0.1],['limHz','limiter hz',4,30,1],['limJit','limiter jit',0,1,0.05],['freqHz','thump hz',10,80,1],['jitter','lope',0,1,0.05]],
-   tip:'Engine: the block rocking at crank rate at idle (lumpy, fades out by ~2500 rpm) with each firing as a low thump on top. Above idle the rock hands over to the buzz: the firing-order vibration with pitch rising with rpm, kept at a lower order (buzz order x crank rate, 1 = 13 Hz at 800 rpm to ~117 Hz at 7000) because the real 400 Hz is beyond any actuator here; level grows with rpm and throttle up to the limiter. rock x, thump x and buzz x mix the three (0 = off) so you set it by feel; cylinders set the firing density, thump hz the weight of each firing, lope the per-rev unevenness. Throttle loads it; the limiter cuts whole bursts of firings for the bounce. Needs rpm (throttle and limiter optional).'},
-  {k:'abs',label:'ABS',fxIdx:1,chan:['brakePct','absActive'],
-   params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',4,60,1]],
-   tip:'Pulses while ABS cycles under braking. Needs the absActive and brakePct channels.'},
-  {k:'lockup',label:'Lockup',fxIdx:2,chan:['lockup'],
-   params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',4,60,1],['jitter','jitter',0,1,0.05]],
-   tip:'Wheel-lock judder, scaled by the lockup channel (0-100).'},
-  {k:'skid',label:'Skid',fxIdx:3,chan:['skid'],
-   params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',10,120,1],['jitter','jitter',0,1,0.05]],
-   tip:'Tyre-slip rumble, scaled by the skid channel (0-100).'},
-  {k:'road',label:'Road',fxIdx:4,chan:['roadNoise'],
-   params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',10,120,1],['jitter','jitter',0,1,0.05]],
-   tip:'Surface feel, scaled by the roadNoise channel (0-100).'},
-  {k:'limiter',label:'Limiter',fxIdx:5,chan:['limiter'],
-   params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',10,120,1],['jitter','jitter',0,1,0.05]],
-   tip:'Extra hammer on top of the engine effect while the limiter is in (the engine effect already cuts bursts of firings for the bounce). Keep it slow, ~10-15 hz. The plugin computes the flag from rpm vs the car max.'},
-  {k:'tc',label:'TC pulse',fxIdx:6,chan:['tcActive'],
-   params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',4,60,1]],
-   tip:'Traction control cutting. Needs the tcActive channel.'},
-  {k:'kerb',label:'Kerb',fxIdx:7,chan:['curbs'],
-   params:[['ampPct','amp %',0,100,1],['freqHz','freq hz',10,120,1],['jitter','jitter',0,1,0.05]],
-   tip:'Kerb-strip rumble, scaled by the curbs channel (0-100). Bind curbsProp in the plugin.'}];
+/* The effect list comes from the controller (GET /api/haptics/schema, built
+   from HapticsRegistry.h), so this page carries no copy of it: HAP_FX is
+   the tile list and HAP_DEF the per-effect defaults, both filled by
+   hapLoadSchema() during loadConfig(). A tile is built from its schema
+   entry: label, kind, the channels it needs, the tunables with ranges (a
+   param with opts renders as a choice), and the tip. */
+let HAP_FX=[], HAP_DEF={};
+async function hapLoadSchema(){
+  try{
+    const r=await fetch(API+'/api/haptics/schema'); if(!r.ok) return;
+    const j=await r.json();
+    HAP_FX=(j.effects||[]).map(e=>({
+      k:e.key, label:e.label, transient:e.kind==='transient', fxIdx:e.fxIdx,
+      chan:e.channels||[], tip:e.tip||'',
+      params:(e.params||[]).map(p=>[p.key,p.label,p.min,p.max,p.step,p.opts])}));
+    HAP_DEF={};
+    for(const e of j.effects||[]) HAP_DEF[e.key]=Object.assign({routes:[]},e.defaults||{});
+  }catch(_){}
+}
 
 function hapTorqueAxes(){
   const out=[]; if(!cfgObj||!cfgObj.drives) return out;

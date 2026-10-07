@@ -30,6 +30,22 @@ const PORT = 18080;
 writeFileSync(dir + '/host.json', JSON.stringify({
   configVersion: 2, simulationMode: true, webPort: PORT,
   gpioMode: 'off', gpioEnabled: false, logToConsole: true,
+  webShowDevices: true,   // the Haptics strip and Devices section render
+}));
+// A rig with one position axis and one belt (torque) axis: the strip only
+// renders when a torque-capable axis exists to route to.
+const axis = (name, slaveIndex, mode, axisType) => ({
+  slaveIndex, name, mode, axisType, invertDir: false, strokeMm: 100, ballscrewPitch: 10,
+  encoderCountsPerRev: 131072, reductionRatio: '1:1', homeDirection: 'negative', parkMode: 'endstop',
+  homingBackoffMm: 1.5, homingSpeed: 250, homingTorquePct: 25, maxVelocityMmS: 200,
+  maxAccelerationMmS2: 10000, maxJerkMmS3: 60000, followingErrorWindowMm: 100, trackingWnHz: 30,
+  unparkTimeSec: 3, parkTimeSec: 3, onlineHoldTimeoutSec: 15, spikeFilterEnabled: false, spikeMaxMm: 5,
+  torqueMinPct: 5, torqueMaxPct: 50, beltSlewPctPerSec: 3000, beltOverspeedRpm: 600, beltOverspeedMs: 200,
+  beltMaxTravelRevs: 3, beltMaxRpm: 800, beltRelaxerSec: 0, beltRelaxerPct: 80 });
+writeFileSync(dir + '/rig.json', JSON.stringify({
+  configVersion: 2, numDrives: 2,
+  global: { conditioningMode: 'bypass', blendTimeSec: 2, blendMaxVelocityMmS: 20, requireUserFaultReset: false },
+  axes: [axis('Seat', 1, 'csp', 'linear_vertical'), axis('Belt', 2, 'torque', 'belt')],
 }));
 mkdirSync(dir + '/logs', { recursive: true });
 
@@ -75,7 +91,14 @@ try {
     badge:        (document.getElementById('conn-status') || {}).textContent || '(no badge)',
     bannerHidden: (document.getElementById('linkBanner') || { hidden: true }).hidden,
     buttons:      document.querySelectorAll('button').length,
+    // Haptics strip: built from /api/haptics/schema, one tile per effect
+    // plus the Master tile, each effect tile with a Test button.
+    hapTiles:     document.querySelectorAll('#hapStrip .hap-tile').length,
+    hapTests:     document.querySelectorAll('#hapStrip [data-test]').length,
+    hapHidden:    (document.getElementById('hapPanel') || { hidden: true }).hidden,
   }));
+  const schema = await (await fetch(`http://127.0.0.1:${PORT}/api/haptics/schema`)).json();
+  const nEffects = (schema.effects || []).length;
 
   const fails = [];
   if (pageErrors.length)        fails.push('page errors: ' + pageErrors.join(' | '));
@@ -83,9 +106,13 @@ try {
   if (st.badge !== 'Connected') fails.push(`badge is "${st.badge}" (poll loop never applied a status)`);
   if (!st.bannerHidden)         fails.push('link-lost banner is showing');
   if (st.buttons < 5)           fails.push(`page rendered only ${st.buttons} buttons`);
+  if (nEffects < 10)            fails.push(`schema lists ${nEffects} effects`);
+  if (st.hapHidden)             fails.push('haptics strip is hidden (experimental flag + belt axis set)');
+  if (st.hapTiles !== nEffects + 1) fails.push(`strip has ${st.hapTiles} tiles, expected ${nEffects} effects + Master`);
+  if (st.hapTests !== nEffects) fails.push(`strip has ${st.hapTests} Test buttons, expected ${nEffects}`);
 
   if (fails.length) { console.error(childOut.slice(-2000)); die('\n  ' + fails.join('\n  ')); }
-  console.log(`SMOKE OK: badge Connected, ${st.buttons} buttons, 0 page/console errors.`);
+  console.log(`SMOKE OK: badge Connected, ${st.buttons} buttons, haptics strip ${st.hapTiles} tiles from a ${nEffects}-effect schema, 0 page/console errors.`);
 } finally {
   await browser.close().catch(() => {});
   child.kill('SIGTERM');

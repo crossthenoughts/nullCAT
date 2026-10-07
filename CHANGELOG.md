@@ -6,10 +6,18 @@ middle number carries breaking changes and the last carries fixes.
 
 ## [0.9.7] - unreleased
 
-Development branch. Haptics: the effect registry becomes one table, the
-engine model moves to its own file, position (CSP) axes and shaker
-channels become routing destinations, and the skid effects are rebuilt
-on per-axle slip data. Nothing here is in a release yet.
+Development branch. Nothing here is in a release yet.
+
+### Changed
+- Haptics internals: the effect list is one table the controller serves
+  to the browser (GET /api/haptics/schema), so adding an effect is one
+  row plus one law instead of edits in eight places; the engine model and
+  the channel laws live in their own files; the Test endpoint parses its
+  request instead of matching text. Settings files are unchanged. New
+  tests pin that effects only reach a live axis and stay inside its
+  limits, that saves apply live, that a stale stream fades everything,
+  mute and e-stop, the channel laws, the config round-trip, and the
+  web strip rendering from the schema.
 
 ## [0.9.6] - 2026-10-07
 

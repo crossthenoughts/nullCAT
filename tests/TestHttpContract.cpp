@@ -169,6 +169,21 @@ int main()
     check(has(post("/api/start"), "\"ok\":false"),
           "POST /api/start before init: refused at the HTTP layer");
 
+    // ---- haptics surface: schema, Test by key with reasons, mute ----
+    // The schema is the effect table (HapticsRegistry.h) the browser builds
+    // its tiles from; Test refuses with a reason against the SAVED config
+    // (every effect ships off, so amp 0 is the first refusal); mute is a
+    // runtime command that always succeeds.
+    check(has(get("/api/haptics/schema"), "\"key\":\"rpmVibe\"") && has(get("/api/haptics/schema"), "\"opts\""),
+          "GET /api/haptics/schema lists the effects with their tunables");
+    check(has(post("/api/haptics/test", "{\"effect\":\"skid\"}"), "amplitude is 0"),
+          "POST /api/haptics/test: a saved effect at amp 0 is refused with the reason");
+    check(has(post("/api/haptics/test", "{\"effect\":\"nope\"}"), "Unknown effect"),
+          "POST /api/haptics/test: an unknown key is refused");
+    check(has(post("/api/haptics/mute", "{\"on\":true}"), "\"ok\":true")
+          && has(post("/api/haptics/mute", "{\"on\":false}"), "\"ok\":true"),
+          "POST /api/haptics/mute on/off accepted");
+
     // ---- init (sim) -> masterOp ----
     check(has(post("/api/init"), "\"ok\":true"), "POST /api/init accepted");
     check(waitStatus("\"masterOp\":true", 15000), "status reaches masterOp:true");

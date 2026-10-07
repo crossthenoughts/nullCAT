@@ -203,6 +203,18 @@ target_include_directories(TestTorquePath PRIVATE ${SRC})
 target_link_libraries(TestTorquePath PRIVATE Threads::Threads)
 add_test(NAME TestTorquePath COMMAND TestTorquePath)
 
+# The ring around the haptics layer (overlay gating + clamp, live-apply,
+# stale stream, mute, e-stop, laws). Same shape as TestTorquePath.
+add_executable(TestHapticsIntegration
+    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestHapticsIntegration.cpp
+    ${SRC}/MotionController.cpp
+    ${SRC}/CommissioningMode.cpp
+    ${SRC}/A6Drive.cpp
+    ${SRC}/Logging.cpp)
+target_include_directories(TestHapticsIntegration PRIVATE ${SRC})
+target_link_libraries(TestHapticsIntegration PRIVATE Threads::Threads)
+add_test(NAME TestHapticsIntegration COMMAND TestHapticsIntegration)
+
 # Pins the telemetry UDP wire-format semantics: any parser rewrite (e.g. a
 # zero-allocation fast path) must pass it unchanged.
 # Run with: ctest -R TelemetryParse

@@ -105,6 +105,45 @@ private slots:
         QCOMPARE(QString::fromStdString(b.get().conditioningMode), QString("bypass"));
     }
 
+    // The haptics block round-trips exactly: every effect's tuning and routes,
+    // the engine description, and the master gain survive save -> load. The
+    // Pi file surprised the bench once; this pins the format.
+    void haptics_roundTrip()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        Config a; QVERIFY(a.load(anchor(dir).toStdString()));
+        AppConfig& c = a.get();
+        for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+        {
+            haptics::EffectParams& p = c.hapticsFx[static_cast<size_t>(i)];
+            p.ampPct = 10.0 + i; p.freqHz = 20.0 + i; p.durMs = 20.0; p.jitter = 0.05 * i;
+            p.routes[0] = { 0, 0.5 + 0.1 * i }; p.routes[1] = { 1, 1.0 };
+        }
+        c.hapticsEngine.cylinders = 8; c.hapticsEngine.litres = 6.5; c.hapticsEngine.layout = 1;
+        c.hapticsEngine.maxRpm = 7000; c.hapticsEngine.rock = 0.7; c.hapticsEngine.thump = 0.6;
+        c.hapticsEngine.buzz = 0.9; c.hapticsEngine.order = 0.5; c.hapticsEngine.limHit = 1.2;
+        c.hapticsEngine.limHz = 10; c.hapticsEngine.limJit = 0.3;
+        c.hapticsMasterGain = 1.3;
+        QVERIFY(a.saveRig(anchor(dir).toStdString()));
+
+        Config b; QVERIFY(b.load(anchor(dir).toStdString()));
+        const AppConfig& r = b.get();
+        for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+        {
+            const haptics::EffectParams& p = r.hapticsFx[static_cast<size_t>(i)];
+            QCOMPARE(p.ampPct, 10.0 + i); QCOMPARE(p.freqHz, 20.0 + i); QCOMPARE(p.jitter, 0.05 * i);
+            QCOMPARE(p.routes[0].axis, 0); QCOMPARE(p.routes[0].gain, 0.5 + 0.1 * i);
+            QCOMPARE(p.routes[1].axis, 1); QCOMPARE(p.routes[1].gain, 1.0);
+            QCOMPARE(p.routes[2].axis, -1);
+        }
+        QCOMPARE(r.hapticsEngine.cylinders, 8.0); QCOMPARE(r.hapticsEngine.litres, 6.5);
+        QCOMPARE(r.hapticsEngine.layout, 1.0);    QCOMPARE(r.hapticsEngine.maxRpm, 7000.0);
+        QCOMPARE(r.hapticsEngine.rock, 0.7);      QCOMPARE(r.hapticsEngine.thump, 0.6);
+        QCOMPARE(r.hapticsEngine.buzz, 0.9);      QCOMPARE(r.hapticsEngine.order, 0.5);
+        QCOMPARE(r.hapticsEngine.limHit, 1.2);    QCOMPARE(r.hapticsEngine.limHz, 10.0);
+        QCOMPARE(r.hapticsEngine.limJit, 0.3);    QCOMPARE(r.hapticsMasterGain, 1.3);
+    }
+
     // Single-writer isolation: saveRig() must not rewrite host.json (and vice versa).
     void saveRig_leavesHostUntouched()
     {

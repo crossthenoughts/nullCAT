@@ -467,6 +467,10 @@ add_motion_test(TestHaptics tests/TestHaptics.cpp)
 # Torque drive (1702h) command bytes before and at the enable instant: the
 # first-init belt lunge class of bug, invisible to every MockA6Drive test.
 add_motion_test(TestTorqueEnableBytes tests/TestTorqueEnableBytes.cpp)
+# The ring around the haptics layer through MotionController::process():
+# overlay gating (ONLINE only) + clamp, live-apply, stale stream, mute,
+# e-stop, and the channel laws with a hand-built NcxValues.
+add_motion_test(TestHapticsIntegration tests/TestHapticsIntegration.cpp)
 
 # ---- Build 72: TestInitSequence - EtherCATMaster init sequence (sim mode) ----
 #
