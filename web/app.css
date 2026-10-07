@@ -291,10 +291,13 @@ body[data-view="setup"] .vw-op{ display:none !important; }
 /* ---- haptics: one tile per effect, echoing the drive cards (same chrome,
    same header dot + name, same label-left / value-right rows, same column
    rhythm as the drive grid so the two sections read as one system). ---- */
-.hap-strip{ display:grid; grid-template-columns:repeat(auto-fill,minmax(188px,1fr));
-  gap:10px; padding:6px 0 4px; }
+/* Tiles pack into columns top to bottom (CSS multicol), so a tall tile
+   (the Engine at 18 rows) sits beside a stack of short ones instead of
+   stretching its whole grid row to its own height. */
+.hap-strip{ column-width:188px; column-gap:10px; padding:6px 0 4px; }
 .hap-tile{ background:var(--surface); border:var(--bw) solid var(--ink); border-radius:12px;
-  padding:9px 11px; display:flex; flex-direction:column; gap:6px; }
+  padding:9px 11px; display:flex; flex-direction:column; gap:6px;
+  break-inside:avoid; -webkit-column-break-inside:avoid; margin:0 0 10px; width:100%; box-sizing:border-box; }
 .hap-tile .dh .nm{ font-size:.82rem; }
 .hap-tile .dh .dot{ background:var(--ink-soft); }
 .hap-tile.on .dh .dot{ background:var(--live); }

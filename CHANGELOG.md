@@ -77,6 +77,9 @@ Development branch. Nothing here is in a release yet.
   axis limits. PP-mode axes take no haptics.
 
 ### Changed
+- Haptics strip: tiles pack into columns top to bottom, so the tall
+  Engine tile sits beside a stack of short ones instead of stretching
+  every tile in its row to its own height.
 - Pi updater: a new version is assembled beside the live one, the config
   is copied into it, and only then does it take its place and the symlink
   flip; the live folder is never deleted or emptied, and applying a
