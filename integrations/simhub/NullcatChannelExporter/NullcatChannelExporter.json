@@ -5,7 +5,7 @@
   "host": "127.0.0.1",
   "port": 4444,
 
-  "_help_channels": "Ten channels need no setup and are always sent: rpm, speed, gear, clutch, throttle, brake, ABS active, rev limiter (computed from rpm vs the car max), TC active and the car's max rpm. They drive the Engine, Gear shift, ABS, Limiter and TC effects in nullCAT. The game and car names are sent once a second.",
+  "_help_channels": "Twelve channels need no setup and are always sent: rpm, speed, gear, clutch, throttle, brake, ABS active, rev limiter (computed from rpm vs the car max), TC active, the car max rpm, turbo boost and the pit limiter. They drive the Engine, Gear shift, ABS, Limiter and TC effects in nullCAT. The game and car names are sent once a second.",
 
   "_help_props": "Everything below is OPTIONAL. Each value is the full name of ANY SimHub property. Find names in SimHub under Settings, Properties (copy the exact text, dots included), or make your own with an NCalc formula. ShakeIt effects can also be exported as properties from the effect's settings and then appear in the same list. Leave a value empty and that channel is not sent, so its effect stays silent.",
   "_help_name_shape": "A property name looks like PluginName.Section.ValueName, for example DataCorePlugin.GameData.Brake (that one is the brake, 0..100, and is already sent automatically). The game's raw fields are under DataCorePlugin.GameRawData.",

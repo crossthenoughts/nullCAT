@@ -292,7 +292,29 @@ and comes back hard, which is the bounce. Three controls:
   0.5 and up for something rough like a carburettor classic or a rotary.
 
 The separate **Limiter** tile adds an extra hammer on top; keep it at
-around 12 Hz so it lands in time with the cuts.
+around 12 Hz so it lands in time with the cuts. The pit limiter cuts
+the same way when the sim sends its flag, without touching the learned
+redline.
+
+**Lifting off.** When the throttle snaps shut up the band the combustion
+stops but the engine keeps shaking: that is **inertia x**, the pistons
+and rods reversing, which rises with the square of the revs, stays on a
+lift and dissipates as they fall. The lift itself is an event,
+**lift-off x**: with **turbo** off a soft pop as combustion stops; with
+it on the boost dumping as a whoosh followed by the compressor flutter,
+scaled by the boost the sim reports (or by how far up the band you
+lifted when it does not). **pops x** adds the fuel-cut crackle on the
+overrun for a sports or rally car; leave it at 0 for a road car.
+
+With the throttle shut, in gear and rolling the wheels drive the engine
+against closed throttle, which is heavier and rougher than the same revs
+falling in neutral.
+
+**Starting and stopping.** On the starter the engine turns slowly with
+no combustion: slow compression lumps. It catches on the way up through
+about 500 rpm with a lurch and an uneven fast idle for a moment. Below
+about 650 rpm a running engine shudders harder as it dies and stops with
+one last kick; restart it and it catches again.
 
 If the channel stream stops for half a second, every effect fades out.
 The same happens when packets keep arriving but nothing in them changes

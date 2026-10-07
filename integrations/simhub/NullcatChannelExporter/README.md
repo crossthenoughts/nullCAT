@@ -8,7 +8,7 @@ repo):
     NULLCATX,<rpm>,<speedKmh>,<gear>,<clutchPct>,<throttlePct>,
              <brakePct>,<absActive>,<skid>,<lockup>,<roadNoise>,
              <limiter>,<tcActive>,<curbs>,<maxRpm>
-    NULLCATY,slipAngleFL=..,slipAngleFR=..,...   (the per-wheel channels you bind)
+    NULLCATY,boost=..,pitLimiter=..,slipAngleFL=..,...  (boost, pit limiter, the per-wheel channels you bind)
     NULLCATY,game=..,car=..                      (once a second)
 
 All the feel and logic lives in nullCAT - this plugin never changes when
@@ -47,11 +47,11 @@ the file the plugin sends to `127.0.0.1:4444`.
 
 ## What is sent without any setup
 
-Ten channels come from SimHub's standard data and need nothing from you:
-rpm, speed, gear, clutch, throttle, brake, ABS active, rev limiter
-(computed from rpm vs the car's max), TC active and the car's max rpm.
-They drive the Engine, Gear shift, ABS, Limiter and TC effects. The game
-and car names go along once a second.
+Twelve channels come from SimHub's standard data and need nothing from
+you: rpm, speed, gear, clutch, throttle, brake, ABS active, rev limiter
+(computed from rpm vs the car's max), TC active, the car's max rpm,
+turbo boost and the pit limiter. They drive the Engine, Gear shift, ABS,
+Limiter and TC effects. The game and car names go along once a second.
 
 ## Optional: per-wheel slip for the tyre effects
 

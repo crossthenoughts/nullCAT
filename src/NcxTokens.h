@@ -27,6 +27,8 @@ struct NcxTok
         WheelSpeedFL, WheelSpeedFR, WheelSpeedRL, WheelSpeedRR, // any unit; rolling factor learned
         LoadFL, LoadFR, LoadRL, LoadRR,                         // N (any unit; relative)
         SuspVelFL, SuspVelFR, SuspVelRL, SuspVelRR,             // mm/s, signed
+        Boost,                                                  // bar, turbo boost (negative = vacuum)
+        PitLimiter,                                             // 0 or 1; pit limiter engaged
         TokenCount
     };
 };
@@ -46,6 +48,7 @@ inline const char* ncxTokenName(int t)
         "wheelSpeedFL", "wheelSpeedFR", "wheelSpeedRL", "wheelSpeedRR",
         "loadFL", "loadFR", "loadRL", "loadRR",
         "suspVelFL", "suspVelFR", "suspVelRL", "suspVelRR",
+        "boost", "pitLimiter",
     };
     return (t >= 0 && t < NcxTok::TokenCount) ? kNames[t] : "";
 }

@@ -49,6 +49,10 @@ struct EngineParams
     double limHit    = 1.0;   // limiter return-hit strength 0..2 (1 = full load)
     double limHz     = 12.0;  // limiter cut rate 4..30 Hz
     double limJit    = 0.0;   // limiter cut-timing irregularity 0..1
+    double inertia   = 0.5;   // mix 0..1: load-independent rpm^2 shake (what remains on a lift)
+    double turbo     = 0.0;   // 0 no, 1 yes: the lift-off burst is a blow-off whoosh + flutter
+    double liftoff   = 1.0;   // lift-off transient strength 0..2
+    double pops      = 0.0;   // overrun pops 0..1 (fuel-cut crackle; 0 for a road car)
 };
 
 namespace engine_k {
@@ -89,6 +93,48 @@ namespace engine_k {
     constexpr double kBeatHz              = 2.5;    // rotary idle beat
     constexpr double kBeatDepth           = 0.5;    // ...at idle, fading with the rock
     constexpr int    kPulses              = 4;      // thump pool
+    // Inertia: pistons and rods reversing, rpm^2, no throttle in it.
+    constexpr double kInertiaMix          = 0.5;    // share of amp a full inertia takes at the redline
+    // Boost: cylinder pressure under boost makes each firing heavier.
+    constexpr double kBoostRefBar         = 1.0;    // 1 bar of boost = kBoostGain more hit
+    constexpr double kBoostGain           = 0.6;
+    constexpr double kBoostHitMax         = 2.0;
+    // Lift-off: a throttle drop from above kLiftFrom to below kLiftTo within
+    // kLiftWindowSec, above kLiftMinX of the redline, is the lift event.
+    constexpr double kLiftFrom            = 0.6, kLiftTo = 0.1;
+    constexpr double kLiftWindowSec       = 0.15;
+    constexpr double kLiftMinX            = 0.5;
+    constexpr double kLiftPopHit          = 0.5;    // NA: one soft pop x liftoff
+    constexpr double kLiftWhooshHit       = 1.0;    // turbo: the blow-off whoosh x liftoff
+    constexpr double kLiftWhooshLen       = 2.5;    // ...this many thump lengths long
+    constexpr int    kFlutterPulses       = 7;      // turbo: the compressor flutter after the whoosh
+    constexpr double kFlutterHz           = 16.0;   // "stututu" chop rate
+    constexpr double kFlutterHit          = 0.7;    // first flutter pulse x liftoff, decaying
+    constexpr double kFlutterDecay        = 0.72;   // per pulse
+    constexpr double kLiftHoldoffSec      = 0.6;    // one lift event per this long
+    // Overrun pops: sparse random firings in the exhaust on a closed throttle.
+    constexpr double kPopsRateHz          = 9.0;    // mean rate at pops 1 and the redline
+    constexpr double kPopsMinX            = 0.3;
+    constexpr double kPopsHitMin          = 0.3, kPopsHitMax = 1.0;
+    // Overrun in gear: the wheels drive the engine against closed throttle
+    // (compression pumping), heavier and rougher than a neutral coast-down.
+    constexpr double kOverrunHit          = 0.5;    // thump hit, throttle shut, in gear and rolling
+    constexpr double kOverrunRough        = 0.25;   // extra per-firing irregularity in that state
+    // Starting and stopping. Below kCatchRpm with no combustion yet the
+    // starter turns the engine over: slow compression lumps. The catch is
+    // the first firings taking hold (a lurch, then an uneven flare). Below
+    // kDyingRpm a running engine shudders harder as it dies, and stops
+    // with one last kick.
+    constexpr double kCatchRpm            = 500.0;
+    constexpr double kCrankHit            = 0.6;    // compression lump x heavy while cranking
+    constexpr double kCrankRock           = 0.5;    // the starter rocking the block
+    constexpr double kCatchHit            = 1.4;    // the lurch as it catches
+    constexpr double kCatchFlareSec       = 0.6;    // uneven fast idle after the catch
+    constexpr double kCatchFlareLope      = 0.5;    // ...this much extra lope
+    constexpr double kDyingRpm            = 650.0;  // a running engine below this is dying
+    constexpr double kDyingHitGain        = 1.2;    // thumps up to (1 + this) x as it dies
+    constexpr double kDyingLope           = 0.6;    // ...and this much extra lope
+    constexpr double kStallKick           = 1.5;    // the last kick as it stops
 }
 
 // One cycle's output, kept as its three components with their carriers so
@@ -107,12 +153,20 @@ struct EngineOut
 class EngineModel
 {
 public:
-    // Per-cycle drive from the owner's law: firing rate, throttle load, limiter flag.
-    void drive(double fireHz, double load01, bool limiterOn)
+    // Per-cycle drive from the owner's law: firing rate, throttle load,
+    // limiter flag, boost in bar (negative = the sim does not say).
+    // pitLimiter: cuts like the rev limiter but never teaches the redline.
+    // inGearOverrun: throttle shut while the wheels drive the engine (in
+    // gear, rolling): heavier, rougher overrun than a neutral coast-down.
+    void drive(double fireHz, double load01, bool limiterOn, double boostBar = -1.0,
+               bool pitLimiter = false, bool inGearOverrun = false)
     {
-        m_fireHz  = (fireHz > 0.0) ? fireHz : 0.0;
-        m_load    = std::max(0.0, std::min(1.0, load01));
-        m_limiter = limiterOn;
+        m_fireHz     = (fireHz > 0.0) ? fireHz : 0.0;
+        m_load       = std::max(0.0, std::min(1.0, load01));
+        m_limiter    = limiterOn || pitLimiter;
+        m_revLimiter = limiterOn;
+        m_boost      = (boostBar >= 0.0) ? boostBar : -1.0;
+        m_inGearOverrun = inGearOverrun;
     }
 
     void clear()
@@ -120,7 +174,15 @@ public:
         for (double& t : m_pulseT) t = 1e9;
         m_firePhase = m_crankPhase = m_rockPhase = m_cutPhase = m_buzzPhase = m_beatPhase = 0.0;
         m_wasCut = false; m_revScale = 1.0;
+        m_hiLoadAgo = 1e9; m_liftHoldoff = 0.0; m_flutterLeft = 0; m_flutterT = 0.0; m_popWait = 0.0;
+        m_running = false; m_sawCranking = false; m_catchFlare = 0.0;
     }
+
+    // Lift-off events seen (tests, status).
+    uint64_t liftOffCount() const { return m_liftOffs; }
+    bool     running() const      { return m_running; }   // combustion has taken hold
+    uint64_t catchCount() const   { return m_catches; }
+    uint64_t stallCount() const   { return m_stalls; }
 
     double learnedMaxRpm() const { return m_learnedMax; }
 
@@ -148,13 +210,43 @@ public:
         const double balance = rotary ? kBalanceWankel
                              : layoutK * std::max(kBalanceMin, std::min(kBalanceMax, kBalanceNum / std::sqrt(cyl)));
 
-        // Redline: set, or learned (peak hold; limiter flag snaps it exactly).
+        // Redline: set, or learned (peak hold; the REV limiter flag snaps it
+        // exactly; a pit limiter cuts but teaches nothing).
         const double rpmNow = crankHz * 60.0;
         if (m_fireHz >= 0.5)
         {
             if (rpmNow > m_learnedMax) m_learnedMax = rpmNow;
-            if (m_limiter && rpmNow > kLearnMinRpm) m_learnedMax = rpmNow / kLimiterFlagAt;
+            if (m_revLimiter && rpmNow > kLearnMinRpm) m_learnedMax = rpmNow / kLimiterFlagAt;
         }
+
+        // Running state: cranking below kCatchRpm until it catches; dying
+        // below kDyingRpm once running; stopped with a kick when the revs
+        // reach zero (or the sim drops them there).
+        const bool turning = m_fireHz >= 0.5;
+        bool cranking = false, catchNow = false, stallNow = false;
+        if (!m_running)
+        {
+            // The catch is only an event when the starter was seen first: an
+            // engine already running when the stream begins just runs.
+            if (turning && rpmNow >= kCatchRpm)
+            {
+                m_running = true;
+                if (m_sawCranking) { catchNow = true; ++m_catches; m_catchFlare = kCatchFlareSec; }
+                m_sawCranking = false;
+            }
+            else if (turning) { cranking = true; m_sawCranking = true; }
+        }
+        else if (!turning || rpmNow < kCatchRpm * 0.5)
+        {
+            // Stopped: one last kick, whether it died slowly or the sim
+            // simply reported zero.
+            m_running = false; stallNow = true; ++m_stalls;
+        }
+        const double dying = (m_running && rpmNow < kDyingRpm)
+                           ? std::max(0.0, std::min(1.0, (kDyingRpm - rpmNow) / (kDyingRpm - kCatchRpm * 0.5))) : 0.0;
+        if (m_catchFlare > 0.0) m_catchFlare -= dtSec;
+        const double extraLope = (m_catchFlare > 0.0 ? kCatchFlareLope : 0.0) + kDyingLope * dying
+                               + (m_inGearOverrun && m_load <= kLiftTo ? kOverrunRough : 0.0);
         const double maxRpm = (e.maxRpm > 0.0) ? e.maxRpm : m_learnedMax;
         const double x      = std::max(0.0, std::min(1.0, rpmNow / std::max(kLearnMinRpm, maxRpm)));
         const double rockFade = std::max(0.0, std::min(1.0,
@@ -192,7 +284,7 @@ public:
             if (m_crankPhase >= 1.0)
             {
                 m_crankPhase = wrap(m_crankPhase);
-                m_revScale = 1.0 + p.jitter * (rand01(rng) - 0.5) * 2.0;   // +-lope per rev
+                m_revScale = 1.0 + std::min(1.0, p.jitter + extraLope) * (rand01(rng) - 0.5) * 2.0;   // +-lope per rev
             }
             m_rockPhase = wrap(m_rockPhase + 0.5 * crankHz * dtSec);
 
@@ -200,9 +292,21 @@ public:
             if (m_firePhase >= 1.0)
             {
                 m_firePhase = wrap(m_firePhase);
-                if (!cut)
+                if (cranking)
                 {
-                    const double hit     = m_limiter ? limHit : (kCoastHit + (1.0 - kCoastHit) * m_load);
+                    // No combustion yet: each compression stroke is a slow lump.
+                    firePulse(p.ampPct * level * kThumpMix * e.thump * heavy * kCrankHit * m_revScale);
+                }
+                else if (!cut)
+                {
+                    // Boost: more air per firing = a heavier hit, on top of load.
+                    const double boostUp = (m_boost > 0.0) ? std::min(kBoostHitMax, 1.0 + kBoostGain * m_boost / kBoostRefBar) : 1.0;
+                    // Closed throttle: in gear the wheels pump the engine
+                    // (heavier), in neutral it freewheels (lighter).
+                    const double floorHit = (m_inGearOverrun ? kOverrunHit : kCoastHit);
+                    const double hit     = m_limiter ? limHit
+                                         : std::min(kBoostHitMax, (floorHit + (1.0 - floorHit) * m_load) * boostUp)
+                                           * (1.0 + kDyingHitGain * dying);
                     const double overlap = m_fireHz * m_pulseDur;
                     const double norm    = 1.0 / std::max(1.0, std::sqrt(overlap));
                     const double resolve = std::max(0.0, std::min(1.0, 1.0 - (overlap - kResolveFullOverlap) / kResolveFadeSpan));
@@ -214,28 +318,90 @@ public:
         // with a lurch, at any rpm, scaled by limHit.
         if (returnHit && e.thump > 0.0)
             firePulse(p.ampPct * level * kThumpMix * e.thump * heavy * limHit);
+        // The catch (first firings taking hold) and the stall kick are
+        // single heavy events in the thump pool.
+        if (catchNow && e.thump > 0.0) firePulse(p.ampPct * level * kThumpMix * e.thump * heavy * kCatchHit, 1.5);
+        if (stallNow && e.thump > 0.0) firePulse(p.ampPct * level * kThumpMix * e.thump * heavy * kStallKick, 2.0);
+
+        // Lift-off: the throttle snapping shut at high rpm. Naturally
+        // aspirated: one soft pop as combustion stops. Turbo: the boost
+        // dumping (a longer, heavier whoosh) followed by the compressor
+        // flutter, each scaled by the boost the sim reports or, without
+        // it, by how far up the band the lift happened.
+        {
+            if (m_load >= kLiftFrom) m_hiLoadAgo = 0.0; else m_hiLoadAgo += dtSec;
+            if (m_liftHoldoff > 0.0) m_liftHoldoff -= dtSec;
+            const bool liftEdge = m_load <= kLiftTo && m_hiLoadAgo < kLiftWindowSec && m_hiLoadAgo > 0.0
+                                  && x >= kLiftMinX && m_liftHoldoff <= 0.0 && m_fireHz >= 0.5;
+            if (liftEdge && e.liftoff > 0.0)
+            {
+                ++m_liftOffs;
+                m_liftHoldoff = kLiftHoldoffSec;
+                m_hiLoadAgo   = 1e9;
+                const double how = (m_boost >= 0.0) ? std::min(1.0, m_boost / kBoostRefBar) : x;
+                const double base = p.ampPct * level * kThumpMix * heavy * std::min(2.0, e.liftoff) * how;
+                if (e.turbo >= 0.5)
+                {
+                    firePulse(base * kLiftWhooshHit, kLiftWhooshLen);
+                    m_flutterLeft = kFlutterPulses;
+                    m_flutterT    = 1.0 / kFlutterHz;    // first flutter pulse after the whoosh starts
+                    m_flutterAmp  = base * kFlutterHit;
+                }
+                else
+                    firePulse(base * kLiftPopHit);
+            }
+            if (m_flutterLeft > 0)
+            {
+                m_flutterT -= dtSec;
+                if (m_flutterT <= 0.0)
+                {
+                    firePulse(m_flutterAmp);
+                    m_flutterAmp *= kFlutterDecay;
+                    m_flutterT   += 1.0 / kFlutterHz;
+                    --m_flutterLeft;
+                }
+            }
+        }
+
+        // Overrun pops: with the throttle shut and the revs up, sparse random
+        // firings in the exhaust, more often the higher the revs.
+        if (e.pops > 0.0 && m_load <= kLiftTo && x >= kPopsMinX && m_fireHz >= 0.5 && !m_limiter)
+        {
+            m_popWait -= dtSec;
+            if (m_popWait <= 0.0)
+            {
+                const double rate = kPopsRateHz * std::min(1.0, e.pops) * x;
+                m_popWait = (0.3 + 1.4 * rand01(rng)) / std::max(0.5, rate);   // random spacing around 1/rate
+                const double hit = kPopsHitMin + (kPopsHitMax - kPopsHitMin) * rand01(rng);
+                firePulse(p.ampPct * level * kThumpMix * heavy * std::min(1.0, e.pops) * hit);
+            }
+        }
+        else m_popWait = 0.0;
 
         // Sum the thumps in flight.
         for (int s = 0; s < kPulses; ++s)
         {
-            if (m_pulseT[s] >= m_pulseDur) continue;
-            const double env = wavesynth::envelope(m_pulseT[s], m_pulseDur, m_pulseDur * 0.30);
-            out.thumps += m_pulseAmp[s] * env * std::sin(2.0 * wavesynth::kPi * (m_pulseT[s] / m_pulseDur));
+            const double dur = m_pulseDur * m_pulseLen[s];
+            if (m_pulseT[s] >= dur) continue;
+            const double env = wavesynth::envelope(m_pulseT[s], dur, dur * 0.30);
+            out.thumps += m_pulseAmp[s] * env * std::sin(2.0 * wavesynth::kPi * (m_pulseT[s] / dur));
             m_pulseT[s] += dtSec;
         }
 
-        // Rock: crank rate + half-order lope, loaded, sagging in a cut.
+        // Rock: crank rate + half-order lope, loaded, sagging in a cut. While
+        // cranking it is the starter rocking the block, lighter and unloaded.
         if (m_fireHz >= 0.5 && !cut && rockFade > 0.0)
         {
             const double ph   = 2.0 * wavesynth::kPi * m_rockPhase;   // one cycle = 2 revs
-            const double rock = std::sin(2.0 * ph) + kHalfOrderLope * p.jitter * std::sin(ph);
-            out.rock = p.ampPct * level * kRockMix * e.rock * heavy * balance * rockFade
-                     * (kRockLoadFloor + (1.0 - kRockLoadFloor) * m_load) * m_revScale * rock;
+            const double lope = std::min(1.0, p.jitter + extraLope);
+            const double rock = std::sin(2.0 * ph) + kHalfOrderLope * lope * std::sin(ph);
+            const double loadK = cranking ? kCrankRock : (kRockLoadFloor + (1.0 - kRockLoadFloor) * m_load) * (1.0 + kDyingHitGain * 0.5 * dying);
+            out.rock = p.ampPct * level * kRockMix * e.rock * heavy * balance * rockFade * loadK * m_revScale * rock;
             out.rockHz = crankHz;
         }
 
         // Buzz: pitch proportional to rpm at an order the actuator can carry.
-        if (m_fireHz >= 0.5 && e.buzz > 0.0)
+        if (m_fireHz >= 0.5 && (e.buzz > 0.0 || e.inertia > 0.0))
         {
             // The auto band top follows the control rate: 120 Hz on a 2 kHz
             // loop, 62 Hz on a 500 Hz PC loop (4 samples per cycle at 120 Hz
@@ -247,14 +413,21 @@ public:
             m_buzzPhase = wrap(m_buzzPhase + carrier * dtSec);
             out.buzzHz = carrier;
             const double rise = std::max(0.0, std::min(1.0, (x - kBuzzInAt) / (kBuzzFullBy - kBuzzInAt)));
-            if (rise > 0.0 && !cut)
+            const double s    = std::sin(2.0 * wavesynth::kPi * m_buzzPhase);
+            if (rise > 0.0 && !cut && e.buzz > 0.0)
             {
                 const double lvl = rise * (1.0 - kBuzzTopGrowth + kBuzzTopGrowth * x)
                                  * (kBuzzLoadFloor + (1.0 - kBuzzLoadFloor) * m_load)
                                  * (m_limiter ? limHit : 1.0);
-                out.buzz = p.ampPct * level * kBuzzMix * e.buzz * (kBuzzHeavyFloor + (1.0 - kBuzzHeavyFloor) * heavy) * lvl
-                         * std::sin(2.0 * wavesynth::kPi * m_buzzPhase);
+                out.buzz = p.ampPct * level * kBuzzMix * e.buzz * (kBuzzHeavyFloor + (1.0 - kBuzzHeavyFloor) * heavy) * lvl * s;
             }
+            // Inertia: the reciprocating mass reversing, rpm^2 and nothing to
+            // do with the throttle, so it is what remains on a lift and it
+            // dissipates with the square of the falling revs. Keeps going
+            // through a limiter cut (the engine still spins). Balance as
+            // for the rock: a four shakes, a six or a twelve barely.
+            if (e.inertia > 0.0)
+                out.buzz += p.ampPct * level * kInertiaMix * std::min(1.0, e.inertia) * balance * x * x * s;
         }
 
         // The engine never exceeds its own amplitude (x limHit on the limiter);
@@ -270,12 +443,14 @@ private:
         s ^= s << 13; s ^= s >> 7; s ^= s << 17;
         return static_cast<double>(s & 0xFFFF) / 65535.0;
     }
-    void firePulse(double amp)
+    // lenMul stretches one pulse (the blow-off whoosh) past the thump length.
+    void firePulse(double amp, double lenMul = 1.0)
     {
         int slot = 0;   // free slot, else the one closest to finishing
         for (int s = 1; s < engine_k::kPulses; ++s)
-            if (m_pulseT[s] > m_pulseT[slot]) slot = s;
+            if (m_pulseT[s] / m_pulseLen[s] > m_pulseT[slot] / m_pulseLen[slot]) slot = s;
         m_pulseAmp[slot] = amp;
+        m_pulseLen[slot] = std::max(0.25, lenMul);
         m_pulseT[slot]   = 0.0;
     }
 
@@ -290,6 +465,17 @@ private:
     double m_pulseDur = 0.033;
     double m_pulseT[engine_k::kPulses]   = { 1e9, 1e9, 1e9, 1e9 };
     double m_pulseAmp[engine_k::kPulses] = { 0.0, 0.0, 0.0, 0.0 };
+    double m_pulseLen[engine_k::kPulses] = { 1.0, 1.0, 1.0, 1.0 };   // x m_pulseDur
+    double   m_boost = -1.0;
+    double   m_hiLoadAgo = 1e9, m_liftHoldoff = 0.0;
+    int      m_flutterLeft = 0;
+    double   m_flutterT = 0.0, m_flutterAmp = 0.0;
+    double   m_popWait = 0.0;
+    uint64_t m_liftOffs = 0;
+    bool     m_revLimiter = false, m_inGearOverrun = false;
+    bool     m_running = false, m_sawCranking = false;
+    double   m_catchFlare = 0.0;
+    uint64_t m_catches = 0, m_stalls = 0;
 };
 
 } // namespace haptics

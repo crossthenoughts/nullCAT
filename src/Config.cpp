@@ -210,6 +210,7 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
                 o["cylinders"] = e.cylinders; o["litres"] = e.litres; o["layout"] = e.layout;
                 o["maxRpm"] = e.maxRpm; o["rock"] = e.rock; o["thump"] = e.thump; o["buzz"] = e.buzz;
                 o["order"] = e.order; o["limHit"] = e.limHit; o["limHz"] = e.limHz; o["limJit"] = e.limJit;
+                o["inertia"] = e.inertia; o["turbo"] = e.turbo; o["liftoff"] = e.liftoff; o["pops"] = e.pops;
             }
             else if (info.kind == haptics::Kind::Slip)
             {
@@ -317,6 +318,10 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
                 e.limHit    = o.value("limHit").toDouble(e.limHit);
                 e.limHz     = o.value("limHz").toDouble(e.limHz);
                 e.limJit    = o.value("limJit").toDouble(e.limJit);
+                e.inertia   = o.value("inertia").toDouble(e.inertia);
+                e.turbo     = o.value("turbo").toDouble(e.turbo);
+                e.liftoff   = o.value("liftoff").toDouble(e.liftoff);
+                e.pops      = o.value("pops").toDouble(e.pops);
             }
         }
         if (h.contains("masterGain"))  c.hapticsMasterGain = h.value("masterGain").toDouble(1.0);
@@ -1210,6 +1215,12 @@ std::vector<std::string> AppConfig::validate() const
                 errors.push_back(pfx + "litres out of range [0.1, 30]");
             if (e.layout < 0.0 || e.layout > 3.0)
                 errors.push_back(pfx + "layout out of range [0, 3] (inline, V, flat, wankel)");
+            if (e.inertia < 0.0 || e.inertia > 1.0 || e.pops < 0.0 || e.pops > 1.0)
+                errors.push_back(pfx + "inertia/pops mix out of range [0, 1]");
+            if (e.turbo < 0.0 || e.turbo > 1.0)
+                errors.push_back(pfx + "turbo out of range [0, 1] (no, yes)");
+            if (e.liftoff < 0.0 || e.liftoff > 2.0)
+                errors.push_back(pfx + "liftoff out of range [0, 2]");
         }
         if (hapticsMasterGain < 0.0 || hapticsMasterGain > 2.0)
             errors.push_back("haptics.masterGain out of range [0, 2]");

@@ -326,6 +326,39 @@ int main()
         v.have[NcxValues::Lockup] = true; v.val[NcxValues::Lockup] = 100.0; settle(100);
         check(lvl(FxType::Lockup, WheelRR) > 0.95, "I-8 single lockup channel reaches every wheel");
 
+        // Engine law: the pit limiter flag cuts the engine (holes in the
+        // output) but the learned redline stays put; an engine joined
+        // running needs no catch; cranking rpm plays (lumps, not silence).
+        {
+            // A fresh layer: the slip and road routes above share axis 0.
+            haptics::Layer L; haptics::LawsState st;
+            auto settleE = [&](int n) { for (int i = 0; i < n; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); } };
+            for (int t = 0; t < NcxValues::TokenCount; ++t) v.have[t] = false;
+            haptics::EffectParams ep; ep.ampPct = 60.0; ep.freqHz = 30.0; ep.routes[0] = { 0, 1.0 };
+            haptics::EngineParams eg; eg.maxRpm = 0.0; eg.inertia = 0.0; eg.liftoff = 0.0;
+            L.configureFx(FxType::RpmVibe, ep); L.configureEngine(eg);
+            (void)settleE;
+            v.have[NcxValues::Rpm] = true; v.val[NcxValues::Rpm] = 1500.0;
+            v.have[NcxValues::ThrottlePct] = true; v.val[NcxValues::ThrottlePct] = 40.0;
+            v.have[NcxValues::PitLimiter] = true; v.val[NcxValues::PitLimiter] = 1.0;
+            const double seed = L.learnedMaxRpm();
+            int holes = 0; bool inHole = false;
+            for (int i = 0; i < 1000; ++i)
+            {
+                haptics::driveLaws(L, st, v, dt); L.step(dt);
+                const bool z = std::fabs(L.overlayFor(0)) <= 1e-9;
+                if (i > 200 && z && !inHole) ++holes;
+                inHole = z;
+            }
+            check(holes >= 6, "I-8 engine: the pit limiter token cuts the engine in bursts");
+            check(std::fabs(L.learnedMaxRpm() - seed) < 1e-9, "I-8 engine: the pit limiter never teaches the redline");
+            v.val[NcxValues::PitLimiter] = 0.0;
+            v.val[NcxValues::Rpm] = 250.0; v.val[NcxValues::ThrottlePct] = 0.0;
+            double crank = 0.0;
+            for (int i = 0; i < 400; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); crank = std::max(crank, std::fabs(L.overlayFor(0))); }
+            check(crank > 0.5, "I-8 engine: 250 rpm on the starter plays cranking lumps");
+        }
+
         // Road: per-corner suspension velocities replay the corners and the
         // roadNoise magnitude is ignored; without them roadNoise drives the
         // texture; a stale stream releases the replay.

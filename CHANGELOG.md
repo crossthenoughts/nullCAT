@@ -26,6 +26,16 @@ Development branch. Nothing here is in a release yet.
   the same part selector so a four-post rig feels a kerb under the wheel
   that hit it. `full mm` and `cut hz` tune it; the texture remains the
   fallback for sims without per-corner data.
+- Engine, the lift and the ends of the rev range: a load-independent
+  **inertia** shake (rpm squared) that stays on when you lift and fades
+  as the revs fall; a **lift-off** event when the throttle snaps shut up
+  the band, a pop on a naturally aspirated engine or, with **turbo** on,
+  the blow-off whoosh and compressor flutter scaled by the sim's boost;
+  **pops** for fuel-cut crackle on the overrun; overrun in gear is
+  heavier and rougher than a neutral coast-down; cranking on the starter,
+  the catch, dying and the stall kick are modelled below idle; the pit
+  limiter cuts like the rev limiter without teaching the redline. New
+  tokens `boost` and `pitLimiter`; the plugin sends both automatically.
 - Sim dots: every haptics tile shows whether the current game has ever
   sent that effect's channels (grey no, amber yes but it never played,
   green it has played), remembered per game in `effectstatus.json` next

@@ -9,8 +9,8 @@
 //            <brakePct>,<absActive>,<skid>,<lockup>,<roadNoise>,
 //            <limiter>,<tcActive>,<curbs>,<maxRpm>
 //
-//   NULLCATY,slipAngleFL=..,slipAngleFR=..,...      (only the per-wheel
-//            groups that are bound in the settings file, by name)
+//   NULLCATY,boost=..,pitLimiter=..,slipAngleFL=..,...   (boost and pit limiter always; the
+//            per-wheel groups only when bound in the settings file, by name)
 //
 //   NULLCATY,game=..,car=..                         (once a second)
 //
@@ -146,6 +146,16 @@ namespace NullcatChannelExporter
             }
             catch { limiter = 0; maxRpm = 0; }
 
+            // Turbo boost in bar (SimHub reports relative pressure where the
+            // game has it; 0 for a naturally aspirated car or an unknown).
+            double boost = 0;
+            try
+            {
+                boost = Convert.ToDouble(d.Turbo, CultureInfo.InvariantCulture);
+                if (double.IsNaN(boost) || double.IsInfinity(boost)) boost = 0;
+            }
+            catch { boost = 0; }
+
             var line = string.Format(CultureInfo.InvariantCulture,
                 "NULLCATX,{0:0.#},{1:0.##},{2:0},{3:0.#},{4:0.#},{5:0.#},{6:0},{7:0.#},{8:0.#},{9:0.#},{10:0},{11:0},{12:0.#},{13:0}",
                 d.Rpms, d.SpeedKmh, gear, d.Clutch, d.Throttle,
@@ -160,7 +170,15 @@ namespace NullcatChannelExporter
 
             // Per-wheel groups by name: only groups with all four wheels
             // bound, only when every wheel reads as a number this tick.
-            StringBuilder y = null;
+            // Named line: boost every tick (its slot sits past the per-wheel
+            // groups, so it cannot go positionally without padding them), then
+            // the bound per-wheel groups.
+            var y = new StringBuilder("NULLCATY,boost=");
+            y.Append(boost.ToString("0.###", CultureInfo.InvariantCulture));
+            // Pit limiter: cuts like the rev limiter on the rig, never teaches the redline.
+            double pit = 0;
+            try { pit = Convert.ToDouble(d.PitLimiterOn, CultureInfo.InvariantCulture) > 0 ? 1 : 0; } catch { pit = 0; }
+            y.Append(",pitLimiter=").Append(pit.ToString("0", CultureInfo.InvariantCulture));
             for (var g = 0; g < Groups.Length; g++)
             {
                 var props = _groupProps[g];
@@ -170,12 +188,11 @@ namespace NullcatChannelExporter
                 var ok = true;
                 for (var w = 0; w < 4 && ok; w++) ok = ReadRaw(pluginManager, props[w], out vals[w]);
                 if (!ok) continue;
-                if (y == null) y = new StringBuilder("NULLCATY");
                 for (var w = 0; w < 4; w++)
                     y.Append(',').Append(Groups[g]).Append(Wheels[w]).Append('=')
                      .Append((vals[w] * _groupScale[g]).ToString("0.####", CultureInfo.InvariantCulture));
             }
-            if (y != null) Send(y.ToString());
+            Send(y.ToString());
 
             // Identity once a second: which game and car the channels
             // describe (free text; commas and '=' would break the line).

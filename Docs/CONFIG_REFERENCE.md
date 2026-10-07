@@ -116,7 +116,7 @@ Top level: `configVersion`, `numDrives` (1 to 10, must match `axes[]`),
 | `blendTimeSec` | double | `2.0` | Smoothing time constant for cross-axis blended motion. |
 | `blendMaxVelocityMmS` | double | `20.0` | Cap on the blended-axis velocity contribution. |
 | `requireUserFaultReset` | bool | `false` | If true, faulted drives need a manual reset from the UI before motion resumes. Safety policy, so it travels with the rig. |
-| `ncxBindings` | array | all 34 tokens, slots 0 to 33 | NULLCATX channel bindings for the device and haptic effects. Each entry is `{"token", "slot", "scale", "offset"}`: the wire's numbered channel `slot` (0 to 47) maps onto the semantic `token`, with `value = raw * scale + offset`. Tokens: `rpm`, `speedKmh`, `gear`, `clutchPct` (0 = pedal up, 100 = floored), `throttlePct`, `brakePct`, `absActive`, `skid`, `lockup`, `roadNoise`, `limiter`, `tcActive`, `curbs`, `maxRpm`, and the per-wheel groups `slipAngleFL..RR`, `slipRatioFL..RR`, `wheelSpeedFL..RR`, `loadFL..RR`, `suspVelFL..RR` (see Docs/PROTOCOL.md for units). Each token binds at most once. The default matches the SimHub plugin's channel order, so it needs no editing; the Sim channels section of the web Setup view edits it and can reset it. An unbound token leaves the effects that use it silent. Bindings only apply to NULLCATX; a NULLCATY line names its tokens directly in canonical units. |
+| `ncxBindings` | array | all 36 tokens, slots 0 to 35 | NULLCATX channel bindings for the device and haptic effects. Each entry is `{"token", "slot", "scale", "offset"}`: the wire's numbered channel `slot` (0 to 47) maps onto the semantic `token`, with `value = raw * scale + offset`. Tokens: `rpm`, `speedKmh`, `gear`, `clutchPct` (0 = pedal up, 100 = floored), `throttlePct`, `brakePct`, `absActive`, `skid`, `lockup`, `roadNoise`, `limiter`, `tcActive`, `curbs`, `maxRpm`, and the per-wheel groups `slipAngleFL..RR`, `slipRatioFL..RR`, `wheelSpeedFL..RR`, `loadFL..RR`, `suspVelFL..RR`, `boost` and `pitLimiter` (see Docs/PROTOCOL.md for units). Each token binds at most once. The default matches the SimHub plugin's channel order, so it needs no editing; the Sim channels section of the web Setup view edits it and can reset it. An unbound token leaves the effects that use it silent. Bindings only apply to NULLCATX; a NULLCATY line names its tokens directly in canonical units. |
 | `haptics` | object | all effects off | Haptic effect layer tuning, one entry per effect plus `masterGain` and `positionBudget`. See below; normally edited on the web Haptics strip. |
 
 ### global.haptics
@@ -164,6 +164,10 @@ Engine-only fields (`rpmVibe`):
 | `limHit` | `1` | Limiter: strength of each return hit (0 to 2). |
 | `limHz` | `12` | Limiter: cut rate (4 to 30 Hz). |
 | `limJit` | `0` | Limiter: irregularity of the cut timing (0 to 1). |
+| `inertia` | `0.5` | Mix of the rpm-squared reciprocating shake (0 to 1): load-independent, what remains on a lift. |
+| `turbo` | `0` | 0 no, 1 yes. Shapes the lift-off event: a pop, or the blow-off whoosh and compressor flutter. |
+| `liftoff` | `1` | Lift-off event strength (0 to 2), scaled by `boost` when the sim sends it. |
+| `pops` | `0` | Overrun pops (0 to 1): fuel-cut crackle on a shut throttle above 30 % of the redline. |
 
 ### axes[] (one object per drive)
 

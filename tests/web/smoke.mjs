@@ -133,7 +133,7 @@ try {
   if (st.hapHidden)             fails.push('haptics strip is hidden (experimental flag + belt axis set)');
   if (st.hapTiles !== nEffects + 1) fails.push(`strip has ${st.hapTiles} tiles, expected ${nEffects} effects + Master`);
   if (st.hapTests !== nEffects) fails.push(`strip has ${st.hapTests} Test buttons, expected ${nEffects}`);
-  if (nTokens < 34)             fails.push(`schema lists ${nTokens} channel tokens`);
+  if (nTokens < 36)             fails.push(`schema lists ${nTokens} channel tokens`);
   if (st.ncxRows !== nTokens)   fails.push(`bindings editor has ${st.ncxRows} rows, expected one per token (${nTokens})`);
   if (st.ncxTokenOpts !== nTokens) fails.push(`bindings token list has ${st.ncxTokenOpts} options, expected ${nTokens}`);
   if (st.simDots !== nEffects)  fails.push(`${st.simDots} sim dots, expected one per effect (${nEffects})`);

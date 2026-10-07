@@ -121,6 +121,10 @@ constexpr ParamSpec kEngineParams[] = {
     { "limHit",    "limiter x",             0,   2,     0.1,  nullptr },
     { "limHz",     "limiter hz",            4,   30,    1,    nullptr },
     { "limJit",    "limiter jit",           0,   1,     0.05, nullptr },
+    { "inertia",   "inertia x",             0,   1,     0.1,  nullptr },
+    { "turbo",     "turbo",                 0,   1,     1,    "no|yes" },
+    { "liftoff",   "lift-off x",            0,   2,     0.1,  nullptr },
+    { "pops",      "pops x",                0,   1,     0.1,  nullptr },
     { "freqHz",    "thump hz",              10,  80,    1,    nullptr },
     { "jitter",    "lope",                  0,   1,     0.05, nullptr },
 };
@@ -134,13 +138,16 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       { "gear", nullptr }, { 0.0, 60.0, 25.0, 0.0 }, kTransientParams, 3,
       "A thunk on every gear change, ringing through the chassis. Needs the gear channel.", nullptr, {} },
     { Effect::Engine,      "rpmVibe",     "Engine",       Kind::Engine, EventType::COUNT, FxType::RpmVibe,
-      { "rpm", "~throttlePct", "~limiter" }, { 0.0, 30.0, 0.0, 0.15 }, kEngineParams, 14,
+      { "rpm", "~throttlePct", "~limiter", "~boost" }, { 0.0, 30.0, 0.0, 0.15 }, kEngineParams, 18,
       "Engine: the block rocking at crank rate at idle (lumpy, fades out by ~2500 rpm) with each firing as a "
       "low thump on top. Above idle the rock hands over to the buzz: the firing-order vibration with pitch "
       "rising with rpm, kept at an order the actuator can carry; level grows with rpm and throttle up to the "
       "limiter. Describe the engine (cyl/rotors, litres, layout) and set rock x, thump x and buzz x by feel; "
       "max rpm 0 learns the redline while you drive. Throttle loads it; the limiter cuts whole bursts of "
-      "firings for the bounce, with its own strength, rate and roughness. Needs rpm (throttle and limiter optional).",
+      "firings for the bounce, with its own strength, rate and roughness. Inertia is the rpm-squared shake that stays "
+      "when you lift and fades as the revs fall; lift-off is the pop (or, with turbo, the blow-off whoosh and "
+      "flutter, scaled by boost when the sim sends it) as the throttle snaps shut up the band; pops is the "
+      "fuel-cut crackle on the overrun. Needs rpm (throttle, limiter and boost optional).",
       nullptr, {} },
     { Effect::Abs,         "abs",         "ABS",          Kind::Continuous, EventType::COUNT, FxType::AbsPulse,
       { "brakePct", "absActive", nullptr }, { 0.0, 12.0, 0.0, 0.0 }, kPulseParams, 2,

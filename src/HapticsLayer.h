@@ -374,12 +374,15 @@ public:
     // coasting), the lope amount (EffectParams.jitter) roughens idle
     // per-pulse, and the limiter flag DROPS pulses in bursts - a limiter
     // cuts firings, so the stumble is missing events, exactly as felt. ----
-    void driveEngine(double level, double fireHz, double load01, bool limiterOn)
+    void driveEngine(double level, double fireHz, double load01, bool limiterOn, double boostBar = -1.0,
+                     bool pitLimiter = false, bool inGearOverrun = false)
     {
         Fx& f = m_fx[static_cast<int>(FxType::RpmVibe)];
         f.targetLevel = (level < 0.0) ? 0.0 : (level > 1.0 ? 1.0 : level);
-        m_engine.drive(fireHz, load01, limiterOn);
+        m_engine.drive(fireHz, load01, limiterOn, boostBar, pitLimiter, inGearOverrun);
     }
+    uint64_t engineLiftOffs() const { return m_engine.liftOffCount(); }
+    bool     engineRunning() const  { return m_engine.running(); }
 
     // Kill every active transient instantly (e-stop, park, loop stop).
     void clearAll()

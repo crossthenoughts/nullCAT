@@ -39,7 +39,9 @@ struct LawsState
 };
 
 namespace laws_k {
-    constexpr double kEngineAliveRpm   = 400.0;    // alive from just above cranking so idle chunks
+    constexpr double kEngineAliveRpm   = 30.0;     // anything turning: cranking lumps from the starter up
+    constexpr double kOverrunThrottle  = 10.0;     // % throttle at or below which the throttle is shut
+    constexpr double kOverrunMinKmh    = 10.0;     // in gear and rolling: the wheels drive the engine
     constexpr double kPreviewIdleRpm   = 1100.0;   // the canned idle a Test preview runs
     constexpr double kAbsMinBrakePct   = 10.0;     // ABS needs the brake actually applied
     constexpr double kPreviewSec       = 2.0;      // Test preview length
@@ -103,7 +105,21 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec)
         const double lv = previewOr(FxType::RpmVibe, level);
         if (lv > 0.0 && fireHz < 0.5)
             fireHz = kPreviewIdleRpm / 60.0 * perRev;
-        L.driveEngine(lv, fireHz, load, lim);
+        // Boost in bar when the sim sends it (vacuum reads as 0 boost);
+        // negative = unknown, the model falls back to rpm for the lift.
+        const double boost = (live && v.have[NcxValues::Boost]) ? std::max(0.0, v.val[NcxValues::Boost]) : -1.0;
+        // Pit limiter cuts like the rev limiter but must not teach the redline.
+        const bool pitLim = flag(NcxValues::PitLimiter) > 0.5;
+        // Overrun in gear: throttle shut, a forward or reverse gear selected,
+        // rolling: the wheels drive the engine (heavier than a neutral coast).
+        bool inGearOverrun = false;
+        if (live && v.have[NcxValues::Gear] && v.have[NcxValues::SpeedKmh])
+        {
+            const double g = v.val[NcxValues::Gear];
+            const bool throttleShut = !v.have[NcxValues::ThrottlePct] || v.val[NcxValues::ThrottlePct] <= kOverrunThrottle;
+            inGearOverrun = throttleShut && (g >= 0.5 || g <= -0.5) && v.val[NcxValues::SpeedKmh] > kOverrunMinKmh;
+        }
+        L.driveEngine(lv, fireHz, load, lim, boost, pitLim, inGearOverrun);
     }
 
     // ABS: only while the sim says ABS is cycling AND the brake is applied

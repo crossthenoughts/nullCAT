@@ -1443,6 +1443,7 @@ bool WebServer::start()
                     d["cylinders"] = ed.cylinders; d["litres"] = ed.litres; d["layout"] = ed.layout;
                     d["maxRpm"] = ed.maxRpm; d["rock"] = ed.rock; d["thump"] = ed.thump; d["buzz"] = ed.buzz;
                     d["order"] = ed.order; d["limHit"] = ed.limHit; d["limHz"] = ed.limHz; d["limJit"] = ed.limJit;
+                    d["inertia"] = ed.inertia; d["turbo"] = ed.turbo; d["liftoff"] = ed.liftoff; d["pops"] = ed.pops;
                 }
                 else if (info.kind == haptics::Kind::Slip)
                 {

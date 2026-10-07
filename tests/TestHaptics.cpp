@@ -37,7 +37,10 @@ using haptics::Layer;
 using haptics::EffectParams;
 using haptics::EngineParams;
 // Engine tests bundle the shared params with the engine description.
-struct EP : EffectParams { EngineParams eng; };
+// The existing engine checks measure the three firing components in
+// isolation (silences, cut holes), so the bundle starts with the
+// load-independent inertia OFF; its own block below turns it on.
+struct EP : EffectParams { EngineParams eng; EP() { eng.inertia = 0.0; } };
 using haptics::EventType;
 
 static EffectParams click(double amp = 10.0, double freq = 100.0, double ms = 20.0)
@@ -622,6 +625,173 @@ int main()
         double zk = 0.0;
         for (int i = 0; i < 200; ++i) { Z.driveSlip(FxType::Skid, WheelFL, 1.0, 1.0); Z.step(DT); zk = std::max(zk, std::fabs(Z.overlayFor(0))); }
         CHECK(zk < 1e-9 && Z.fxLevel(static_cast<int>(FxType::Skid)) == 0.0, "slip: amp 0 plays nothing and reports level 0");
+    }
+
+    // ================= engine: lift-off, inertia, boost, pops =================
+    {
+        using haptics::EngineModel; using haptics::EngineOut;
+        const double pi = 3.14159265358979;
+        auto rms = [](const std::vector<double>& v, size_t a, size_t b) {
+            double s = 0.0; for (size_t i = a; i < b && i < v.size(); ++i) s += v[i] * v[i];
+            return std::sqrt(s / std::max<size_t>(1, std::min(b, v.size()) - a)); };
+        // A V8 at 7000 rpm full throttle, then the throttle snaps shut and
+        // the revs fall linearly to 3500 over 2 s.
+        auto run = [&](EngineParams e, bool liftThenDescend, double boost, std::vector<double>& thumps, std::vector<double>& buzz) {
+            EngineModel m; uint64_t rng = 7;
+            EffectParams p; p.ampPct = 100.0; p.freqHz = 30.0; p.jitter = 0.0;
+            e.cylinders = 8.0; e.litres = 5.0; e.maxRpm = 7000.0;
+            double t = 0.0;
+            for (int i = 0; i < 6000; ++i, t += DT)
+            {
+                double rpm = 7000.0, load = 1.0;
+                if (liftThenDescend && t >= 1.0) { load = 0.0; rpm = 7000.0 - 3500.0 * std::min(1.0, (t - 1.0) / 2.0); }
+                m.drive(rpm / 60.0 * 4.0, load, false, boost);
+                const EngineOut eo = m.step(DT, p, e, 1.0, rng);
+                thumps.push_back(eo.thumps); buzz.push_back(eo.buzz);
+            }
+            return m.liftOffCount();
+        };
+        std::vector<double> th, bz;
+        // Inertia: with buzz off, the buzz-band output after the lift is the
+        // inertia alone; it is there at 7000 and ~1/4 of that at 3500.
+        EngineParams e; e.buzz = 0.0; e.inertia = 1.0; e.liftoff = 0.0;
+        run(e, true, -1.0, th, bz);
+        const double atTop = rms(bz, 2200, 2600), atHalf = rms(bz, 5700, 6000);
+        CHECK(atTop > 10.0, "engine: inertia carries the high-rpm shake after the lift (buzz off)");
+        approx(atHalf / std::max(1e-9, atTop), 0.25, 0.08, "engine: inertia fades with rpm^2 as the revs fall");
+        // Inertia off: the buzz band is silent on the lift with buzz off.
+        th.clear(); bz.clear(); e.inertia = 0.0;
+        run(e, true, -1.0, th, bz);
+        CHECK(rms(bz, 2200, 2600) < 1e-9, "engine: no inertia = nothing in the band after a lift with buzz off");
+
+        // Lift-off, naturally aspirated: exactly one event on the edge, a
+        // pop in the thump pool right after the lift, none without a lift.
+        th.clear(); bz.clear();
+        EngineParams na; na.inertia = 0.0; na.liftoff = 1.0; na.turbo = 0.0; na.thump = 0.0;
+        const uint64_t lifts = run(na, true, -1.0, th, bz);
+        CHECK(lifts == 1, "engine: one lift-off event per throttle drop edge");
+        CHECK(rms(th, 2000, 2200) > 2.0 && rms(th, 3000, 3400) < 1e-9, "engine: NA lift-off is one pop, then silence (thumps off)");
+        th.clear(); bz.clear();
+        CHECK(run(na, false, -1.0, th, bz) == 0 && rms(th, 2000, 2400) < 1e-9, "engine: no lift, no pop");
+        // Turbo: the whoosh plus a flutter train lasting ~0.4 s, heavier than the pop.
+        th.clear(); bz.clear();
+        EngineParams tb = na; tb.turbo = 1.0;
+        run(tb, true, 1.0, th, bz);
+        CHECK(rms(th, 2000, 2200) > 6.0 && rms(th, 2500, 2800) > 0.5 && rms(th, 4000, 4400) < 1e-9,
+              "engine: turbo lift-off is a whoosh and ~0.4 s of flutter, then silence");
+        // Lift-off strength follows boost when the sim sends it: 0.2 bar is a fifth of 1 bar.
+        std::vector<double> th2, bz2;
+        run(tb, true, 0.2, th2, bz2);
+        approx(rms(th2, 2000, 2200) / std::max(1e-9, rms(th, 2000, 2200)), 0.2, 0.05, "engine: lift-off scales with reported boost");
+
+        // Boost makes each firing heavier on throttle: at 1500 rpm (where the
+        // thumps are still resolved) 1 bar reads 1.6x the no-boost hit.
+        auto thumpRms = [&](double boost) {
+            EngineModel m; uint64_t rng = 3;
+            EffectParams p; p.ampPct = 100.0; p.freqHz = 30.0; p.jitter = 0.0;
+            EngineParams bt; bt.inertia = 0.0; bt.liftoff = 0.0; bt.cylinders = 8.0; bt.litres = 5.0; bt.maxRpm = 7000.0;
+            std::vector<double> v;
+            for (int i = 0; i < 4000; ++i) { m.drive(1500.0 / 60.0 * 4.0, 1.0, false, boost); v.push_back(m.step(DT, p, bt, 1.0, rng).thumps); }
+            return rms(v, 1000, 4000); };
+        approx(thumpRms(1.0) / std::max(1e-9, thumpRms(0.0)), 1.6, 0.1, "engine: 1 bar of boost = 1.6x heavier firings");
+
+        // Pops: with pops on, the overrun carries sparse pulses; on throttle none extra.
+        EngineParams pp; pp.inertia = 0.0; pp.liftoff = 0.0; pp.thump = 0.0; pp.pops = 1.0;
+        th.clear(); bz.clear(); run(pp, true, -1.0, th, bz);
+        CHECK(rms(th, 400, 1800) < 1e-9, "engine: no pops on throttle");
+        CHECK(rms(th, 2400, 5600) > 1.0, "engine: pops crackle on the overrun");
+        int bursts = 0; for (size_t i = 2401; i < 5600; ++i) if (std::fabs(th[i]) > 1e-9 && std::fabs(th[i-1]) <= 1e-9) ++bursts;
+        CHECK(bursts >= 4 && bursts <= 40, "engine: pops are sparse separate events, not a tone");
+    }
+
+    // ================= engine: cranking, catch, stall, pit limiter, overrun =================
+    {
+        using haptics::EngineModel; using haptics::EngineOut;
+        auto rms = [](const std::vector<double>& v, size_t a, size_t b) {
+            double s = 0.0; for (size_t i = a; i < b && i < v.size(); ++i) s += v[i] * v[i];
+            return std::sqrt(s / std::max<size_t>(1, std::min(b, v.size()) - a)); };
+        EffectParams p; p.ampPct = 100.0; p.freqHz = 30.0; p.jitter = 0.0;
+        EngineParams e; e.inertia = 0.0; e.liftoff = 0.0; e.cylinders = 4.0; e.litres = 2.0; e.maxRpm = 7000.0;
+        const double perRev = 2.0;   // 4-stroke four: firings per rev
+
+        // Start: 1.5 s on the starter at 250 rpm (slow lumps, no combustion),
+        // then the catch at 1200 rpm, then idle. Running state and one catch.
+        {
+            EngineModel m; uint64_t rng = 5; std::vector<double> th, rk;
+            for (int i = 0; i < 6000; ++i)
+            {
+                const double t = i * DT;
+                const double rpm = t < 1.5 ? 250.0 : (t < 1.8 ? 1200.0 : 850.0);
+                m.drive(rpm / 60.0 * perRev, 0.0, false);
+                const EngineOut eo = m.step(DT, p, e, 1.0, rng);
+                th.push_back(eo.thumps); rk.push_back(eo.rock);
+                if (i == 2000) CHECK(!m.running(), "engine: cranking at 250 rpm is not running yet");
+            }
+            CHECK(rms(th, 400, 2800) > 1.0, "engine: cranking produces compression lumps");
+            int lumps = 0; for (size_t i = 401; i < 2800; ++i) if (std::fabs(th[i]) > 1e-9 && std::fabs(th[i-1]) <= 1e-9) ++lumps;
+            // 250 rpm x 2 firings/rev = 8.3 lumps/s over 1.2 s = ~10, each the
+            // 33 ms thump apart, so they read as separate events.
+            CHECK(lumps >= 7 && lumps <= 13, "engine: cranking lumps come at the compression rate (~8 per second)");
+            CHECK(m.running() && m.catchCount() == 1, "engine: the engine catches once as the revs rise through 500");
+            CHECK(rms(th, 3000, 3200) > rms(th, 1000, 1200) * 1.5, "engine: the catch is a heavier lurch than a cranking lump");
+        }
+
+        // Stall: running at idle, the revs collapse over 1 s to zero. The
+        // thumps get heavier as it dies, one last kick lands at the stop,
+        // and the model reads stopped; a restart later catches again.
+        {
+            EngineModel m; uint64_t rng = 9; std::vector<double> th;
+            auto at = [&](double rpm, int cycles) { for (int c = 0; c < cycles; ++c) { m.drive(rpm / 60.0 * perRev, 0.0, false); th.push_back(m.step(DT, p, e, 1.0, rng).thumps); } };
+            at(250.0, 400); at(1200.0, 400); at(850.0, 1600);                   // crank, catch, idle
+            size_t stopAt = 0;
+            for (int i = 0; i < 2000; ++i)                                       // dying over 1 s
+            {
+                at(850.0 * (1.0 - i / 2000.0), 1);
+                if (!stopAt && m.stallCount() == 1) stopAt = th.size() - 1;
+            }
+            // Down to 250 rpm it is dying (heavier than idle); the stop (and
+            // the kick) land when the revs fall through 250.
+            auto peak = [&](size_t a, size_t b) { double m2 = 0.0; for (size_t i = a; i < b && i < th.size(); ++i) m2 = std::max(m2, std::fabs(th[i])); return m2; };
+            CHECK(peak(3400, std::min<size_t>(3700, stopAt)) > peak(1400, 2400) * 1.3, "engine: a dying engine's shudders hit harder than its idle thumps");
+            CHECK(m.stallCount() == 1 && !m.running() && stopAt > 3600, "engine: it stops once as the revs fall through 250");
+            CHECK(rms(th, stopAt, stopAt + 150) > rms(th, stopAt + 400, stopAt + 600) + 1.0, "engine: the stall kick lands at the stop, then silence");
+            at(0.0, 400); at(250.0, 600); at(1000.0, 400);
+            CHECK(m.catchCount() == 2 && m.running(), "engine: a restart catches again");
+            // An engine already running when the stream begins just runs:
+            // no catch lurch out of nowhere.
+            EngineModel j; uint64_t rj = 2; std::vector<double> tj;
+            for (int i = 0; i < 400; ++i) { j.drive(3000.0 / 60.0 * perRev, 0.3, false); tj.push_back(j.step(DT, p, e, 1.0, rj).thumps); }
+            CHECK(j.running() && j.catchCount() == 0, "engine: joining a running engine is not a catch event");
+        }
+
+        // Pit limiter: cuts like the rev limiter but never teaches the redline.
+        {
+            EngineModel a, b; uint64_t rng = 11; std::vector<double> va, vb;
+            EngineParams le = e; le.maxRpm = 0.0;   // learning
+            for (int i = 0; i < 2000; ++i)
+            {
+                a.drive(1500.0 / 60.0 * perRev, 0.5, false, -1.0, true,  false);  // pit limiter at 1500
+                b.drive(1500.0 / 60.0 * perRev, 0.5, false, -1.0, false, false);  // plain 1500
+                va.push_back(a.step(DT, p, le, 1.0, rng).thumps);
+                vb.push_back(b.step(DT, p, le, 1.0, rng).thumps);
+            }
+            int holes = 0; bool inHole = false;
+            for (size_t i = 400; i < va.size(); ++i) { const bool z = std::fabs(va[i]) <= 1e-9; if (z && !inHole) ++holes; inHole = z; }
+            CHECK(holes >= 8, "engine: the pit limiter cuts firings in bursts");
+            approx(a.learnedMaxRpm(), b.learnedMaxRpm(), 1e-9, "engine: the pit limiter teaches nothing about the redline");
+            CHECK(a.learnedMaxRpm() >= 7000.0 - 1e-9, "engine: the learned redline stays at its seed under a pit limiter");
+        }
+
+        // Overrun: throttle shut at 4000 rpm, in gear and rolling is heavier
+        // than the same in neutral (the wheels pump the engine).
+        {
+            auto overrun = [&](bool inGear) {
+                EngineModel m; uint64_t rng = 13; std::vector<double> th;
+                for (int i = 0; i < 3000; ++i) { m.drive(4000.0 / 60.0 * perRev, 0.0, false, -1.0, false, inGear); th.push_back(m.step(DT, p, e, 1.0, rng).thumps); }
+                return rms(th, 1000, 3000); };
+            const double gear = overrun(true), neutral = overrun(false);
+            CHECK(gear > neutral * 1.3 && neutral > 0.0, "engine: overrun in gear is distinctly heavier than a neutral coast-down");
+        }
     }
 
     // ================= engine buzz band vs loop rate =================
