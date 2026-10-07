@@ -292,7 +292,7 @@ public:
         for (Fx& f : m_fx) { f.targetLevel = 0.0; f.level = 0.0; f.osc.reset(); }
         for (double& t : m_eng.pulseT) t = 1e9;
         m_eng.firePhase = 0.0; m_eng.crankPhase = 0.0; m_eng.rockPhase = 0.0;
-        m_eng.cutPhase = 0.0; m_eng.buzzPhase = 0.0; m_eng.beatPhase = 0.0; m_eng.revScale = 1.0;
+        m_eng.cutPhase = 0.0; m_eng.wasCut = false; m_eng.buzzPhase = 0.0; m_eng.beatPhase = 0.0; m_eng.revScale = 1.0;
         for (double& o : m_overlay) o = 0.0;
     }
 
@@ -346,6 +346,7 @@ private:
         double revScale   = 1.0;     // this revolution's unevenness
         double cutPhase   = 0.0;     // limiter gate 0..1
         double cutRate    = 12.0;    // this cut cycle's rate (jittered per cycle)
+        bool   wasCut     = false;   // previous cycle inside a cut (return-hit edge)
         double buzzPhase  = 0.0;     // rpm-following vibration carrier 0..1
         double beatPhase  = 0.0;     // rotary idle beat 0..1
         double learnedMax = 7000.0;  // redline learned from the stream (peak hold; limiter hit snaps it)
@@ -435,6 +436,12 @@ private:
             cut = (E.cutPhase < 0.5);
         }
         else { E.cutPhase = 0.0; E.cutRate = std::max(4.0, std::min(30.0, p.limHz > 0.0 ? p.limHz : 12.0)); }
+        // The return from a cut is its own event: the engine catches again
+        // with a lurch. It gets a hit at the thump carrier whatever the rpm
+        // (the per-firing thumps have faded out up here), scaled by limHit,
+        // so "limiter x" does what it says where the limiter actually lives.
+        const bool returnHit = E.wasCut && !cut;
+        E.wasCut = cut;
 
         if (E.fireHz >= 0.5)
         {
@@ -474,6 +481,16 @@ private:
                     E.pulseT[slot]   = 0.0;
                 }
             }
+        }
+
+        if (returnHit && p.thump > 0.0)
+        {
+            int slot = 0;
+            for (int s = 1; s < ENGINE_PULSES; ++s)
+                if (E.pulseT[s] > E.pulseT[slot]) slot = s;
+            E.pulseAmp[slot] = p.ampPct * f.level * 0.6 * p.thump * heavy
+                             * std::max(0.0, std::min(2.0, p.limHit));
+            E.pulseT[slot]   = 0.0;
         }
 
         // Sum the thumps in flight (they may overlap at high firing rates).
@@ -528,14 +545,16 @@ private:
             const double rise = std::max(0.0, std::min(1.0, (x - 0.15) / 0.40));
             if (rise > 0.0 && !cut)
             {
-                const double lvl = rise * (0.75 + 0.25 * x) * (0.5 + 0.5 * E.load);
+                const double lvl = rise * (0.75 + 0.25 * x) * (0.5 + 0.5 * E.load)
+                                 * (E.limiter ? std::max(0.0, std::min(2.0, p.limHit)) : 1.0);
                 v += p.ampPct * f.level * 0.5 * p.buzz * (0.6 + 0.4 * heavy) * lvl
                    * std::sin(2.0 * wavesynth::kPi * E.buzzPhase);
             }
         }
         // The engine never exceeds its own amplitude; the axis clamp is the
         // guard rail above this, not the shaping.
-        const double cap = p.ampPct * f.level;
+        // On the limiter the hit may run up to limHit x, so the ceiling follows.
+        const double cap = p.ampPct * f.level * (E.limiter ? std::max(1.0, std::min(2.0, p.limHit)) : 1.0);
         return std::max(-cap, std::min(cap, v));
     }
     EffectParams m_params[EVENT_TYPE_COUNT];

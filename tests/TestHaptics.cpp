@@ -373,6 +373,17 @@ int main()
             };
             const auto base = limRun(1.0, 12.0, 0.0), hard = limRun(1.5, 12.0, 0.0), slow = limRun(1.0, 6.0, 0.0);
             CHECK(std::get<0>(hard) > std::get<0>(base) * 1.3, "limiter x scales the return hit");
+            // Where the limiter actually lives: redline rpm on a V8 (467
+            // firings/s, per-firing thumps faded out). limiter x must still
+            // scale what is felt there - the buzz and the return hit.
+            auto redline = [&](double hit) {
+                EffectParams q = p; q.limHit = hit; q.maxRpm = 7000;
+                Layer L; L.configureFx(FxType::RpmVibe, q);
+                double e = 0.0;
+                for (int i = 0; i < 4000; ++i) { L.driveEngine(1.0, 466.7, 1.0, true); L.step(DT); e += std::fabs(L.overlayFor(6)); }
+                return e;
+            };
+            CHECK(redline(1.5) > redline(1.0) * 1.3, "limiter x scales the bounce at redline rpm too");
             CHECK(std::get<1>(base) >= 18 && std::get<1>(base) <= 26, "limiter hz 12: ~24 cuts in 2 s");
             CHECK(std::get<1>(slow) >= 8 && std::get<1>(slow) <= 13,  "limiter hz 6: ~12 cuts in 2 s");
             const auto rough = limRun(1.0, 12.0, 1.0);
@@ -435,22 +446,23 @@ int main()
         const Run coast = run(53.3, 0.0, false);
         CHECK(coast.peak > 1.0 && coast.peak < idle.peak * 0.75, "coasting hits softer than full load");
 
-        // Limiter: whole bursts are cut (~12 Hz gate, half off), so energy
-        // drops AND the output has real holes of >= 30 ms, which is the
-        // bounce. Random single misfires never produce holes that long.
-        auto energy = [&](bool lim){
+        // Limiter: whole bursts are cut (~12 Hz gate, half off) and the engine
+        // catches again with a lurch on each return. So the output has real
+        // holes of >= 25 ms AND hits at least as hard as off the limiter.
+        // Random single misfires never produce holes that long.
+        auto limShape = [&](bool lim){
             Layer Le; Le.configureFx(FxType::RpmVibe, p);
-            double e = 0.0; int g = 0, maxGap = 0;
+            double pk = 0.0; int g = 0, maxGap = 0;
             for (int i = 0; i < 4000; ++i)
             { Le.driveEngine(1.0, 60.0, 1.0, lim); Le.step(DT);
-              const double a = std::fabs(Le.overlayFor(6)); e += a;
+              const double a = std::fabs(Le.overlayFor(6)); pk = std::max(pk, a);
               if (a < 0.01) { ++g; maxGap = std::max(maxGap, g); } else g = 0; }
-            return std::make_pair(e, maxGap);
+            return std::make_pair(pk, maxGap);
         };
-        const auto on = energy(true), off = energy(false);
-        CHECK(on.first < off.first * 0.8, "limiter cuts firings: energy falls");
-        CHECK(on.second >= 50,            "limiter leaves holes of >= 25 ms (the bounce)");
-        CHECK(off.second < 50,            "no such holes without the limiter");
+        const auto on = limShape(true), off = limShape(false);
+        CHECK(on.second >= 50,             "limiter leaves holes of >= 25 ms (the bounce)");
+        CHECK(off.second < 50,             "no such holes without the limiter");
+        CHECK(on.first >= off.first * 0.9, "the return lurch hits at least as hard as normal running");
 
         // No firing rate = silence even when driven.
         Layer Lz; Lz.configureFx(FxType::RpmVibe, p);
