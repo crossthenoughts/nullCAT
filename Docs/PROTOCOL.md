@@ -62,7 +62,11 @@ send are simply absent (their effects stay inert).
 
 Channel staleness fail-safe: if the channel stream (NULLCATX or NULLCATY)
 stops for 500 ms, all channel-driven behaviour (shift blocking, grind,
-revmatch, haptic effects) goes inert until it returns.
+revmatch, haptic effects) goes inert until it returns. The same applies
+when packets keep arriving but no numeric value changes for 2 s (a
+paused game, a sender repeating its last frame): the stream is treated
+as frozen until a value changes. Senders should simply stop sending
+while the game is paused; they need not send anything special.
 
 ## Line type 3: named channels
 

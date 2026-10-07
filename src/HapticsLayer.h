@@ -81,6 +81,7 @@ public:
         if (!anyRoute) return;                  // fully unrouted: never activate
         e->active = true;
         ++m_fired;
+        ++m_firedBy[static_cast<int>(t)];
     }
 
     // Advance every active transient and continuous effect by one cycle
@@ -401,6 +402,7 @@ public:
 
     // Total transients fired since boot (status/UI activity dot).
     uint64_t fireCount() const { return m_fired; }
+    uint64_t fireCount(EventType t) const { return m_firedBy[static_cast<int>(t)]; }
 
 private:
     struct Event
@@ -460,6 +462,7 @@ private:
     double       m_masterGain = 1.0;
     bool         m_muted      = false;
     uint64_t     m_fired = 0;
+    uint64_t     m_firedBy[EVENT_TYPE_COUNT] = {};
 };
 
 } // namespace haptics

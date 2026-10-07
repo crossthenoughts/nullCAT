@@ -19,6 +19,8 @@
 #include <cstring>
 #include <cmath>
 #include <string>
+#include <thread>
+#include <chrono>
 
 static int g_fail = 0, g_pass = 0;
 static void check(bool ok, const char* name)
@@ -179,6 +181,48 @@ int main()
         for (int i = 0; i < 100; ++i) longCar += 'c';
         d = parse(longCar.c_str(), &ok);
         check(ok && std::strlen(d.car) == NCY_STR_LEN - 1, "an over-long name is truncated to the store, never overrun");
+    }
+
+    // ---- frozen-stream guard (ingest path, no socket) ----
+    // Packets that keep arriving with every value unchanged for 2 s are a
+    // paused sim or a sender replaying its last frame: the stream reads as
+    // NOT fresh (effects release) and as frozen, until a value changes.
+    // An identity-only NULLCATY line is neither a change nor a repeat; a
+    // NULLCATY value merged over the X stream counts like any other.
+    {
+        TelemetryInput ti;
+        auto feed = [&](const char* line) { TelemetryData p; TelemetryInput::parsePacket(line, (int)std::strlen(line), p); ti.ingest(p); };
+        auto wait = [](int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); };
+
+        feed("NULLCATX,5000,100,3");
+        TelemetryData s = ti.getLatestData();
+        check(s.ncxFresh && !s.ncxFrozen, "fresh on the first packet");
+
+        // Repeats for ~2.3 s (well past NCX_FROZEN_MS), keeping the packet
+        // cadence under the 500 ms window.
+        for (int i = 0; i < 12; ++i) { wait(200); feed("NULLCATX,5000,100,3"); }
+        s = ti.getLatestData();
+        check(!s.ncxFresh && s.ncxFrozen, "identical packets for 2 s: not fresh, frozen");
+        check(s.numNcx == 3 && s.ncx[0] == 5000.0, "the values are still there, just not trusted");
+
+        feed("NULLCATX,5001,100,3");
+        s = ti.getLatestData();
+        check(s.ncxFresh && !s.ncxFrozen, "one changed value thaws the stream at once");
+
+        // Identity-only lines in between do not count as changes.
+        for (int i = 0; i < 12; ++i) { wait(200); feed("NULLCATX,5001,100,3"); feed("NULLCATY,game=X,car=Y"); }
+        s = ti.getLatestData();
+        check(!s.ncxFresh && s.ncxFrozen, "identity-only lines do not keep a frozen stream fresh");
+
+        // A changed NULLCATY value does.
+        feed("NULLCATY,rpm=5002");
+        s = ti.getLatestData();
+        check(s.ncxFresh && !s.ncxFrozen, "a changed named value thaws the stream");
+
+        // Stopped: no packet for 500 ms is neither fresh nor frozen.
+        wait(600);
+        s = ti.getLatestData();
+        check(!s.ncxFresh && !s.ncxFrozen, "no packets for 500 ms: stopped, not frozen");
     }
 
     std::printf("\n%d passed, %d failed\n", g_pass, g_fail);

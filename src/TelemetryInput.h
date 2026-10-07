@@ -25,6 +25,11 @@ enum class TelemetryPacketType
 
 static constexpr int MAX_NCX_CHANNELS = 48;
 static constexpr int NCY_STR_LEN      = 48;   // game / car names, NUL-terminated
+// Frozen-stream guard: packets still arriving but no numeric value has
+// changed for this long = a paused sim or a sender replaying its last
+// frame; the stream is treated as not fresh (effects release) until a
+// value changes again.
+static constexpr int64_t NCX_FROZEN_MS = 2000;
 
 struct TelemetryData
 {
@@ -41,6 +46,7 @@ struct TelemetryData
     int             numNcx                   = 0;
     double          ncx[MAX_NCX_CHANNELS]    = {};
     bool            ncxFresh                 = false;
+    bool            ncxFrozen                = false;   // arriving but unchanged for NCX_FROZEN_MS
     // NULLCATY named values: per token, present + value. A parsed Ncy
     // packet carries only the keys it named; getLatestData() merges them
     // into the persistent per-token store (a 1 Hz identity line and a fast
@@ -134,6 +140,10 @@ public:
     // Parse one UDP line into a TelemetryData. Pure function of its inputs -     // public static so TestTelemetryParse can pin the wire-format semantics
     // (this runs on the RT thread at telemetry rate; no heap).
     static bool parsePacket(const char* buf, int len, TelemetryData& out);
+    // Store one parsed packet exactly as receive() would (no socket needed):
+    // motion packets into the motion snapshot, channel packets into the
+    // channel store with the frozen-stream bookkeeping. Public for tests.
+    bool ingest(const TelemetryData& parsed);
 
 private:
     static constexpr uintptr_t INVALID_SOCKET_VALUE = static_cast<uintptr_t>(~0);
@@ -160,6 +170,8 @@ private:
     int     m_ncxCount = 0;
     double  m_ncxVals[MAX_NCX_CHANNELS] = {};
     std::atomic<int64_t> m_lastNcxPacketMs{0};
+    std::atomic<int64_t> m_lastNcxChangeMs{0};   // last packet whose numbers differed
+    mutable std::atomic<int> m_ncxStreamState{0}; // 0 stopped, 1 live, 2 frozen (getLatestData, any thread)
     // Persistent NULLCATY store: each Y packet merges the keys it names;
     // cleared when the channel stream has gone stale (so a returning
     // sender never resurrects old values).

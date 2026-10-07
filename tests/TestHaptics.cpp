@@ -624,6 +624,27 @@ int main()
         CHECK(zk < 1e-9 && Z.fxLevel(static_cast<int>(FxType::Skid)) == 0.0, "slip: amp 0 plays nothing and reports level 0");
     }
 
+    // ================= engine buzz band vs loop rate =================
+    {
+        // The automatic buzz order aims the redline at 120 Hz on a 2 kHz
+        // loop but at loopHz/8 on slower loops (62.5 Hz at 500 Hz), so a
+        // PC build never synthesises a carrier with 4 samples per cycle.
+        auto buzzAtRedline = [](double dt) {
+            haptics::EngineModel m; uint64_t rng = 1;
+            EffectParams p; p.ampPct = 50.0; p.freqHz = 30.0; p.jitter = 0.0;
+            EngineParams e; e.cylinders = 8.0; e.litres = 5.0; e.maxRpm = 7000.0;
+            double hz = 0.0;
+            for (int i = 0; i < 400; ++i)
+            {
+                m.drive(7000.0 / 60.0 * 4.0, 1.0, false);     // 7000 rpm, V8: 466.7 firings/s
+                hz = m.step(dt, p, e, 1.0, rng).buzzHz;
+            }
+            return hz;
+        };
+        approx(buzzAtRedline(0.0005), 120.0, 1.0, "engine: auto buzz band tops at 120 Hz on a 2 kHz loop");
+        approx(buzzAtRedline(0.002),  62.5,  1.0, "engine: auto buzz band tops at loopHz/8 on a 500 Hz loop");
+    }
+
     // ================= per-corner road replay =================
     {
         using haptics::FxType; using haptics::Part; using haptics::RoadParams; using haptics::SinkKind;

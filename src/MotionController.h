@@ -113,6 +113,7 @@ struct MotionStatus
     // level per continuous effect, and which NCX tokens the wire is
     // actually delivering right now (the per-tile channel-health chips).
     uint64_t        hapticsFired                  = 0;
+    uint64_t        hapticsFiredBy[haptics::EVENT_TYPE_COUNT] = {};
     bool            hapticsMuted                  = false;
     double          hapticsFxLevel[haptics::FX_TYPE_COUNT] = {};
     bool            ncxHave[NcxValues::TokenCount]          = {};

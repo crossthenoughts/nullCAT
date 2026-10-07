@@ -336,3 +336,10 @@ body[data-view="setup"] .vw-op{ display:none !important; }
 @keyframes nflash{ 50%{ box-shadow:0 0 0 3px var(--warn); } }
 .hchan{ font-size:.56rem; letter-spacing:.06em; color:var(--ink-soft); margin-top:-3px; }
 .hchan.bad{ color:var(--danger); }
+/* Sim dot on each haptics tile: what the remembered per-sim record says
+   about this effect for the current game. */
+.hap-tile .dh .sdot{ width:8px; height:8px; border-radius:50%; margin-left:auto; background:var(--ink-soft); opacity:.55; }
+.hap-tile .dh .sdot.d1{ background:var(--warn); opacity:1; }
+.hap-tile .dh .sdot.d2{ background:var(--ok); opacity:1; }
+.hap-game{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.hap-game select{ max-width:160px; }

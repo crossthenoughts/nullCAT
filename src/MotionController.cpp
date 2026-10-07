@@ -699,6 +699,8 @@ void MotionController::publishStatus()
     m_statusSnapshot.gearRatiosDirty = m_ratioLearner.dirty();
 
     m_statusSnapshot.hapticsFired = m_haptics.fireCount();
+    for (int i = 0; i < haptics::EVENT_TYPE_COUNT; ++i)
+        m_statusSnapshot.hapticsFiredBy[i] = m_haptics.fireCount(static_cast<haptics::EventType>(i));
     m_statusSnapshot.hapticsMuted = m_haptics.muted();
     for (int i = 0; i < haptics::FX_TYPE_COUNT; ++i)
         m_statusSnapshot.hapticsFxLevel[i] = m_haptics.fxOutputLevel(i);   // felt, not driven

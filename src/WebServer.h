@@ -35,6 +35,7 @@
 #include "EtherCATMaster.h"
 #include "Config.h"
 #include "Logging.h"
+#include "EffectStatus.h"
 
 #include <string>
 #include <thread>
@@ -196,6 +197,13 @@ private:
 
     std::thread       m_thread;
     std::atomic<bool> m_running{false};
+
+    // Sticky per-sim effect status (effectstatus.json): sampled from the
+    // published status at a few Hz on its own thread (no browser needed),
+    // saved when dirty every few seconds and at stop().
+    EffectStatus      m_effectStatus;
+    std::thread       m_statusThread;
+    void sampleEffectStatus();
 
     // Set inside the server thread once svr is constructed; used by stop()
     // to call svr.stop() and unblock svr.listen().

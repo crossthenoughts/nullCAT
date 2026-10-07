@@ -136,6 +136,18 @@ and frequency you set.
 **Master** scales every effect at once; **Mute** silences the whole
 layer without changing any settings (press again to bring it back).
 
+Each tile also carries a small **sim dot** on the right of its name.
+nullCAT remembers, for every game that has sent channels, whether each
+effect's channels have ever arrived and whether the effect has ever
+played: grey means that game has never sent what the effect needs,
+amber means the channels arrive but the effect has never played
+(amplitude 0, no route, or something the game never triggers), green
+means it has played. The memory survives restarts, so a sim's coverage
+is known without a lap in it. The Master tile names the game the dots
+are for, lets you look at another remembered game, and can forget one.
+A sender that does not name its game (see PROTOCOL.md, `NULLCATY`) is
+remembered as an unnamed sender.
+
 ### Routing to a position axis
 
 A torque axis takes a plain gain (x). A position axis takes its gain in
@@ -261,7 +273,8 @@ Describe the engine and the effect follows it:
   off: the block rocking at idle, the individual firings, and the
   vibration that rises in pitch and strength up the rev range.
 - **buzz order**: 0 picks the pitch automatically so the redline sits
-  at the top of the range; set it by hand to move it.
+  at the top of the range (120 Hz on a Pi, lower on a slower PC loop so
+  the buzz stays smooth); set it by hand to move it.
 - **thump hz**: the weight of each firing (lower = heavier).
 - **lope**: idle unevenness; 0.15 to 0.3 for a big-cam V8.
 
@@ -282,6 +295,11 @@ The separate **Limiter** tile adds an extra hammer on top; keep it at
 around 12 Hz so it lands in time with the cuts.
 
 If the channel stream stops for half a second, every effect fades out.
+The same happens when packets keep arriving but nothing in them changes
+for two seconds (a paused sim, or a sender repeating its last frame):
+the Devices section then says *frozen* instead of *receiving*, and the
+log notes each time the stream starts, stops, freezes or resumes. The
+SimHub plugin also goes quiet by itself while the game is paused.
 
 ## Troubleshooting
 

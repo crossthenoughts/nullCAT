@@ -134,7 +134,7 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       { "gear", nullptr }, { 0.0, 60.0, 25.0, 0.0 }, kTransientParams, 3,
       "A thunk on every gear change, ringing through the chassis. Needs the gear channel.", nullptr, {} },
     { Effect::Engine,      "rpmVibe",     "Engine",       Kind::Engine, EventType::COUNT, FxType::RpmVibe,
-      { "rpm", "throttlePct", "limiter" }, { 0.0, 30.0, 0.0, 0.15 }, kEngineParams, 14,
+      { "rpm", "~throttlePct", "~limiter" }, { 0.0, 30.0, 0.0, 0.15 }, kEngineParams, 14,
       "Engine: the block rocking at crank rate at idle (lumpy, fades out by ~2500 rpm) with each firing as a "
       "low thump on top. Above idle the rock hands over to the buzz: the firing-order vibration with pitch "
       "rising with rpm, kept at an order the actuator can carry; level grows with rpm and throttle up to the "

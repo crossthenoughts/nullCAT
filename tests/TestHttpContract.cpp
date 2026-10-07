@@ -195,6 +195,15 @@ int main()
     check(has(post("/api/haptics/mute", "{\"on\":true}"), "\"ok\":true")
           && has(post("/api/haptics/mute", "{\"on\":false}"), "\"ok\":true"),
           "POST /api/haptics/mute on/off accepted");
+    // Sticky per-sim effect record: readable empty, clearable, and the
+    // status carries the dots for the current game in registry order.
+    check(has(get("/api/haptics/status"), "\"games\":[") && has(get("/api/haptics/status"), "\"effects\":{"),
+          "GET /api/haptics/status returns the games list and the per-effect record");
+    check(has(post("/api/haptics/status/clear", "{\"all\":true}"), "\"ok\":true"),
+          "POST /api/haptics/status/clear accepted");
+    check(has(get("/api/status"), "\"hapDots\":[") && has(get("/api/status"), "\"hapGame\":")
+          && has(get("/api/status"), "\"ncxFrozen\":false"),
+          "GET /api/status carries hapDots, hapGame and ncxFrozen");
 
     // ---- init (sim) -> masterOp ----
     check(has(post("/api/init"), "\"ok\":true"), "POST /api/init accepted");

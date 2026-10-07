@@ -112,6 +112,7 @@ set(SOURCES
     src/DriveFaultMonitor.cpp
     src/Config.cpp
     src/CarCache.cpp
+    src/EffectStatus.cpp
     src/Logging.cpp
     src/WebServer.cpp
     src/ForegroundKeeper.cpp
@@ -349,6 +350,7 @@ set(TEST_CORE_SOURCES
     src/CommissioningMode.cpp
     src/Config.cpp
     src/CarCache.cpp
+    src/EffectStatus.cpp
     src/Logging.cpp
     src/DriveFaultMonitor.cpp
 )

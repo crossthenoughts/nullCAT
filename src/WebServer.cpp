@@ -404,8 +404,24 @@ std::string WebServer::buildStatusJson() const
         if (m_telemetry)
         {
             const TelemetryData td = m_telemetry->getLatestData();
-            s += "\"simGame\":" + jsonStr(td.ncxFresh ? td.game : "") + ",";
-            s += "\"simCar\":"  + jsonStr(td.ncxFresh ? td.car  : "") + ",";
+            s += "\"simGame\":" + jsonStr((td.ncxFresh || td.ncxFrozen) ? td.game : "") + ",";
+            s += "\"simCar\":"  + jsonStr((td.ncxFresh || td.ncxFrozen) ? td.car  : "") + ",";
+            // Packets arriving but every value unchanged for 2 s (paused sim):
+            // effects are released; the header shows it instead of "receiving".
+            s += "\"ncxFrozen\":" + jsonBool(td.ncxFrozen) + ",";
+        }
+        // Sticky per-sim effect dots for the current game, registry order:
+        // 0 never delivered, 1 delivered but never produced, 2 has produced.
+        {
+            const std::string game = m_effectStatus.currentGame();
+            const EffectStatus::Records rec = m_effectStatus.records(game);
+            s += "\"hapGame\":" + jsonStr(game) + ",\"hapDots\":[";
+            for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+            {
+                const EffectRecord& r = rec[static_cast<size_t>(i)];
+                s += std::string(i ? "," : "") + (r.produced ? "2" : (r.delivered ? "1" : "0"));
+            }
+            s += "],";
         }
     }
     {
@@ -731,6 +747,25 @@ bool WebServer::start()
     });
 
     m_running.store(true);
+
+    // Effect status sampler: a few Hz, below-normal priority, independent
+    // of any browser. Loads the remembered file first.
+    if (!m_configPath.empty()) m_effectStatus.load(m_configPath);
+    m_statusThread = std::thread([this]()
+    {
+#ifdef _WIN32
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+#endif
+        int ticks = 0;
+        while (m_running.load())
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+            sampleEffectStatus();
+            if (++ticks % 40 == 0 && !m_configPath.empty() && m_effectStatus.dirty())   // every 10 s
+                m_effectStatus.save(m_configPath);
+        }
+    });
+
     m_thread = std::thread([this]()
     {
         // The process runs at HIGH_PRIORITY_CLASS for the RT thread's benefit.
@@ -1435,6 +1470,42 @@ bool WebServer::start()
             res.set_content(QJsonDocument(root).toJson(QJsonDocument::Compact).toStdString(), "application/json");
         });
 
+        // GET /api/haptics/status?game=<name> - the sticky per-sim record:
+        // every game seen (most recent first), the one asked for (default
+        // the current one) with per-effect delivered / produced / lastSeen.
+        svr.Get("/api/haptics/status", [this](const httplib::Request& req, httplib::Response& res)
+        {
+            const std::string game = req.has_param("game") ? req.get_param_value("game") : m_effectStatus.currentGame();
+            const EffectStatus::Records rec = m_effectStatus.records(game);
+            QJsonArray games;
+            for (const std::string& g : m_effectStatus.games()) games.append(QString::fromStdString(g));
+            QJsonObject effects;
+            for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+            {
+                const EffectRecord& r = rec[static_cast<size_t>(i)];
+                QJsonObject e;
+                e["delivered"] = r.delivered; e["produced"] = r.produced;
+                e["lastSeen"]  = static_cast<double>(r.lastSeenMs);
+                effects[haptics::effectInfo(i).key] = e;
+            }
+            QJsonObject root;
+            root["games"] = games; root["game"] = QString::fromStdString(game);
+            root["current"] = QString::fromStdString(m_effectStatus.currentGame());
+            root["effects"] = effects;
+            res.set_content(QJsonDocument(root).toJson(QJsonDocument::Compact).toStdString(), "application/json");
+        });
+        // POST /api/haptics/status/clear - body {"game":"<name>"} forgets one
+        // game's record; {"all":true} forgets everything.
+        postCmd("/api/haptics/status/clear", [this, okResp](const httplib::Request& req, httplib::Response& res)
+        {
+            const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(req.body));
+            const QJsonObject o = doc.isObject() ? doc.object() : QJsonObject();
+            if (o.value("all").toBool(false)) m_effectStatus.clearAll();
+            else m_effectStatus.clear(o.value("game").toString().toStdString());
+            if (!m_configPath.empty()) m_effectStatus.save(m_configPath);
+            okResp(res);
+        });
+
         // Haptics master mute (runtime only, not persisted): body {"on":true|false}.
         postCmd("/api/haptics/mute", [this, okResp, errResp](const httplib::Request& req, httplib::Response& res)
         {
@@ -2034,9 +2105,28 @@ bool WebServer::start()
     return true;
 }
 
+// One sample of the published status into the sticky per-sim record.
+void WebServer::sampleEffectStatus()
+{
+    if (!m_motion) return;
+    const MotionStatus ms = m_motion->getMotionStatus();
+    bool live = false;
+    std::string game;
+    if (m_telemetry)
+    {
+        const TelemetryData td = m_telemetry->getLatestData();
+        live = td.ncxFresh;
+        game = td.game;
+    }
+    const int64_t nowMs = static_cast<int64_t>(std::time(nullptr)) * 1000;
+    m_effectStatus.observe(game, ms.ncxHave, ms.hapticsFxLevel, ms.hapticsFiredBy, live, nowMs);
+}
+
 void WebServer::stop()
 {
     m_running.store(false);
+    if (m_statusThread.joinable()) m_statusThread.join();
+    if (!m_configPath.empty() && m_effectStatus.dirty()) m_effectStatus.save(m_configPath);
     // Signal svr.listen() to return - without this the server thread
     // blocks forever and join() hangs, causing a crash on app close.
     if (auto* svr = m_svr.load())

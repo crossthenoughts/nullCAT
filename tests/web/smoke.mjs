@@ -101,6 +101,11 @@ try {
     // referenced an undefined token table after the 0.9.7 refactor.
     ncxRows:      document.querySelectorAll('#ncxRows .frow').length,
     ncxTokenOpts: (document.querySelector('#ncxRows select') || { options: [] }).options.length,
+    // Sim dots: one per effect tile, all grey with no sim; the Master
+    // tile's game selector exists.
+    simDots:      document.querySelectorAll('#hapStrip .hap-tile [data-sdot]').length,
+    simDotsGrey:  document.querySelectorAll('#hapStrip .hap-tile [data-sdot].d0').length,
+    gameSel:      !!document.getElementById('hapGameSel'),
   }));
   // Open the Lateral slip tile's route drawer: a per-wheel effect lists a
   // part selector beside every axis gain.
@@ -131,6 +136,9 @@ try {
   if (nTokens < 34)             fails.push(`schema lists ${nTokens} channel tokens`);
   if (st.ncxRows !== nTokens)   fails.push(`bindings editor has ${st.ncxRows} rows, expected one per token (${nTokens})`);
   if (st.ncxTokenOpts !== nTokens) fails.push(`bindings token list has ${st.ncxTokenOpts} options, expected ${nTokens}`);
+  if (st.simDots !== nEffects)  fails.push(`${st.simDots} sim dots, expected one per effect (${nEffects})`);
+  if (st.simDotsGrey !== nEffects) fails.push(`${st.simDotsGrey} grey sim dots with no sim, expected ${nEffects}`);
+  if (!st.gameSel)              fails.push('no game selector on the Master tile');
   if (!drawer.chip)             fails.push('no route chip on the Lateral slip tile');
   else {
     if (drawer.hidden)          fails.push('route drawer did not open');

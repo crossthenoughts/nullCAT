@@ -108,6 +108,10 @@ namespace NullcatChannelExporter
         public void DataUpdate(PluginManager pluginManager, ref GameData data)
         {
             if (_udp == null || !data.GameRunning || data.NewData == null) return;
+            // A paused game keeps reporting its last frame; sending it would
+            // hold an rpm vibration on through the pause menu. Stay silent
+            // and nullCAT's staleness fail-safe releases every effect.
+            try { if (data.GamePaused) return; } catch { }
             var d = data.NewData;
 
             // Gear arrives as a string ("N", "R", "1".."8"); the wire wants a

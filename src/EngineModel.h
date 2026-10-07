@@ -71,7 +71,8 @@ namespace engine_k {
     constexpr double kCoastHit            = 0.35;   // thump strength at closed throttle
     constexpr double kResolveFullOverlap  = 4.0;    // thumps fully felt up to this many per carrier cycle
     constexpr double kResolveFadeSpan     = 8.0;    // ...and gone this many beyond it
-    constexpr double kBuzzBandTopHz       = 120.0;  // auto order aims the redline here
+    constexpr double kBuzzBandTopHz       = 120.0;  // auto order aims the redline here (at 2 kHz and up)
+    constexpr double kBuzzSamplesPerCycle = 8.0;    // the band top never asks for fewer samples per cycle than this
     constexpr double kBuzzCarrierMinHz    = 8.0, kBuzzCarrierMaxHz = 150.0;
     constexpr double kBuzzOrderMin        = 0.25, kBuzzOrderMax = 4.0;
     constexpr double kBuzzInAt            = 0.15;   // fraction of redline the buzz comes in
@@ -236,8 +237,12 @@ public:
         // Buzz: pitch proportional to rpm at an order the actuator can carry.
         if (m_fireHz >= 0.5 && e.buzz > 0.0)
         {
+            // The auto band top follows the control rate: 120 Hz on a 2 kHz
+            // loop, 62 Hz on a 500 Hz PC loop (4 samples per cycle at 120 Hz
+            // was a coarse, buzzy stair). Set order by hand to override.
+            const double bandTop = std::min(kBuzzBandTopHz, (1.0 / std::max(1e-4, dtSec)) / kBuzzSamplesPerCycle);
             const double order   = (e.order > 0.0) ? e.order
-                                 : std::max(kBuzzOrderMin, std::min(kBuzzOrderMax, kBuzzBandTopHz / (maxRpm / 60.0)));
+                                 : std::max(kBuzzOrderMin, std::min(kBuzzOrderMax, bandTop / (maxRpm / 60.0)));
             const double carrier = std::max(kBuzzCarrierMinHz, std::min(kBuzzCarrierMaxHz, crankHz * order));
             m_buzzPhase = wrap(m_buzzPhase + carrier * dtSec);
             out.buzzHz = carrier;

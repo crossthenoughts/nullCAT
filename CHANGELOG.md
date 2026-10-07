@@ -26,6 +26,19 @@ Development branch. Nothing here is in a release yet.
   the same part selector so a four-post rig feels a kerb under the wheel
   that hit it. `full mm` and `cut hz` tune it; the texture remains the
   fallback for sims without per-corner data.
+- Sim dots: every haptics tile shows whether the current game has ever
+  sent that effect's channels (grey no, amber yes but it never played,
+  green it has played), remembered per game in `effectstatus.json` next
+  to the rig config so a sim's coverage is known without a lap. The
+  Master tile names the game, can show another remembered one, and can
+  forget it (`GET /api/haptics/status`, `POST /api/haptics/status/clear`).
+- Stuck-effect guards: a channel stream whose values stop changing for
+  two seconds while packets keep arriving (a paused sim, a sender
+  repeating its last frame) now releases every effect, the Devices
+  section shows "frozen", and the log records each start, stop, freeze
+  and resume of the stream. The SimHub plugin stays silent while the
+  game is paused. (An rpm vibration once stayed on after the sim had
+  closed because the sender kept repeating its last frame.)
 - Protocol 1.3: the channel wire takes 48 slots, with per-wheel tokens
   for slip angle, slip ratio, wheel speed, load and suspension velocity
   plus maxRpm; and a new named line, `NULLCATY,key=value,...`, so any
@@ -49,6 +62,11 @@ Development branch. Nothing here is in a release yet.
   axis limits. PP-mode axes take no haptics.
 
 ### Changed
+- Engine buzz on slow loops: the automatic buzz order aims the redline at
+  120 Hz on the Pi's 2 kHz loop but at an eighth of the loop rate on
+  slower ones (62 Hz on a 500 Hz PC loop), so the carrier always has at
+  least 8 samples per cycle instead of a coarse 4. Set `buzz order` by
+  hand to override, as before.
 - The sim channel token list is served to the browser with the haptics
   schema (the Sim channels editor and the tile channel ticks read it from
   there; a hand copy in the page had been dropped during the refactor

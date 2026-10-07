@@ -265,7 +265,14 @@ bool TelemetryInput::receive()
         return false;
     }
     m_parseFailCount = 0;
+    return ingest(parsed);
+}
 
+// Everything after the parse: store the packet by stream. Public so a
+// test can feed parsed packets without a socket (the frozen-stream guard
+// is pinned that way).
+bool TelemetryInput::ingest(const TelemetryData& parsed)
+{
     // NULLCATX channels: independent stream at its own rate. Stored beside
     // the motion snapshot, never over it -- and it must not touch the motion
     // freshness/rate machinery (m_hasData, m_lastMotionPacketMs, the rate
@@ -286,18 +293,36 @@ bool TelemetryInput::receive()
                 for (bool& h : m_ncyHave) h = false;
                 m_ncyGame[0] = m_ncyCar[0] = '\0';
             }
+            // Frozen-stream guard: a packet whose numeric payload is
+            // bit-identical to the stored values is a repeat (a paused sim,
+            // a sender replaying its last frame). Only a CHANGE refreshes
+            // m_lastNcxChangeMs; getLatestData() treats a stream with no
+            // change for NCX_FROZEN_MS as not fresh, so a stuck rpm can
+            // never hold an effect on. An identity-only line (game/car, no
+            // numbers) neither counts as a change nor as a repeat.
+            bool changed = false, numeric = false;
             if (parsed.packetType == TelemetryPacketType::Ncx)
             {
+                numeric = parsed.numNcx > 0;
+                changed = parsed.numNcx != m_ncxCount;
+                for (int i = 0; i < parsed.numNcx && !changed; ++i) changed = parsed.ncx[i] != m_ncxVals[i];
                 m_ncxCount = parsed.numNcx;
                 for (int i = 0; i < parsed.numNcx; ++i) m_ncxVals[i] = parsed.ncx[i];
             }
             else
             {
                 for (int t = 0; t < NcxTok::TokenCount; ++t)
-                    if (parsed.ncyHave[t]) { m_ncyHave[t] = true; m_ncyVals[t] = parsed.ncy[t]; }
+                    if (parsed.ncyHave[t])
+                    {
+                        numeric = true;
+                        if (!m_ncyHave[t] || m_ncyVals[t] != parsed.ncy[t]) changed = true;
+                        m_ncyHave[t] = true; m_ncyVals[t] = parsed.ncy[t];
+                    }
                 if (parsed.game[0]) std::memcpy(m_ncyGame, parsed.game, NCY_STR_LEN);
                 if (parsed.car[0])  std::memcpy(m_ncyCar,  parsed.car,  NCY_STR_LEN);
             }
+            if (changed || last == 0 || (nowMs - last) >= 500) m_lastNcxChangeMs.store(static_cast<int64_t>(nowMs));
+            else if (!numeric && m_lastNcxChangeMs.load() == 0) m_lastNcxChangeMs.store(static_cast<int64_t>(nowMs));
         }
         m_lastNcxPacketMs.store(static_cast<int64_t>(nowMs));
         return true;
@@ -425,6 +450,8 @@ TelemetryData TelemetryInput::getLatestData() const
         std::chrono::steady_clock::now().time_since_epoch()).count();
     const int64_t lastNcx = m_lastNcxPacketMs.load();
 
+    const int64_t lastChange = m_lastNcxChangeMs.load();
+
     std::lock_guard<std::mutex> lock(m_dataMutex);
     TelemetryData d = m_latestData;
     d.numNcx = m_ncxCount;
@@ -432,7 +459,28 @@ TelemetryData TelemetryInput::getLatestData() const
     for (int t = 0; t < NcxTok::TokenCount; ++t) { d.ncyHave[t] = m_ncyHave[t]; d.ncy[t] = m_ncyVals[t]; }
     std::memcpy(d.game, m_ncyGame, NCY_STR_LEN);
     std::memcpy(d.car,  m_ncyCar,  NCY_STR_LEN);
-    d.ncxFresh = (lastNcx != 0) && (nowMs - lastNcx) < 500;
+    const bool arriving = (lastNcx != 0) && (nowMs - lastNcx) < 500;
+    const bool frozen   = arriving && lastChange != 0 && (nowMs - lastChange) >= NCX_FROZEN_MS;
+    d.ncxFresh  = arriving && !frozen;
+    d.ncxFrozen = frozen;
+
+    // Stream transitions, logged once each (this runs on the RT thread at
+    // the control rate; the log push is the lock-free RT path). A stuck
+    // effect was once chased for a day without knowing whether packets
+    // were still arriving: now the log says.
+    const int state = !arriving ? 0 : (frozen ? 2 : 1);
+    const int prev  = m_ncxStreamState.exchange(state);   // exactly one caller sees a transition
+    if (state != prev)
+    {
+        if (state == 1 && prev == 0)
+            RT_LOG_INFO("TelemetryInput: sim channel stream started.");
+        else if (state == 1)
+            RT_LOG_INFO("TelemetryInput: sim channel stream resumed (values changing again).");
+        else if (state == 2)
+            RT_LOG_INFO("TelemetryInput: sim channel stream frozen (packets arriving, every value unchanged for %d ms): effects released.", (int)NCX_FROZEN_MS);
+        else
+            RT_LOG_INFO("TelemetryInput: sim channel stream stopped (no packet for %d ms): effects released.", (int)(nowMs - lastNcx));
+    }
     return d;
 }
 

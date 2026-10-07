@@ -20,6 +20,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include "../src/Config.h"
+#include "../src/EffectStatus.h"
 
 class TestConfigTwoFile : public QObject
 {
@@ -212,6 +213,79 @@ private slots:
         QCOMPARE(h2.value("slipLat").toObject().value("ampPct").toDouble(), 35.0);
         QCOMPARE(h2.value("slipLat").toObject().value("scrubHz").toDouble(), 40.0);
         QCOMPARE(h2.value("slipLon").toObject().value("routes").toArray().at(0).toObject().value("gain").toDouble(), 0.8);
+    }
+
+    // The sticky per-sim effect record: channel-spec matching, delivered /
+    // produced per game, transient attribution, persistence beside rig.json.
+    void effectStatus_recordsAndPersists()
+    {
+        using haptics::Effect; using haptics::effectInfo;
+        bool have[NcxTok::TokenCount] = {};
+        double fx[haptics::FX_TYPE_COUNT] = {};
+        uint64_t fired[haptics::EVENT_TYPE_COUNT] = {};
+
+        // Channel spec matching: "a|b", "group*", "~optional".
+        QVERIFY(!EffectStatus::channelsDelivered(effectInfo(Effect::Skid), have));
+        have[NcxTok::Skid] = true;
+        QVERIFY2(EffectStatus::channelsDelivered(effectInfo(Effect::Skid), have), "skid alone satisfies slipAngle*|skid");
+        have[NcxTok::Skid] = false;
+        for (int w = 0; w < 3; ++w) have[NcxTok::SlipAngleFL + w] = true;
+        QVERIFY2(!EffectStatus::channelsDelivered(effectInfo(Effect::Skid), have), "three of four wheels is not the group");
+        have[NcxTok::SlipAngleRR] = true;
+        QVERIFY2(EffectStatus::channelsDelivered(effectInfo(Effect::Skid), have), "all four wheels satisfy slipAngle*");
+        QVERIFY2(EffectStatus::channelsDelivered(effectInfo(Effect::DetentClick), have), "no channels needed = delivered");
+        have[NcxTok::Rpm] = true;
+        QVERIFY2(EffectStatus::channelsDelivered(effectInfo(Effect::Engine), have), "engine needs rpm only (throttle, limiter optional in the law)");
+
+        EffectStatus es;
+        const int64_t t0 = 1700000000000LL;
+        // Game A: slip channels arrive, nothing plays -> delivered, not produced.
+        es.observe("A", have, fx, fired, true, t0);
+        QCOMPARE(es.currentGame(), std::string("A"));
+        auto rA = es.records("A");
+        QVERIFY(rA[(size_t)Effect::Skid].delivered && !rA[(size_t)Effect::Skid].produced);
+        QVERIFY(!rA[(size_t)Effect::Road].delivered);
+        // The lateral slip plays -> produced.
+        fx[(int)haptics::FxType::Skid] = 0.3;
+        es.observe("A", have, fx, fired, true, t0 + 1000);
+        QVERIFY(es.records("A")[(size_t)Effect::Skid].produced);
+        // A gear shift transient fires -> the gearShift tile, not the detent.
+        have[NcxTok::Gear] = true;
+        fired[(int)haptics::EventType::GearShift] = 1;
+        es.observe("A", have, fx, fired, true, t0 + 2000);
+        QVERIFY(es.records("A")[(size_t)Effect::GearShift].produced);
+        QVERIFY(!es.records("A")[(size_t)Effect::DetentClick].produced);
+        // Game B starts: its own record, A untouched; stream gone = nothing changes.
+        fx[(int)haptics::FxType::Skid] = 0.0;
+        es.observe("B", have, fx, fired, true, t0 + 3000);
+        QCOMPARE(es.currentGame(), std::string("B"));
+        QVERIFY(es.records("B")[(size_t)Effect::Skid].delivered && !es.records("B")[(size_t)Effect::Skid].produced);
+        QVERIFY(es.records("A")[(size_t)Effect::Skid].produced);
+        es.observe("", have, fx, fired, false, t0 + 4000);
+        QCOMPARE(es.currentGame(), std::string("B"));
+        // A detent click on the bench (no stream) is still recorded.
+        fired[(int)haptics::EventType::DetentClick] = 1;
+        es.observe("", have, fx, fired, false, t0 + 5000);
+        QVERIFY(es.records("B")[(size_t)Effect::DetentClick].produced);
+        const auto games = es.games();
+        QCOMPARE(games.size(), (size_t)2); QCOMPARE(games[0], std::string("B"));
+
+        // Persist and reload beside the config anchor.
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        QVERIFY(es.dirty());
+        QVERIFY(es.save(anchor(dir).toStdString()));
+        QVERIFY(!es.dirty());
+        QVERIFY(QFile::exists(dir.path() + "/effectstatus.json"));
+        EffectStatus back; QVERIFY(back.load(anchor(dir).toStdString()));
+        QCOMPARE(back.currentGame(), std::string("B"));
+        QVERIFY(back.records("A")[(size_t)Effect::Skid].produced);
+        QVERIFY(back.records("A")[(size_t)Effect::GearShift].produced);
+        QVERIFY(back.records("B")[(size_t)Effect::Skid].delivered && !back.records("B")[(size_t)Effect::Skid].produced);
+        QCOMPARE(back.records("A")[(size_t)Effect::Skid].lastSeenMs, t0 + 2000);
+        back.clear("A");
+        QCOMPARE(back.games().size(), (size_t)1);
+        back.clearAll();
+        QVERIFY(back.games().empty());
     }
 
     // Single-writer isolation: saveRig() must not rewrite host.json (and vice versa).

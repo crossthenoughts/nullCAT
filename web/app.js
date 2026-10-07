@@ -1263,6 +1263,42 @@ const hapTiles={};        // per-effect {svg,fx,dv,tile,level,anim}
 let hapMutedNow=false;
 let hapLastFired=-1;
 
+/* Sim dots. nullCAT remembers, per game, whether each effect's channels
+   have ever arrived and whether it has ever played (effectstatus.json),
+   so "does this sim feed this effect?" is answered without a lap. 0 =
+   never delivered (grey), 1 = delivered but never produced (amber: amp
+   0, no route, or a law that never fired), 2 = has produced (green). */
+let hapDotsPinned=false;   // a game other than the current one is shown
+let hapGamesKnown=[];
+function hapSetDot(k,d){
+  const t=hapTiles[k]; if(!t) return;
+  const el=t.tile.querySelector('[data-sdot]'); if(!el) return;
+  el.className='sdot d'+(d|0);
+  el.title=d===2?'Sim: channels arrive and this effect has played':d===1
+    ?'Sim: channels arrive but this effect has never played (amp 0, no route, or never triggered)'
+    :'Sim: no channels seen from this game yet';
+}
+function hapGamesSeen(cur){
+  if(cur&&!hapGamesKnown.includes(cur)){ hapGamesKnown.push(cur); hapGameSelectRender(); }
+}
+function hapGameSelectRender(){
+  const sel=$('hapGameSel'); if(!sel) return;
+  const v=sel.value;
+  sel.innerHTML='<option value="">current</option>'+hapGamesKnown.map(g=>'<option value="'+g.replace(/"/g,'&quot;')+'"'+(g===v?' selected':'')+'>'+(g||'(sender unnamed)')+'</option>').join('');
+}
+async function hapGameShow(game){
+  hapDotsPinned=!!game;
+  if(!game) return;   // back to live dots on the next status
+  try{
+    const r=await fetch(API+'/api/haptics/status?game='+encodeURIComponent(game)); if(!r.ok) return;
+    const j=await r.json();
+    hapGamesKnown=j.games||hapGamesKnown; hapGameSelectRender();
+    const sel=$('hapGameSel'); if(sel) sel.value=game;
+    HAP_FX.forEach(fx=>{ const e=(j.effects||{})[fx.k]||{}; hapSetDot(fx.k,e.produced?2:(e.delivered?1:0)); });
+    const gl=$('hapGameNow'); if(gl) gl.textContent=(j.game||'(sender unnamed)')+' (remembered)';
+  }catch(_){}
+}
+
 // Live status hook (called from applyState): channel-health chips, mute
 // state, real-time animation - continuous tiles scroll while their engine
 // level is up, transient tiles flick on a fired-counter change.
@@ -1275,6 +1311,13 @@ function hapLive(s){
   const fired=+s.hapFired||0;
   const firedEdge=(hapLastFired>=0&&fired>hapLastFired);
   hapLastFired=fired;
+  // Sim dots: the remembered record for the game shown (the current one
+  // unless the Master tile's selector picked another, then it is fetched).
+  if(Array.isArray(s.hapDots)&&!hapDotsPinned){
+    HAP_FX.forEach((fx,i)=>hapSetDot(fx.k,s.hapDots[i]|0));
+    const gl=$('hapGameNow'); if(gl) gl.textContent=s.hapGame||'(sender unnamed)';
+    hapGamesSeen(s.hapGame);
+  }
   for(const k in hapTiles){
     const t=hapTiles[k];
     // Channel-health chip: token names with a live tick/cross.
@@ -1350,8 +1393,20 @@ function hapInit(){
       +'<input type="number" min="0" max="2" step="0.05" id="hapMasterGain" value="'+cfgObj.haptics.masterGain+'"></div>'
       +'<div class="hr" title="Share of each position axis\'s velocity and acceleration limits that haptics may use (0 to 1). The motion cue always keeps priority."><span class="hk">pos budget</span>'
       +'<input type="number" min="0" max="1" step="0.05" id="hapPosBudget" value="'+(isFinite(+cfgObj.haptics.positionBudget)?+cfgObj.haptics.positionBudget:0.4)+'"></div>'
+      +'<div class="hr hap-game" title="The sim dots on each tile: grey = that game has never sent the channels, amber = channels arrive but the effect has never played, green = has played. Remembered per game across restarts."><span class="hk">sim</span>'
+      +'<span class="hk" id="hapGameNow">(none)</span><select id="hapGameSel"><option value="">current</option></select>'
+      +'<button class="btn btn-sm" type="button" id="hapGameForget" title="Forget the remembered dots for the game shown">forget</button></div>'
       +'</div><div class="hb"><span class="hk" id="hapMuteState"></span>'
       +'<button class="btn btn-sm btn-action" type="button" id="hapMuteBtn">MUTE</button></div>';
+    mc.querySelector('#hapGameSel').onchange=(ev)=>hapGameShow(ev.target.value);
+    mc.querySelector('#hapGameForget').onclick=async()=>{
+      const sel=mc.querySelector('#hapGameSel');
+      const game=sel.value||(($('hapGameNow')||{}).textContent||'').replace(' (remembered)','').replace('(sender unnamed)','');
+      try{ await fetch(API+'/api/haptics/status/clear',{method:'POST',body:JSON.stringify({game:game})}); }catch(_){}
+      hapGamesKnown=hapGamesKnown.filter(g=>g!==game); sel.value=''; hapGameSelectRender(); hapDotsPinned=false;
+    };
+    // Seed the game list from the remembered record.
+    fetch(API+'/api/haptics/status').then(r=>r.ok?r.json():null).then(j=>{ if(j){ hapGamesKnown=j.games||[]; hapGameSelectRender(); } }).catch(()=>{});
     const gi=mc.querySelector('#hapMasterGain');
     gi.onchange=()=>{ const v=+gi.value; if(!isFinite(v)) return;
       cfgObj.haptics.masterGain=Math.max(0,Math.min(2,v)); gi.value=cfgObj.haptics.masterGain;
@@ -1371,7 +1426,7 @@ function hapInit(){
     const dv=cfgObj.haptics[fx.k];
     const tile=document.createElement('div');
     tile.className='hap-tile'+(dv.ampPct>0?' on':''); tile.title=fx.tip; tile.dataset.fx=fx.k;
-    let h='<div class="dh"><span class="dot"></span><span class="nm">'+fx.label+'</span></div>';
+    let h='<div class="dh"><span class="dot"></span><span class="nm">'+fx.label+'</span><span class="sdot" data-sdot="1" title="Sim: no channels seen from this game yet"></span></div>';
     // The chip row is always present (empty for channel-less effects) so
     // the wave line lands at the same height on every tile.
     h+=(fx.chan&&fx.chan.length)
@@ -1750,7 +1805,8 @@ function devCurveEditor(svgId, axisIdx, key){
 }
 function devPoll(s){
   const blk=$('devBlock'); if(!blk||blk.hidden) return;
-  const nx=$('devNcx'); if(nx) nx.textContent=(s.ncxRx?'receiving':'not receiving (effects idle, plain feel)')
+  const nx=$('devNcx'); if(nx) nx.textContent=(s.ncxRx?(s.ncxFrozen?'frozen (sim paused: packets arriving, values unchanged; effects idle)':'receiving'):'not receiving (effects idle, plain feel)')
+    +(s.ncxRx&&(s.simGame||s.simCar)?` · ${[s.simGame,s.simCar].filter(Boolean).join(' / ')}`:'')
     +((s.gearsKnown|0)>0?` · ${s.gearsKnown} gear ratio${s.gearsKnown>1?'s':''} known`:'');
   const running=!!s.loopRunning, estop=!!s.estop;
   for(const {i} of devAxes()){
