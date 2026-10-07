@@ -23,13 +23,13 @@
 namespace haptics {
 
 enum class Effect { DetentClick = 0, GearShift, Engine, Abs, Lockup, Skid, Road,
-                    Limiter, Tc, Kerb, COUNT };
+                    Limiter, Tc, Kerb, Driveline, COUNT };
 static constexpr int EFFECT_COUNT = static_cast<int>(Effect::COUNT);
 
 // Slip: a per-wheel model (SlipModel.h) whose routes carry a Part. Road:
 // the texture oscillator with a per-corner replay (RoadModel.h) when the
 // sim sends suspension velocities; routes carry a Part too.
-enum class Kind { Transient, Continuous, Engine, Slip, Road };
+enum class Kind { Transient, Continuous, Engine, Slip, Road, Driveline };
 inline bool kindHasParts(Kind k) { return k == Kind::Slip || k == Kind::Road; }
 
 // One tunable the UI shows for an effect: config key, label, range, step,
@@ -54,7 +54,7 @@ struct EffectInfo
     Kind         kind;
     EventType    event;        // transients: which pool slot (else COUNT)
     FxType       fx;           // continuous + engine + slip: which level slot (else COUNT)
-    const char*  channels[4];  // nullptr-terminated, see above
+    const char*  channels[6];  // nullptr-terminated, see above
     EffectParams defaults;
     const ParamSpec* params;
     int          paramCount;
@@ -102,6 +102,14 @@ constexpr ParamSpec kRoadParams[] = {           // road: texture carrier + per-c
     { "jitter", "jitter",    0,   1,   0.05, nullptr },
     { "fullMm", "full mm",   0.5, 50,  0.5,  nullptr },
     { "hpHz",   "cut hz",    0.5, 10,  0.5,  nullptr },
+};
+constexpr ParamSpec kDrivelineParams[] = {      // driveline: clutch judder + lugging wind-up
+    { "ampPct",   "amp %",      0,   100, 1,    nullptr },
+    { "clutch",   "clutch x",   0,   1,   0.1,  nullptr },
+    { "clutchHz", "clutch hz",  4,   20,  0.5,  nullptr },
+    { "lug",      "lug x",      0,   1,   0.1,  nullptr },
+    { "lugHz",    "lug hz",     3,   15,  0.5,  nullptr },
+    { "jitter",   "jitter",     0,   1,   0.05, nullptr },
 };
 constexpr ParamSpec kTextureParams[] = {        // limiter, kerb
     { "ampPct", "amp %",     0,   100, 1,    nullptr },
@@ -186,6 +194,14 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
     { Effect::Kerb,        "kerb",        "Kerb",         Kind::Continuous, EventType::COUNT, FxType::Kerb,
       { "curbs", nullptr }, { 0.0, 40.0, 0.0, 0.4 }, kTextureParams, 3,
       "Kerb-strip rumble, scaled by the curbs channel (0-100). Bind curbsProp in the plugin.", nullptr, {} },
+    { Effect::Driveline,   "driveline",   "Driveline",    Kind::Driveline, EventType::COUNT, FxType::Driveline,
+      { "clutchPct", "rpm", "gear", "~speedKmh", "~throttlePct" }, { 0.0, 10.0, 0.0, 0.2 }, kDrivelineParams, 6,
+      "The transmission when the engine and the wheels disagree. Clutch: a slipping clutch grabbing and releasing "
+      "at a launch or a bad downshift, the whole driveline shuddering at clutch hz, from how much slip (engine rpm "
+      "against what the gear and road speed say, using the learned ratios), how much load, and how far into the "
+      "slipping band the pedal is. Lug: full throttle at too few revs winding the driveline up and letting go at "
+      "lug hz, fading as the revs climb out of it. Nothing in neutral. Needs clutch, rpm and gear (speed and "
+      "throttle make it exact).", nullptr, {} },
 };
 
 } // namespace registry_detail

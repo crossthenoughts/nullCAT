@@ -36,6 +36,11 @@ Development branch. Nothing here is in a release yet.
   the catch, dying and the stall kick are modelled below idle; the pit
   limiter cuts like the rev limiter without teaching the redline. New
   tokens `boost` and `pitLimiter`; the plugin sends both automatically.
+- Driveline tile: clutch judder (a slipping clutch grabbing and releasing
+  at a launch or a bad downshift, the slip worked out from engine speed
+  against the learned gear ratio and road speed) and lugging wind-up
+  (full throttle at too few revs), each with a mix and a carrier; nothing
+  in neutral.
 - Sim dots: every haptics tile shows whether the current game has ever
   sent that effect's channels (grey no, amber yes but it never played,
   green it has played), remembered per game in `effectstatus.json` next

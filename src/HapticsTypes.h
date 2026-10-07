@@ -21,7 +21,7 @@ static constexpr int EVENT_TYPE_COUNT = static_cast<int>(EventType::COUNT);
 // and Skid are the two per-wheel slip models (longitudinal and lateral);
 // the rest are oscillators whose LEVEL (0..1) is driven per cycle by a law.
 enum class FxType { RpmVibe = 0, AbsPulse = 1, Lockup = 2, Skid = 3, Road = 4,
-                    Limiter = 5, TcPulse = 6, Kerb = 7, COUNT };
+                    Limiter = 5, TcPulse = 6, Kerb = 7, Driveline = 8, COUNT };
 static constexpr int FX_TYPE_COUNT = static_cast<int>(FxType::COUNT);
 
 // What an axis index is as a routing destination. Torque: the overlay is %
@@ -73,6 +73,16 @@ struct RoadParams
 {
     double fullMm = 8.0;
     double hpHz   = 2.0;
+};
+
+// The Driveline tile: clutch judder and lugging wind-up, each a mix and
+// a carrier (the driveline's own resonances).
+struct DrivelineParams
+{
+    double clutch   = 1.0;
+    double clutchHz = 10.0;
+    double lug      = 1.0;
+    double lugHz    = 7.0;
 };
 
 // Per-effect tuning shared by every effect kind. ampPct 0 = the effect is

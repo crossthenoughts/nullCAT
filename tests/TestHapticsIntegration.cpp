@@ -359,6 +359,54 @@ int main()
             check(crank > 0.5, "I-8 engine: 250 rpm on the starter plays cranking lumps");
         }
 
+        // Driveline law: judder only with the clutch in the slipping band and
+        // slip across it, scaled by load; a launch from rest is full slip; a
+        // known ratio makes it exact; nothing with the clutch up or in
+        // neutral. Lug only at high throttle and low revs in gear.
+        {
+            haptics::Layer L; haptics::LawsState st;
+            for (int t = 0; t < NcxValues::TokenCount; ++t) v.have[t] = false;
+            haptics::EffectParams dp; dp.ampPct = 100.0; dp.jitter = 0.0; dp.routes[0] = { 0, 1.0 };
+            haptics::EngineParams eg; eg.maxRpm = 7000.0;
+            L.configureFx(FxType::Driveline, dp); L.configureDriveline({ 1.0, 10.0, 1.0, 7.0 }); L.configureEngine(eg);
+            auto set = [&](NcxValues::Token t, double val) { v.have[t] = true; v.val[t] = val; };
+            GearRatios ratios; ratios.r[2] = 60.0; ratios.known[2] = true;   // 2nd gear: 60 rpm per km/h
+            auto settleD = [&](int n) { for (int i = 0; i < n; ++i) { haptics::driveLaws(L, st, v, dt, &ratios); L.step(dt); } };
+            auto judder = [&]() { return L.drivelineJudderLevel(); };
+            auto lug    = [&]() { return L.drivelineLugLevel(); };
+
+            // Launch: 1st gear, 3000 rpm, standing still, clutch mid-band, full throttle.
+            set(NcxValues::Rpm, 3000.0); set(NcxValues::Gear, 1.0); set(NcxValues::SpeedKmh, 0.0);
+            set(NcxValues::ClutchPct, 50.0); set(NcxValues::ThrottlePct, 100.0);
+            settleD(200);
+            check(judder() > 0.9, "I-8 driveline: a launch with the clutch mid-band judders fully");
+            set(NcxValues::ClutchPct, 5.0); settleD(300);
+            check(judder() < 0.02, "I-8 driveline: clutch up = no judder");
+            set(NcxValues::ClutchPct, 95.0); settleD(300);
+            check(judder() < 0.02, "I-8 driveline: clutch floored (open) = no judder");
+            set(NcxValues::ClutchPct, 50.0); set(NcxValues::Gear, 0.0); settleD(300);
+            check(judder() < 0.02, "I-8 driveline: neutral = no judder");
+            // Rolling in 2nd with a known ratio: 60 km/h wants 3600 rpm; at
+            // 3600 no slip, at 5400 half of the rpm is slip.
+            set(NcxValues::Gear, 2.0); set(NcxValues::SpeedKmh, 60.0); set(NcxValues::Rpm, 3600.0); settleD(300);
+            check(judder() < 0.02, "I-8 driveline: matched revs through a slipping-band clutch = no judder");
+            set(NcxValues::Rpm, 5400.0); settleD(300);
+            check(std::fabs(judder() - 0.33) < 0.06, "I-8 driveline: 1800 rpm over the ratio at 5400 = a third slip");
+            set(NcxValues::ThrottlePct, 0.0); settleD(300);
+            check(std::fabs(judder() - 0.05) < 0.03, "I-8 driveline: off throttle the judder drops to the floor");
+
+            // Lug: in gear, throttle 100, 1200 rpm of a 7000 redline (x 0.17).
+            set(NcxValues::ClutchPct, 0.0); set(NcxValues::ThrottlePct, 100.0); set(NcxValues::Rpm, 1200.0); set(NcxValues::SpeedKmh, 20.0);
+            settleD(300);
+            check(lug() > 0.6, "I-8 driveline: full throttle at 1200 rpm lugs");
+            set(NcxValues::Rpm, 3000.0); settleD(300);
+            check(lug() < 0.02, "I-8 driveline: at 3000 rpm the lug is gone");
+            set(NcxValues::Rpm, 1200.0); set(NcxValues::ThrottlePct, 20.0); settleD(300);
+            check(lug() < 0.02, "I-8 driveline: light throttle at low revs does not lug");
+            set(NcxValues::ThrottlePct, 100.0); set(NcxValues::Gear, 0.0); settleD(300);
+            check(lug() < 0.02, "I-8 driveline: no lug in neutral");
+        }
+
         // Road: per-corner suspension velocities replay the corners and the
         // roadNoise magnitude is ignored; without them roadNoise drives the
         // texture; a stale stream releases the replay.

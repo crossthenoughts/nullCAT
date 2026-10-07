@@ -29,6 +29,7 @@
 #include "EngineModel.h"
 #include "SlipModel.h"
 #include "RoadModel.h"
+#include "DrivelineModel.h"
 #include "WaveSynth.h"
 #include <algorithm>
 #include <cstdint>
@@ -134,6 +135,24 @@ public:
                     // at a representative bump rate; the owner's sum guard
                     // holds the axis limits regardless.
                     m_overlay[r.axis] += p.ampPct * s * r.gain * sinkScale(r.axis, p.ampPct * r.gain, road_k::kDerateHz);
+                }
+                continue;
+            }
+            if (i == static_cast<int>(FxType::Driveline))
+            {
+                if (p.ampPct <= 0.0) { m_driveline.clear(); f.level = 0.0; continue; }
+                m_driveline.step(dtSec, p, m_drivelineParams);
+                f.level = m_driveline.level();
+                f.targetLevel = 0.0;
+                if (f.level < 1e-4) continue;
+                const DrivelineOut& o = m_driveline.out();
+                for (const Route& r : p.routes)
+                {
+                    if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES || r.gain <= 0.0) continue;
+                    const double ask = p.ampPct * r.gain;
+                    const double v = p.ampPct * (o.judder * sinkScale(r.axis, ask, o.judderHz)
+                                               + o.lug    * sinkScale(r.axis, ask, o.lugHz));
+                    if (v != 0.0) m_overlay[r.axis] += v * r.gain;
                 }
                 continue;
             }
@@ -321,6 +340,14 @@ public:
     double roadWheelTravelMm(int wheel) const { return m_road.wheelTravelMm(wheel); }
     bool   roadReplaying() const              { return m_road.active(); }
 
+    // ---- driveline (clutch judder + lugging wind-up). Config apply for
+    // the params; the law drives the two severities per cycle.
+    void configureDriveline(const DrivelineParams& d) { m_drivelineParams = d; }
+    const DrivelineParams& drivelineParams() const   { return m_drivelineParams; }
+    void driveDriveline(double judder, double lug)    { m_driveline.drive(judder, lug); }
+    double drivelineJudderLevel() const               { return m_driveline.judderLevel(); }
+    double drivelineLugLevel() const                  { return m_driveline.lugLevel(); }
+
     // Drive one continuous effect for THIS cycle: level 0..1 (silence to
     // full configured amplitude) and the carrier frequency to use (RpmVibe
     // passes rpm/60 x order; others pass their configured freqHz). Called
@@ -394,6 +421,7 @@ public:
         m_slipLon.clear();
         m_road.clear();
         m_roadDriven = false;
+        m_driveline.clear();
         for (double& o : m_overlay) o = 0.0;
     }
 
@@ -456,6 +484,8 @@ private:
     SlipParams   m_slipLonParams{ 1.0,  9.0, 1.0, 10.0, 0.8 };
     RoadModel    m_road;
     RoadParams   m_roadParams;
+    DrivelineModel  m_driveline;
+    DrivelineParams m_drivelineParams;
     bool         m_roadDriven = false;   // a law drove corners this cycle
     EffectParams m_params[EVENT_TYPE_COUNT];
     EffectParams m_fxParams[FX_TYPE_COUNT];

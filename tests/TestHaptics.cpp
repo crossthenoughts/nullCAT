@@ -794,6 +794,37 @@ int main()
         }
     }
 
+    // ================= driveline model =================
+    {
+        using haptics::FxType; using haptics::DrivelineParams; using haptics::SinkKind;
+        EffectParams p; p.ampPct = 100.0; p.jitter = 0.0; p.routes[0] = { 0, 1.0 };
+        DrivelineParams d{ 1.0, 10.0, 1.0, 7.0 };
+        // Judder alone at 10 Hz: count the cycles; lug alone at 7 Hz.
+        auto hzOf = [&](double judder, double lug) {
+            Layer L; L.configureFx(FxType::Driveline, p); L.configureDriveline(d);
+            std::vector<double> o;
+            for (int i = 0; i < 4200; ++i) { L.driveDriveline(judder, lug); L.step(DT); if (i >= 200) o.push_back(L.overlayFor(0)); }
+            int xr = 0; for (size_t i = 1; i < o.size(); ++i) if ((o[i] >= 0.0) != (o[i-1] >= 0.0)) ++xr;
+            double pk = 0.0; for (double v : o) pk = std::max(pk, std::fabs(v));
+            return std::make_pair(xr / 2.0 / (o.size() * DT), pk); };
+        auto j = hzOf(1.0, 0.0), l = hzOf(0.0, 1.0);
+        approx(j.first, 10.0, 0.3, "driveline: judder plays at clutch hz");
+        approx(l.first, 7.0, 0.3,  "driveline: lug plays at lug hz");
+        CHECK(j.second > 95.0 && l.second > 95.0, "driveline: each component reaches amp x mix at full severity");
+        CHECK(hzOf(0.0, 0.0).second < 1e-9, "driveline: nothing when neither is driven");
+        DrivelineParams noLug = d; noLug.lug = 0.0;
+        { Layer L; L.configureFx(FxType::Driveline, p); L.configureDriveline(noLug); double pk = 0.0;
+          for (int i = 0; i < 1000; ++i) { L.driveDriveline(0.0, 1.0); L.step(DT); pk = std::max(pk, std::fabs(L.overlayFor(0))); }
+          CHECK(pk < 1e-9, "driveline: lug x 0 silences the lug"); }
+        // Position sink: the 10 Hz judder is derated at 10 Hz.
+        { Layer P; P.setSinkKind(0, SinkKind::Position); P.setPositionLimits(0, 80.0, 800.0, 3.0);
+          EffectParams r = p; r.routes[0] = { 0, 2.0 };
+          P.configureFx(FxType::Driveline, r); P.configureDriveline(d);
+          double pk = 0.0; for (int i = 0; i < 2000; ++i) { P.driveDriveline(1.0, 0.0); P.step(DT); pk = std::max(pk, std::fabs(P.overlayFor(0)) / 100.0); }
+          const double w = 2.0 * 3.14159265358979 * 10.0;
+          approx(pk, std::min(2.0, 800.0 / (w * w)), 0.02, "driveline: position sink derates the judder at its carrier"); }
+    }
+
     // ================= engine buzz band vs loop rate =================
     {
         // The automatic buzz order aims the redline at 120 Hz on a 2 kHz

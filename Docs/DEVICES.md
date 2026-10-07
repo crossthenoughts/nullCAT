@@ -193,6 +193,7 @@ effect silent.
 | Limiter | an extra hammer while on the rev limiter | limiter |
 | TC pulse | a pulse while traction control cuts | TC active |
 | Kerb | kerb strip rumble | kerbs |
+| Driveline | a slipping clutch juddering at a launch, the engine lugging at low revs (below) | clutch, rpm, gear (speed, throttle) |
 
 With the SimHub plugin, rpm, speed, gear, clutch, throttle, brake, ABS,
 limiter and traction control arrive automatically. The per-wheel slip
@@ -259,6 +260,20 @@ cue is already doing, lower it to let longer undulations through).
 
 Without the per-corner channels the tile plays a texture at `freq hz`
 scaled by the single `road` channel, as before.
+
+### Driveline
+
+What the transmission does when the engine and the wheels disagree.
+**clutch x / clutch hz** is clutch judder: with the pedal part-way
+through its travel and slip across the clutch, the whole driveline
+shudders at its resonance (around 10 Hz). nullCAT works the slip out
+from the engine speed against what the gear and road speed say it should
+be, using the gear ratios it learns while you drive; a launch from rest
+is full slip, and more throttle makes it harder. **lug x / lug hz** is
+the engine bogged: full throttle at too few revs winds the driveline up
+and lets it go in a slow shudder that fades as the revs climb out of it.
+Neither plays in neutral. Needs the clutch, rpm and gear channels, with
+speed and throttle making it exact.
 
 ### The engine
 

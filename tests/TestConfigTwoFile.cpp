@@ -129,6 +129,8 @@ private slots:
         c.hapticsSlipLon = { 0.9, 8.0, 0.2, 12.0, 0.6 };
         c.hapticsRoad    = { 12.0, 3.5 };
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Road)].routes[0].part = haptics::Part::RR;
+        c.hapticsDriveline = { 0.8, 9.0, 0.6, 6.5 };
+        c.hapticsEngine.inertia = 0.3; c.hapticsEngine.turbo = 1; c.hapticsEngine.liftoff = 1.5; c.hapticsEngine.pops = 0.4;
         // Route parts on the per-wheel tiles survive; "all" is the default.
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)].routes[0].part   = haptics::Part::FL;
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Lockup)].routes[1].part = haptics::Part::Rear;
@@ -159,6 +161,10 @@ private slots:
         QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Lockup)].routes[1].part == haptics::Part::Rear);
         QCOMPARE(r.hapticsRoad.fullMm, 12.0); QCOMPARE(r.hapticsRoad.hpHz, 3.5);
         QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Road)].routes[0].part == haptics::Part::RR);
+        QCOMPARE(r.hapticsDriveline.clutch, 0.8); QCOMPARE(r.hapticsDriveline.clutchHz, 9.0);
+        QCOMPARE(r.hapticsDriveline.lug, 0.6);    QCOMPARE(r.hapticsDriveline.lugHz, 6.5);
+        QCOMPARE(r.hapticsEngine.inertia, 0.3);   QCOMPARE(r.hapticsEngine.turbo, 1.0);
+        QCOMPARE(r.hapticsEngine.liftoff, 1.5);   QCOMPARE(r.hapticsEngine.pops, 0.4);
 
         // The file carries the tiles under their current keys with the
         // readable slip fields, and the old keys are gone.

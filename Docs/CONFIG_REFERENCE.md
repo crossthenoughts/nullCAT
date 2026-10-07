@@ -121,7 +121,7 @@ Top level: `configVersion`, `numDrives` (1 to 10, must match `axes[]`),
 
 ### global.haptics
 
-One object per effect: `detentClick`, `gearShift`, `rpmVibe` (the engine), `abs`, `slipLon` (longitudinal slip), `slipLat` (lateral slip), `road`, `limiter`, `tc`, `kerb`, plus `masterGain` (number, 0 to 2, default `1`, scales every effect) and `positionBudget` (number, 0 to 1, default `0.4`, the share of each position axis's velocity and acceleration limits that haptics may use; see `hapticsMaxMm` below). Every effect is off until it has an amplitude above 0 and at least one route. Saves apply live, with no re-initialize.
+One object per effect: `detentClick`, `gearShift`, `rpmVibe` (the engine), `abs`, `slipLon` (longitudinal slip), `slipLat` (lateral slip), `road`, `limiter`, `tc`, `kerb`, `driveline`, plus `masterGain` (number, 0 to 2, default `1`, scales every effect) and `positionBudget` (number, 0 to 1, default `0.4`, the share of each position axis's velocity and acceleration limits that haptics may use; see `hapticsMaxMm` below). Every effect is off until it has an amplitude above 0 and at least one route. Saves apply live, with no re-initialize.
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
@@ -148,6 +148,13 @@ Road-only fields, used when the sim sends `suspVelFL..RR` (the tile then replays
 |---|---|---|
 | `fullMm` | `8` | Suspension travel (mm) that is 100 % amplitude, 0.5 to 50. |
 | `hpHz` | `2` | High-pass on the travel (Hz), 0.5 to 10: removes the slow body motion the motion cue already produces, leaving the bumps. |
+
+Driveline-only fields (`driveline`):
+
+| Field | Default | Notes |
+|---|---|---|
+| `clutch`, `clutchHz` | `1`, `10` | Clutch judder: mix (0 to 1) and carrier (4 to 20 Hz). Plays while the clutch pedal is between 15 % and 85 % with slip across it (engine rpm against the learned ratio for the gear times road speed; a launch under 5 km/h is full slip), scaled by throttle. |
+| `lug`, `lugHz` | `1`, `7` | Lugging wind-up: mix (0 to 1) and carrier (3 to 15 Hz). Plays in gear at 50 % throttle or more between 12 % and 30 % of the redline, full at the low end. |
 
 A 0.9.6 file that still carries these two effects as `skid` and `lockup` is read through those keys once (amplitude, routes, jitter and the old carrier onto `scrubHz` / `lockHz`) and rewritten under the new keys on the next load.
 

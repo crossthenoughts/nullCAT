@@ -1411,7 +1411,8 @@ bool WebServer::start()
                 e["kind"]  = (info.kind == haptics::Kind::Transient) ? "transient"
                            : (info.kind == haptics::Kind::Engine)    ? "engine"
                            : (info.kind == haptics::Kind::Slip)      ? "slip"
-                           : (info.kind == haptics::Kind::Road)      ? "road" : "continuous";
+                           : (info.kind == haptics::Kind::Road)      ? "road"
+                           : (info.kind == haptics::Kind::Driveline) ? "driveline" : "continuous";
                 if (info.kind != haptics::Kind::Transient) e["fxIdx"] = static_cast<int>(info.fx);
                 // Per-wheel effects: routes carry a part (route editor shows the selector).
                 e["parts"] = haptics::kindHasParts(info.kind);
@@ -1453,6 +1454,11 @@ bool WebServer::start()
                 {
                     const haptics::RoadParams rd;
                     d["fullMm"] = rd.fullMm; d["hpHz"] = rd.hpHz;
+                }
+                else if (info.kind == haptics::Kind::Driveline)
+                {
+                    const haptics::DrivelineParams dd;
+                    d["clutch"] = dd.clutch; d["clutchHz"] = dd.clutchHz; d["lug"] = dd.lug; d["lugHz"] = dd.lugHz;
                 }
                 e["defaults"] = d;
                 e["tip"] = info.tip;

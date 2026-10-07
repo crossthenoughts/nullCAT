@@ -221,6 +221,11 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
             {
                 o["fullMm"] = c.hapticsRoad.fullMm; o["hpHz"] = c.hapticsRoad.hpHz;
             }
+            else if (info.kind == haptics::Kind::Driveline)
+            {
+                const haptics::DrivelineParams& d = c.hapticsDriveline;
+                o["clutch"] = d.clutch; o["clutchHz"] = d.clutchHz; o["lug"] = d.lug; o["lugHz"] = d.lugHz;
+            }
             h[info.key] = o;
         }
         h["masterGain"] = c.hapticsMasterGain;
@@ -303,6 +308,14 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
             {
                 c.hapticsRoad.fullMm = o.value("fullMm").toDouble(c.hapticsRoad.fullMm);
                 c.hapticsRoad.hpHz   = o.value("hpHz").toDouble(c.hapticsRoad.hpHz);
+            }
+            if (info.kind == haptics::Kind::Driveline)
+            {
+                haptics::DrivelineParams& d = c.hapticsDriveline;
+                d.clutch   = o.value("clutch").toDouble(d.clutch);
+                d.clutchHz = o.value("clutchHz").toDouble(d.clutchHz);
+                d.lug      = o.value("lug").toDouble(d.lug);
+                d.lugHz    = o.value("lugHz").toDouble(d.lugHz);
             }
             if (info.kind == haptics::Kind::Engine)
             {
@@ -1169,6 +1182,16 @@ std::vector<std::string> AppConfig::validate() const
                     errors.push_back(pfx + "route axis out of range");
                 if (r.gain < 0.0 || r.gain > 2.0)
                     errors.push_back(pfx + "route gain out of range [0, 2]");
+            }
+            if (info.kind == haptics::Kind::Driveline)
+            {
+                const haptics::DrivelineParams& d = hapticsDriveline;
+                if (d.clutch < 0.0 || d.clutch > 1.0 || d.lug < 0.0 || d.lug > 1.0)
+                    errors.push_back(pfx + "clutch/lug mix out of range [0, 1]");
+                if (d.clutchHz < 4.0 || d.clutchHz > 20.0)
+                    errors.push_back(pfx + "clutchHz out of range [4, 20]");
+                if (d.lugHz < 3.0 || d.lugHz > 15.0)
+                    errors.push_back(pfx + "lugHz out of range [3, 15]");
             }
             if (info.kind == haptics::Kind::Road)
             {

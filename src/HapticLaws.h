@@ -56,6 +56,15 @@ namespace laws_k {
     constexpr double kRollLearnMaxThr  = 30.0;     // % throttle; above this a driven wheel may be slipping
     constexpr double kRollLearnMaxBrk  = 5.0;
     constexpr double kRollLearnRate    = 0.01;     // EWMA step per cycle while cruising
+    // Driveline laws
+    constexpr double kClutchSlipLo     = 15.0;     // % pedal: below this the clutch is up (driving)
+    constexpr double kClutchSlipHi     = 85.0;     // % pedal: above this it is floored (open)
+    constexpr double kClutchLaunchKmh  = 5.0;      // slower than this with the engine up = a launch (full slip)
+    constexpr double kClutchMinRpm     = 500.0;    // nothing from a stalled engine
+    constexpr double kLugThrottle      = 50.0;     // % throttle at or above which the engine can be lugged
+    constexpr double kLugFromX         = 0.30;     // lug fades out by this fraction of the redline...
+    constexpr double kLugFullX         = 0.12;     // ...and is full at this one (just above idle)
+    constexpr double kLugMinRpm        = 600.0;    // not while cranking or dying
 }
 
 // Start a Test preview on a continuous/engine slot.
@@ -66,7 +75,8 @@ inline void startPreview(LawsState& st, FxType t)
 
 // Drive every continuous effect and the gear-shift transient for THIS
 // cycle from the channel values. Call before Layer::step().
-inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec)
+inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
+                      const GearRatios* ratios = nullptr)
 {
     using namespace laws_k;
     const bool live = v.fresh;
@@ -251,6 +261,51 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec)
         }
         else
             L.driveFx(FxType::Road, previewOr(FxType::Road, mag(NcxValues::RoadNoise)), 0.0);
+    }
+
+    // Driveline: clutch judder while the pedal is in the slipping band with
+    // slip across the clutch (engine rpm against what the gear and road
+    // speed say, from the learned ratios; a launch from rest is full slip;
+    // an unknown ratio counts as half), scaled by load; lugging wind-up at
+    // high throttle and low revs. Nothing in neutral. A preview plays both.
+    {
+        double judder = 0.0, lug = 0.0;
+        const bool preview = st.previewSec[static_cast<int>(FxType::Driveline)] > 0.0;
+        if (preview) { judder = 1.0; lug = 1.0; st.previewSec[static_cast<int>(FxType::Driveline)] -= dtSec; }
+        else if (live && v.have[NcxValues::Rpm] && v.have[NcxValues::Gear] && v.val[NcxValues::Rpm] > kClutchMinRpm)
+        {
+            const double rpm  = v.val[NcxValues::Rpm];
+            const double g0   = v.val[NcxValues::Gear];
+            const int    g    = static_cast<int>(g0 < 0.0 ? g0 - 0.5 : g0 + 0.5);
+            const bool   inGear = (g != 0);
+            const double load = v.have[NcxValues::ThrottlePct] ? std::max(0.0, std::min(1.0, v.val[NcxValues::ThrottlePct] / 100.0)) : 0.5;
+            if (inGear && v.have[NcxValues::ClutchPct])
+            {
+                const double c = v.val[NcxValues::ClutchPct];
+                if (c > kClutchSlipLo && c < kClutchSlipHi)
+                {
+                    // Window: full mid-band, tapering to the edges.
+                    const double mid = 0.5 * (kClutchSlipLo + kClutchSlipHi), half = 0.5 * (kClutchSlipHi - kClutchSlipLo);
+                    const double window = std::max(0.0, 1.0 - std::fabs(c - mid) / half);
+                    double slip = 0.5;   // ratio unknown: assume some
+                    const double speed = v.have[NcxValues::SpeedKmh] ? std::max(0.0, v.val[NcxValues::SpeedKmh]) : -1.0;
+                    if (speed >= 0.0 && speed < kClutchLaunchKmh) slip = 1.0;
+                    else if (speed >= 0.0 && ratios && g > 0 && g < MAX_GEARS && ratios->known[g])
+                    {
+                        const double expected = ratios->r[g] * speed;
+                        slip = std::max(0.0, std::min(1.0, std::fabs(rpm - expected) / std::max(1.0, rpm)));
+                    }
+                    judder = window * slip * std::max(0.15, load);
+                }
+            }
+            if (inGear && v.have[NcxValues::ThrottlePct] && v.val[NcxValues::ThrottlePct] >= kLugThrottle && rpm > kLugMinRpm)
+            {
+                const double maxRpm = (L.engineParams().maxRpm > 0.0) ? L.engineParams().maxRpm : L.learnedMaxRpm();
+                const double x = rpm / std::max(1000.0, maxRpm);
+                lug = std::max(0.0, std::min(1.0, (kLugFromX - x) / (kLugFromX - kLugFullX))) * load;
+            }
+        }
+        L.driveDriveline(judder, lug);
     }
 
     // Magnitude-driven textures (0-100 on the wire).
