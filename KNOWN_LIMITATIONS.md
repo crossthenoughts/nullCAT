@@ -58,6 +58,20 @@ Larger topologies (7 to 10 drives) are untested and are a stated goal
 of the beta program; if you run a bigger chain, your results are
 exactly the data the project needs.
 
+## Shakers: tested through the null backend, not yet on a card
+
+The shaker path (the per-card drift servo, filters, underrun handling,
+the idle clock that keeps effects playing with the drives off) is
+pinned by tests and has run end to end against the null audio backend
+on both platforms. It has not yet been run against a real USB sound
+card on either platform, so the device names the host settings expect,
+ALSA's buffer behaviour on a given dongle, and the actual latency to the
+coil are unverified. If you run one: the status line under the shaker
+settings shows the card, its buffer and an underrun count; a rising
+underrun count with the control loop running is the data to report.
+Two cards at different buffer sizes land their effects a few
+milliseconds apart; that difference is not compensated yet.
+
 ## Simulation mode cannot home
 
 Simulated drives have no hardstop model, so homing (torque-threshold

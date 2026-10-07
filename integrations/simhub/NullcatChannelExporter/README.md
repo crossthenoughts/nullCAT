@@ -15,7 +15,18 @@ All the feel and logic lives in nullCAT - this plugin never changes when
 effects do. Gear is numeric on the wire: `0` = neutral, `-1` = reverse.
 A channel the current game cannot feed is sent as 0 (the classic line) or
 not at all (the per-wheel line), which leaves its effect silently inert
-on the rig.
+on the rig. Boost and the pit limiter travel on the named line rather
+than as extra positional slots because their slots (34 and 35) sit past
+the per-wheel groups, which the plugin only sends when they are bound;
+nothing on the rig side needs setting up for that, the named line maps
+itself.
+
+In SimHub's plugin list it appears as **nullCAT Channel Exporter**:
+"Sends raw telemetry to nullCAT over UDP: rpm, speed, gear, pedals,
+ABS/TC/limiter flags, and optional per-wheel slip, load and suspension
+channels for the haptic layer". Version 1.3 of the plugin goes with
+nullCAT 0.9.7; it works with 0.9.6 too (the extra channels are simply
+ignored there).
 
 SimHub is one sender among others: FlyPT Mover, SimTools or your own
 feeder can send the same lines (see the sender templates in
