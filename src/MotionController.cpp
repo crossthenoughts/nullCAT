@@ -698,6 +698,14 @@ void MotionController::publishStatus()
     }
     m_statusSnapshot.gearRatiosDirty = m_ratioLearner.dirty();
 
+    publishHapticsStatusLocked();
+}
+
+// The haptics part of the snapshot, shared by the RT publish and the idle
+// clock (which has no axes to publish but keeps the tiles, dots and
+// channel chips live while the loop is stopped). Caller holds the lock.
+void MotionController::publishHapticsStatusLocked()
+{
     m_statusSnapshot.hapticsFired = m_haptics.fireCount();
     for (int i = 0; i < haptics::EVENT_TYPE_COUNT; ++i)
         m_statusSnapshot.hapticsFiredBy[i] = m_haptics.fireCount(static_cast<haptics::EventType>(i));
@@ -1799,7 +1807,48 @@ void MotionController::stageHaptics(const AppConfig& c)
     m_hapStage.driveline  = c.hapticsDriveline;
     m_hapStage.masterGain = c.hapticsMasterGain;
     m_hapStage.positionBudget = c.hapticsPositionBudget;
+    m_hapStage.axisDelayMs    = c.hapticsAxisDelayMs;
     m_hapStagePending.store(true, std::memory_order_release);
+}
+
+// Staged live config (rig save, no re-init) lands at the top of a cycle.
+void MotionController::applyStagedHaptics()
+{
+    if (const int t = m_toneRequest.exchange(0, std::memory_order_acq_rel)) m_haptics.startShakerTone(t - 1, 1.0);
+    if (!m_hapStagePending.load(std::memory_order_acquire)) return;
+    HapticsStage s;   // trivially copyable, no allocation on this thread
+    { std::lock_guard<std::mutex> lk(m_hapStageLock); s = m_hapStage; }
+    m_hapStagePending.store(false, std::memory_order_release);
+    applyHapticsTo(m_haptics, s.fx, s.engine, s.slipLat, s.slipLon, s.road, s.driveline, s.masterGain);
+    m_hapPositionBudget = std::max(0.0, std::min(1.0, s.positionBudget));
+    m_haptics.setAxisDelayCycles(static_cast<int>(s.axisDelayMs / 1000.0 / std::max(1e-6, m_cycleTimeSec) + 0.5));
+    applyHapticSinks();
+    RT_LOG_INFO("MotionController: haptics settings applied live.");
+}
+
+// One control cycle's shaker samples into the sound card, when one is
+// attached (ShakerOutput::push is lock-free and skips when closed).
+void MotionController::pushShakers()
+{
+    if (m_shakers) m_shakers->push(m_haptics.shakerSamples(), haptics::MAX_SHAKER_OUT);
+}
+
+// The haptics idle clock: with the control loop stopped (or no drives
+// at all), a timer thread steps just the haptics path at the control
+// rate so shakers keep playing. Never touches an axis. Guarded against
+// overlapping the RT cycle by a flag both paths take.
+void MotionController::hapticsIdleTick(const TelemetryData& td)
+{
+    if (m_hapticsBusy.exchange(true, std::memory_order_acq_rel)) return;   // the RT loop has it
+    applyStagedHaptics();
+    driveContinuousHaptics(td);
+    m_haptics.step(m_cycleTimeSec);
+    pushShakers();
+    {
+        std::unique_lock<std::shared_mutex> lock(m_statusLock, std::try_to_lock);
+        if (lock.owns_lock()) publishHapticsStatusLocked();
+    }
+    m_hapticsBusy.store(false, std::memory_order_release);
 }
 
 // The effect laws live in HapticLaws.h (one place for every
@@ -1929,19 +1978,17 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
     // rides an emergency ramp); otherwise drive the continuous effects
     // from this cycle's channels and advance the layer once, so
     // overlayFor() below serves this cycle's values.
-    if (m_hapStagePending.load(std::memory_order_acquire))
+    // (the idle clock may still hold the layer for one tick at the hand-
+    // over when the loop starts; the overlays are then last cycle's)
+    if (!m_hapticsBusy.exchange(true, std::memory_order_acq_rel))
     {
-        HapticsStage s;   // trivially copyable, no allocation on this thread
-        { std::lock_guard<std::mutex> lk(m_hapStageLock); s = m_hapStage; }
-        m_hapStagePending.store(false, std::memory_order_release);
-        applyHapticsTo(m_haptics, s.fx, s.engine, s.slipLat, s.slipLon, s.road, s.driveline, s.masterGain);
-        m_hapPositionBudget = std::max(0.0, std::min(1.0, s.positionBudget));
-        applyHapticSinks();
-        RT_LOG_INFO("MotionController: haptics settings applied live.");
+        applyStagedHaptics();
+        if (estopNow) m_haptics.clearAll();
+        else          driveContinuousHaptics(telemetryData);
+        m_haptics.step(m_cycleTimeSec);
+        pushShakers();
+        m_hapticsBusy.store(false, std::memory_order_release);
     }
-    if (estopNow) m_haptics.clearAll();
-    else          driveContinuousHaptics(telemetryData);
-    m_haptics.step(m_cycleTimeSec);
 
     for (int i = 0; i < m_numDrives; ++i)
     {

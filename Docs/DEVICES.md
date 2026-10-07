@@ -148,6 +148,35 @@ are for, lets you look at another remembered game, and can forget one.
 A sender that does not name its game (see PROTOCOL.md, `NULLCATY`) is
 remembered as an unnamed sender.
 
+### Shakers
+
+Bass shakers and other tactile transducers hang off a USB sound card and
+take the same effects as the axes. In the host settings tick
+**Shakers**, name the **Audio device** (part of its name; empty for the
+system default; `null` for a bench with no card) and how many of its
+outputs are **Shaker channels**; a second card (a second stereo dongle
+is the usual way to four shakers) goes in **Audio device 2**, its
+channels numbered after the first card's. Restart, and the status line
+under those fields names each card with its sample rate, buffer and
+underrun count, with a **test** button per channel (40 Hz for a second).
+
+Every effect's route editor then lists **Shaker 1..N** below the axes.
+A shaker route has a gain (1 = full scale at 100 % amplitude; the output
+soft-clips, never clips hard) and a **harmonic**: x1 plays the effect's
+carrier as it is, x2 doubles it, and so on, phase-locked to the same
+oscillator. That is how a 9 Hz belt effect lands on a shaker at 18 Hz
+where the shaker has output, while the belt keeps the 9 Hz. Pulses
+(thumps, clicks) and the road replay play as they are.
+
+The shaker path is a few milliseconds behind the belts (the card's
+buffer, 15 to 25 ms on most cards). **axis delay ms** on the Master tile
+holds the axis effects back by that much so everything lands together;
+the motion cue itself is never delayed. Shakers keep playing with the
+control loop stopped and on a rig with no drives at all, so a shaker
+install on its own is a complete haptics engine for the sim channels.
+Underruns in the status line mean the sender or the machine stalled;
+the chain holds the last sample and fades rather than clicking.
+
 ### Profiles
 
 A profile is a named copy of everything on the strip: every tile's

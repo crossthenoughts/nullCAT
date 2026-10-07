@@ -39,6 +39,10 @@ ignored (the flat-file migration from pre-release builds was retired).
 | `webAllowedHosts` | string[] | `[]` | Extra Host-header names the web server accepts, e.g. a router-assigned DNS alias. Localhost forms, the machine's own hostname (bare and `.local`), the bind address, and all local interface addresses are always accepted; this list only appends. Part of the fail-closed Host allowlist that blocks DNS rebinding (see KNOWN_LIMITATIONS, security section). |
 | `webUIEnabled` | bool | `false` | Off by default on Windows installs where the Qt UI is the primary control surface; the headless build runs with it on. On the Qt build, toggle it with the main window's web on/off button (which persists the choice here); it is not in the Settings dialog. |
 | `webShowDevices` | bool | `false` | Shows the Devices section in the web UI (force devices: shifter, active pedal) and adds the device axis types to the axis editor. The tickbox lives under Advanced in the web config; Pi builds only (the row is hidden elsewhere). Purely a UI switch: device axes in rig.json work regardless. |
+| `shakersEnabled` | bool | `false` | Drive bass shakers from a USB sound card: opens the device(s) below at start and keeps the haptics layer stepping while the control loop is stopped (so shakers work with no drives). Read once at startup. |
+| `audioDevice` | string | `""` | The playback device for shakers: part of its name (case does not matter), `""` for the system default, `"null"` for no hardware (the null backend). Device 1 when `audioDevices` is absent. |
+| `audioChannels` | int | `2` | How many of that device's outputs are shakers, 1 to 8. |
+| `audioDevices` | array | absent | More than one card: `[{"device": "<name>", "channels": 2}, ...]`, shaker numbers running across the devices in order, 8 in total at most. Replaces the two fields above when present. |
 
 ### EtherCAT timing and init
 
@@ -121,7 +125,7 @@ Top level: `configVersion`, `numDrives` (1 to 10, must match `axes[]`),
 
 ### global.haptics
 
-One object per effect: `detentClick`, `gearShift`, `rpmVibe` (the engine), `abs`, `slipLon` (longitudinal slip), `slipLat` (lateral slip), `road`, `limiter`, `tc`, `kerb`, `driveline`, plus `masterGain` (number, 0 to 2, default `1`, scales every effect) and `positionBudget` (number, 0 to 1, default `0.4`, the share of each position axis's velocity and acceleration limits that haptics may use; see `hapticsMaxMm` below). Every effect is off until it has an amplitude above 0 and at least one route. Saves apply live, with no re-initialize.
+One object per effect: `detentClick`, `gearShift`, `rpmVibe` (the engine), `abs`, `slipLon` (longitudinal slip), `slipLat` (lateral slip), `road`, `limiter`, `tc`, `kerb`, `driveline`, plus `masterGain` (number, 0 to 2, default `1`, scales every effect) and `positionBudget` (number, 0 to 1, default `0.4`, the share of each position axis's velocity and acceleration limits that haptics may use; see `hapticsMaxMm` below) and `axisDelayMs` (number, 0 to 60, default `0`: holds the axis haptic overlays back by this much so they land together with the slower shaker path; the motion cue is never delayed). Every effect is off until it has an amplitude above 0 and at least one route. Saves apply live, with no re-initialize.
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
@@ -129,7 +133,7 @@ One object per effect: `detentClick`, `gearShift`, `rpmVibe` (the engine), `abs`
 | `freqHz` | double | per effect | Carrier frequency (4 to 500 Hz). For the engine this is the weight of each firing thump (default 30). |
 | `durMs` | double | per effect | Length of a one-shot effect (detent click, gear shift), 5 to 100 ms. |
 | `jitter` | double | per effect | 0 to 1. Roughens the carrier so skid, road and kerb feel like texture rather than a tone. For the engine it is the idle lope (per-revolution unevenness). |
-| `routes` | array | `[]` | Where the effect goes: `[{"axis": <index>, "gain": <number>, "part": <string>}]`, up to 10 entries, any axis. On a torque axis (belt, device) `gain` is a multiplier, 0 to 2. On a position (CSP) axis `gain` is the offset in mm at 100 % amplitude, 0 to that axis's `hapticsMaxMm`. `part` (the two slip effects and road only, default `"all"`): which wheels this axis carries, `all`, `front`, `rear`, `fl`, `fr`, `rl`, `rr`; the strongest of them plays. No routes = the effect reaches nothing. |
+| `routes` | array | `[]` | Where the effect goes: `[{"axis": <index>, "gain": <number>, "part": <string>}]` or `[{"shaker": <index>, "gain": <number>, "harm": <int>}]`, up to 14 entries, any axis or shaker channel. A shaker route's `gain` is full scale at 100 % amplitude (1 = full, soft-clipped above), `harm` (1 to 8, default 1) the harmonic of the effect's carrier it plays, phase-locked. On a torque axis (belt, device) `gain` is a multiplier, 0 to 2. On a position (CSP) axis `gain` is the offset in mm at 100 % amplitude, 0 to that axis's `hapticsMaxMm`. `part` (the two slip effects and road only, default `"all"`): which wheels this axis carries, `all`, `front`, `rear`, `fl`, `fr`, `rl`, `rr`; the strongest of them plays. No routes = the effect reaches nothing. |
 
 Slip-only fields. Both tiles are per-wheel models with two components, each with a mix (0 to 1) and a carrier; the route's `part` picks the wheels. `freqHz` is kept in the object but unused by these two.
 

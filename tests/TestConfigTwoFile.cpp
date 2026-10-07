@@ -135,10 +135,19 @@ private slots:
         // Route parts on the per-wheel tiles survive; "all" is the default.
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)].routes[0].part   = haptics::Part::FL;
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Lockup)].routes[1].part = haptics::Part::Rear;
+        // A shaker route beside the axis routes: shaker index, gain, harmonic.
+        { haptics::Route sr; sr.shaker = 3; sr.gain = 0.7; sr.harm = 2;
+          c.hapticsFx[static_cast<size_t>(haptics::Effect::Kerb)].routes[2] = sr; }
+        c.hapticsAxisDelayMs = 12.0;
         QVERIFY(a.saveRig(anchor(dir).toStdString()));
 
         Config b; QVERIFY(b.load(anchor(dir).toStdString()));
         const AppConfig& r = b.get();
+        {
+            const haptics::Route& sr = r.hapticsFx[static_cast<size_t>(haptics::Effect::Kerb)].routes[2];
+            QCOMPARE(sr.shaker, 3); QCOMPARE(sr.axis, -1); QCOMPARE(sr.gain, 0.7); QCOMPARE(sr.harm, 2);
+            QCOMPARE(r.hapticsAxisDelayMs, 12.0);
+        }
         for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
         {
             const haptics::EffectParams& p = r.hapticsFx[static_cast<size_t>(i)];

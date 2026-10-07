@@ -91,6 +91,7 @@ public:
     void step(double dtSec)
     {
         for (double& o : m_overlay) o = 0.0;
+        for (double& o : m_shaker)  o = 0.0;
         if (dtSec <= 0.0) return;
 
         // One-shot transients.
@@ -104,7 +105,10 @@ public:
             const double v   = e.ampPct * env
                              * std::sin(2.0 * wavesynth::kPi * e.freqHz * e.tSec);
             for (const Route& r : e.routes)
+            {
+                if (r.shaker >= 0) { toShaker(r, e.ampPct * env * std::sin(2.0 * wavesynth::kPi * e.freqHz * r.harm * e.tSec)); continue; }
                 if (r.axis >= 0) m_overlay[r.axis] += v * r.gain * sinkScale(r.axis, e.ampPct * r.gain, e.freqHz);
+            }
         }
 
         // Continuous effects: attack/release-smoothed level on a free-running
@@ -128,9 +132,11 @@ public:
                 if (f.level < 1e-4) continue;
                 for (const Route& r : p.routes)
                 {
-                    if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES || r.gain <= 0.0) continue;
+                    if (r.gain <= 0.0) continue;
                     const double s = m_road.outputFor(r.part);
                     if (s == 0.0) continue;
+                    if (r.shaker >= 0) { toShaker(r, p.ampPct * s); continue; }   // a replay has no carrier: as is
+                    if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
                     // No single carrier in a replay: derate a position sink
                     // at a representative bump rate; the owner's sum guard
                     // holds the axis limits regardless.
@@ -148,7 +154,13 @@ public:
                 const DrivelineOut& o = m_driveline.out();
                 for (const Route& r : p.routes)
                 {
-                    if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES || r.gain <= 0.0) continue;
+                    if (r.gain <= 0.0) continue;
+                    if (r.shaker >= 0)
+                    {
+                        toShaker(r, p.ampPct * (o.judderEnv * std::sin(r.harm * o.judderPhase) + o.lugEnv * std::sin(r.harm * o.lugPhase)));
+                        continue;
+                    }
+                    if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
                     const double ask = p.ampPct * r.gain;
                     const double v = p.ampPct * (o.judder * sinkScale(r.axis, ask, o.judderHz)
                                                + o.lug    * sinkScale(r.axis, ask, o.lugHz));
@@ -178,7 +190,16 @@ public:
                 const double v = eo.total();
                 for (const Route& r : p.routes)
                 {
-                    if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES || r.gain <= 0.0) continue;
+                    if (r.gain <= 0.0) continue;
+                    if (r.shaker >= 0)
+                    {
+                        // Rock and buzz at the route's harmonic, thumps as they are.
+                        const double sv = (r.harm == 1) ? v
+                                        : std::max(-eo.cap, std::min(eo.cap, eo.rockAt(r.harm) + eo.thumps + eo.buzzAt(r.harm)));
+                        toShaker(r, sv);
+                        continue;
+                    }
+                    if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
                     if (m_sinkKind[r.axis] == SinkKind::Position)
                     {
                         // Each component derated by what this axis can follow
@@ -207,8 +228,14 @@ public:
                 if (f.level < 1e-4) continue;
                 for (const Route& r : p.routes)
                 {
-                    if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES || r.gain <= 0.0) continue;
+                    if (r.gain <= 0.0) continue;
                     const SlipModel::Out o = sm->outputFor(r.part);
+                    if (r.shaker >= 0)
+                    {
+                        toShaker(r, p.ampPct * (o.aEnv * std::sin(r.harm * o.aPhase) + o.bEnv * std::sin(r.harm * o.bPhase)));
+                        continue;
+                    }
+                    if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
                     const double ask = p.ampPct * r.gain;
                     const double v = p.ampPct * (o.a * sinkScale(r.axis, ask, o.aHz)
                                                + o.b * sinkScale(r.axis, ask, o.bHz));
@@ -229,14 +256,60 @@ public:
             }
             const double v = p.ampPct * f.level * f.osc.step(freq, dtSec);
             for (const Route& r : p.routes)
-                if (r.axis >= 0 && r.axis < MAX_HAPTIC_AXES && r.gain > 0.0)
+            {
+                if (r.gain <= 0.0) continue;
+                if (r.shaker >= 0) { toShaker(r, p.ampPct * f.level * std::sin(r.harm * f.osc.phase)); continue; }
+                if (r.axis >= 0 && r.axis < MAX_HAPTIC_AXES)
                     m_overlay[r.axis] += v * r.gain * sinkScale(r.axis, p.ampPct * r.gain, f.freqHz);
+            }
+        }
+
+        // Shaker tone test: a 40 Hz sine on one channel for a moment.
+        if (m_toneLeft > 0.0 && m_toneChannel >= 0 && m_toneChannel < MAX_SHAKER_OUT)
+        {
+            m_toneLeft -= dtSec;
+            m_shaker[m_toneChannel] += 0.5 * m_toneOsc.step(40.0, dtSec);
         }
 
         // Master trim last: per-effect settings stay untouched underneath.
         const double mg = m_muted ? 0.0 : m_masterGain;
-        if (mg != 1.0) for (double& o : m_overlay) o *= mg;
+        if (mg != 1.0) { for (double& o : m_overlay) o *= mg; for (double& o : m_shaker) o *= mg; }
+
+        // Axis alignment delay: the fast sinks (torque, position) can be
+        // held back a few ms so they land together with the slower shaker
+        // path. The haptic overlay only, never the motion cue.
+        if (m_delayCycles > 0)
+        {
+            for (int a = 0; a < MAX_HAPTIC_AXES; ++a)
+            {
+                m_delayBuf[a][m_delayHead] = static_cast<float>(m_overlay[a]);
+                const int readAt = (m_delayHead + MAX_DELAY_CYCLES - m_delayCycles) % MAX_DELAY_CYCLES;
+                m_overlay[a] = m_delayBuf[a][readAt];
+            }
+            m_delayHead = (m_delayHead + 1) % MAX_DELAY_CYCLES;
+        }
     }
+
+    // Shaker channel sample for this cycle, -1..1 nominal (100% amp x gain
+    // 1 = full scale; the DSP soft-clips beyond).
+    double shakerSample(int i) const
+    {
+        return (i >= 0 && i < MAX_SHAKER_OUT) ? m_shaker[i] : 0.0;
+    }
+    const double* shakerSamples() const { return m_shaker; }
+
+    // Tone test (RT thread, via the command queue).
+    void startShakerTone(int channel, double sec) { m_toneChannel = channel; m_toneLeft = sec; m_toneOsc.reset(); }
+    bool shakerToneActive() const { return m_toneLeft > 0.0; }
+
+    // Axis alignment delay in control cycles (0 = none; config apply).
+    void setAxisDelayCycles(int cycles)
+    {
+        m_delayCycles = std::max(0, std::min(MAX_DELAY_CYCLES - 1, cycles));
+        for (auto& row : m_delayBuf) for (float& v : row) v = 0.0f;
+        m_delayHead = 0;
+    }
+    int axisDelayCycles() const { return m_delayCycles; }
 
     // Torque overlay (% of rated) for one axis this cycle. The caller adds
     // it to the axis command and clamps the SUM inside the axis limits.
@@ -389,7 +462,7 @@ public:
     static bool hasRoute(const EffectParams& p)
     {
         for (const Route& r : p.routes)
-            if (r.axis >= 0 && r.axis < MAX_HAPTIC_AXES && r.gain > 0.0) return true;
+            if (r.gain > 0.0 && ((r.axis >= 0 && r.axis < MAX_HAPTIC_AXES) || (r.shaker >= 0 && r.shaker < MAX_SHAKER_OUT))) return true;
         return false;
     }
 
@@ -423,6 +496,8 @@ public:
         m_roadDriven = false;
         m_driveline.clear();
         for (double& o : m_overlay) o = 0.0;
+        for (double& o : m_shaker)  o = 0.0;
+        m_toneLeft = 0.0;
     }
 
     bool anyActive() const
@@ -475,6 +550,20 @@ private:
         return (t == FxType::Skid) ? &m_slipLatParams : (t == FxType::Lockup) ? &m_slipLonParams : nullptr;
     }
 
+    // Add one route's value (in % of rated, like an axis overlay) to its
+    // shaker channel as a -1..1 sample.
+    void toShaker(const Route& r, double pct)
+    {
+        if (r.shaker >= 0 && r.shaker < MAX_SHAKER_OUT) m_shaker[r.shaker] += pct * r.gain / 100.0;
+    }
+
+    static constexpr int MAX_DELAY_CYCLES = 128;   // 64 ms at 2 kHz, 256 ms at 500 Hz
+    double       m_shaker[MAX_SHAKER_OUT] = {};
+    int          m_toneChannel = -1;
+    double       m_toneLeft = 0.0;
+    wavesynth::Oscillator m_toneOsc;
+    int          m_delayCycles = 0, m_delayHead = 0;
+    float        m_delayBuf[MAX_HAPTIC_AXES][MAX_DELAY_CYCLES] = {};
     SinkKind     m_sinkKind[MAX_HAPTIC_AXES] = {};
     double       m_posV[MAX_HAPTIC_AXES] = {}, m_posA[MAX_HAPTIC_AXES] = {}, m_posCap[MAX_HAPTIC_AXES] = {};
     EngineModel  m_engine;

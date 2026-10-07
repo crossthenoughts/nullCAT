@@ -43,8 +43,10 @@ class SlipModel
 public:
     struct Out
     {
-        double a = 0.0, b = 0.0;      // samples, -1..1 x mix x level
-        double aHz = 0.0, bHz = 0.0;  // carriers (unjittered) for sink derating
+        double a = 0.0, b = 0.0;          // samples, -1..1 x mix x level
+        double aHz = 0.0, bHz = 0.0;      // carriers (unjittered) for sink derating
+        double aEnv = 0.0, bEnv = 0.0;    // the non-oscillatory part (level x mix)
+        double aPhase = 0.0, bPhase = 0.0;// oscillator phase, radians: a shaker plays sin(harm x phase)
     };
 
     // Per wheel, per cycle, BEFORE step(): component severities 0..1.
@@ -75,6 +77,8 @@ public:
             w.tA = w.tB = 0.0;    // a law that stops driving = release
             w.sA = component(w.lA, s.aHz * m_aScale, s.aMix, p.jitter, w.oscA, w.rng, dtSec, w.hzA);
             w.sB = component(w.lB, s.bHz * m_bScale, s.bMix, p.jitter, w.oscB, w.rng, dtSec, w.hzB);
+            w.envA = (w.hzA > 0.0) ? w.lA * s.aMix : 0.0;
+            w.envB = (w.hzB > 0.0) ? w.lB * s.bMix : 0.0;
         }
     }
 
@@ -97,8 +101,8 @@ public:
         for (int i = first; i <= last; ++i)
         {
             const W& w = m_w[i];
-            if (w.lA > bestA) { bestA = w.lA; o.a = w.sA; o.aHz = w.hzA; }
-            if (w.lB > bestB) { bestB = w.lB; o.b = w.sB; o.bHz = w.hzB; }
+            if (w.lA > bestA) { bestA = w.lA; o.a = w.sA; o.aHz = w.hzA; o.aEnv = w.envA; o.aPhase = w.oscA.phase; }
+            if (w.lB > bestB) { bestB = w.lB; o.b = w.sB; o.bHz = w.hzB; o.bEnv = w.envB; o.bPhase = w.oscB.phase; }
         }
         return o;
     }
@@ -129,6 +133,7 @@ private:
         double lA = 0.0, lB = 0.0;    // smoothed severity
         double sA = 0.0, sB = 0.0;    // this cycle's samples
         double hzA = 0.0, hzB = 0.0;  // this cycle's carriers
+        double envA = 0.0, envB = 0.0;// this cycle's envelopes (level x mix)
         wavesynth::Oscillator oscA, oscB;
         uint64_t rng = 0x9E3779B97F4A7C15ull;
     };

@@ -114,6 +114,7 @@ set(SOURCES
     src/CarCache.cpp
     src/EffectStatus.cpp
     src/HapticsProfiles.cpp
+    src/ShakerOutput.cpp
     src/Logging.cpp
     src/WebServer.cpp
     src/ForegroundKeeper.cpp
@@ -353,6 +354,7 @@ set(TEST_CORE_SOURCES
     src/CarCache.cpp
     src/EffectStatus.cpp
     src/HapticsProfiles.cpp
+    src/ShakerOutput.cpp
     src/Logging.cpp
     src/DriveFaultMonitor.cpp
 )
@@ -414,6 +416,9 @@ macro(add_motion_test TARGET_NAME SOURCE_FILE)
     target_compile_definitions(${TARGET_NAME} PRIVATE ${TEST_COMPILE_DEFS})
     target_compile_options(${TARGET_NAME} PRIVATE /W3 /MP /Zc:__cplusplus)
     target_link_libraries(${TARGET_NAME} PRIVATE ${TEST_QT_LIBS} ws2_32 winmm)
+    # The haptics tests keep many Layer instances as locals of one main():
+    # give the test binaries a 16 MB stack so that never becomes the limit.
+    target_link_options(${TARGET_NAME} PRIVATE /STACK:16777216)
     add_test(NAME ${TARGET_NAME} COMMAND ${TARGET_NAME} -v2)
     if(WIN32 AND TEST_PATH_ENV)
         set_tests_properties(${TARGET_NAME} PROPERTIES
@@ -475,6 +480,11 @@ add_motion_test(TestTorqueEnableBytes tests/TestTorqueEnableBytes.cpp)
 # overlay gating (ONLINE only) + clamp, live-apply, stale stream, mute,
 # e-stop, and the channel laws with a hand-built NcxValues.
 add_motion_test(TestHapticsIntegration tests/TestHapticsIntegration.cpp)
+# The shaker DSP chain: header-only, deterministic, no device.
+add_executable(TestShakerDsp tests/TestShakerDsp.cpp)
+target_include_directories(TestShakerDsp PRIVATE ${TEST_INCLUDE_DIRS})
+target_compile_options(TestShakerDsp PRIVATE /W3 /Zc:__cplusplus)
+add_test(NAME TestShakerDsp COMMAND TestShakerDsp)
 
 # ---- Build 72: TestInitSequence - EtherCATMaster init sequence (sim mode) ----
 #

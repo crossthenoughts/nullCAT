@@ -13,6 +13,7 @@
 #endif
 
 #include "WebServer.h"
+#include <cmath>
 #include "httplib.h"
 #include "Logging.h"
 #include "StatusModel.h"   // shared canonical status (additive emit)
@@ -409,6 +410,39 @@ std::string WebServer::buildStatusJson() const
             // Packets arriving but every value unchanged for 2 s (paused sim):
             // effects are released; the header shows it instead of "receiving".
             s += "\"ncxFrozen\":" + jsonBool(td.ncxFrozen) + ",";
+        }
+        // Shaker sink: the sound card state and per-channel output levels.
+        {
+            s += "\"shakers\":{";
+            if (m_shakers)
+            {
+                s += "\"enabled\":" + jsonBool(m_config && m_config->shakersEnabled) + ",";
+                s += "\"open\":" + jsonBool(m_shakers->anyOpen()) + ",";
+                s += "\"channels\":" + jsonInt(m_shakers->totalChannels()) + ",";
+                s += "\"devices\":[";
+                bool first = true;
+                for (const haptics::ShakerBank::Info& i : m_shakers->info())
+                {
+                    s += std::string(first ? "" : ",") + "{";
+                    first = false;
+                    s += "\"name\":" + jsonStr(i.open ? i.name : i.wanted) + ",";
+                    s += "\"open\":" + jsonBool(i.open) + ",";
+                    s += "\"error\":" + jsonStr(i.error) + ",";
+                    s += "\"first\":" + jsonInt(i.firstShaker) + ",";
+                    s += "\"channels\":" + jsonInt(i.channels) + ",";
+                    s += "\"rate\":" + jsonInt(i.sampleRate) + ",";
+                    s += "\"bufferMs\":" + jsonDouble(i.bufferMs, 1) + ",";
+                    s += "\"underruns\":" + std::to_string(i.underruns) + ",";
+                    s += "\"fill\":" + jsonInt(i.fill) + ",";
+                    s += "\"levels\":[";
+                    for (size_t c = 0; c < i.levels.size(); ++c)
+                        s += (c ? "," : "") + jsonDouble(std::fabs(i.levels[c]), 3);
+                    s += "]}";
+                }
+                s += "]";
+            }
+            else s += "\"enabled\":false,\"open\":false,\"channels\":0,\"devices\":[]";
+            s += "},";
         }
         // Sticky per-sim effect dots for the current game, registry order:
         // 0 never delivered, 1 delivered but never produced, 2 has produced.
@@ -1593,6 +1627,34 @@ bool WebServer::start()
             if (key.empty()) { errResp(res, "Which binding?"); return; }
             m_profiles.unbind(key);
             if (!m_configPath.empty()) m_profiles.save(m_configPath);
+            okResp(res);
+        });
+
+        // Shakers: the playback devices the backend can see (for the host
+        // settings picker) and a per-channel tone test (40 Hz for a second,
+        // through the whole chain, with or without the control loop).
+        svr.Get("/api/shakers/devices", [this](const httplib::Request&, httplib::Response& res)
+        {
+            QJsonArray devs;
+            if (m_shakers)
+                for (const haptics::ShakerDeviceInfo& d : m_shakers->listDevices())
+                {
+                    QJsonObject o; o["name"] = QString::fromStdString(d.name); o["default"] = d.isDefault;
+                    devs.append(o);
+                }
+            QJsonObject root; root["devices"] = devs;
+            res.set_content(QJsonDocument(root).toJson(QJsonDocument::Compact).toStdString(), "application/json");
+        });
+        postCmd("/api/shakers/test", [this, okResp, errResp](const httplib::Request& req, httplib::Response& res)
+        {
+            if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
+            if (!m_shakers || !m_shakers->anyOpen())
+            { errResp(res, "No shaker output is open: enable shakers in the host settings and restart."); return; }
+            const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(req.body));
+            const int ch = doc.isObject() ? doc.object().value("channel").toInt(-1) : -1;
+            if (ch < 0 || ch >= m_shakers->totalChannels()) { errResp(res, "Channel out of range."); return; }
+            if (!m_shakers->channelLive(ch)) { errResp(res, "That channel's device is not open."); return; }
+            m_motion->requestShakerTone(ch);
             okResp(res);
         });
 

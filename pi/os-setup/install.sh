@@ -125,7 +125,9 @@ log "Installing packages (toolchain + RT kernel)"
 sudo apt-get update -qq
 sudo apt-get install -y --no-install-recommends \
     build-essential cmake git pkg-config ethtool libcap2-bin curl \
-    qt6-base-dev libgpiod-dev linux-image-rpi-v8-rt
+    qt6-base-dev libgpiod-dev linux-image-rpi-v8-rt libasound2
+# libasound2: ALSA for the shaker outputs (a USB sound card), loaded at run
+# time by the audio backend, so only the shared library is needed.
 # linux-image-rpi-v8-rt: the stock Raspberry Pi PREEMPT_RT kernel. The
 # bootloader prefers it once installed; verify after reboot with uname -r.
 # qt6-base-dev: build-time only (Config JSON + the Qt Test suites).
@@ -263,7 +265,11 @@ EOF
 if getent group gpio >/dev/null 2>&1; then
     sudo usermod -aG gpio "${RT_USER}"
 fi
-ok "Limits + gpio group set (take effect on next login)"
+# audio: the service opens the USB sound card for the shaker outputs.
+if getent group audio >/dev/null 2>&1; then
+    sudo usermod -aG audio "${RT_USER}"
+fi
+ok "Limits + gpio/audio groups set (take effect on next login)"
 
 # ----------------------------------------------------------------------------
 # 7. SOEM -- clone, pin, build

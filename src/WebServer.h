@@ -37,6 +37,7 @@
 #include "Logging.h"
 #include "EffectStatus.h"
 #include "HapticsProfiles.h"
+#include "ShakerBank.h"
 
 #include <string>
 #include <thread>
@@ -68,6 +69,8 @@ public:
     void setConfigPath(const std::string& path) { m_configPath = path; }
     // Telemetry handle - lets /api/status report the receiving indicator.
     void setTelemetry(TelemetryInput* s)              { m_telemetry     = s; }
+    // The shaker sound card (status, device list, tone test); may be null.
+    void setShakerOutput(haptics::ShakerBank* s)      { m_shakers       = s; }
     void setPort(int port)                      { m_port       = port; }
     // Bind address. Defaults to 127.0.0.1 (loopback - no firewall prompt).
     // Set to "0.0.0.0" to allow remote access (RPi headless, phone, etc.)
@@ -209,6 +212,7 @@ private:
     // Haptics profiles (profiles.json): named copies of the rig haptics
     // object with car/game bindings; the sampler switches on identity.
     HapticsProfiles   m_profiles;
+    haptics::ShakerBank*   m_shakers = nullptr;
     std::mutex        m_profilesIo;          // one profile load/save at a time
     std::string       m_lastIdentity;        // "car|game" last looked up
     bool loadProfile(const std::string& name, std::string& err);

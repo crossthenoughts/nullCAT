@@ -34,8 +34,10 @@ namespace driveline_k {
 
 struct DrivelineOut
 {
-    double judder = 0.0, lug = 0.0;       // -1..1 x mix x level
-    double judderHz = 0.0, lugHz = 0.0;   // carriers for sink derating
+    double judder = 0.0, lug = 0.0;           // -1..1 x mix x level
+    double judderHz = 0.0, lugHz = 0.0;       // carriers for sink derating
+    double judderEnv = 0.0, lugEnv = 0.0;     // level x mix
+    double judderPhase = 0.0, lugPhase = 0.0; // radians, for a shaker's harmonic
 };
 
 class DrivelineModel
@@ -55,6 +57,8 @@ public:
         m_out = DrivelineOut{};
         m_out.judder = component(m_lJ, d.clutchHz, d.clutch, p.jitter, m_oscJ, m_rng, dtSec, m_out.judderHz);
         m_out.lug    = component(m_lL, d.lugHz,    d.lug,    p.jitter, m_oscL, m_rng, dtSec, m_out.lugHz);
+        m_out.judderEnv = (m_out.judderHz > 0.0) ? m_lJ * d.clutch : 0.0; m_out.judderPhase = m_oscJ.phase;
+        m_out.lugEnv    = (m_out.lugHz > 0.0)    ? m_lL * d.lug    : 0.0; m_out.lugPhase    = m_oscL.phase;
     }
 
     const DrivelineOut& out() const { return m_out; }

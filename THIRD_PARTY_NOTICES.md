@@ -29,6 +29,14 @@ documented on the image itself under /usr/share/doc/<package>/copyright.
 - MIT License. Vendored as `src/httplib.h` (single header, unmodified; the
   license text is embedded in the header itself).
 
+## miniaudio
+
+- https://github.com/mackron/miniaudio
+- Public domain or MIT No Attribution, at your choice. Vendored as
+  `src/miniaudio.h` (v0.11.21, single header, unmodified; the license
+  text is embedded at the end of the header). Drives the USB sound card
+  for the shaker outputs (ALSA on the Pi, WASAPI on Windows).
+
 ## Qt 6
 
 - https://www.qt.io

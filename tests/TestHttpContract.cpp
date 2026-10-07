@@ -204,6 +204,14 @@ int main()
     check(has(get("/api/status"), "\"hapDots\":[") && has(get("/api/status"), "\"hapGame\":")
           && has(get("/api/status"), "\"ncxFrozen\":false") && has(get("/api/status"), "\"hapProfile\":"),
           "GET /api/status carries hapDots, hapGame, hapProfile and ncxFrozen");
+    // Shakers (off in this host config): the status says so, the device list
+    // answers, and the tone test is refused with the reason.
+    check(has(get("/api/status"), "\"shakers\":{\"enabled\":false"),
+          "GET /api/status reports the shaker sink state");
+    check(has(get("/api/shakers/devices"), "\"devices\":["),
+          "GET /api/shakers/devices lists playback devices (possibly none)");
+    check(has(post("/api/shakers/test", "{\"channel\":0}"), "No shaker output is open"),
+          "POST /api/shakers/test refuses with a reason when shakers are off");
     // Profiles: save snapshots the saved set, it lists, loads (applies
     // live), binds to a car name, and deletes; an unknown name is refused.
     check(has(post("/api/haptics/profiles/save", "{\"name\":\"Bench\"}"), "\"ok\":true"),

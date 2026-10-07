@@ -24,6 +24,8 @@
 #include "TelemetryInput.h"
 #include "MotionController.h"
 #include "CarCache.h"
+#include "ShakerBank.h"
+#include "HapticsIdleClock.h"
 #include "ControlLoop.h"
 #include "StatusModel.h"
 #include "WebServer.h"
@@ -164,6 +166,30 @@ int main(int argc, char* argv[])
     webServer.setWebRoot(dir + "/web");
     webServer.setConfigPath(cfgPath);
     webServer.setTelemetry(&telemetry);
+
+    // Shaker outputs: the sound card behind the shaker routes, and the idle
+    // clock that keeps the haptics layer stepping while the control loop is
+    // stopped (shakers with the drives off, or a rig with no drives at all).
+    haptics::ShakerBank shakers;
+    if (cfg.shakersEnabled)
+    {
+        std::vector<haptics::ShakerDeviceSpec> specs;
+        for (const AppConfig::AudioDevice& d : cfg.shakerDevices()) specs.push_back({ d.device, d.channels });
+        shakers.open(specs, cfg.controlLoopHz);
+        for (const haptics::ShakerBank::Info& i : shakers.info())
+        {
+            if (i.open)
+                LOG_INFO(strf("Shakers %d-%d: '%s', %d channel(s) at %d Hz, buffer %.1f ms.",
+                              i.firstShaker + 1, i.firstShaker + i.channels, i.name.c_str(), i.channels, i.sampleRate, i.bufferMs));
+            else
+                LOG_WARNING(strf("Shakers %d-%d: %s -- those routes stay silent.",
+                                 i.firstShaker + 1, i.firstShaker + i.channels, i.error.c_str()));
+        }
+    }
+    motion.setShakerOutput(&shakers);
+    webServer.setShakerOutput(&shakers);
+    HapticsIdleClock idleClock(motion, telemetry, loop, cfg.controlLoopHz);
+    if (cfg.shakersEnabled) idleClock.start();
 
     // Click-updater: launch the templated oneshot unit. The sudoers rule
     // install.sh writes permits the service user exactly this one command;
@@ -387,6 +413,8 @@ int main(int argc, char* argv[])
         LOG_INFO("Closing EtherCAT master...");
         master.shutdown();
     }
+    idleClock.stop();
+    shakers.close();
     telemetry.shutdown();
 
     // Persist the session's learned gear ratios (loop is stopped, so the

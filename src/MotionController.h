@@ -27,6 +27,7 @@
 #include "DeviceForceModel.h"
 #include "HapticsLayer.h"
 #include "HapticLaws.h"
+#include "ShakerBank.h"
 #include "DeviceStateLayer.h"
 #include "GearRatioLearner.h"
 #include "SpscQueue.h"
@@ -161,6 +162,14 @@ public:
     // lock); the RT thread applies it at the top of the next cycle - amp,
     // frequency, routing and master gain changes never need a re-init.
     void stageHaptics(const AppConfig& c);
+    // The sound card behind the shaker routes (owned by main; may be null).
+    void setShakerOutput(haptics::ShakerBank* s) { m_shakers = s; }
+    // Haptics idle clock tick (a timer thread while the control loop is
+    // stopped): laws + layer step + shaker push, nothing else.
+    void hapticsIdleTick(const TelemetryData& td);
+    // Shaker tone test: a 40 Hz tone on one channel for a second, picked up
+    // by whichever clock is stepping the layer (RT loop or idle clock).
+    void requestShakerTone(int channel) { m_toneRequest.store(channel + 1, std::memory_order_release); }
 
     // ---- Device live-apply (the tuning path) ----
     // A rig save stages new device params here (web thread, under the
@@ -451,6 +460,12 @@ private:
     double           m_hapPositionBudget = 0.4;  // share of a position axis's limits haptics may use
     void fireHaptics(const HapticTriggers& t);
     void driveContinuousHaptics(const TelemetryData& td);
+    void applyStagedHaptics();
+    void publishHapticsStatusLocked();
+    void pushShakers();
+    haptics::ShakerBank*   m_shakers = nullptr;
+    std::atomic<bool>      m_hapticsBusy{false};
+    std::atomic<int>       m_toneRequest{0};   // channel + 1, 0 = none
     void applyHaptics(const AppConfig& c);
     void applyHapticSinks();
     // Live-apply stage (trivially copyable - no allocation on either side):
@@ -464,6 +479,7 @@ private:
         haptics::DrivelineParams driveline;
         double masterGain = 1.0;
         double positionBudget = 0.4;
+        double axisDelayMs = 0.0;
     };
     HapticsStage     m_hapStage;
     std::mutex       m_hapStageLock;

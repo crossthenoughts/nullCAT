@@ -67,6 +67,7 @@ add_executable(nullcat-pi
     ${SRC}/CarCache.cpp
     ${SRC}/EffectStatus.cpp
     ${SRC}/HapticsProfiles.cpp
+    ${SRC}/ShakerOutput.cpp
     ${SRC}/Logging.cpp
     ${SRC}/WebServer.cpp
 )
@@ -84,10 +85,15 @@ target_include_directories(nullcat-pi PRIVATE
 # also compile without SOEM for hardware-free targets).
 target_compile_definitions(nullcat-pi PRIVATE SOEM_AVAILABLE)
 
+# miniaudio (the shaker outputs) dlopens libasound at run time: no ALSA
+# headers or link-time dependency, just dl, m and pthreads.
+set(NULLCAT_AUDIO_LIBS ${CMAKE_DL_LIBS} m)
+
 target_link_libraries(nullcat-pi PRIVATE
     Qt6::Core
     ${SOEM_LIBRARY}
     Threads::Threads
+    ${NULLCAT_AUDIO_LIBS}
 )
 
 # libgpiod (v2) - OPTIONAL physical control panel. find_library wants the .so
@@ -228,6 +234,12 @@ target_include_directories(TestTelemetryParse PRIVATE ${SRC})
 target_link_libraries(TestTelemetryParse PRIVATE Threads::Threads)
 add_test(NAME TestTelemetryParse COMMAND TestTelemetryParse)
 
+# The shaker DSP chain (control rate -> 48 kHz, servo, filters, clip),
+# header-only and deterministic: no device, no miniaudio.
+add_executable(TestShakerDsp ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestShakerDsp.cpp)
+target_include_directories(TestShakerDsp PRIVATE ${SRC})
+add_test(NAME TestShakerDsp COMMAND TestShakerDsp)
+
 # Pins the WKC monitor semantics the recovery stack depends on:
 # time-based trigger threshold (configure -> max(3, hz*0.015)), signal
 # fires exactly at the threshold cycle, inRecovery latches (one signal per
@@ -278,7 +290,8 @@ add_executable(TestHttpContract
     ${SRC}/Logging.cpp
     ${SRC}/WebServer.cpp
     ${SRC}/EffectStatus.cpp
-    ${SRC}/HapticsProfiles.cpp)
+    ${SRC}/HapticsProfiles.cpp
+    ${SRC}/ShakerOutput.cpp)
 target_include_directories(TestHttpContract PRIVATE
     ${SRC}
     ${SOEM_ROOT}/include
@@ -287,7 +300,7 @@ target_include_directories(TestHttpContract PRIVATE
     ${SOEM_ROOT}/osal/linux
     ${SOEM_ROOT}/oshw/linux)
 target_compile_definitions(TestHttpContract PRIVATE SOEM_AVAILABLE)
-target_link_libraries(TestHttpContract PRIVATE Qt6::Core ${SOEM_LIBRARY} Threads::Threads)
+target_link_libraries(TestHttpContract PRIVATE Qt6::Core ${SOEM_LIBRARY} Threads::Threads ${NULLCAT_AUDIO_LIBS})
 add_test(NAME TestHttpContract COMMAND TestHttpContract)
 set_tests_properties(TestHttpContract PROPERTIES TIMEOUT 120)
 
@@ -311,6 +324,7 @@ if(NULLCAT_FULL_TESTS)
         ${SRC}/CarCache.cpp
         ${SRC}/EffectStatus.cpp
         ${SRC}/HapticsProfiles.cpp
+        ${SRC}/ShakerOutput.cpp
         ${SRC}/Logging.cpp
         ${SRC}/DriveFaultMonitor.cpp)
     macro(add_logic_test NAME)
@@ -321,7 +335,7 @@ if(NULLCAT_FULL_TESTS)
         # SOEM_AVAILABLE deliberately omitted -- these run without hardware
         # (mirrors the PC build's TEST_COMPILE_DEFS).
         set_target_properties(${NAME} PROPERTIES AUTOMOC ON)
-        target_link_libraries(${NAME} PRIVATE Qt6::Core Qt6::Test Threads::Threads)
+        target_link_libraries(${NAME} PRIVATE Qt6::Core Qt6::Test Threads::Threads ${NULLCAT_AUDIO_LIBS})
         add_test(NAME ${NAME} COMMAND ${NAME})
         set_tests_properties(${NAME} PROPERTIES TIMEOUT 120)
     endmacro()

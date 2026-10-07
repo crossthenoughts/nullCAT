@@ -182,6 +182,12 @@
         <label class="frow"><span>Require fault reset</span><input id="cf-reqreset" type="checkbox"></label>
         <label class="frow" id="devShowRow" hidden title="Shows the experimental surfaces on the Operate view: the force-device section (shifter/pedal axes) and the Haptics strip. Off = they disappear entirely; nothing else changes."><span>Experimental features</span><input id="cf-showdev" type="checkbox"></label>
         <div class="fldtip">Devices (shifter, pedal) and the haptic effect layer. Hidden until ticked.</div>
+        <label class="frow" title="Drive bass shakers or other tactile transducers from a USB sound card: the haptic effects route to its channels like to any axis. Takes effect after a restart."><span>Shakers</span><input id="cf-shakers" type="checkbox"></label>
+        <label class="frow" title="Which playback device: part of its name (case does not matter), empty for the system default, or null for no hardware (a bench with no card)."><span>Audio device</span><input id="cf-audiodev" type="text" list="audioDevList" placeholder="(default)"><datalist id="audioDevList"></datalist></label>
+        <label class="frow" title="How many of the card's outputs are shakers (1 to 8). A stereo USB dongle is 2; an 8-channel box is 8."><span>Shaker channels</span><input id="cf-audioch" type="number" min="1" max="8" step="1"></label>
+        <label class="frow" title="A second card, for example a second stereo dongle: its channels follow the first card's in the shaker numbering. Empty = none."><span>Audio device 2</span><input id="cf-audiodev2" type="text" list="audioDevList" placeholder="(none)"></label>
+        <label class="frow"><span>Channels 2</span><input id="cf-audioch2" type="number" min="1" max="8" step="1"></label>
+        <div class="fldtip" id="shakerStatus">Shakers off.</div>
       </div>
       <div class="cgrp vw-setup">
         <div class="gt">GPIO control panel</div>

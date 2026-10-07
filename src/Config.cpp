@@ -69,6 +69,16 @@ static void writeHostConfig(const AppConfig& c, QJsonObject& obj)
       obj["webAllowedHosts"] = a; }
     obj["webUIEnabled"]             = c.webUIEnabled;
     obj["webShowDevices"]           = c.webShowDevices;
+    obj["shakersEnabled"]           = c.shakersEnabled;
+    obj["audioDevice"]              = QString::fromStdString(c.audioDevice);
+    obj["audioChannels"]            = c.audioChannels;
+    if (!c.audioDevices.empty())
+    {
+        QJsonArray devs;
+        for (const AppConfig::AudioDevice& d : c.audioDevices)
+        { QJsonObject o; o["device"] = QString::fromStdString(d.device); o["channels"] = d.channels; devs.append(o); }
+        obj["audioDevices"] = devs;
+    }
     obj["dcSyncOffsetNs"]           = c.dcSyncOffsetNs;
     obj["dcPhaseLockEnabled"]       = c.dcPhaseLockEnabled;
     obj["dcPhaseLockKp"]            = c.dcPhaseLockKp;
@@ -120,6 +130,21 @@ static void readHostConfig(const QJsonObject& obj, AppConfig& c)
     }
     if (obj.contains("webUIEnabled"))             c.webUIEnabled             = obj.value("webUIEnabled").toBool(false);
     if (obj.contains("webShowDevices"))           c.webShowDevices           = obj.value("webShowDevices").toBool(false);
+    if (obj.contains("shakersEnabled"))           c.shakersEnabled           = obj.value("shakersEnabled").toBool(false);
+    if (obj.contains("audioDevice"))              c.audioDevice              = obj.value("audioDevice").toString("").toStdString();
+    if (obj.contains("audioChannels"))            c.audioChannels            = obj.value("audioChannels").toInt(2);
+    if (obj.contains("audioDevices"))
+    {
+        c.audioDevices.clear();
+        for (const QJsonValue& v : obj.value("audioDevices").toArray())
+        {
+            const QJsonObject o = v.toObject();
+            AppConfig::AudioDevice d;
+            d.device   = o.value("device").toString("").toStdString();
+            d.channels = o.value("channels").toInt(2);
+            c.audioDevices.push_back(d);
+        }
+    }
     if (obj.contains("dcSyncOffsetNs"))           c.dcSyncOffsetNs           = obj.value("dcSyncOffsetNs").toInt(0);
     if (obj.contains("dcPhaseLockEnabled"))       c.dcPhaseLockEnabled       = obj.value("dcPhaseLockEnabled").toBool(false);
     if (obj.contains("dcPhaseLockKp"))            c.dcPhaseLockKp            = obj.value("dcPhaseLockKp").toDouble(2.5);
@@ -198,9 +223,11 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
             o["ampPct"] = p.ampPct; o["freqHz"] = p.freqHz; o["durMs"] = p.durMs; o["jitter"] = p.jitter;
             QJsonArray r;
             for (const haptics::Route& rt : p.routes)
-                if (rt.axis != -1 && rt.gain > 0.0)
+                if ((rt.axis != -1 || rt.shaker != -1) && rt.gain > 0.0)
                 {
-                    QJsonObject ro; ro["axis"] = rt.axis; ro["gain"] = rt.gain;
+                    QJsonObject ro; ro["gain"] = rt.gain;
+                    if (rt.shaker >= 0) { ro["shaker"] = rt.shaker; if (rt.harm != 1) ro["harm"] = rt.harm; }
+                    else ro["axis"] = rt.axis;
                     if (parts && rt.part != haptics::Part::All) ro["part"] = haptics::partKey(rt.part);
                     r.append(ro);
                 }
@@ -238,6 +265,7 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
         }
         h["masterGain"] = c.hapticsMasterGain;
         h["positionBudget"] = c.hapticsPositionBudget;
+        h["axisDelayMs"] = c.hapticsAxisDelayMs;
         return h;
     }
 }
@@ -283,17 +311,20 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
             p.jitter = o.value("jitter").toDouble(p.jitter);
             if (o.contains("routes"))
             {
-                for (haptics::Route& rt : p.routes) { rt.axis = -1; rt.gain = 0.0; rt.part = haptics::Part::All; }
+                for (haptics::Route& rt : p.routes) rt = haptics::Route{};
                 int n = 0;
                 for (const QJsonValue& v : o.value("routes").toArray())
                 {
                     if (n >= haptics::MAX_ROUTES) break;
                     const QJsonObject ro = v.toObject();
-                    const int axis = ro.value("axis").toInt(-1);
-                    if (axis < 0) continue;
-                    p.routes[n].axis = axis;
-                    p.routes[n].gain = ro.value("gain").toDouble(0.0);
-                    p.routes[n].part = haptics::partFromKey(ro.value("part").toString("all").toStdString().c_str());
+                    const int axis   = ro.value("axis").toInt(-1);
+                    const int shaker = ro.value("shaker").toInt(-1);
+                    if (axis < 0 && shaker < 0) continue;
+                    p.routes[n].axis   = (shaker >= 0) ? -1 : axis;
+                    p.routes[n].shaker = shaker;
+                    p.routes[n].harm   = std::max(1, std::min(8, ro.value("harm").toInt(1)));
+                    p.routes[n].gain   = ro.value("gain").toDouble(0.0);
+                    p.routes[n].part   = haptics::partFromKey(ro.value("part").toString("all").toStdString().c_str());
                     ++n;
                 }
             }
@@ -354,6 +385,7 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
         }
         if (h.contains("masterGain"))  c.hapticsMasterGain = h.value("masterGain").toDouble(1.0);
         if (h.contains("positionBudget")) c.hapticsPositionBudget = h.value("positionBudget").toDouble(0.4);
+        if (h.contains("axisDelayMs")) c.hapticsAxisDelayMs = h.value("axisDelayMs").toDouble(0.0);
     }
 }
 
@@ -1192,8 +1224,12 @@ std::vector<std::string> AppConfig::validate() const
                 errors.push_back(pfx + "jitter out of range [0, 1]");
             for (const haptics::Route& r : p.routes)
             {
-                if (r.axis == -1 && r.gain <= 0.0) continue;   // unused slot
-                if (r.axis < 0 || r.axis >= haptics::MAX_HAPTIC_AXES)
+                if (r.axis == -1 && r.shaker == -1 && r.gain <= 0.0) continue;   // unused slot
+                if (r.shaker >= haptics::MAX_SHAKER_OUT)
+                    errors.push_back(pfx + "route shaker out of range");
+                if (r.harm < 1 || r.harm > 8)
+                    errors.push_back(pfx + "route harm out of range [1, 8]");
+                if (r.shaker < 0 && (r.axis < 0 || r.axis >= haptics::MAX_HAPTIC_AXES))
                     errors.push_back(pfx + "route axis out of range");
                 if (r.gain < 0.0 || r.gain > 2.0)
                     errors.push_back(pfx + "route gain out of range [0, 2]");
@@ -1264,6 +1300,21 @@ std::vector<std::string> AppConfig::validate() const
             errors.push_back("haptics.masterGain out of range [0, 2]");
         if (hapticsPositionBudget < 0.0 || hapticsPositionBudget > 1.0)
             errors.push_back("haptics.positionBudget out of range [0, 1]");
+        if (hapticsAxisDelayMs < 0.0 || hapticsAxisDelayMs > 60.0)
+            errors.push_back("haptics.axisDelayMs out of range [0, 60]");
+        if (audioChannels < 1 || audioChannels > haptics::MAX_SHAKER_OUT)
+            errors.push_back("audioChannels out of range [1, 8]");
+        {
+            int total = 0;
+            for (size_t i = 0; i < audioDevices.size(); ++i)
+            {
+                if (audioDevices[i].channels < 1 || audioDevices[i].channels > haptics::MAX_SHAKER_OUT)
+                    errors.push_back("audioDevices[" + std::to_string(i) + "].channels out of range [1, 8]");
+                total += audioDevices[i].channels;
+            }
+            if (total > haptics::MAX_SHAKER_OUT)
+                errors.push_back("audioDevices: more than 8 shaker channels in total");
+        }
     }
 
     // ---- NULLCATX channel bindings (rig global) ----

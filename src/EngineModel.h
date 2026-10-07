@@ -151,6 +151,14 @@ struct EngineOut
     double rock = 0.0, thumps = 0.0, buzz = 0.0;     // % of rated, before routing gain
     double rockHz = 0.0, thumpHz = 30.0, buzzHz = 0.0;
     double cap = 0.0;                                 // the effect's own amplitude ceiling this cycle
+    // For a shaker playing a harmonic: the rock as envelope + phase (radians
+    // of the 2-rev cycle) + lope share, the buzz (and inertia) as envelope
+    // + phase. Thumps are pulses and play as they are.
+    double rockEnv = 0.0, rockPhase = 0.0, rockLope = 0.0;
+    double buzzEnv = 0.0, buzzPhase = 0.0;
+    // rock at a harmonic k: env x (sin(2k ph) + lope sin(k ph)); buzz: env x sin(k x buzzPhase).
+    double rockAt(int k) const { return rockEnv * (std::sin(2.0 * k * rockPhase) + rockLope * std::sin(k * rockPhase)); }
+    double buzzAt(int k) const { return buzzEnv * std::sin(k * buzzPhase); }
     double total() const { return std::max(-cap, std::min(cap, rock + thumps + buzz)); }
 };
 
@@ -405,6 +413,8 @@ public:
             const double loadK = cranking ? kCrankRock : (kRockLoadFloor + (1.0 - kRockLoadFloor) * m_load) * (1.0 + kDyingHitGain * 0.5 * dying);
             out.rock = p.ampPct * level * kRockMix * e.rock * heavy * balance * rockFade * loadK * m_revScale * rock;
             out.rockHz = crankHz;
+            out.rockEnv = p.ampPct * level * kRockMix * e.rock * heavy * balance * rockFade * loadK * m_revScale;
+            out.rockPhase = ph; out.rockLope = twoStroke ? 0.0 : kHalfOrderLope * lope;
         }
 
         // Buzz: pitch proportional to rpm at an order the actuator can carry.
@@ -419,6 +429,7 @@ public:
             const double carrier = std::max(kBuzzCarrierMinHz, std::min(kBuzzCarrierMaxHz, crankHz * order));
             m_buzzPhase = wrap(m_buzzPhase + carrier * dtSec);
             out.buzzHz = carrier;
+            out.buzzPhase = 2.0 * wavesynth::kPi * m_buzzPhase;
             // Electric: the motor whine, there from the first turn, carried by
             // load (regen whines too, at the floor), no firing-order band to
             // come in at and no cut. Otherwise the firing-order buzz.
@@ -429,14 +440,16 @@ public:
             if (electric && rise > 0.0 && e.buzz > 0.0)
             {
                 const double lvl = rise * (kElectricLoadFloor + (1.0 - kElectricLoadFloor) * m_load);
-                out.buzz = p.ampPct * level * kBuzzMix * e.buzz * lvl * s;
+                out.buzzEnv = p.ampPct * level * kBuzzMix * e.buzz * lvl;
+                out.buzz = out.buzzEnv * s;
             }
             else if (rise > 0.0 && !cut && e.buzz > 0.0)
             {
                 const double lvl = rise * (1.0 - kBuzzTopGrowth + kBuzzTopGrowth * x)
                                  * (kBuzzLoadFloor + (1.0 - kBuzzLoadFloor) * m_load)
                                  * (m_limiter ? limHit : 1.0);
-                out.buzz = p.ampPct * level * kBuzzMix * e.buzz * (kBuzzHeavyFloor + (1.0 - kBuzzHeavyFloor) * heavy) * lvl * s;
+                out.buzzEnv = p.ampPct * level * kBuzzMix * e.buzz * (kBuzzHeavyFloor + (1.0 - kBuzzHeavyFloor) * heavy) * lvl;
+                out.buzz = out.buzzEnv * s;
             }
             // Inertia: the reciprocating mass reversing, rpm^2 and nothing to
             // do with the throttle, so it is what remains on a lift and it
@@ -444,7 +457,11 @@ public:
             // through a limiter cut (the engine still spins). Balance as
             // for the rock: a four shakes, a six or a twelve barely.
             if (e.inertia > 0.0 && !electric)
-                out.buzz += p.ampPct * level * kInertiaMix * std::min(1.0, e.inertia) * balance * x * x * s;
+            {
+                const double inEnv = p.ampPct * level * kInertiaMix * std::min(1.0, e.inertia) * balance * x * x;
+                out.buzz += inEnv * s;
+                out.buzzEnv += inEnv;
+            }
         }
 
         // The engine never exceeds its own amplitude (x limHit on the limiter);

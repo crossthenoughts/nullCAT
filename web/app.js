@@ -411,7 +411,7 @@ function setField(id,v){ const el=$(id); if(!el||v==null) return; if(el.type==='
 // host.json inputs - disabled when a native app owns host (hostOwner==="native").
 const HOST_INPUT_IDS=['cf-authen','cf-authtok','cf-sim','cf-nic','cf-hz','cf-wd','cf-dc','cf-bind','cf-wport','cf-sport','cf-sbind',
   'cf-loglvl','cf-logfile','cf-logcon','cf-diag','cf-temppoll','cf-cmdsync','cf-wkccyc','cf-wkcthr','cf-capscan','cf-gpiomode','cf-ledtest',
-  'cf-showdev'];
+  'cf-showdev','cf-shakers','cf-audiodev','cf-audioch','cf-audiodev2','cf-audioch2'];
 function applyHostOwnership(){
   const native=(meta.hostOwner==='native');
   // Ownership as labeled groups, not mysteriously-greyed fields: every group
@@ -610,6 +610,13 @@ async function loadConfig(){
     setField('cf-wkcthr',host.wkcValidationThreshold); setField('cf-capscan',host.enableCapabilityScan);
     setField('cf-gpiomode',host.gpioMode||'off');
     setField('cf-showdev',host.webShowDevices);
+    setField('cf-shakers',host.shakersEnabled);
+    // The device list form wins when present; the simple pair is device 1.
+    const ad=Array.isArray(host.audioDevices)&&host.audioDevices.length?host.audioDevices:[{device:host.audioDevice||'',channels:host.audioChannels||2}];
+    setField('cf-audiodev',ad[0].device||''); setField('cf-audioch',ad[0].channels||2);
+    setField('cf-audiodev2',ad[1]?(ad[1].device||''):''); setField('cf-audioch2',ad[1]?(ad[1].channels||2):2);
+    $('cf-audiodev2')._present=!!ad[1];
+    shakerDevicesLoad();
     setField('cf-authen',!!host.webAuthToken); setField('cf-authtok',host.webAuthToken||'');
     // rig.global fields (portable feel/policy)
     setField('cf-blendt',rig.blendTimeSec); setField('cf-blendv',rig.blendMaxVelocityMmS);
@@ -689,7 +696,9 @@ async function saveConfig(){
         commandSyncCycles:+$('cf-cmdsync').value, wkcValidationCycles:+$('cf-wkccyc').value,
         wkcValidationThreshold:+$('cf-wkcthr').value, enableCapabilityScan:$('cf-capscan').checked,
         gpioMode:$('cf-gpiomode').value, gpioEnabled:($('cf-gpiomode').value!=='off'),
-        webShowDevices:$('cf-showdev').checked };
+        webShowDevices:$('cf-showdev').checked,
+        shakersEnabled:$('cf-shakers').checked, audioDevice:$('cf-audiodev').value.trim(), audioChannels:Math.max(1,Math.min(8,+$('cf-audioch').value||2)),
+        audioDevices:shakerDeviceList() };
       const hr=await fetch(API+'/api/host',{method:'POST',body:JSON.stringify(host)}); hj=await hr.json();
       if(!hj.ok){ st.textContent='✗ host: '+(hj.error||'save failed'); st.style.color='var(--danger)'; return; }
     }
@@ -1182,7 +1191,43 @@ function hapAnimate(svg,fx,dv,ms){
 
 function hapChipText(dv){
   const n=(dv.routes||[]).filter(x=>x&&x.axis>=0&&x.gain>0).length;
-  return n ? '→ '+n+(n>1?' axes':' axis') : '→ not routed';
+  const m=(dv.routes||[]).filter(x=>x&&x.shaker>=0&&x.gain>0).length;
+  if(!n&&!m) return '→ not routed';
+  return '→ '+[n?n+(n>1?' axes':' axis'):'',m?m+(m>1?' shakers':' shaker'):''].filter(Boolean).join(' + ');
+}
+// The device list as the host form has it: device 1 always, device 2
+// when it has a name (or the file already had a second entry).
+function shakerDeviceList(){
+  const out=[{device:$('cf-audiodev').value.trim(),channels:Math.max(1,Math.min(8,+$('cf-audioch').value||2))}];
+  const d2=$('cf-audiodev2');
+  if(d2&&(d2.value.trim()||d2._present)) out.push({device:d2.value.trim(),channels:Math.max(1,Math.min(8,+$('cf-audioch2').value||2))});
+  return out;
+}
+// Shaker channels the host exposes (0 when shakers are off): the sum over
+// the devices, capped at 8.
+function hapShakerCount(){
+  if(!cfgObj||!cfgObj.shakersEnabled) return 0;
+  const ad=Array.isArray(cfgObj.audioDevices)&&cfgObj.audioDevices.length?cfgObj.audioDevices:[{channels:cfgObj.audioChannels||2}];
+  return Math.max(0,Math.min(8,ad.reduce((t,d)=>t+Math.max(1,Math.min(8,+d.channels||2)),0)));
+}
+// Host settings: the playback devices the backend sees, for the picker.
+async function shakerDevicesLoad(){
+  const dl=$('audioDevList'); if(!dl) return;
+  try{ const r=await fetch(API+'/api/shakers/devices'); if(!r.ok) return; const j=await r.json();
+    dl.innerHTML=(j.devices||[]).map(d=>'<option value="'+String(d.name).replace(/"/g,'&quot;')+'">'+(d.default?'(default) ':'')+'</option>').join('')+'<option value="null">no hardware</option>'; }catch(_){}
+}
+// Status line under the host settings + one test button per channel.
+function shakerStatus(s){
+  const el=$('shakerStatus'); if(!el||!s) return;
+  const k=s.shakers||{};
+  if(!k.enabled){ el.textContent='Shakers off.'; return; }
+  if(!k.open){ el.textContent='Shakers: not open'+(k.error?' ('+k.error+')':'')+'.'; return; }
+  if(!el._built){
+    el._built=true;
+    el.innerHTML='<span id="shakerLine"></span> '+Array.from({length:k.channels||0},(_,c)=>'<button class="btn btn-sm" type="button" data-shtest="'+c+'" title="40 Hz for a second on this channel">test '+(c+1)+'</button>').join(' ');
+    el.querySelectorAll('[data-shtest]').forEach(b=>{ b.onclick=async()=>{ try{ await fetch(API+'/api/shakers/test',{method:'POST',body:JSON.stringify({channel:+b.dataset.shtest})}); }catch(_){} }; });
+  }
+  const line=$('shakerLine'); if(line) line.textContent='Shakers: '+(k.devices||[]).map(d=>(d.open?(d.name+' ('+(d.first+1)+'-'+(d.first+d.channels)+') '+d.rate+' Hz, buffer '+d.bufferMs+' ms, underruns '+d.underruns+', levels '+(d.levels||[]).map(v=>(+v).toFixed(2)).join(' ')):((d.name||'(default)')+': '+(d.error||'not open')))).join(' | ')+'.';
 }
 
 let hapOpenDrawer=null;
@@ -1201,6 +1246,16 @@ function hapDrawerRender(fx){
       +HAP_PARTS.map(pk=>'<option value="'+pk+'"'+(pk===part(a.i)?' selected':'')+'>'+pk.toUpperCase()+'</option>').join('')+'</select>':'';
     h+='<label>'+a.name+' <input type="number" min="0" max="'+a.max+'" step="'+a.step+'" data-axis="'+a.i+'" data-max="'+a.max+'" value="'+gain(a.i)+'"> '+a.unit+sel+hint+'</label>';
   }
+  // Shaker channels (when the host has them): gain plus the harmonic of
+  // the effect's carrier to play (x2 puts a 9 Hz belt effect at 18 Hz on
+  // a shaker, phase-locked), per route.
+  const nsh=hapShakerCount();
+  for(let c=0;c<nsh;c++){
+    const e=(dv.routes||[]).find(r=>r.shaker===c);
+    h+='<label>Shaker '+(c+1)+' <input type="number" min="0" max="2" step="0.1" data-shaker="'+c+'" value="'+(e?e.gain:0)+'"> x'
+      +' <select data-harm="'+c+'" title="Harmonic of the carrier this shaker plays: 1 = as is, 2 = double, ...">'
+      +[1,2,3,4,6,8].map(k=>'<option value="'+k+'"'+((e?(e.harm||1):1)===k?' selected':'')+'>x'+k+'</option>').join('')+'</select></label>';
+  }
   h+='<span class="fldtip" id="hapRouteMsg"></span>';
   dr.className='hap-drawer'; dr.innerHTML=h; dr.hidden=false;
   // The drawer stays open across edits so "belt 1, shifter 1" is one
@@ -1214,7 +1269,11 @@ function hapDrawerRender(fx){
       const ps=dr.querySelector('select[data-part="'+x.dataset.axis+'"]');
       if(ps&&ps.value&&ps.value!=='all') r.part=ps.value;
       routes.push(r); });
-    dv.routes=routes.slice(0,10);
+    dr.querySelectorAll('input[data-shaker]').forEach(x=>{
+      const g=+x.value; if(!(isFinite(g)&&g>0)) return;
+      const hs=dr.querySelector('select[data-harm="'+x.dataset.shaker+'"]');
+      routes.push({shaker:+x.dataset.shaker,gain:Math.min(2,g),harm:hs?(+hs.value||1):1}); });
+    dv.routes=routes.slice(0,14);
     const t=hapTiles[fx.k]; if(t){ const c=t.tile.querySelector('.hap-routechip'); if(c) c.textContent=hapChipText(dv); }
     refreshDirtyUI();
   }; });
@@ -1316,6 +1375,7 @@ async function hapGameShow(game){
 // state, real-time animation - continuous tiles scroll while their engine
 // level is up, transient tiles flick on a fired-counter change.
 function hapLive(s){
+  shakerStatus(s);
   const panel=$('hapPanel'); if(!panel||panel.hidden) return;
   hapMutedNow=!!s.hapMuted;
   const mb=$('hapMuteBtn'), mst=$('hapMuteState');
@@ -1379,7 +1439,7 @@ function hapInit(){
   // Experimental gate (the same tickbox as the device section) + needs a
   // torque-capable axis to route anything to.
   const cb=$('cf-showdev');
-  if(!(cb&&cb.checked)||!hapRouteAxes().length){ head.hidden=true; panel.hidden=true; return; }
+  if(!(cb&&cb.checked)||(!hapRouteAxes().length&&!hapShakerCount())){ head.hidden=true; panel.hidden=true; return; }
   head.hidden=false; panel.hidden=false;
   cfgObj.haptics=cfgObj.haptics||{};
   // Fill defaults IN PLACE: the route drawer and the tiles hold references
@@ -1397,6 +1457,7 @@ function hapInit(){
       cfgObj.haptics[k].routes=cfgObj.haptics[k].routes.filter(r=>r&&r.axis>=0);
   if(typeof cfgObj.haptics.masterGain!=='number') cfgObj.haptics.masterGain=1;
   if(typeof cfgObj.haptics.positionBudget!=='number') cfgObj.haptics.positionBudget=0.4;
+  if(typeof cfgObj.haptics.axisDelayMs!=='number') cfgObj.haptics.axisDelayMs=0;
   const sb=$('hapSave'); if(sb&&!sb._wired){ sb._wired=true; sb.onclick=saveConfig; }
   strip.innerHTML='';
   for(const k in hapTiles) delete hapTiles[k];
@@ -1412,6 +1473,8 @@ function hapInit(){
       +'<input type="number" min="0" max="2" step="0.05" id="hapMasterGain" value="'+cfgObj.haptics.masterGain+'"></div>'
       +'<div class="hr" title="Share of each position axis\'s velocity and acceleration limits that haptics may use (0 to 1). The motion cue always keeps priority."><span class="hk">pos budget</span>'
       +'<input type="number" min="0" max="1" step="0.05" id="hapPosBudget" value="'+(isFinite(+cfgObj.haptics.positionBudget)?+cfgObj.haptics.positionBudget:0.4)+'"></div>'
+      +'<div class="hr" title="Hold the axis effects back by this many ms so they land together with the shakers (a sound card is 15 to 25 ms behind a belt). 0 = off."><span class="hk">axis delay ms</span>'
+      +'<input type="number" min="0" max="60" step="1" id="hapAxisDelay" value="'+(isFinite(+cfgObj.haptics.axisDelayMs)?+cfgObj.haptics.axisDelayMs:0)+'"></div>'
       +'<div class="hr hap-game" title="The sim dots on each tile: grey = that game has never sent the channels, amber = channels arrive but the effect has never played, green = has played. Remembered per game across restarts."><span class="hk">sim</span>'
       +'<span class="hk" id="hapGameNow">(none)</span><select id="hapGameSel"><option value="">current</option></select>'
       +'<button class="btn btn-sm" type="button" id="hapGameForget" title="Forget the remembered dots for the game shown">forget</button></div>'
@@ -1460,6 +1523,10 @@ function hapInit(){
     const gi=mc.querySelector('#hapMasterGain');
     gi.onchange=()=>{ const v=+gi.value; if(!isFinite(v)) return;
       cfgObj.haptics.masterGain=Math.max(0,Math.min(2,v)); gi.value=cfgObj.haptics.masterGain;
+      refreshDirtyUI(); };
+    const di=mc.querySelector('#hapAxisDelay');
+    di.onchange=()=>{ const v=+di.value; if(!isFinite(v)) return;
+      cfgObj.haptics.axisDelayMs=Math.max(0,Math.min(60,v)); di.value=cfgObj.haptics.axisDelayMs;
       refreshDirtyUI(); };
     const bi=mc.querySelector('#hapPosBudget');
     bi.onchange=()=>{ const v=+bi.value; if(!isFinite(v)) return;

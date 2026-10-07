@@ -106,6 +106,7 @@ try {
     simDots:      document.querySelectorAll('#hapStrip .hap-tile [data-sdot]').length,
     simDotsGrey:  document.querySelectorAll('#hapStrip .hap-tile [data-sdot].d0').length,
     gameSel:      !!document.getElementById('hapGameSel'),
+    shakerFields: !!document.getElementById('cf-shakers') && !!document.getElementById('cf-audiodev2') && !!document.getElementById('hapAxisDelay'),
   }));
   // Open the Lateral slip tile's route drawer: a per-wheel effect lists a
   // part selector beside every axis gain.
@@ -139,6 +140,7 @@ try {
   if (st.simDots !== nEffects)  fails.push(`${st.simDots} sim dots, expected one per effect (${nEffects})`);
   if (st.simDotsGrey !== nEffects) fails.push(`${st.simDotsGrey} grey sim dots with no sim, expected ${nEffects}`);
   if (!st.gameSel)              fails.push('no game selector on the Master tile');
+  if (!st.shakerFields)         fails.push('shaker host fields or the axis delay field are missing');
   if (!drawer.chip)             fails.push('no route chip on the Lateral slip tile');
   else {
     if (drawer.hidden)          fails.push('route drawer did not open');

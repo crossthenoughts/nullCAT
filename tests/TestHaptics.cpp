@@ -892,6 +892,90 @@ int main()
         }
     }
 
+    // ================= shaker routes: scale, harmonic, tone, delay =================
+    {
+        using haptics::FxType; using haptics::Route; using haptics::MAX_SHAKER_OUT;
+        auto hzOf = [](const std::vector<double>& v, double dt) {
+            int xr = 0; for (size_t i = 1; i < v.size(); ++i) if ((v[i] >= 0.0) != (v[i-1] >= 0.0)) ++xr;
+            return xr / 2.0 / (v.size() * dt); };
+        auto pk = [](const std::vector<double>& v) { double m = 0; for (double x : v) m = std::max(m, std::fabs(x)); return m; };
+        // A 9 Hz continuous effect at amp 100: the belt route gets 100% and
+        // shaker 0 (gain 1) gets a full-scale 1.0 sample at 9 Hz; shaker 1
+        // at harm 2 plays 18 Hz, phase-locked (zero crossings of the
+        // fundamental are zero crossings of the harmonic).
+        EffectParams p; p.ampPct = 100.0; p.freqHz = 9.0; p.jitter = 0.0;
+        p.routes[0] = { 0, 1.0 };
+        Route s0; s0.shaker = 0; s0.gain = 1.0; s0.harm = 1; p.routes[1] = s0;
+        Route s1; s1.shaker = 1; s1.gain = 0.5; s1.harm = 2; p.routes[2] = s1;
+        Layer L; L.configureFx(FxType::Kerb, p);
+        std::vector<double> belt, sh0, sh1;
+        for (int i = 0; i < 4000; ++i)
+        {
+            L.driveFx(FxType::Kerb, 1.0, 0.0); L.step(DT);
+            if (i >= 400) { belt.push_back(L.overlayFor(0)); sh0.push_back(L.shakerSample(0)); sh1.push_back(L.shakerSample(1)); }
+        }
+        approx(pk(belt), 100.0, 1.0, "shaker: the belt route is unchanged (amp x gain, % of rated)");
+        approx(pk(sh0), 1.0, 0.01, "shaker: 100% amp x gain 1 is a full-scale 1.0 sample");
+        approx(hzOf(sh0, DT), 9.0, 0.3, "shaker: harm 1 plays the effect's carrier");
+        approx(hzOf(sh1, DT), 18.0, 0.4, "shaker: harm 2 plays twice the carrier");
+        approx(pk(sh1), 0.5, 0.01, "shaker: the route gain scales the sample");
+        int locked = 0, cross = 0;
+        for (size_t i = 1; i < sh0.size(); ++i)
+            if ((sh0[i] >= 0.0) != (sh0[i-1] >= 0.0)) { ++cross; if (std::fabs(sh1[i]) < 0.08) ++locked; }
+        CHECK(cross > 30 && locked >= cross - 2, "shaker: the harmonic is phase-locked to the fundamental");
+        CHECK(L.shakerSample(2) == 0.0 && L.shakerSample(MAX_SHAKER_OUT) == 0.0, "shaker: unrouted channels are silent, out-of-range reads 0");
+        CHECK(Layer::hasRoute(p), "shaker: a shaker-only route counts as routed");
+        EffectParams onlyShaker = p; onlyShaker.routes[0] = {};
+        CHECK(Layer::hasRoute(onlyShaker), "shaker: an effect routed to shakers alone is routed");
+
+        // Slip: the rear slide on a shaker at harm 3 plays three times the
+        // staged carrier (11 x 0.65 = 7.15 Hz -> 21.5 Hz).
+        {
+            EffectParams q; q.ampPct = 100.0; q.jitter = 0.0;
+            Route r; r.shaker = 0; r.gain = 1.0; r.harm = 3; r.part = haptics::Part::Rear; q.routes[0] = r;
+            Layer S; S.configureFx(FxType::Skid, q); S.configureSlip(FxType::Skid, { 1.0, 25.0, 1.0, 11.0, 7.0 });
+            std::vector<double> o;
+            for (int i = 0; i < 4200; ++i) { S.driveSlip(FxType::Skid, WheelRR, 0.0, 1.0); S.step(DT); if (i >= 200) o.push_back(S.shakerSample(0)); }
+            approx(hzOf(o, DT), 11.0 * 0.65 * 3.0, 1.0, "shaker: a slip component plays at its staged carrier x harm");
+            approx(pk(o), 1.0, 0.02, "shaker: full severity x mix 1 = full scale");
+        }
+        // Engine: rock on a shaker at harm 2 doubles the crank-rate rock.
+        {
+            EP e; e.ampPct = 100.0; e.jitter = 0.0; e.eng.cylinders = 8.0; e.eng.litres = 5.0; e.eng.thump = 0.0; e.eng.buzz = 0.0; e.eng.rock = 1.0;
+            Route r1; r1.shaker = 0; r1.gain = 1.0; r1.harm = 1; e.routes[0] = r1;
+            Route r2; r2.shaker = 1; r2.gain = 1.0; r2.harm = 2; e.routes[1] = r2;
+            Layer G; G.configureFx(FxType::RpmVibe, e); G.configureEngine(e.eng);
+            std::vector<double> a, b;
+            for (int i = 0; i < 4000; ++i) { G.driveEngine(1.0, 800.0 / 60.0 * 4.0, 0.5, false); G.step(DT); if (i >= 1000) { a.push_back(G.shakerSample(0)); b.push_back(G.shakerSample(1)); } }
+            approx(hzOf(a, DT), 13.33, 1.0, "shaker: engine rock at harm 1 is the crank rate");
+            approx(hzOf(b, DT), 26.67, 1.5, "shaker: engine rock at harm 2 is twice the crank rate");
+        }
+        // Tone test: 40 Hz at 0.5 on one channel for the asked time, then gone.
+        {
+            Layer T; std::vector<double> o;
+            T.startShakerTone(3, 0.5);
+            for (int i = 0; i < 2000; ++i) { T.step(DT); if (i < 1000) o.push_back(T.shakerSample(3)); }
+            approx(hzOf(o, DT), 40.0, 1.0, "shaker: the tone test plays 40 Hz on the channel");
+            approx(pk(o), 0.5, 0.01, "shaker: ...at half scale");
+            CHECK(!T.shakerToneActive() && T.shakerSample(3) == 0.0 && T.shakerSample(0) == 0.0, "shaker: the tone stops after its time and touched no other channel");
+        }
+        // Alignment delay: 10 cycles of delay shift the axis overlay by 10
+        // cycles and leave the shaker sample where it was.
+        {
+            EffectParams d; d.ampPct = 100.0; d.freqHz = 20.0; d.jitter = 0.0;
+            d.routes[0] = { 0, 1.0 }; Route sr; sr.shaker = 0; sr.gain = 1.0; d.routes[1] = sr;
+            Layer A; A.configureFx(FxType::Kerb, d); A.setAxisDelayCycles(10);
+            std::vector<double> ax, sh;
+            for (int i = 0; i < 2000; ++i) { A.driveFx(FxType::Kerb, 1.0, 0.0); A.step(DT); ax.push_back(A.overlayFor(0) / 100.0); sh.push_back(A.shakerSample(0)); }
+            double best = 1e9; int bestLag = -1;
+            for (int lag = 0; lag < 40; ++lag) { double err = 0; for (size_t i = 500; i < 1900; ++i) err += std::fabs(ax[i] - sh[i - lag]); if (err < best) { best = err; bestLag = lag; } }
+            CHECK(bestLag == 10, "shaker: the axis alignment delay holds the axis overlay back by the set cycles");
+            A.setAxisDelayCycles(0);
+            A.driveFx(FxType::Kerb, 1.0, 0.0); A.step(DT);
+            approx(A.overlayFor(0) / 100.0, A.shakerSample(0), 1e-9, "shaker: delay 0 = the axis and the shaker see the same sample");
+        }
+    }
+
     // ================= engine buzz band vs loop rate =================
     {
         // The automatic buzz order aims the redline at 120 Hz on a 2 kHz

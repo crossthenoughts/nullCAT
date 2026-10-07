@@ -36,6 +36,21 @@ Development branch. Nothing here is in a release yet.
   the catch, dying and the stall kick are modelled below idle; the pit
   limiter cuts like the rev limiter without teaching the redline. New
   tokens `boost` and `pitLimiter`; the plugin sends both automatically.
+- Shakers: bass shakers and other tactile transducers on one or more USB
+  sound cards are routing destinations like the axes. Each effect's
+  route editor lists Shaker 1..N with a gain and a harmonic (x2 puts a
+  9 Hz belt effect at 18 Hz on the shaker, phase-locked). The haptics
+  layer keeps stepping and pumping the sim channels while the control
+  loop is stopped, so a shaker install with no drives is a complete
+  haptics engine for SimHub and the other senders. Per card: its own
+  drift servo (the EtherCAT clock and a USB crystal never agree), 300 Hz
+  smoothing, DC block and soft clip; an underrun holds and fades, never
+  clicks. Host settings: enable, device name(s), channels, a status
+  line with a test tone per channel. `axis delay ms` on the Master tile
+  holds the axis effects back so belts and shakers land together. The
+  null backend (`"audioDevice": "null"`) runs the whole path with no
+  card, for a bench or CI. Audio backend: miniaudio (public domain /
+  MIT-0, vendored).
 - Haptics profiles: named copies of the whole strip (settings, routes,
   the engine, master, pos budget) in `profiles.json`, with save as, load,
   delete and a "use for this car" binding; when the sim names a bound

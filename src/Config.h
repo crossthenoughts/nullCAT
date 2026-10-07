@@ -273,6 +273,9 @@ struct AppConfig
     // can give haptics more. The motion cue always keeps priority: the sum
     // of cue + haptics passes the full axis guard afterwards.
     double                hapticsPositionBudget = 0.4;
+    // Hold the axis haptic overlays back by this much (ms, 0..60) so the
+    // fast sinks land together with the slower shaker path. 0 = off.
+    double                hapticsAxisDelayMs = 0.0;
 
     // DC phase-lock compensator. Default OFF - when disabled the loop and
     // pump free-run exactly as before (byte-identical). When enabled, a
@@ -368,6 +371,29 @@ struct AppConfig
     // absent on Windows builds regardless (Pi-targeted functionality; the
     // engine itself stays platform-neutral).
     bool        webShowDevices = false;
+
+    // Shaker outputs (host.json: the sound cards are a machine fact). Off
+    // by default. One or more playback devices, each with how many of its
+    // outputs are shakers (1..8, 8 in total); shaker numbers run across
+    // the devices in order. device "" = the system default output, "null"
+    // = no hardware (the null backend, for a bench with no card). The
+    // simple single-card form, audioDevice + audioChannels, is device 1
+    // when audioDevices is absent.
+    struct AudioDevice { std::string device; int channels = 2; };
+    bool        shakersEnabled = false;
+    std::string audioDevice;
+    int         audioChannels  = 2;
+    std::vector<AudioDevice> audioDevices;   // empty = just {audioDevice, audioChannels}
+    std::vector<AudioDevice> shakerDevices() const
+    {
+        if (!audioDevices.empty()) return audioDevices;
+        return { AudioDevice{ audioDevice, audioChannels } };
+    }
+    int shakerChannelTotal() const
+    {
+        int t = 0; for (const AudioDevice& d : shakerDevices()) t += std::max(1, std::min(8, d.channels));
+        return std::min(8, t);
+    }
 
     std::string logFile        = "logs/app.log";
     bool    logToConsole   = true;

@@ -10,7 +10,8 @@ namespace haptics {
 
 static constexpr int MAX_EVENTS      = 8;   // concurrent transients
 static constexpr int MAX_HAPTIC_AXES = 10;  // == MAX_DRIVES
-static constexpr int MAX_ROUTES      = MAX_HAPTIC_AXES;  // an effect may route to EVERY axis
+static constexpr int MAX_ROUTES      = MAX_HAPTIC_AXES + 4;  // every axis plus a few shakers
+static constexpr int MAX_SHAKER_OUT  = 8;    // shaker channels on the sound card
 
 // Transients: one-shot bursts. GearShift is the sim-driven one (fired on a
 // gear-channel change - the thunk of a shift ringing through the chassis).
@@ -43,11 +44,18 @@ inline const char* partKey(Part p)
 
 // One destination: explicit axis index, a gain multiplier and, for the
 // per-wheel effects, which wheels it carries. gain 0 or axis -1 = unused.
+// A route is one destination: an axis (index) OR a shaker channel (index),
+// a gain, for the per-wheel effects which wheels it carries, and for a
+// shaker the harmonic of the effect's carrier it plays (1 = as is, 2 =
+// double: a 9 Hz belt effect lands on the shaker at 18 Hz, phase-locked).
+// gain 0, or axis and shaker both -1, = unused.
 struct Route
 {
-    int    axis = -1;
-    double gain = 0.0;
-    Part   part = Part::All;
+    int    axis   = -1;
+    double gain   = 0.0;
+    Part   part   = Part::All;
+    int    shaker = -1;
+    int    harm   = 1;
 };
 
 // The two per-wheel slip tiles share one shape: two components (A on some
