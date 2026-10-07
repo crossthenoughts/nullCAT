@@ -77,6 +77,13 @@ Development branch. Nothing here is in a release yet.
   axis limits. PP-mode axes take no haptics.
 
 ### Changed
+- Pi updater: a new version is assembled beside the live one, the config
+  is copied into it, and only then does it take its place and the symlink
+  flip; the live folder is never deleted or emptied, and applying a
+  version over the folder that is already running it is refused with a
+  reason instead. A script test pins the normal update, that refusal and
+  the rollback (the remembered sim dots file now travels with the config
+  too).
 - Engine buzz on slow loops: the automatic buzz order aims the redline at
   120 Hz on the Pi's 2 kHz loop but at an eighth of the loop rate on
   slower ones (62 Hz on a 500 Hz PC loop), so the carrier always has at

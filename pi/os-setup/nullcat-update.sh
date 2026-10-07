@@ -24,10 +24,15 @@
 
 set -euo pipefail
 
-OPT=/opt/nullcat
+# The environment overrides exist for the script test (tests/pi/
+# test-update.sh): a scratch layout instead of /opt, a local tarball
+# instead of GitHub, and no systemd. Production runs set none of them.
+OPT="${NULLCAT_OPT:-/opt/nullcat}"
 REPO_SLUG="crossthenoughts/nullCAT"
 SERVICE=nullcat-pi
 KEEP_VERSIONS=3          # the new one + two rollback generations
+LOCAL_TARBALL="${NULLCAT_UPDATE_TARBALL:-}"      # test: skip the download
+NO_SYSTEMD="${NULLCAT_UPDATE_NO_SYSTEMD:-}"      # test: no restart, health = the binary answers --version
 
 say()  { echo "nullcat-update: $*"; }
 fail() { echo "nullcat-update: ERROR: $*" >&2; exit 1; }
@@ -47,15 +52,21 @@ say "current $CUR_VER, applying v$VERSION"
 NAME="nullCAT-v${VERSION}-pi-aarch64"
 STAGING="$OPT/staging"
 rm -rf "$STAGING"; mkdir -p "$STAGING"
-API="https://api.github.com/repos/${REPO_SLUG}/releases/tags/v${VERSION}"
-say "querying $API"
-JSON="$(curl -sfL "$API")" || fail "release v$VERSION not found on GitHub (offline, or not released yet)"
-for f in "$NAME.tar.gz" "$NAME.tar.gz.sha256"; do
-    URL="$(echo "$JSON" | grep -oE "\"browser_download_url\": ?\"[^\"]*${f}\"" | grep -oE 'https[^"]*')"
-    [ -n "$URL" ] || fail "asset $f not on the release (the pi-release workflow attaches it a few minutes after publish -- try again shortly)"
-    say "downloading $f"
-    curl -sfL -o "$STAGING/$f" "$URL" || fail "download failed: $f"
-done
+if [ -n "$LOCAL_TARBALL" ]; then
+    say "using local tarball $LOCAL_TARBALL"
+    cp "$LOCAL_TARBALL" "$STAGING/$NAME.tar.gz"
+    cp "$LOCAL_TARBALL.sha256" "$STAGING/$NAME.tar.gz.sha256"
+else
+    API="https://api.github.com/repos/${REPO_SLUG}/releases/tags/v${VERSION}"
+    say "querying $API"
+    JSON="$(curl -sfL "$API")" || fail "release v$VERSION not found on GitHub (offline, or not released yet)"
+    for f in "$NAME.tar.gz" "$NAME.tar.gz.sha256"; do
+        URL="$(echo "$JSON" | grep -oE "\"browser_download_url\": ?\"[^\"]*${f}\"" | grep -oE 'https[^"]*')"
+        [ -n "$URL" ] || fail "asset $f not on the release (the pi-release workflow attaches it a few minutes after publish -- try again shortly)"
+        say "downloading $f"
+        curl -sfL -o "$STAGING/$f" "$URL" || fail "download failed: $f"
+    done
+fi
 
 # ---- 2. Verify + unpack -----------------------------------------------------
 say "verifying checksum"
@@ -71,17 +82,33 @@ if grep -q '"requiresFullReinstall": true' "$MANIFEST"; then
     fail "v$VERSION changes OS-level setup and needs the full installer: git pull && ./pi/os-setup/install.sh (see the release notes)"
 fi
 
-# ---- 4. Install the version dir + copy config forward ----------------------
+# ---- 4. Build the version dir BESIDE the live one + copy config forward ----
+# The live folder is never touched until the symlink flips: the new tree
+# is assembled as vX.Y.Z.new, the config is copied into it from the live
+# folder, and only then is it renamed into place. If the target path
+# resolves to the live folder itself (a git-built install adopted into
+# versions/ under this version's name), refuse rather than delete it:
+# the version-equality check above normally catches that, this catches
+# the cases it cannot (a symlinked or renamed live folder).
 NEW="$OPT/versions/v$VERSION"
-rm -rf "$NEW"
+STAGE_NEW="$NEW.new"
 mkdir -p "$OPT/versions"
-mv "$STAGING/$NAME" "$NEW"
-for f in host.json rig.json buttons.json carcache.json devicepresets.json; do
-    [ -f "$CUR_TARGET/$f" ] && cp -p "$CUR_TARGET/$f" "$NEW/$f" && say "config copied forward: $f"
+if [ -e "$NEW" ] && [ "$(readlink -f "$NEW")" = "$CUR_TARGET" ]; then
+    fail "versions/v$VERSION IS the live install ($CUR_TARGET) -- refusing to replace the running folder; install from git with install.sh instead"
+fi
+rm -rf "$STAGE_NEW"
+mv "$STAGING/$NAME" "$STAGE_NEW"
+for f in host.json rig.json buttons.json carcache.json devicepresets.json effectstatus.json; do
+    [ -f "$CUR_TARGET/$f" ] && cp -p "$CUR_TARGET/$f" "$STAGE_NEW/$f" && say "config copied forward: $f"
 done
-mkdir -p "$NEW/logs"
+mkdir -p "$STAGE_NEW/logs"
 OWNER="$(stat -c %U "$CUR_TARGET")"
-chown -R "$OWNER:$OWNER" "$NEW"
+chown -R "$OWNER:$OWNER" "$STAGE_NEW" 2>/dev/null || true
+# Config is safely inside the staged tree: now retire whatever sat under
+# the version's name (never the live folder, checked above) and move the
+# staged tree into place.
+rm -rf "$NEW"
+mv -T "$STAGE_NEW" "$NEW"
 
 # ---- 5. Prune old versions (keep the newest KEEP_VERSIONS, never current/new)
 ( cd "$OPT/versions" && ls -1d v* 2>/dev/null | sort -V | head -n -"$KEEP_VERSIONS" ) | while read -r old; do
@@ -93,27 +120,28 @@ done
 
 # ---- 6. Atomic swap + restart ----------------------------------------------
 health_ok() {
-    systemctl is-active --quiet "$SERVICE" || return 1
+    if [ -z "$NO_SYSTEMD" ]; then systemctl is-active --quiet "$SERVICE" || return 1; fi
     local v; v="$("$OPT/current/nullcat-pi" --version 2>/dev/null)" || return 1
     [ "$v" = "$1" ]
 }
 swap_to() {
     ln -sfn "$1" "$OPT/current.new" && mv -Tf "$OPT/current.new" "$OPT/current"
     say "current -> $(basename "$1"), restarting $SERVICE"
-    systemctl restart "$SERVICE"
+    [ -n "$NO_SYSTEMD" ] || systemctl restart "$SERVICE"
 }
 
 swap_to "$NEW"
 say "health check (up to 30s)..."
-for _ in $(seq 1 15); do sleep 2; health_ok "$VERSION" && { say "v$VERSION healthy -- update complete"; rm -rf "$STAGING"; exit 0; }; done
+HEALTH_WAIT="${NULLCAT_UPDATE_HEALTH_WAIT:-2}"   # seconds between health polls (the test shortens it)
+for _ in $(seq 1 15); do sleep "$HEALTH_WAIT"; health_ok "$VERSION" && { say "v$VERSION healthy -- update complete"; rm -rf "$STAGING"; exit 0; }; done
 
 # ---- 7. Rollback ladder: current -> prev -> prev2 ---------------------------
 say "v$VERSION FAILED its health check -- walking back"
 mapfile -t CANDIDATES < <(cd "$OPT/versions" && ls -1d v* | sort -rV | grep -vx "v$VERSION")
 for c in "${CANDIDATES[@]:0:2}"; do
     swap_to "$OPT/versions/$c"
-    for _ in $(seq 1 8); do sleep 2; health_ok "${c#v}" && { say "rolled back to $c -- v$VERSION left in versions/ for inspection"; exit 1; }; done
+    for _ in $(seq 1 8); do sleep "$HEALTH_WAIT"; health_ok "${c#v}" && { say "rolled back to $c -- v$VERSION left in versions/ for inspection"; exit 1; }; done
     say "$c also failed its health check"
 done
-systemctl stop "$SERVICE" || true
+[ -n "$NO_SYSTEMD" ] || systemctl stop "$SERVICE" || true
 fail "no version passed the health check -- service stopped; inspect journalctl -u $SERVICE and $OPT/versions"

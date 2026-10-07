@@ -342,9 +342,14 @@ downloads the release, verifies it, and restarts into the new version;
 the page reconnects when it is done (typically under a minute on a
 decent connection). The two previous versions are kept on the Pi: an
 update whose new version fails to start rolls back automatically, and
-`journalctl -u 'nullcat-update@*'` narrates every step. A release that
-changes OS-level tuning refuses the quick path and tells you to run the
-full installer instead.
+`journalctl -u 'nullcat-update@*'` narrates every step. Your settings
+(host, rig, buttons, the learned cars and the sim dots) are copied into
+the new version before it takes over, and the running version's folder
+is never deleted or emptied by an update. A release that changes
+OS-level tuning refuses the quick path and tells you to run the full
+installer instead, and an update that would replace the very folder the
+controller is running from (a hand-built install sitting under that
+version's name) is refused for the same reason.
 
 Installs made before 0.9.5 need one final manual update to adopt the
 versioned layout: `cd nullCAT && git pull && ./pi/os-setup/install.sh`,

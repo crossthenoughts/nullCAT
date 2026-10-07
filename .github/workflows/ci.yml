@@ -75,6 +75,8 @@ jobs:
             echo "node --check $f"
             node --check "$f"
           done
+      - name: Pi updater script test (live folder never touched, rollback)
+        run: bash tests/pi/test-update.sh
 
   linux:
     runs-on: ubuntu-latest
