@@ -1236,8 +1236,8 @@ std::vector<std::string> AppConfig::validate() const
                 errors.push_back(pfx + "rock/thump/buzz mix out of range [0, 1]");
             if (e.litres < 0.1 || e.litres > 30.0)
                 errors.push_back(pfx + "litres out of range [0.1, 30]");
-            if (e.layout < 0.0 || e.layout > 3.0)
-                errors.push_back(pfx + "layout out of range [0, 3] (inline, V, flat, wankel)");
+            if (e.layout < 0.0 || e.layout > 5.0)
+                errors.push_back(pfx + "layout out of range [0, 5] (inline, V, flat, wankel, two-stroke, electric)");
             if (e.inertia < 0.0 || e.inertia > 1.0 || e.pops < 0.0 || e.pops > 1.0)
                 errors.push_back(pfx + "inertia/pops mix out of range [0, 1]");
             if (e.turbo < 0.0 || e.turbo > 1.0)

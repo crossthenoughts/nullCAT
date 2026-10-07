@@ -36,6 +36,10 @@ Development branch. Nothing here is in a release yet.
   the catch, dying and the stall kick are modelled below idle; the pit
   limiter cuts like the rev limiter without teaching the redline. New
   tokens `boost` and `pitLimiter`; the plugin sends both automatically.
+- Engine layouts two-stroke (every cylinder fires every rev, harder for
+  its size, no idle lope: karts and old bikes) and electric (no firing,
+  the motor whine from the first turn rising with load, regen whine on a
+  lift, a soft limiter, no cranking or stall).
 - Driveline tile: clutch judder (a slipping clutch grabbing and releasing
   at a launch or a bad downshift, the slip worked out from engine speed
   against the learned gear ratio and road speed) and lugging wind-up

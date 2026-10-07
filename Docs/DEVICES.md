@@ -280,8 +280,14 @@ speed and throttle making it exact.
 Describe the engine and the effect follows it:
 
 - **cyl / rotors**, **litres**, **layout** (inline, V, flat/boxer,
-  Wankel). Bigger cylinders hit harder; more cylinders and a V or flat
-  layout run smoother; a Wankel has no shake at idle but an uneven beat.
+  Wankel, two-stroke, electric). Bigger cylinders hit harder; more
+  cylinders and a V or flat layout run smoother; a Wankel has no shake
+  at idle but an uneven beat. A **two-stroke** (karts, old bikes) fires
+  every cylinder every rev, hits harder for its size and has no idle
+  lope: a 125 cc kart single is cyl 1, litres 0.125, two-stroke.
+  **Electric** has no firing at all: just the motor whine from the first
+  turn, rising with load (and quieter under regen when you lift), a soft
+  limiter, no cranking or stall; the rpm channel is the motor speed.
 - **max rpm**: the redline. Leave it at 0 and it is learned while you
   drive (set exactly the first time you hit the limiter).
 - **rock x / thump x / buzz x** mix the three parts, 0 to switch one

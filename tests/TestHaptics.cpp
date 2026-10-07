@@ -825,6 +825,73 @@ int main()
           approx(pk, std::min(2.0, 800.0 / (w * w)), 0.02, "driveline: position sink derates the judder at its carrier"); }
     }
 
+    // ================= engine layouts: two-stroke, electric =================
+    {
+        using haptics::EngineModel; using haptics::EngineOut;
+        auto rms = [](const std::vector<double>& v, size_t a, size_t b) {
+            double s = 0.0; for (size_t i = a; i < b && i < v.size(); ++i) s += v[i] * v[i];
+            return std::sqrt(s / std::max<size_t>(1, std::min(b, v.size()) - a)); };
+        EffectParams p; p.ampPct = 100.0; p.freqHz = 30.0; p.jitter = 0.3;
+        // Two-stroke single (a kart) at 3000 rpm fires once per rev: twice as
+        // many thumps as a four-stroke single, and no half-order content in
+        // the rock (count rock zero crossings: crank rate only).
+        auto thumpsPerSec = [&](double layout, double perRev) {
+            EngineModel m; uint64_t rng = 4; EffectParams q = p; q.jitter = 0.0; q.freqHz = 80.0;   // 12.5 ms thumps: 50/s still leaves gaps
+            EngineParams e; e.cylinders = 1.0; e.litres = 0.125; e.layout = layout; e.maxRpm = 14000.0; e.inertia = 0.0; e.liftoff = 0.0;
+            std::vector<double> th;
+            for (int i = 0; i < 4000; ++i) { m.drive(3000.0 / 60.0 * perRev, 0.8, false); th.push_back(m.step(DT, q, e, 1.0, rng).thumps); }
+            int bursts = 0; for (size_t i = 2001; i < th.size(); ++i) if (std::fabs(th[i]) > 1e-9 && std::fabs(th[i-1]) <= 1e-9) ++bursts;
+            return bursts / 1.0; };
+        // (the law supplies fireHz = rpm/60 x perRev: four-stroke single 0.5, two-stroke 1)
+        const double four = thumpsPerSec(0.0, 0.5), two = thumpsPerSec(4.0, 1.0);
+        approx(four, 25.0, 3.0, "engine: a four-stroke single at 3000 rpm thumps 25 times a second");
+        approx(two,  50.0, 4.0, "engine: a two-stroke single at 3000 rpm thumps 50 times a second");
+        {
+            auto rockHalfOrder = [&](double layout, double perRev) {
+                EngineModel m; uint64_t rng = 6;
+                EngineParams e; e.cylinders = 1.0; e.litres = 0.125; e.layout = layout; e.maxRpm = 14000.0; e.thump = 0.0; e.buzz = 0.0; e.inertia = 0.0;
+                EffectParams q = p; q.jitter = 1.0;   // full lope: the half-order term is at its largest
+                std::vector<double> rk;
+                for (int i = 0; i < 4000; ++i) { m.drive(700.0 / 60.0 * perRev, 0.5, false); rk.push_back(m.step(DT, q, e, 1.0, rng).rock); }
+                // Crank rate 11.7 Hz: a pure crank-rate rock crosses zero ~23/s;
+                // half-order content shifts crossings off the even spacing.
+                // Measure the spread of crossing intervals instead.
+                std::vector<double> gaps; double last = -1;
+                for (size_t i = 2001; i < rk.size(); ++i) if ((rk[i] >= 0.0) != (rk[i-1] >= 0.0)) { if (last >= 0) gaps.push_back((i - last) * DT); last = i; }
+                double mean = 0; for (double g : gaps) mean += g; mean /= std::max<size_t>(1, gaps.size());
+                double var = 0; for (double g : gaps) var += (g - mean) * (g - mean); var /= std::max<size_t>(1, gaps.size());
+                return std::sqrt(var) / mean; };
+            const double fourSpread = rockHalfOrder(0.0, 0.5), twoSpread = rockHalfOrder(4.0, 1.0);
+            CHECK(fourSpread > 0.08, "engine: a four-stroke at full lope has half-order unevenness in its rock");
+            CHECK(twoSpread < fourSpread * 0.5, "engine: a two-stroke has no half-order lope (every rev alike)");
+        }
+        // Electric: no thumps, no rock, no inertia; a whine from the first
+        // turn that rises with load, no cuts under a limiter flag, no
+        // lift-off burst, and no cranking machinery.
+        {
+            EngineModel m; uint64_t rng = 8;
+            EngineParams e; e.layout = 5.0; e.maxRpm = 20000.0; e.inertia = 1.0; e.liftoff = 1.0; e.turbo = 1.0; e.pops = 1.0;
+            std::vector<double> th, rk, bz;
+            auto run = [&](double rpm, double load, bool lim, int n) { for (int i = 0; i < n; ++i) { m.drive(rpm / 60.0, load, lim); const EngineOut eo = m.step(DT, p, e, 1.0, rng); th.push_back(eo.thumps); rk.push_back(eo.rock); bz.push_back(eo.buzz); } };
+            run(250.0, 0.5, false, 1000);        // what would be cranking on a piston engine
+            run(2000.0, 0.2, false, 2000);       // light load
+            run(2000.0, 1.0, false, 2000);       // full load
+            run(20000.0, 1.0, true, 2000);       // "limiter" flag at max rpm
+            run(20000.0, 0.0, false, 2000);      // lift from max
+            CHECK(rms(th, 0, th.size()) < 1e-9 && rms(rk, 0, rk.size()) < 1e-9, "engine: electric has no thumps and no rock, ever");
+            CHECK(rms(bz, 200, 1000) > 0.5, "engine: electric whines from the first turn (250 rpm)");
+            CHECK(rms(bz, 3500, 5000) > rms(bz, 1500, 3000) * 2.0, "engine: the whine rises with load");
+            // A cut = a run of silence longer than a carrier cycle (a sine's own
+            // zero crossings are single samples).
+            int holes = 0, run0 = 0;
+            for (size_t i = 5200; i < 7000; ++i) { if (std::fabs(bz[i]) <= 1e-6) { if (++run0 == 10) ++holes; } else run0 = 0; }
+            CHECK(holes == 0, "engine: electric has a soft limiter, no cut bursts");
+            CHECK(rms(th, 7000, 7400) < 1e-9, "engine: no blow-off or pops on an electric lift");
+            CHECK(rms(bz, 7400, 9000) > 0.2 && rms(bz, 7400, 9000) < rms(bz, 5200, 7000), "engine: regen whine on the lift, quieter than under load");
+            CHECK(m.catchCount() == 0 && m.stallCount() == 0, "engine: electric never catches or stalls");
+        }
+    }
+
     // ================= engine buzz band vs loop rate =================
     {
         // The automatic buzz order aims the redline at 120 Hz on a 2 kHz

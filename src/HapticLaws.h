@@ -102,7 +102,10 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
     {
         const EngineParams& e = L.engineParams();
         const double cyl = std::max(1.0, e.cylinders);
-        const double perRev = (e.layout > 2.5) ? cyl : cyl / 2.0;   // Wankel: one firing per rotor per rev
+        const int    lay = static_cast<int>(e.layout + 0.5);
+        // Firings per rev: four-stroke cyl/2; Wankel one per rotor; two-stroke
+        // every cylinder; electric none, so the motor rpm goes through as is.
+        const double perRev = (lay == 3 || lay == 4) ? cyl : (lay == 5) ? 1.0 : cyl / 2.0;
         double level = 0.0, fireHz = 0.0, load = 0.5;
         const bool lim = flag(NcxValues::Limiter) > 0.5;
         if (live && v.have[NcxValues::Rpm] && v.val[NcxValues::Rpm] > kEngineAliveRpm)

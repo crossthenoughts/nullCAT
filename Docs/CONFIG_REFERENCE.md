@@ -164,7 +164,7 @@ Engine-only fields (`rpmVibe`):
 |---|---|---|
 | `cylinders` | `4` | Cylinders, or rotors when `layout` is Wankel (1 to 16). Sets how often it fires. |
 | `litres` | `2` | Total displacement (0.1 to 30). Litres per cylinder set how hard each firing hits. |
-| `layout` | `0` | 0 inline, 1 V, 2 flat/boxer, 3 Wankel. Sets how much the block shakes. |
+| `layout` | `0` | 0 inline, 1 V, 2 flat/boxer, 3 Wankel, 4 two-stroke, 5 electric. Sets how much the block shakes and how the engine fires (two-stroke: every cylinder every rev; electric: no firing, a whine). |
 | `maxRpm` | `0` | Redline. 0 = learned while you drive (highest rpm seen, set exactly on the first limiter hit). |
 | `rock`, `thump`, `buzz` | `1` | Mix of the three parts (0 to 1): the idle rock, the firing thumps, the rpm-following buzz. |
 | `order` | `0` | Buzz pitch as a multiple of crank speed (0.25 to 8). 0 = automatic, so the redline lands at the top of the range. |

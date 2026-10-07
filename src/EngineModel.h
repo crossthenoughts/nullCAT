@@ -40,7 +40,7 @@ struct EngineParams
 {
     double cylinders = 4.0;   // cylinders, or rotors when layout is Wankel (1..16)
     double litres    = 2.0;   // total displacement (0.1..30)
-    double layout    = 0.0;   // 0 inline, 1 V, 2 flat/boxer, 3 Wankel
+    double layout    = 0.0;   // 0 inline, 1 V, 2 flat/boxer, 3 Wankel, 4 two-stroke, 5 electric
     double maxRpm    = 0.0;   // redline; 0 = learn (peak hold, limiter snap)
     double rock      = 1.0;   // mix 0..1
     double thump     = 1.0;   // mix 0..1
@@ -68,6 +68,10 @@ namespace engine_k {
     constexpr double kBalanceV            = 0.85;   // V smoother than inline
     constexpr double kBalanceFlat         = 0.7;    // boxer cancels most primary shake
     constexpr double kBalanceWankel       = 0.25;   // no reciprocating mass
+    constexpr double kBalanceTwoStroke    = 1.3;    // light flywheel, rigid mounts: shakes above its size
+    constexpr double kTwoStrokeHeavy      = 1.5;    // a firing every rev hits harder per cc
+    constexpr double kElectricLoadFloor   = 0.2;    // whine = floor + (1-floor) x load (regen whines too)
+    constexpr double kElectricFullX       = 0.3;    // whine level full-bodied by this fraction of max rpm
     constexpr double kRockFullBelowHz     = 14.0;   // crank Hz: rock full below (840 rpm)
     constexpr double kRockGoneAboveHz     = 42.0;   // crank Hz: rock gone above (2520 rpm)
     constexpr double kRockLoadFloor       = 0.7;    // rock = floor + (1-floor) x load
@@ -199,15 +203,17 @@ public:
         out.thumpHz = thumpHz;
         const double cyl    = std::max(1.0, e.cylinders);
         const int    layout = static_cast<int>(e.layout + 0.5);
-        const bool   rotary = (layout == 3);
+        const bool   rotary = (layout == 3), twoStroke = (layout == 4), electric = (layout == 5);
         // Four-stroke: each cylinder fires every 2 revs. Wankel: each rotor
-        // fires once per eccentric-shaft rev, so "cylinders" = rotors.
-        const double crankHz = rotary ? m_fireHz / cyl : m_fireHz / (cyl / 2.0);
+        // fires once per eccentric-shaft rev, so "cylinders" = rotors. Two-
+        // stroke: every cylinder every rev. Electric: no firing at all, the
+        // law passes motor rpm straight through (one "firing" per rev).
+        const double crankHz = (rotary || twoStroke) ? m_fireHz / cyl : electric ? m_fireHz : m_fireHz / (cyl / 2.0);
 
         const double perCyl  = std::max(0.05, e.litres) / cyl;
-        const double heavy   = std::max(kHeavyMin, std::min(kHeavyMax, perCyl / kUnitPerCylLitres));
-        const double layoutK = (layout == 1) ? kBalanceV : (layout == 2) ? kBalanceFlat : 1.0;
-        const double balance = rotary ? kBalanceWankel
+        const double heavy   = std::max(kHeavyMin, std::min(kHeavyMax, perCyl / kUnitPerCylLitres)) * (twoStroke ? kTwoStrokeHeavy : 1.0);
+        const double layoutK = (layout == 1) ? kBalanceV : (layout == 2) ? kBalanceFlat : twoStroke ? kBalanceTwoStroke : 1.0;
+        const double balance = rotary ? kBalanceWankel : electric ? 0.0
                              : layoutK * std::max(kBalanceMin, std::min(kBalanceMax, kBalanceNum / std::sqrt(cyl)));
 
         // Redline: set, or learned (peak hold; the REV limiter flag snaps it
@@ -224,7 +230,8 @@ public:
         // reach zero (or the sim drops them there).
         const bool turning = m_fireHz >= 0.5;
         bool cranking = false, catchNow = false, stallNow = false;
-        if (!m_running)
+        if (electric) { m_running = turning; m_sawCranking = false; }
+        else if (!m_running)
         {
             // The catch is only an event when the starter was seen first: an
             // engine already running when the stream begins just runs.
@@ -263,7 +270,7 @@ public:
         // Limiter cut gate, rate jittered per cut cycle.
         const double cutBase = std::max(kCutHzMin, std::min(kCutHzMax, e.limHz > 0.0 ? e.limHz : 12.0));
         bool cut = false;
-        if (m_limiter && m_fireHz >= 0.5)
+        if (m_limiter && m_fireHz >= 0.5 && !electric)
         {
             m_cutPhase += m_cutRate * dtSec;
             if (m_cutPhase >= 1.0)
@@ -278,7 +285,7 @@ public:
         m_wasCut = cut;
         const double limHit = std::max(0.0, std::min(2.0, e.limHit));
 
-        if (m_fireHz >= 0.5)
+        if (m_fireHz >= 0.5 && !electric)
         {
             m_crankPhase += crankHz * dtSec;
             if (m_crankPhase >= 1.0)
@@ -333,7 +340,7 @@ public:
             if (m_liftHoldoff > 0.0) m_liftHoldoff -= dtSec;
             const bool liftEdge = m_load <= kLiftTo && m_hiLoadAgo < kLiftWindowSec && m_hiLoadAgo > 0.0
                                   && x >= kLiftMinX && m_liftHoldoff <= 0.0 && m_fireHz >= 0.5;
-            if (liftEdge && e.liftoff > 0.0)
+            if (liftEdge && e.liftoff > 0.0 && !electric)
             {
                 ++m_liftOffs;
                 m_liftHoldoff = kLiftHoldoffSec;
@@ -365,7 +372,7 @@ public:
 
         // Overrun pops: with the throttle shut and the revs up, sparse random
         // firings in the exhaust, more often the higher the revs.
-        if (e.pops > 0.0 && m_load <= kLiftTo && x >= kPopsMinX && m_fireHz >= 0.5 && !m_limiter)
+        if (e.pops > 0.0 && m_load <= kLiftTo && x >= kPopsMinX && m_fireHz >= 0.5 && !m_limiter && !electric)
         {
             m_popWait -= dtSec;
             if (m_popWait <= 0.0)
@@ -394,7 +401,7 @@ public:
         {
             const double ph   = 2.0 * wavesynth::kPi * m_rockPhase;   // one cycle = 2 revs
             const double lope = std::min(1.0, p.jitter + extraLope);
-            const double rock = std::sin(2.0 * ph) + kHalfOrderLope * lope * std::sin(ph);
+            const double rock = std::sin(2.0 * ph) + (twoStroke ? 0.0 : kHalfOrderLope * lope * std::sin(ph));
             const double loadK = cranking ? kCrankRock : (kRockLoadFloor + (1.0 - kRockLoadFloor) * m_load) * (1.0 + kDyingHitGain * 0.5 * dying);
             out.rock = p.ampPct * level * kRockMix * e.rock * heavy * balance * rockFade * loadK * m_revScale * rock;
             out.rockHz = crankHz;
@@ -412,9 +419,19 @@ public:
             const double carrier = std::max(kBuzzCarrierMinHz, std::min(kBuzzCarrierMaxHz, crankHz * order));
             m_buzzPhase = wrap(m_buzzPhase + carrier * dtSec);
             out.buzzHz = carrier;
-            const double rise = std::max(0.0, std::min(1.0, (x - kBuzzInAt) / (kBuzzFullBy - kBuzzInAt)));
+            // Electric: the motor whine, there from the first turn, carried by
+            // load (regen whines too, at the floor), no firing-order band to
+            // come in at and no cut. Otherwise the firing-order buzz.
+            const double rise = electric
+                              ? std::max(0.0, std::min(1.0, x / kElectricFullX))
+                              : std::max(0.0, std::min(1.0, (x - kBuzzInAt) / (kBuzzFullBy - kBuzzInAt)));
             const double s    = std::sin(2.0 * wavesynth::kPi * m_buzzPhase);
-            if (rise > 0.0 && !cut && e.buzz > 0.0)
+            if (electric && rise > 0.0 && e.buzz > 0.0)
+            {
+                const double lvl = rise * (kElectricLoadFloor + (1.0 - kElectricLoadFloor) * m_load);
+                out.buzz = p.ampPct * level * kBuzzMix * e.buzz * lvl * s;
+            }
+            else if (rise > 0.0 && !cut && e.buzz > 0.0)
             {
                 const double lvl = rise * (1.0 - kBuzzTopGrowth + kBuzzTopGrowth * x)
                                  * (kBuzzLoadFloor + (1.0 - kBuzzLoadFloor) * m_load)
@@ -426,7 +443,7 @@ public:
             // dissipates with the square of the falling revs. Keeps going
             // through a limiter cut (the engine still spins). Balance as
             // for the rock: a four shakes, a six or a twelve barely.
-            if (e.inertia > 0.0)
+            if (e.inertia > 0.0 && !electric)
                 out.buzz += p.ampPct * level * kInertiaMix * std::min(1.0, e.inertia) * balance * x * x * s;
         }
 

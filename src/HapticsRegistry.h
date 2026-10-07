@@ -120,7 +120,7 @@ constexpr ParamSpec kEngineParams[] = {
     { "ampPct",    "amp %",                 0,   100,   1,    nullptr },
     { "cylinders", "cyl / rotors",          1,   16,    1,    nullptr },
     { "litres",    "litres",                0.1, 30,    0.1,  nullptr },
-    { "layout",    "layout",                0,   3,     1,    "inline|V|flat / boxer|wankel" },
+    { "layout",    "layout",                0,   5,     1,    "inline|V|flat / boxer|wankel|two-stroke|electric" },
     { "maxRpm",    "max rpm (0=learn)",     0,   30000, 100,  nullptr },
     { "rock",      "rock x",                0,   1,     0.1,  nullptr },
     { "thump",     "thump x",               0,   1,     0.1,  nullptr },
