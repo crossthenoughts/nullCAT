@@ -28,6 +28,7 @@
 #include "HapticsTypes.h"
 #include "EngineModel.h"
 #include "SlipModel.h"
+#include "RoadModel.h"
 #include "WaveSynth.h"
 #include <algorithm>
 #include <cstdint>
@@ -112,6 +113,29 @@ public:
             Fx& f = m_fx[i];
             const EffectParams& p = m_fxParams[i];
             const bool slipSlot = slipFor(static_cast<FxType>(i)) != nullptr;
+            // Road replay: per-corner suspension travel when the sim sends
+            // it (the law drives the corners); the texture oscillator is the
+            // fallback and runs below when it does not.
+            if (i == static_cast<int>(FxType::Road) && (m_roadDriven || m_road.active()))
+            {
+                m_roadDriven = false;
+                if (p.ampPct <= 0.0) { m_road.clear(); f.level = 0.0; continue; }
+                m_road.step(dtSec, m_roadParams);
+                f.level = m_road.level();
+                f.targetLevel = 0.0;
+                if (f.level < 1e-4) continue;
+                for (const Route& r : p.routes)
+                {
+                    if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES || r.gain <= 0.0) continue;
+                    const double s = m_road.outputFor(r.part);
+                    if (s == 0.0) continue;
+                    // No single carrier in a replay: derate a position sink
+                    // at a representative bump rate; the owner's sum guard
+                    // holds the axis limits regardless.
+                    m_overlay[r.axis] += p.ampPct * s * r.gain * sinkScale(r.axis, p.ampPct * r.gain, road_k::kDerateHz);
+                }
+                continue;
+            }
             if (!slipSlot)
             {
                 // Level ramp: ~50 ms attack, ~120 ms release. (The slip
@@ -283,6 +307,19 @@ public:
     }
     static bool isSlipSlot(FxType t) { return t == FxType::Skid || t == FxType::Lockup; }
 
+    // ---- per-corner road replay (the Road slot). Config apply for the
+    // params; the law drives the corners per cycle when the sim sends
+    // suspension velocities, and does not when it sends roadNoise.
+    void configureRoad(const RoadParams& r) { m_roadParams = r; }
+    const RoadParams& roadParams() const   { return m_roadParams; }
+    void driveRoad(int wheel, double velMmS)
+    {
+        m_road.drive(wheel, velMmS);
+        m_roadDriven = true;
+    }
+    double roadWheelTravelMm(int wheel) const { return m_road.wheelTravelMm(wheel); }
+    bool   roadReplaying() const              { return m_road.active(); }
+
     // Drive one continuous effect for THIS cycle: level 0..1 (silence to
     // full configured amplitude) and the carrier frequency to use (RpmVibe
     // passes rpm/60 x order; others pass their configured freqHz). Called
@@ -351,6 +388,8 @@ public:
         m_engine.clear();
         m_slipLat.clear();
         m_slipLon.clear();
+        m_road.clear();
+        m_roadDriven = false;
         for (double& o : m_overlay) o = 0.0;
     }
 
@@ -410,6 +449,9 @@ private:
     SlipModel    m_slipLat, m_slipLon;
     SlipParams   m_slipLatParams{ 1.0, 25.0, 1.0, 11.0, 7.0 };
     SlipParams   m_slipLonParams{ 1.0,  9.0, 1.0, 10.0, 0.8 };
+    RoadModel    m_road;
+    RoadParams   m_roadParams;
+    bool         m_roadDriven = false;   // a law drove corners this cycle
     EffectParams m_params[EVENT_TYPE_COUNT];
     EffectParams m_fxParams[FX_TYPE_COUNT];
     Event        m_events[MAX_EVENTS];

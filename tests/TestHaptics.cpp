@@ -624,6 +624,78 @@ int main()
         CHECK(zk < 1e-9 && Z.fxLevel(static_cast<int>(FxType::Skid)) == 0.0, "slip: amp 0 plays nothing and reports level 0");
     }
 
+    // ================= per-corner road replay =================
+    {
+        using haptics::FxType; using haptics::Part; using haptics::RoadParams; using haptics::SinkKind;
+        // A 10 Hz, 500 mm/s peak suspension velocity on FL is a travel of
+        // V/w = 500/(2 pi 10) = 7.96 mm peak; with full mm 8 the FL sample
+        // peaks near 1 and the FL route carries ~amp x gain.
+        EffectParams p; p.ampPct = 100.0; p.jitter = 0.0;
+        p.routes[0] = { 0, 1.0, Part::FL };
+        p.routes[1] = { 1, 1.0, Part::RR };
+        p.routes[2] = { 2, 1.0, Part::All };
+        RoadParams rp{ 8.0, 2.0 };
+        Layer L; L.configureFx(FxType::Road, p); L.configureRoad(rp);
+        double pk[3] = {}; double t = 0.0;
+        for (int i = 0; i < 4000; ++i, t += DT)
+        {
+            for (int w = 0; w < 4; ++w) L.driveRoad(w, w == WheelFL ? 500.0 * std::sin(2.0 * 3.14159265358979 * 10.0 * t) : 0.0);
+            L.step(DT);
+            if (i >= 2000) for (int a = 0; a < 3; ++a) pk[a] = std::max(pk[a], std::fabs(L.overlayFor(a)));
+        }
+        approx(pk[0], 100.0 * 7.96 / 8.0, 6.0, "road: FL corner replays FL travel (V/w, full mm scaled)");
+        CHECK(pk[1] < 1e-9, "road: the RR corner route carries nothing when only FL moves");
+        approx(pk[2], pk[0], 1e-9, "road: the all route carries the biggest corner");
+        CHECK(L.roadReplaying(), "road: replay is active while corners are driven");
+
+        // The high-pass removes slow body motion: a steady 50 mm/s (the
+        // cue's heave) settles to a bounded travel of V/(2 pi hp) = 4 mm,
+        // not a runaway integral; at 10 Hz the same velocity gives far less.
+        Layer H; H.configureFx(FxType::Road, p); H.configureRoad(rp);
+        double steady = 0.0;
+        for (int i = 0; i < 8000; ++i)
+        {
+            for (int w = 0; w < 4; ++w) H.driveRoad(w, 50.0);
+            H.step(DT);
+            steady = H.roadWheelTravelMm(WheelFL);
+        }
+        approx(steady, 50.0 / (2.0 * 3.14159265358979 * 2.0), 0.2, "road: a constant velocity settles at V/(2 pi cut hz), never runs away");
+
+        // Not driven = the replay releases and the texture path is back:
+        // after the gate fades, driveFx on the Road slot plays the oscillator.
+        Layer R; R.configureFx(FxType::Road, p); R.configureRoad(rp);
+        for (int i = 0; i < 400; ++i) { for (int w = 0; w < 4; ++w) R.driveRoad(w, 300.0 * std::sin(i * 0.3)); R.step(DT); }
+        for (int i = 0; i < 1000; ++i) R.step(DT);
+        CHECK(!R.roadReplaying(), "road: replay releases when corners stop arriving");
+        EffectParams q = p; q.freqHz = 28.0; q.routes[0] = { 0, 1.0 };
+        R.configureFx(FxType::Road, q);
+        double tex = 0.0;
+        for (int i = 0; i < 1000; ++i) { R.driveFx(FxType::Road, 1.0, 0.0); R.step(DT); tex = std::max(tex, std::fabs(R.overlayFor(0))); }
+        CHECK(tex > 90.0, "road: the roadNoise texture plays when no corners are sent");
+
+        // Position sink: the FL replay asked at 2 mm is derated at the
+        // representative 8 Hz: allowed = 800/(2 pi 8)^2 = 0.317 mm.
+        Layer P; P.setSinkKind(0, SinkKind::Position); P.setPositionLimits(0, 80.0, 800.0, 3.0);
+        EffectParams r; r.ampPct = 100.0; r.jitter = 0.0; r.routes[0] = { 0, 2.0, Part::FL };
+        P.configureFx(FxType::Road, r); P.configureRoad(rp);
+        double pmm = 0.0; t = 0.0;
+        for (int i = 0; i < 4000; ++i, t += DT)
+        {
+            for (int w = 0; w < 4; ++w) P.driveRoad(w, 500.0 * std::sin(2.0 * 3.14159265358979 * 10.0 * t));
+            P.step(DT);
+            if (i >= 2000) pmm = std::max(pmm, std::fabs(P.overlayFor(0)) / 100.0);
+        }
+        const double w8 = 2.0 * 3.14159265358979 * 8.0;
+        approx(pmm, (7.96 / 8.0) * std::min(2.0, 800.0 / (w8 * w8)), 0.03, "road: position sink derates the replay at the bump rate");
+
+        // amp 0 plays nothing and clears.
+        EffectParams z = p; z.ampPct = 0.0;
+        Layer Z; Z.configureFx(FxType::Road, z); Z.configureRoad(rp);
+        double zk = 0.0;
+        for (int i = 0; i < 200; ++i) { for (int w = 0; w < 4; ++w) Z.driveRoad(w, 400.0); Z.step(DT); zk = std::max(zk, std::fabs(Z.overlayFor(0))); }
+        CHECK(zk < 1e-9 && Z.fxLevel(static_cast<int>(FxType::Road)) == 0.0, "road: amp 0 plays nothing");
+    }
+
     // ================= model trigger: detent capture =================
     {
         DeviceParams p;

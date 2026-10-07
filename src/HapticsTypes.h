@@ -65,6 +65,16 @@ struct SlipParams
     double peak = 8.0;
 };
 
+// The Road tile's replay settings (used when per-corner suspension
+// velocities arrive; the synthesised texture from roadNoise otherwise).
+// fullMm: suspension travel that is 100% amplitude. hpHz: high-pass on
+// the travel, removing the slow body motion the cue already produces.
+struct RoadParams
+{
+    double fullMm = 8.0;
+    double hpHz   = 2.0;
+};
+
 // Per-effect tuning shared by every effect kind. ampPct 0 = the effect is
 // off. Transients use freqHz + durMs; continuous effects use freqHz as
 // their carrier; the engine uses freqHz as its thump carrier and jitter

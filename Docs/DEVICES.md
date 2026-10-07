@@ -177,7 +177,7 @@ effect silent.
 | ABS | a regular pulse while ABS works and the brake is on | brake, ABS active |
 | Longitudinal slip | a wheel locking under braking, or spinning under power, per wheel (below) | per-wheel slip ratio or wheel speeds, road speed; or the single lockup channel |
 | Lateral slip | the tyres sliding sideways: the fronts scrubbing wide, the rears stepping out, per wheel (below) | per-wheel slip angles; or the single skid channel |
-| Road | road surface texture | road |
+| Road | the road surface: each corner's bumps replayed from the suspension, per wheel (below); or a texture | per-corner suspension velocity; or the single road channel |
 | Limiter | an extra hammer while on the rev limiter | limiter |
 | TC pulse | a pulse while traction control cuts | TC active |
 | Kerb | kerb strip rumble | kerbs |
@@ -230,6 +230,23 @@ slip ratios, nullCAT learns each wheel's rolling factor while you cruise
 (brake off, light throttle, above 30 km/h) and works the ratio out
 itself, so a sender's wheel-speed unit and staggered tyre sizes need no
 setting up.
+
+### Road
+
+With per-corner suspension velocities from the sim (most titles have
+them), the Road tile stops making a texture and **replays the road**:
+each corner's suspension travel, with the slow body motion that the
+motion cue already produces cut away so only the bumps remain, at their
+real timing and shape. Route it with a part like the slip tiles: on a
+four-post rig each actuator plays its own corner, so a kerb under the
+right-front arrives at the right-front. Two settings: **full mm** is the
+bump that counts as 100 % amplitude (8 by default; lower for a stiff
+race car, higher for a rally car), and **cut hz** is where the slow
+motion is cut (2 by default; raise it if the seat follows body roll the
+cue is already doing, lower it to let longer undulations through).
+
+Without the per-corner channels the tile plays a texture at `freq hz`
+scaled by the single `road` channel, as before.
 
 ### The engine
 

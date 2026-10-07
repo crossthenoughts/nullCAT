@@ -20,6 +20,12 @@ Development branch. Nothing here is in a release yet.
   rig feels the inside front lock up on that corner. The old single skid
   and lockup channels still work and feed all four wheels. Saved 0.9.6
   tuning carries over.
+- Road replayed per corner: with suspension velocities from the sim the
+  Road tile plays each corner's real bumps (the slow body motion the cue
+  already does is cut away) instead of a synthetic texture, routed with
+  the same part selector so a four-post rig feels a kerb under the wheel
+  that hit it. `full mm` and `cut hz` tune it; the texture remains the
+  fallback for sims without per-corner data.
 - Protocol 1.3: the channel wire takes 48 slots, with per-wheel tokens
   for slip angle, slip ratio, wheel speed, load and suspension velocity
   plus maxRpm; and a new named line, `NULLCATY,key=value,...`, so any

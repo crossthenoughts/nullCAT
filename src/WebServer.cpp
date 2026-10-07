@@ -1375,10 +1375,11 @@ bool WebServer::start()
                 e["label"] = info.label;
                 e["kind"]  = (info.kind == haptics::Kind::Transient) ? "transient"
                            : (info.kind == haptics::Kind::Engine)    ? "engine"
-                           : (info.kind == haptics::Kind::Slip)      ? "slip" : "continuous";
+                           : (info.kind == haptics::Kind::Slip)      ? "slip"
+                           : (info.kind == haptics::Kind::Road)      ? "road" : "continuous";
                 if (info.kind != haptics::Kind::Transient) e["fxIdx"] = static_cast<int>(info.fx);
                 // Per-wheel effects: routes carry a part (route editor shows the selector).
-                e["parts"] = (info.kind == haptics::Kind::Slip);
+                e["parts"] = haptics::kindHasParts(info.kind);
                 QJsonArray ch;
                 for (const char* c : info.channels) { if (!c) break; ch.append(c); }
                 e["channels"] = ch;
@@ -1411,6 +1412,11 @@ bool WebServer::start()
                 else if (info.kind == haptics::Kind::Slip)
                 {
                     for (int k = 0; k < 5; ++k) d[info.slipKeys[k]] = haptics::slipField(info.slipDefaults, k);
+                }
+                else if (info.kind == haptics::Kind::Road)
+                {
+                    const haptics::RoadParams rd;
+                    d["fullMm"] = rd.fullMm; d["hpHz"] = rd.hpHz;
                 }
                 e["defaults"] = d;
                 e["tip"] = info.tip;

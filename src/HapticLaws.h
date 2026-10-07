@@ -222,8 +222,22 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec)
         }
     }
 
+    // Road: replay the corners when the sim sends suspension velocities
+    // (mm/s, all four); the roadNoise texture otherwise. A preview runs
+    // the texture so Test shows something without a sim.
+    {
+        bool corners = live && st.previewSec[static_cast<int>(FxType::Road)] <= 0.0;
+        for (int w = 0; w < WHEEL_COUNT && corners; ++w) corners = v.have[NcxValues::SuspVelFL + w];
+        if (corners)
+        {
+            for (int w = 0; w < WHEEL_COUNT; ++w) L.driveRoad(w, v.val[NcxValues::SuspVelFL + w]);
+            L.driveFx(FxType::Road, 0.0, 0.0);
+        }
+        else
+            L.driveFx(FxType::Road, previewOr(FxType::Road, mag(NcxValues::RoadNoise)), 0.0);
+    }
+
     // Magnitude-driven textures (0-100 on the wire).
-    L.driveFx(FxType::Road,   previewOr(FxType::Road,   mag(NcxValues::RoadNoise)), 0.0);
     L.driveFx(FxType::Kerb,   previewOr(FxType::Kerb,   mag(NcxValues::Curbs)),     0.0);
 
     // Flag-driven pulses (0/1 on the wire).

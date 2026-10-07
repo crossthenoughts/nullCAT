@@ -75,7 +75,7 @@ in the order FL, FR, RL, RR:
 | `slipRatio*` | longitudinal slip ratio per wheel | signed ratio, -1 = locked | Longitudinal slip |
 | `wheelSpeed*` | wheel rotational speed per wheel | any unit; nullCAT learns the rolling factor | Longitudinal slip, when the game has no slip ratio |
 | `load*` | vertical tyre load per wheel | any unit (ratios only) | weights the loaded tyre up (optional) |
-| `suspVel*` | suspension velocity per corner | mm/s (`suspVelScale: 1000` for m/s) | reserved for the per-corner road effect |
+| `suspVel*` | suspension velocity per corner | mm/s (`suspVelScale: 1000` for m/s) | Road (replays each corner) |
 
 Which fields exist depends on the game. Assetto Corsa, Competizione and
 EVO expose slip angle, slip ratio and (AC, EVO) load per wheel; rFactor 2

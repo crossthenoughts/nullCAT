@@ -122,7 +122,7 @@ NULLCATY,rpm=11480,speedKmh=212.4,gear=5,throttlePct=100,brakePct=0,slipRatioRL=
 | 18..21 | `slipRatioFL` .. `slipRatioRR` | longitudinal slip ratio per wheel, signed: **negative = the wheel turns slower than the road (locking), positive = faster (spinning)**; -1 = fully locked *(since 1.3)* |
 | 22..25 | `wheelSpeedFL` .. `wheelSpeedRR` | wheel rotational speed per wheel in **any unit** (rev/s, rad/s, km/h at the tread): nullCAT learns each wheel's rolling factor against `speedKmh` while cruising, so staggered tyre sizes and unknown radii need no setup. Used when `slipRatio*` is not sent *(since 1.3)* |
 | 26..29 | `loadFL` .. `loadRR` | vertical tyre load per wheel, any unit (only the ratio between wheels is used): the loaded tyre's slip is weighted up. Optional *(since 1.3)* |
-| 30..33 | `suspVelFL` .. `suspVelRR` | suspension velocity per corner, **mm/s**, signed (positive = compressing). Reserved for the per-corner road effect *(since 1.3)* |
+| 30..33 | `suspVelFL` .. `suspVelRR` | suspension velocity per corner, **mm/s**, signed (positive = compressing). The Road effect replays each corner from these *(since 1.3)* |
 
 Per-wheel groups are always sent as all four or not at all: a group with
 a wheel missing is treated as absent. A sender that only has per-axle

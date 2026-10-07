@@ -53,7 +53,7 @@
   "loadRRProp": "",
   "loadScale": 1,
 
-  "_help_suspVel": "Suspension velocity per corner in mm/s, signed. Reserved for the per-corner road effect. Set suspVelScale to 1000 if the game gives m/s.",
+  "_help_suspVel": "Suspension velocity per corner in mm/s, signed: the Road effect replays each corner from these. Set suspVelScale to 1000 if the game gives m/s.",
   "suspVelFLProp": "",
   "suspVelFRProp": "",
   "suspVelRLProp": "",

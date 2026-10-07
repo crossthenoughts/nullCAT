@@ -325,6 +325,24 @@ int main()
         // speeds arrive. 100 -> every wheel fully locked, no spin.
         v.have[NcxValues::Lockup] = true; v.val[NcxValues::Lockup] = 100.0; settle(100);
         check(lvl(FxType::Lockup, WheelRR) > 0.95, "I-8 single lockup channel reaches every wheel");
+
+        // Road: per-corner suspension velocities replay the corners and the
+        // roadNoise magnitude is ignored; without them roadNoise drives the
+        // texture; a stale stream releases the replay.
+        haptics::EffectParams rp; rp.ampPct = 100.0; rp.freqHz = 28.0; rp.routes[0] = { 0, 1.0 };
+        L.configureFx(FxType::Road, rp); L.configureRoad({ 8.0, 2.0 });
+        v.have[NcxValues::RoadNoise] = true; v.val[NcxValues::RoadNoise] = 100.0;
+        setW(NcxValues::SuspVelFL, 400.0, 0.0, 0.0, 0.0); settle(50);
+        check(L.roadReplaying() && L.roadWheelTravelMm(WheelFL) > 1.0 && L.roadWheelTravelMm(WheelRR) == 0.0,
+              "I-8 road: suspension velocities replay the corners (FL moves, RR does not)");
+        check(L.fxLevel(static_cast<int>(FxType::Road)) > 0.1 && L.fxLevel(static_cast<int>(FxType::Road)) <= 1.0,
+              "I-8 road: tile level follows the biggest corner, roadNoise ignored");
+        for (int w = 0; w < 4; ++w) v.have[NcxValues::SuspVelFL + w] = false;
+        settle(400);
+        check(!L.roadReplaying() && L.fxLevel(static_cast<int>(FxType::Road)) > 0.9,
+              "I-8 road: without corners the roadNoise texture drives the tile");
+        v.fresh = false; settle(300);
+        check(L.fxLevel(static_cast<int>(FxType::Road)) < 0.01, "I-8 road: stale stream fades it");
     }
 
     // ---- P-1..P-4: a POSITION (CSP) axis as a routing destination ----

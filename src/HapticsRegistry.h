@@ -26,8 +26,11 @@ enum class Effect { DetentClick = 0, GearShift, Engine, Abs, Lockup, Skid, Road,
                     Limiter, Tc, Kerb, COUNT };
 static constexpr int EFFECT_COUNT = static_cast<int>(Effect::COUNT);
 
-// Slip: a per-wheel model (SlipModel.h) whose routes carry a Part.
-enum class Kind { Transient, Continuous, Engine, Slip };
+// Slip: a per-wheel model (SlipModel.h) whose routes carry a Part. Road:
+// the texture oscillator with a per-corner replay (RoadModel.h) when the
+// sim sends suspension velocities; routes carry a Part too.
+enum class Kind { Transient, Continuous, Engine, Slip, Road };
+inline bool kindHasParts(Kind k) { return k == Kind::Slip || k == Kind::Road; }
 
 // One tunable the UI shows for an effect: config key, label, range, step,
 // and for a choice an options list ("a|b|c", value = index) instead.
@@ -93,7 +96,14 @@ constexpr ParamSpec kSlipLonParams[] = {        // longitudinal slip: lock judde
 };
 constexpr const char* kSlipLatKeys[5] = { "scrub", "scrubHz", "slide", "slideHz", "peakDeg" };
 constexpr const char* kSlipLonKeys[5] = { "lock", "lockHz", "spin", "spinHz", "peakRatio" };
-constexpr ParamSpec kTextureParams[] = {        // road, limiter, kerb
+constexpr ParamSpec kRoadParams[] = {           // road: texture carrier + per-corner replay settings
+    { "ampPct", "amp %",     0,   100, 1,    nullptr },
+    { "freqHz", "freq hz",   10,  120, 1,    nullptr },
+    { "jitter", "jitter",    0,   1,   0.05, nullptr },
+    { "fullMm", "full mm",   0.5, 50,  0.5,  nullptr },
+    { "hpHz",   "cut hz",    0.5, 10,  0.5,  nullptr },
+};
+constexpr ParamSpec kTextureParams[] = {        // limiter, kerb
     { "ampPct", "amp %",     0,   100, 1,    nullptr },
     { "freqHz", "freq hz",   10,  120, 1,    nullptr },
     { "jitter", "jitter",    0,   1,   0.05, nullptr },
@@ -152,9 +162,12 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "The loaded tyre is weighted up when wheel loads arrive. Route with a part (a corner, an axle, all). Needs "
       "per-wheel slip angles, or the single skid channel as a fallback.",
       kSlipLatKeys, { 1.0, 25.0, 1.0, 11.0, 7.0 } },
-    { Effect::Road,        "road",        "Road",         Kind::Continuous, EventType::COUNT, FxType::Road,
-      { "roadNoise", nullptr }, { 0.0, 28.0, 0.0, 0.6 }, kTextureParams, 3,
-      "Surface feel, scaled by the roadNoise channel (0-100).", nullptr, {} },
+    { Effect::Road,        "road",        "Road",         Kind::Road, EventType::COUNT, FxType::Road,
+      { "suspVel*|roadNoise", nullptr }, { 0.0, 28.0, 0.0, 0.6 }, kRoadParams, 5,
+      "The road surface. With per-corner suspension velocities from the sim it REPLAYS the road: each corner's "
+      "travel, with the slow body motion cut away (cut hz) so only the bumps remain, at their real timing; full mm "
+      "is the bump that counts as 100%. Route with a part so each actuator plays its own corner. Without them, a "
+      "texture at freq hz scaled by the roadNoise channel (0-100).", nullptr, {} },
     { Effect::Limiter,     "limiter",     "Limiter",      Kind::Continuous, EventType::COUNT, FxType::Limiter,
       { "limiter", nullptr }, { 0.0, 12.0, 0.0, 0.15 }, kTextureParams, 3,
       "Extra hammer on top of the engine effect while the limiter is in (the engine effect already cuts "

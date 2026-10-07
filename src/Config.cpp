@@ -203,7 +203,7 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
         for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
         {
             const haptics::EffectInfo& info = haptics::effectInfo(i);
-            QJsonObject o = writeFx(c.hapticsFx[static_cast<size_t>(i)], info.kind == haptics::Kind::Slip);
+            QJsonObject o = writeFx(c.hapticsFx[static_cast<size_t>(i)], haptics::kindHasParts(info.kind));
             if (info.kind == haptics::Kind::Engine)
             {
                 const haptics::EngineParams& e = c.hapticsEngine;
@@ -215,6 +215,10 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
             {
                 const haptics::SlipParams& s = (info.id == haptics::Effect::Skid) ? c.hapticsSlipLat : c.hapticsSlipLon;
                 for (int k = 0; k < 5; ++k) o[info.slipKeys[k]] = haptics::slipField(s, k);
+            }
+            else if (info.kind == haptics::Kind::Road)
+            {
+                o["fullMm"] = c.hapticsRoad.fullMm; o["hpHz"] = c.hapticsRoad.hpHz;
             }
             h[info.key] = o;
         }
@@ -293,6 +297,11 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
                 // carry it onto the component the old effect was (skid =
                 // texture = scrub, lockup = judder = lock).
                 if (!haveNew && o.contains("freqHz")) s.aHz = o.value("freqHz").toDouble(s.aHz);
+            }
+            if (info.kind == haptics::Kind::Road)
+            {
+                c.hapticsRoad.fullMm = o.value("fullMm").toDouble(c.hapticsRoad.fullMm);
+                c.hapticsRoad.hpHz   = o.value("hpHz").toDouble(c.hapticsRoad.hpHz);
             }
             if (info.kind == haptics::Kind::Engine)
             {
@@ -1155,6 +1164,13 @@ std::vector<std::string> AppConfig::validate() const
                     errors.push_back(pfx + "route axis out of range");
                 if (r.gain < 0.0 || r.gain > 2.0)
                     errors.push_back(pfx + "route gain out of range [0, 2]");
+            }
+            if (info.kind == haptics::Kind::Road)
+            {
+                if (hapticsRoad.fullMm < 0.5 || hapticsRoad.fullMm > 50.0)
+                    errors.push_back(pfx + "fullMm out of range [0.5, 50]");
+                if (hapticsRoad.hpHz < 0.5 || hapticsRoad.hpHz > 10.0)
+                    errors.push_back(pfx + "hpHz out of range [0.5, 10]");
             }
             if (info.kind == haptics::Kind::Slip)
             {

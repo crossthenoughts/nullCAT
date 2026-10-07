@@ -129,7 +129,7 @@ One object per effect: `detentClick`, `gearShift`, `rpmVibe` (the engine), `abs`
 | `freqHz` | double | per effect | Carrier frequency (4 to 500 Hz). For the engine this is the weight of each firing thump (default 30). |
 | `durMs` | double | per effect | Length of a one-shot effect (detent click, gear shift), 5 to 100 ms. |
 | `jitter` | double | per effect | 0 to 1. Roughens the carrier so skid, road and kerb feel like texture rather than a tone. For the engine it is the idle lope (per-revolution unevenness). |
-| `routes` | array | `[]` | Where the effect goes: `[{"axis": <index>, "gain": <number>, "part": <string>}]`, up to 10 entries, any axis. On a torque axis (belt, device) `gain` is a multiplier, 0 to 2. On a position (CSP) axis `gain` is the offset in mm at 100 % amplitude, 0 to that axis's `hapticsMaxMm`. `part` (the two slip effects only, default `"all"`): which wheels this axis carries, `all`, `front`, `rear`, `fl`, `fr`, `rl`, `rr`; the strongest of them plays. No routes = the effect reaches nothing. |
+| `routes` | array | `[]` | Where the effect goes: `[{"axis": <index>, "gain": <number>, "part": <string>}]`, up to 10 entries, any axis. On a torque axis (belt, device) `gain` is a multiplier, 0 to 2. On a position (CSP) axis `gain` is the offset in mm at 100 % amplitude, 0 to that axis's `hapticsMaxMm`. `part` (the two slip effects and road only, default `"all"`): which wheels this axis carries, `all`, `front`, `rear`, `fl`, `fr`, `rl`, `rr`; the strongest of them plays. No routes = the effect reaches nothing. |
 
 Slip-only fields. Both tiles are per-wheel models with two components, each with a mix (0 to 1) and a carrier; the route's `part` picks the wheels. `freqHz` is kept in the object but unused by these two.
 
@@ -141,6 +141,13 @@ Slip-only fields. Both tiles are per-wheel models with two components, each with
 | `slipLon` | `lock`, `lockHz` | `1`, `9` | A wheel locking under braking: mix and carrier (4 to 30 Hz) at 80 km/h; the carrier follows road speed. |
 | `slipLon` | `spin`, `spinHz` | `1`, `10` | A driven wheel spinning: mix and carrier (4 to 30 Hz), fixed. |
 | `slipLon` | `peakRatio` | `0.8` | Slip ratio at full severity, 0.2 to 2. Nothing plays inside 0.15. |
+
+Road-only fields, used when the sim sends `suspVelFL..RR` (the tile then replays each corner's suspension travel instead of a texture; `freqHz` and `jitter` apply to the texture fallback only):
+
+| Field | Default | Notes |
+|---|---|---|
+| `fullMm` | `8` | Suspension travel (mm) that is 100 % amplitude, 0.5 to 50. |
+| `hpHz` | `2` | High-pass on the travel (Hz), 0.5 to 10: removes the slow body motion the motion cue already produces, leaving the bumps. |
 
 A 0.9.6 file that still carries these two effects as `skid` and `lockup` is read through those keys once (amplitude, routes, jitter and the old carrier onto `scrubHz` / `lockHz`) and rewritten under the new keys on the next load.
 

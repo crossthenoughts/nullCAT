@@ -126,6 +126,8 @@ private slots:
         c.hapticsMasterGain = 1.3;
         c.hapticsSlipLat = { 0.7, 28.0, 0.4, 9.0, 6.5 };
         c.hapticsSlipLon = { 0.9, 8.0, 0.2, 12.0, 0.6 };
+        c.hapticsRoad    = { 12.0, 3.5 };
+        c.hapticsFx[static_cast<size_t>(haptics::Effect::Road)].routes[0].part = haptics::Part::RR;
         // Route parts on the per-wheel tiles survive; "all" is the default.
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)].routes[0].part   = haptics::Part::FL;
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Lockup)].routes[1].part = haptics::Part::Rear;
@@ -154,6 +156,8 @@ private slots:
         QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)].routes[0].part   == haptics::Part::FL);
         QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)].routes[1].part   == haptics::Part::All);
         QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Lockup)].routes[1].part == haptics::Part::Rear);
+        QCOMPARE(r.hapticsRoad.fullMm, 12.0); QCOMPARE(r.hapticsRoad.hpHz, 3.5);
+        QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Road)].routes[0].part == haptics::Part::RR);
 
         // The file carries the tiles under their current keys with the
         // readable slip fields, and the old keys are gone.
