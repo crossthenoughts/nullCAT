@@ -21,7 +21,7 @@
 #include "HapticsRegistry.h"   // haptics::EffectParams / EngineParams + the effect table
 #include "NcxTokens.h"         // the sim channel token registry
 #include <array>
-#include <QJsonObject>
+class QJsonObject;             // the haptics-object statics below; only Qt-linked callers use them
 
 // One node of a piecewise-linear curve (x = position in the device's unit,
 // y = force in % of rated). The web curve editor edits exactly these.
