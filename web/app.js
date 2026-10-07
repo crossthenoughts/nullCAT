@@ -1270,6 +1270,7 @@ let hapLastFired=-1;
    0, no route, or a law that never fired), 2 = has produced (green). */
 let hapDotsPinned=false;   // a game other than the current one is shown
 let hapGamesKnown=[];
+let hapProfileLive=null;   // the active profile as the server last reported it
 function hapSetDot(k,d){
   const t=hapTiles[k]; if(!t) return;
   const el=t.tile.querySelector('[data-sdot]'); if(!el) return;
@@ -1285,6 +1286,18 @@ function hapGameSelectRender(){
   const sel=$('hapGameSel'); if(!sel) return;
   const v=sel.value;
   sel.innerHTML='<option value="">current</option>'+hapGamesKnown.map(g=>'<option value="'+g.replace(/"/g,'&quot;')+'"'+(g===v?' selected':'')+'>'+(g||'(sender unnamed)')+'</option>').join('');
+}
+// Profiles selector: the names from the server, the active one selected
+// (or a just-saved one), with a car/game binding noted beside each name.
+async function hapProfilesRender(sel,prefer){
+  if(!sel) return;
+  try{
+    const r=await fetch(API+'/api/haptics/profiles'); if(!r.ok) return;
+    const j=await r.json();
+    const bound={}; for(const k in (j.bindings||{})){ const n=j.bindings[k]; (bound[n]=bound[n]||[]).push(k.replace(/^car:/,'').replace(/^game:/,'game ')); }
+    const cur=prefer||j.active||'';
+    sel.innerHTML='<option value="">(none)</option>'+(j.profiles||[]).map(n=>'<option value="'+n.replace(/"/g,'&quot;')+'"'+(n===cur?' selected':'')+'>'+n+(bound[n]?' · '+bound[n].join(', '):'')+'</option>').join('');
+  }catch(_){}
 }
 async function hapGameShow(game){
   hapDotsPinned=!!game;
@@ -1311,6 +1324,12 @@ function hapLive(s){
   const fired=+s.hapFired||0;
   const firedEdge=(hapLastFired>=0&&fired>hapLastFired);
   hapLastFired=fired;
+  // Profile switched on the server (a car binding kicked in): refresh the
+  // page's copy of the config unless the user has unsaved edits.
+  if(typeof s.hapProfile==='string'&&s.hapProfile!==hapProfileLive){
+    const first=(hapProfileLive===null); hapProfileLive=s.hapProfile;
+    if(!first){ const sel=$('hapProfSel'); if(sel) hapProfilesRender(sel); if(dirtyState().count===0) loadConfig(); }
+  }
   // Sim dots: the remembered record for the game shown (the current one
   // unless the Master tile's selector picked another, then it is fetched).
   if(Array.isArray(s.hapDots)&&!hapDotsPinned){
@@ -1396,6 +1415,13 @@ function hapInit(){
       +'<div class="hr hap-game" title="The sim dots on each tile: grey = that game has never sent the channels, amber = channels arrive but the effect has never played, green = has played. Remembered per game across restarts."><span class="hk">sim</span>'
       +'<span class="hk" id="hapGameNow">(none)</span><select id="hapGameSel"><option value="">current</option></select>'
       +'<button class="btn btn-sm" type="button" id="hapGameForget" title="Forget the remembered dots for the game shown">forget</button></div>'
+      +'<div class="hr hap-game" title="Profiles: named copies of everything on this strip (settings, routes, the engine). Load copies one over the live set and applies it; Save as snapshots the SAVED set under a name; Use for this car binds the car the sim names now to the shown profile, and nullCAT then loads it by itself whenever that car runs."><span class="hk">profile</span>'
+      +'<select id="hapProfSel"><option value="">(none)</option></select>'
+      +'<button class="btn btn-sm" type="button" id="hapProfLoad" title="Copy the chosen profile over the live settings and apply it">load</button>'
+      +'<button class="btn btn-sm" type="button" id="hapProfSave" title="Snapshot the saved settings under a name">save as</button>'
+      +'<button class="btn btn-sm" type="button" id="hapProfBind" title="Load this profile automatically whenever the sim names the current car (or game)">use for this car</button>'
+      +'<button class="btn btn-sm" type="button" id="hapProfDel" title="Forget the chosen profile and its bindings">delete</button>'
+      +'<span class="hk" id="hapProfMsg"></span></div>'
       +'</div><div class="hb"><span class="hk" id="hapMuteState"></span>'
       +'<button class="btn btn-sm btn-action" type="button" id="hapMuteBtn">MUTE</button></div>';
     mc.querySelector('#hapGameSel').onchange=(ev)=>hapGameShow(ev.target.value);
@@ -1407,6 +1433,30 @@ function hapInit(){
     };
     // Seed the game list from the remembered record.
     fetch(API+'/api/haptics/status').then(r=>r.ok?r.json():null).then(j=>{ if(j){ hapGamesKnown=j.games||[]; hapGameSelectRender(); } }).catch(()=>{});
+    // Profiles row.
+    const psel=mc.querySelector('#hapProfSel'), pmsg=mc.querySelector('#hapProfMsg');
+    const say=(t)=>{ if(pmsg) pmsg.textContent=t; };
+    const post=async(path,body)=>{ const r=await fetch(API+path,{method:'POST',body:JSON.stringify(body||{})}); const j=await r.json().catch(()=>({})); if(!r.ok||j.ok===false) throw new Error(j.error||('HTTP '+r.status)); return j; };
+    hapProfilesRender(psel);
+    mc.querySelector('#hapProfLoad').onclick=async()=>{
+      const name=psel.value; if(!name){ say('pick a profile'); return; }
+      if(dirtyState().count>0&&!confirm('You have unsaved edits on this page; loading a profile replaces the saved haptics settings and reloads the page state. Continue?')) return;
+      try{ await post('/api/haptics/profiles/load',{name}); say('loaded '+name); await loadConfig(); }catch(e){ say(String(e.message||e)); }
+    };
+    mc.querySelector('#hapProfSave').onclick=async()=>{
+      const name=prompt('Profile name (snapshots the SAVED haptics settings; Save the strip first if you have edits):', psel.value||'');
+      if(!name) return;
+      try{ await post('/api/haptics/profiles/save',{name:name.trim()}); say('saved '+name.trim()); await hapProfilesRender(psel,name.trim()); }catch(e){ say(String(e.message||e)); }
+    };
+    mc.querySelector('#hapProfBind').onclick=async()=>{
+      const name=psel.value; if(!name){ say('pick a profile'); return; }
+      try{ const j=await post('/api/haptics/profiles/bind',{name}); say('bound '+(j.key||'')+' to '+name); }catch(e){ say(String(e.message||e)); }
+    };
+    mc.querySelector('#hapProfDel').onclick=async()=>{
+      const name=psel.value; if(!name){ say('pick a profile'); return; }
+      if(!confirm('Forget profile "'+name+'" and its car/game bindings?')) return;
+      try{ await post('/api/haptics/profiles/delete',{name}); say('deleted '+name); await hapProfilesRender(psel); }catch(e){ say(String(e.message||e)); }
+    };
     const gi=mc.querySelector('#hapMasterGain');
     gi.onchange=()=>{ const v=+gi.value; if(!isFinite(v)) return;
       cfgObj.haptics.masterGain=Math.max(0,Math.min(2,v)); gi.value=cfgObj.haptics.masterGain;

@@ -180,9 +180,17 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
         obj["ncxBindings"] = arr;
     }
     // Haptic effects (HapticsRegistry.h). Same always-write rule as
-    // ncxBindings: schema merge would make a deleted route immortal. One
-    // object per effect under its registry key; the engine description and
-    // mix are written inside the engine object (keys unchanged since 0.9.6).
+    // ncxBindings: schema merge would make a deleted route immortal.
+    obj["haptics"] = Config::writeHapticsObject(c);
+}
+
+// The haptics object exactly as rig.json carries it: one object per effect
+// under its registry key (the engine description and mix inside the engine
+// object, keys unchanged since 0.9.6), plus masterGain and positionBudget.
+// Also what a haptics profile IS (HapticsProfiles), so a profile and the
+// live set never drift apart in shape.
+QJsonObject Config::writeHapticsObject(const AppConfig& c)
+{
     {
         const auto writeFx = [](const haptics::EffectParams& p, bool parts)
         {
@@ -230,7 +238,7 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
         }
         h["masterGain"] = c.hapticsMasterGain;
         h["positionBudget"] = c.hapticsPositionBudget;
-        obj["haptics"] = h;
+        return h;
     }
 }
 
@@ -255,8 +263,15 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
         }
     }
     if (obj.contains("haptics"))
+        Config::readHapticsObject(obj.value("haptics").toObject(), c);
+}
+
+// Read a haptics object (rig.json's, or a profile's) into the config.
+// Missing effects keep what c already has, so a partial object (an old
+// file, a profile saved before an effect existed) never zeroes the rest.
+void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
+{
     {
-        const QJsonObject h = obj.value("haptics").toObject();
         // Routes are explicit axis indices only. Negative axis values are
         // dropped on read: early 0.9.6 files carried a since-removed
         // "own axis" (-2) route default.

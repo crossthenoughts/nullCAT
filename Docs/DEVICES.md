@@ -148,6 +148,19 @@ are for, lets you look at another remembered game, and can forget one.
 A sender that does not name its game (see PROTOCOL.md, `NULLCATY`) is
 remembered as an unnamed sender.
 
+### Profiles
+
+A profile is a named copy of everything on the strip: every tile's
+settings and routes, the engine description, master and pos budget. The
+**profile** row on the Master tile holds them. **Save as** snapshots the
+saved settings under a name (Save the strip first if you have edits);
+**load** copies the chosen profile over the live settings and applies it
+at once; **delete** forgets one. **Use for this car** ties the car the
+sim is naming right now (its game when it names no car) to the chosen
+profile, and from then on nullCAT loads that profile by itself whenever
+that car runs, with a line in the log. A profile with no binding is
+manual only. Profiles live in `profiles.json` beside the rig config.
+
 ### Routing to a position axis
 
 A torque axis takes a plain gain (x). A position axis takes its gain in

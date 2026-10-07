@@ -21,6 +21,7 @@
 #include "HapticsRegistry.h"   // haptics::EffectParams / EngineParams + the effect table
 #include "NcxTokens.h"         // the sim channel token registry
 #include <array>
+#include <QJsonObject>
 
 // One node of a piecewise-linear curve (x = position in the device's unit,
 // y = force in % of rated). The web curve editor edits exactly these.
@@ -433,6 +434,12 @@ public:
     AppConfig& get()             { return m_config; }
 
     std::string lastError() const { return m_lastError; }
+
+    // The haptics object as rig.json carries it, both ways. A haptics
+    // profile is exactly this object (HapticsProfiles), so loading one is
+    // readHapticsObject + saveRig and saving one is writeHapticsObject.
+    static QJsonObject writeHapticsObject(const AppConfig& c);
+    static void        readHapticsObject(const QJsonObject& h, AppConfig& c);
 
     // Recompute derived fields (countsPerMm) for every drive.
     // Called by load() automatically; the dialog also calls this after

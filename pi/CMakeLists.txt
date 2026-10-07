@@ -66,6 +66,7 @@ add_executable(nullcat-pi
     ${SRC}/Config.cpp
     ${SRC}/CarCache.cpp
     ${SRC}/EffectStatus.cpp
+    ${SRC}/HapticsProfiles.cpp
     ${SRC}/Logging.cpp
     ${SRC}/WebServer.cpp
 )
@@ -276,7 +277,8 @@ add_executable(TestHttpContract
     ${SRC}/Config.cpp
     ${SRC}/Logging.cpp
     ${SRC}/WebServer.cpp
-    ${SRC}/EffectStatus.cpp)
+    ${SRC}/EffectStatus.cpp
+    ${SRC}/HapticsProfiles.cpp)
 target_include_directories(TestHttpContract PRIVATE
     ${SRC}
     ${SOEM_ROOT}/include
@@ -308,6 +310,7 @@ if(NULLCAT_FULL_TESTS)
         ${SRC}/Config.cpp
         ${SRC}/CarCache.cpp
         ${SRC}/EffectStatus.cpp
+        ${SRC}/HapticsProfiles.cpp
         ${SRC}/Logging.cpp
         ${SRC}/DriveFaultMonitor.cpp)
     macro(add_logic_test NAME)

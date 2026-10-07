@@ -21,6 +21,7 @@
 #include <QJsonArray>
 #include "../src/Config.h"
 #include "../src/EffectStatus.h"
+#include "../src/HapticsProfiles.h"
 
 class TestConfigTwoFile : public QObject
 {
@@ -292,6 +293,65 @@ private slots:
         QCOMPARE(back.games().size(), (size_t)1);
         back.clearAll();
         QVERIFY(back.games().empty());
+    }
+
+    // Haptics profiles: a profile is the rig haptics object exactly (both
+    // Config statics round-trip it), the store persists names, bindings and
+    // the active one, and the car binding wins over the game's.
+    void hapticsProfiles_storeAndRoundTrip()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        Config a; QVERIFY(a.load(anchor(dir).toStdString()));
+        AppConfig& c = a.get();
+        c.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)].ampPct = 42.0;
+        c.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)].routes[0] = { 2, 1.5, haptics::Part::FL };
+        c.hapticsEngine.cylinders = 6; c.hapticsEngine.layout = 1; c.hapticsEngine.turbo = 1;
+        c.hapticsMasterGain = 0.9; c.hapticsPositionBudget = 0.25;
+        const QJsonObject snap = Config::writeHapticsObject(c);
+        QCOMPARE(snap.value("slipLat").toObject().value("ampPct").toDouble(), 42.0);
+        QCOMPARE(snap.value("masterGain").toDouble(), 0.9);
+
+        // Read it into a fresh config: everything comes back.
+        AppConfig d;
+        Config::readHapticsObject(snap, d);
+        QCOMPARE(d.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)].ampPct, 42.0);
+        QCOMPARE(d.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)].routes[0].axis, 2);
+        QCOMPARE(d.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)].routes[0].gain, 1.5);
+        QVERIFY(d.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)].routes[0].part == haptics::Part::FL);
+        QCOMPARE(d.hapticsEngine.cylinders, 6.0); QCOMPARE(d.hapticsEngine.layout, 1.0); QCOMPARE(d.hapticsEngine.turbo, 1.0);
+        QCOMPARE(d.hapticsMasterGain, 0.9); QCOMPARE(d.hapticsPositionBudget, 0.25);
+        // A partial object (an older profile) leaves the rest alone.
+        QJsonObject partial; QJsonObject kerb; kerb["ampPct"] = 7.0; partial["kerb"] = kerb;
+        Config::readHapticsObject(partial, d);
+        QCOMPARE(d.hapticsFx[static_cast<size_t>(haptics::Effect::Kerb)].ampPct, 7.0);
+        QCOMPARE(d.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)].ampPct, 42.0);
+        QCOMPARE(d.hapticsMasterGain, 0.9);
+
+        HapticsProfiles ps;
+        ps.put("GT3", snap);
+        QJsonObject quiet = snap; quiet["masterGain"] = 0.3;
+        ps.put("Quiet", quiet);
+        ps.setActive("GT3");
+        ps.bind(HapticsProfiles::carKey("Porsche 992 GT3 R"), "GT3");
+        ps.bind(HapticsProfiles::gameKey("AMS2"), "Quiet");
+        QCOMPARE(ps.profileFor("Porsche 992 GT3 R", "AMS2"), std::string("GT3"));   // car wins
+        QCOMPARE(ps.profileFor("Formula Trainer", "AMS2"), std::string("Quiet"));   // game fallback
+        QCOMPARE(ps.profileFor("Formula Trainer", "AC"), std::string(""));          // nothing bound
+        QCOMPARE(ps.profileFor("", ""), std::string(""));
+        ps.bind("car:x", "NoSuchProfile");
+        QVERIFY(ps.bindings().count("car:x") == 0);
+        QVERIFY(ps.save(anchor(dir).toStdString()));
+        QVERIFY(QFile::exists(dir.path() + "/profiles.json"));
+
+        HapticsProfiles back; QVERIFY(back.load(anchor(dir).toStdString()));
+        QCOMPARE(back.names().size(), (size_t)2);
+        QCOMPARE(back.active(), std::string("GT3"));
+        QCOMPARE(back.get("Quiet").value("masterGain").toDouble(), 0.3);
+        QCOMPARE(back.profileFor("Porsche 992 GT3 R", ""), std::string("GT3"));
+        QVERIFY(back.remove("GT3"));
+        QCOMPARE(back.active(), std::string(""));
+        QCOMPARE(back.profileFor("Porsche 992 GT3 R", "AMS2"), std::string("Quiet"));   // the car binding went with it
+        QVERIFY(!back.remove("GT3"));
     }
 
     // Single-writer isolation: saveRig() must not rewrite host.json (and vice versa).

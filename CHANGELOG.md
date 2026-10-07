@@ -36,6 +36,11 @@ Development branch. Nothing here is in a release yet.
   the catch, dying and the stall kick are modelled below idle; the pit
   limiter cuts like the rev limiter without teaching the redline. New
   tokens `boost` and `pitLimiter`; the plugin sends both automatically.
+- Haptics profiles: named copies of the whole strip (settings, routes,
+  the engine, master, pos budget) in `profiles.json`, with save as, load,
+  delete and a "use for this car" binding; when the sim names a bound
+  car (or game) nullCAT loads that profile itself. Endpoints under
+  `/api/haptics/profiles`.
 - Engine layouts two-stroke (every cylinder fires every rev, harder for
   its size, no idle lope: karts and old bikes) and electric (no firing,
   the motor whine from the first turn rising with load, regen whine on a

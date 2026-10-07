@@ -36,6 +36,7 @@
 #include "Config.h"
 #include "Logging.h"
 #include "EffectStatus.h"
+#include "HapticsProfiles.h"
 
 #include <string>
 #include <thread>
@@ -204,6 +205,14 @@ private:
     EffectStatus      m_effectStatus;
     std::thread       m_statusThread;
     void sampleEffectStatus();
+
+    // Haptics profiles (profiles.json): named copies of the rig haptics
+    // object with car/game bindings; the sampler switches on identity.
+    HapticsProfiles   m_profiles;
+    std::mutex        m_profilesIo;          // one profile load/save at a time
+    std::string       m_lastIdentity;        // "car|game" last looked up
+    bool loadProfile(const std::string& name, std::string& err);
+    bool snapshotProfile(const std::string& name, std::string& err);
 
     // Set inside the server thread once svr is constructed; used by stop()
     // to call svr.stop() and unblock svr.listen().

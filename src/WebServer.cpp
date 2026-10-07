@@ -415,6 +415,7 @@ std::string WebServer::buildStatusJson() const
         {
             const std::string game = m_effectStatus.currentGame();
             const EffectStatus::Records rec = m_effectStatus.records(game);
+            s += "\"hapProfile\":" + jsonStr(m_profiles.active()) + ",";
             s += "\"hapGame\":" + jsonStr(game) + ",\"hapDots\":[";
             for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
             {
@@ -750,7 +751,7 @@ bool WebServer::start()
 
     // Effect status sampler: a few Hz, below-normal priority, independent
     // of any browser. Loads the remembered file first.
-    if (!m_configPath.empty()) m_effectStatus.load(m_configPath);
+    if (!m_configPath.empty()) { m_effectStatus.load(m_configPath); m_profiles.load(m_configPath); }
     m_statusThread = std::thread([this]()
     {
 #ifdef _WIN32
@@ -1513,6 +1514,88 @@ bool WebServer::start()
             okResp(res);
         });
 
+        // Haptics profiles. GET lists them with the active one, the bindings
+        // and what the stream currently names. Save snapshots the SAVED set
+        // under a name; load copies a profile over the live set (applied
+        // live); delete forgets one; bind ties the current car (or a given
+        // car/game) to a profile; unbind drops a key.
+        svr.Get("/api/haptics/profiles", [this](const httplib::Request&, httplib::Response& res)
+        {
+            QJsonArray names;
+            for (const std::string& n : m_profiles.names()) names.append(QString::fromStdString(n));
+            QJsonObject binds;
+            for (const auto& kv : m_profiles.bindings()) binds[QString::fromStdString(kv.first)] = QString::fromStdString(kv.second);
+            QJsonObject root;
+            root["profiles"] = names;
+            root["active"]   = QString::fromStdString(m_profiles.active());
+            root["bindings"] = binds;
+            std::string car, game;
+            if (m_telemetry) { const TelemetryData td = m_telemetry->getLatestData(); if (td.ncxFresh || td.ncxFrozen) { car = td.car; game = td.game; } }
+            root["car"] = QString::fromStdString(car); root["game"] = QString::fromStdString(game);
+            res.set_content(QJsonDocument(root).toJson(QJsonDocument::Compact).toStdString(), "application/json");
+        });
+        const auto profileName = [](const httplib::Request& req) -> std::string
+        {
+            const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(req.body));
+            std::string n = doc.isObject() ? doc.object().value("name").toString().trimmed().toStdString() : std::string();
+            if (n.size() > 48) n.resize(48);
+            return n;
+        };
+        postCmd("/api/haptics/profiles/save", [this, okResp, errResp, profileName](const httplib::Request& req, httplib::Response& res)
+        {
+            const std::string name = profileName(req);
+            if (name.empty()) { errResp(res, "Give the profile a name."); return; }
+            std::string err;
+            if (!snapshotProfile(name, err)) { errResp(res, "Could not save the profile: " + err); return; }
+            okResp(res);
+        });
+        postCmd("/api/haptics/profiles/load", [this, okResp, errResp, profileName](const httplib::Request& req, httplib::Response& res)
+        {
+            const std::string name = profileName(req);
+            std::string err;
+            if (!loadProfile(name, err)) { errResp(res, "Could not load the profile: " + err); return; }
+            LOG_INFO(strf("Haptics: profile '%s' loaded from the web.", name.c_str()));
+            okResp(res);
+        });
+        postCmd("/api/haptics/profiles/delete", [this, okResp, errResp, profileName](const httplib::Request& req, httplib::Response& res)
+        {
+            const std::string name = profileName(req);
+            if (!m_profiles.remove(name)) { errResp(res, "Unknown profile."); return; }
+            if (!m_configPath.empty()) m_profiles.save(m_configPath);
+            okResp(res);
+        });
+        postCmd("/api/haptics/profiles/bind", [this, okResp, errResp, profileName](const httplib::Request& req, httplib::Response& res)
+        {
+            // Body: {"name": profile, "car": "<name>"} or {"name", "game": "<name>"};
+            // with neither, the car the stream currently names (else its game).
+            const std::string name = profileName(req);
+            if (!m_profiles.has(name)) { errResp(res, "Unknown profile."); return; }
+            const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(req.body));
+            const QJsonObject o = doc.isObject() ? doc.object() : QJsonObject();
+            std::string key;
+            if (o.contains("car") && !o.value("car").toString().isEmpty())       key = HapticsProfiles::carKey(o.value("car").toString().toStdString());
+            else if (o.contains("game") && !o.value("game").toString().isEmpty()) key = HapticsProfiles::gameKey(o.value("game").toString().toStdString());
+            else if (m_telemetry)
+            {
+                const TelemetryData td = m_telemetry->getLatestData();
+                if (td.car[0])       key = HapticsProfiles::carKey(td.car);
+                else if (td.game[0]) key = HapticsProfiles::gameKey(td.game);
+            }
+            if (key.empty()) { errResp(res, "The sim has not named a car or game yet: nothing to bind to."); return; }
+            m_profiles.bind(key, name);
+            if (!m_configPath.empty()) m_profiles.save(m_configPath);
+            res.set_content("{\"ok\":true,\"key\":" + jsonStr(key) + "}", "application/json");
+        });
+        postCmd("/api/haptics/profiles/unbind", [this, okResp, errResp](const httplib::Request& req, httplib::Response& res)
+        {
+            const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(req.body));
+            const std::string key = doc.isObject() ? doc.object().value("key").toString().toStdString() : std::string();
+            if (key.empty()) { errResp(res, "Which binding?"); return; }
+            m_profiles.unbind(key);
+            if (!m_configPath.empty()) m_profiles.save(m_configPath);
+            okResp(res);
+        });
+
         // Haptics master mute (runtime only, not persisted): body {"on":true|false}.
         postCmd("/api/haptics/mute", [this, okResp, errResp](const httplib::Request& req, httplib::Response& res)
         {
@@ -2112,21 +2195,79 @@ bool WebServer::start()
     return true;
 }
 
-// One sample of the published status into the sticky per-sim record.
+// One sample of the published status into the sticky per-sim record, and
+// the profile auto-switch: when the stream names a car or game with a
+// binding, that profile is loaded (once per identity change).
 void WebServer::sampleEffectStatus()
 {
     if (!m_motion) return;
     const MotionStatus ms = m_motion->getMotionStatus();
     bool live = false;
-    std::string game;
+    std::string game, car;
     if (m_telemetry)
     {
         const TelemetryData td = m_telemetry->getLatestData();
         live = td.ncxFresh;
         game = td.game;
+        car  = td.car;
     }
     const int64_t nowMs = static_cast<int64_t>(std::time(nullptr)) * 1000;
     m_effectStatus.observe(game, ms.ncxHave, ms.hapticsFxLevel, ms.hapticsFiredBy, live, nowMs);
+
+    if (live && (!car.empty() || !game.empty()))
+    {
+        const std::string ident = car + "|" + game;
+        if (ident != m_lastIdentity)
+        {
+            m_lastIdentity = ident;
+            const std::string want = m_profiles.profileFor(car, game);
+            if (!want.empty() && want != m_profiles.active())
+            {
+                std::string err;
+                if (loadProfile(want, err))
+                    LOG_INFO(strf("Haptics: profile '%s' loaded for %s%s%s.", want.c_str(),
+                                  car.empty() ? "" : car.c_str(), (!car.empty() && !game.empty()) ? " / " : "",
+                                  game.empty() ? "" : game.c_str()));
+                else
+                    LOG_WARNING(strf("Haptics: profile '%s' could not be loaded: %s", want.c_str(), err.c_str()));
+            }
+        }
+    }
+    else if (!live)
+        m_lastIdentity.clear();   // a returning stream looks its profile up again
+}
+
+// Copy a profile over the live haptics set: into rig.json (the working
+// copy), then staged live. Serialised with saves from the web.
+bool WebServer::loadProfile(const std::string& name, std::string& err)
+{
+    if (m_configPath.empty()) { err = "no config path"; return false; }
+    if (!m_profiles.has(name)) { err = "unknown profile"; return false; }
+    std::lock_guard<std::mutex> lk(m_profilesIo);
+    Config cfg;
+    if (!cfg.load(m_configPath)) { err = "cannot read the config"; return false; }
+    Config::readHapticsObject(m_profiles.get(name), cfg.get());
+    const auto errs = cfg.get().validate();
+    if (!errs.empty()) { err = "profile fails validation: " + errs.front(); return false; }
+    if (!cfg.saveRig(m_configPath)) { err = "cannot write rig.json"; return false; }
+    m_rigKnownMtime.store(fileMtime(siblingFile(m_configPath, "rig.json")));
+    if (m_motion) m_motion->stageHaptics(cfg.get());
+    m_profiles.setActive(name);
+    m_profiles.save(m_configPath);
+    return true;
+}
+
+// Snapshot the SAVED haptics set under a name.
+bool WebServer::snapshotProfile(const std::string& name, std::string& err)
+{
+    if (m_configPath.empty()) { err = "no config path"; return false; }
+    std::lock_guard<std::mutex> lk(m_profilesIo);
+    Config cfg;
+    if (!cfg.load(m_configPath)) { err = "cannot read the config"; return false; }
+    m_profiles.put(name, Config::writeHapticsObject(cfg.get()));
+    m_profiles.setActive(name);
+    if (!m_profiles.save(m_configPath)) { err = "cannot write profiles.json"; return false; }
+    return true;
 }
 
 void WebServer::stop()

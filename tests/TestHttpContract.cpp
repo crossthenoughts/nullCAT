@@ -202,8 +202,25 @@ int main()
     check(has(post("/api/haptics/status/clear", "{\"all\":true}"), "\"ok\":true"),
           "POST /api/haptics/status/clear accepted");
     check(has(get("/api/status"), "\"hapDots\":[") && has(get("/api/status"), "\"hapGame\":")
-          && has(get("/api/status"), "\"ncxFrozen\":false"),
-          "GET /api/status carries hapDots, hapGame and ncxFrozen");
+          && has(get("/api/status"), "\"ncxFrozen\":false") && has(get("/api/status"), "\"hapProfile\":"),
+          "GET /api/status carries hapDots, hapGame, hapProfile and ncxFrozen");
+    // Profiles: save snapshots the saved set, it lists, loads (applies
+    // live), binds to a car name, and deletes; an unknown name is refused.
+    check(has(post("/api/haptics/profiles/save", "{\"name\":\"Bench\"}"), "\"ok\":true"),
+          "POST /api/haptics/profiles/save snapshots the saved haptics set");
+    check(has(get("/api/haptics/profiles"), "\"profiles\":[\"Bench\"]") && has(get("/api/haptics/profiles"), "\"active\":\"Bench\""),
+          "GET /api/haptics/profiles lists it as active");
+    check(has(post("/api/haptics/profiles/load", "{\"name\":\"Bench\"}"), "\"ok\":true"),
+          "POST /api/haptics/profiles/load applies it");
+    check(has(post("/api/haptics/profiles/load", "{\"name\":\"nope\"}"), "\"ok\":false"),
+          "POST /api/haptics/profiles/load refuses an unknown name");
+    check(has(post("/api/haptics/profiles/bind", "{\"name\":\"Bench\",\"car\":\"Test Car\"}"), "\"key\":\"car:Test Car\""),
+          "POST /api/haptics/profiles/bind ties a car to it");
+    check(has(get("/api/haptics/profiles"), "\"car:Test Car\":\"Bench\""),
+          "GET /api/haptics/profiles shows the binding");
+    check(has(post("/api/haptics/profiles/delete", "{\"name\":\"Bench\"}"), "\"ok\":true")
+          && has(get("/api/haptics/profiles"), "\"profiles\":[]"),
+          "POST /api/haptics/profiles/delete forgets it and its binding");
 
     // ---- init (sim) -> masterOp ----
     check(has(post("/api/init"), "\"ok\":true"), "POST /api/init accepted");

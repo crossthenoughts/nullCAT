@@ -113,6 +113,7 @@ set(SOURCES
     src/Config.cpp
     src/CarCache.cpp
     src/EffectStatus.cpp
+    src/HapticsProfiles.cpp
     src/Logging.cpp
     src/WebServer.cpp
     src/ForegroundKeeper.cpp
@@ -351,6 +352,7 @@ set(TEST_CORE_SOURCES
     src/Config.cpp
     src/CarCache.cpp
     src/EffectStatus.cpp
+    src/HapticsProfiles.cpp
     src/Logging.cpp
     src/DriveFaultMonitor.cpp
 )
