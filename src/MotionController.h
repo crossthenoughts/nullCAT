@@ -344,6 +344,7 @@ private:
         double  beltRelaxerSec    = 0.0;      // sustained near-max dwell (0 = off)
         double  beltRelaxerPct    = 80.0;     // % of torqueMaxPct that counts as dwell
         double  beltUnitsPerRev   = 10.0;     // encoderCountsPerRev / countsPerMm (rpm math)
+        double  hapticsMaxMm      = 3.0;      // position axes: largest haptic offset (0 = none)
         double  blendMaxVelocityMmS = 20.0; // velocity cap during post-homing blend
         double  unparkTimeSec     = 3.0;
         double  parkTimeSec       = 3.0;
@@ -392,6 +393,12 @@ private:
         int     blendExtensions   = 0;
         TrajectoryState traj;     // s-curve planner state
         CommandConditioner onlineCond;   // CSP command conditioner (Bypass/Interpolate/Filter); seeded at handoff
+        // Haptics on a position axis: sumGuard passes cue + overlay through
+        // the FULL axis limits so the cue keeps priority (the layer has
+        // already derated the overlay to what the axis can follow). Seeded
+        // when an overlay first appears.
+        CommandConditioner sumGuard;
+        bool    hapActive         = false;
         double  onlineStaleSec    = 0.0;  // time since last valid telemetry frame in ONLINE
         double  lastTension       = 0.0;  // belt: last commanded torque % (stale-hold + park-ramp start)
         // Belt guard runtime (armed through BLENDING + ONLINE; re-seeded each tension-up)
@@ -440,9 +447,11 @@ private:
     NcxMap           m_ncxMap;   // rig-level NULLCATX binding table (strings resolved once)
     haptics::Layer   m_haptics;  // routable haptic layer (RT-owned; see HapticsLayer.h)
     haptics::LawsState m_hapLaws;  // Test preview timers + gear edge state (RT-owned)
+    double           m_hapPositionBudget = 0.4;  // share of a position axis's limits haptics may use
     void fireHaptics(const HapticTriggers& t);
     void driveContinuousHaptics(const TelemetryData& td);
     void applyHaptics(const AppConfig& c);
+    void applyHapticSinks();
     // Live-apply stage (trivially copyable - no allocation on either side):
     // one slot per registry effect plus the engine description.
     struct HapticsStage
@@ -450,6 +459,7 @@ private:
         std::array<haptics::EffectParams, haptics::EFFECT_COUNT> fx{};
         haptics::EngineParams engine;
         double masterGain = 1.0;
+        double positionBudget = 0.4;
     };
     HapticsStage     m_hapStage;
     std::mutex       m_hapStageLock;

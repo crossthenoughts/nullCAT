@@ -208,6 +208,7 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
             h[info.key] = o;
         }
         h["masterGain"] = c.hapticsMasterGain;
+        h["positionBudget"] = c.hapticsPositionBudget;
         obj["haptics"] = h;
     }
 }
@@ -283,6 +284,7 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
             }
         }
         if (h.contains("masterGain"))  c.hapticsMasterGain = h.value("masterGain").toDouble(1.0);
+        if (h.contains("positionBudget")) c.hapticsPositionBudget = h.value("positionBudget").toDouble(0.4);
     }
 }
 
@@ -372,6 +374,7 @@ static void writeDriveConfig(const DriveConfig& d, QJsonObject& obj)
     obj["beltOverspeedMs"]           = d.beltOverspeedMs;
     obj["beltMaxTravelRevs"]         = d.beltMaxTravelRevs;
     obj["beltMaxRpm"]                = d.beltMaxRpm;
+    obj["hapticsMaxMm"]              = d.hapticsMaxMm;
     obj["beltRelaxerSec"]            = d.beltRelaxerSec;
     obj["beltRelaxerPct"]            = d.beltRelaxerPct;
     // Nested device object: written for the control-loading families only,
@@ -489,6 +492,7 @@ static void readDriveConfig(const QJsonObject& obj, int idx, DriveConfig& d)
     rdDbl (obj, "beltOverspeedMs",        d.beltOverspeedMs);
     rdDbl (obj, "beltMaxTravelRevs",      d.beltMaxTravelRevs);
     rdDbl (obj, "beltMaxRpm",             d.beltMaxRpm);
+    rdDbl (obj, "hapticsMaxMm",           d.hapticsMaxMm);
     rdDbl (obj, "beltRelaxerSec",         d.beltRelaxerSec);
     rdDbl (obj, "beltRelaxerPct",         d.beltRelaxerPct);
     if (obj.contains("device") && obj.value("device").isObject())
@@ -1004,6 +1008,8 @@ std::vector<std::string> AppConfig::validate() const
                 errors.push_back(pfx + "beltMaxTravelRevs must be 0 (off) or in [0.5, 100]");
             if (d.beltMaxRpm != 0.0 && (d.beltMaxRpm < 100.0 || d.beltMaxRpm > 3000.0))
                 errors.push_back(pfx + "beltMaxRpm must be 0 (unlimited) or in [100, 3000]");
+            if (d.hapticsMaxMm < 0.0 || d.hapticsMaxMm > 10.0)
+                errors.push_back(pfx + "hapticsMaxMm out of range [0, 10]");
             if (d.beltRelaxerSec != 0.0 && (d.beltRelaxerSec < 2.0 || d.beltRelaxerSec > 120.0))
                 errors.push_back(pfx + "beltRelaxerSec must be 0 (off) or in [2, 120]");
             if (d.beltRelaxerPct < 20.0 || d.beltRelaxerPct > 100.0)
@@ -1134,6 +1140,8 @@ std::vector<std::string> AppConfig::validate() const
         }
         if (hapticsMasterGain < 0.0 || hapticsMasterGain > 2.0)
             errors.push_back("haptics.masterGain out of range [0, 2]");
+        if (hapticsPositionBudget < 0.0 || hapticsPositionBudget > 1.0)
+            errors.push_back("haptics.positionBudget out of range [0, 1]");
     }
 
     // ---- NULLCATX channel bindings (rig global) ----

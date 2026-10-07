@@ -109,10 +109,11 @@ connection can never lock your shifter.
 ## Haptics
 
 Haptics are short vibrations and textures that ride on top of the
-normal feel of any torque axis: the belt tensioners and devices like the
-shifter. They are always kept inside each axis's own force limits. They
-live on the **Haptics** strip in the Operate view, which appears once
-Experimental features is ticked in the host settings.
+normal feel of any axis: the belt tensioners, devices like the shifter,
+and the position axes that move the rig. They are always kept inside
+each axis's own limits. They live on the **Haptics** strip in the
+Operate view, which appears once Experimental features is ticked in the
+host settings.
 
 ### Setting one up
 
@@ -120,19 +121,47 @@ Every effect starts off. To make one work it needs three things:
 
 1. **Amplitude** above 0 (`amp %`, a share of the axis's rated torque).
 2. **A route**: click the "not routed" link on the tile and give the
-   belt, the shifter, or any torque axis a gain above 0. One effect can
-   go to several axes.
+   belt, the shifter, or any axis a gain above 0. One effect can go to
+   several axes.
 3. **Save**: the strip has its own Save bar. Changes apply immediately,
    with no re-initialize.
 
-The routed axis must also be live (belt tensioned, device engaged) to be
-felt. **Test** plays the effect for a moment and, if nothing could be
-felt, says why: amplitude 0, no route, or the routed axis not live. The
-tile's waveform only moves while the effect is actually producing force,
-and its shape follows the amplitude and frequency you set.
+The routed axis must also be live (belt tensioned, device engaged,
+position axis online) to be felt. **Test** plays the effect for a
+moment and, if nothing could be felt, says why: amplitude 0, no route,
+or the routed axis not live. The tile's waveform only moves while the
+effect is actually producing force, and its shape follows the amplitude
+and frequency you set.
 
 **Master** scales every effect at once; **Mute** silences the whole
 layer without changing any settings (press again to bring it back).
+
+### Routing to a position axis
+
+A torque axis takes a plain gain (x). A position axis takes its gain in
+millimetres: the offset the effect adds to the axis's position at 100 %
+amplitude, so a route of `0.8` on the surge axis with the effect at
+50 % is a 0.4 mm wobble. The offset rides on top of the motion cue and
+the cue always keeps priority; the axis's own velocity and acceleration
+limits still apply to the sum.
+
+Two things set how much a position axis will actually give:
+
+- **Haptic max** in the axis editor (default 3 mm) is the hard ceiling
+  on the offset. Set it to 0 and that axis takes no haptics at all.
+- **pos budget** on the Master tile (default 0.4) is the share of each
+  axis's velocity and acceleration limits that haptics may use.
+
+A linear actuator cannot swing 3 mm at 90 Hz, so each effect is derated
+to what the axis can follow at its carrier: an effect is held to the
+smaller of the cap, `budget x max velocity / (2 pi f)` and
+`budget x max acceleration / (2 pi f)^2`. The route editor shows the
+result for every position axis as "up to X mm at F Hz" before you save
+or play anything. Low-frequency effects (the engine's idle rock, a 5 Hz
+skid) come through at useful amplitudes; a 90 Hz buzz on a surge axis
+is a fraction of a millimetre and is better sent to a belt. Routed
+effects are only felt while the axis is online and tracking; PP-mode
+axes take no haptics.
 
 ### The effects
 

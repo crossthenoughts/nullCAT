@@ -27,6 +27,11 @@ static void CHECK(bool ok, const char* what)
     if (ok) { ++g_pass; }
     else    { ++g_fail; std::printf("FAIL: %s\n", what); }
 }
+static void approx(double got, double want, double tol, const char* what)
+{
+    if (std::fabs(got - want) <= tol) { ++g_pass; }
+    else { ++g_fail; std::printf("FAIL: %s (got %.5f, want %.5f +/- %.5f)\n", what, got, want, tol); }
+}
 
 using haptics::Layer;
 using haptics::EffectParams;
@@ -471,6 +476,51 @@ int main()
         Layer Lz; Lz.configureFx(FxType::RpmVibe, p); Lz.configureEngine(p.eng);
         for (int i = 0; i < 200; ++i) { Lz.driveEngine(1.0, 0.0, 1.0, false); Lz.step(DT); }
         CHECK(Lz.overlayFor(6) == 0.0, "engine with no rpm is silent");
+    }
+
+    // ================= position sinks: derating by carrier =================
+    // A route to a position axis is mm at 100% amplitude, derated to what
+    // the axis can follow at the effect's carrier: min(cap, vB/w, aB/w^2).
+    {
+        using haptics::FxType;
+        using haptics::SinkKind;
+        Layer L;
+        L.setSinkKind(0, SinkKind::Position);
+        L.setPositionLimits(0, 80.0, 800.0, 3.0);      // 0.4 x (200 mm/s, 2000 mm/s^2), cap 3 mm
+        approx(L.positionAllowedMm(0, 5.0),  0.8106, 0.01, "allowed at 5 Hz = aB / w^2 (0.81 mm)");
+        approx(L.positionAllowedMm(0, 35.0), 0.0165, 0.002, "allowed at 35 Hz = aB / w^2 (0.017 mm)");
+        approx(L.positionAllowedMm(0, 0.1),  3.0,    1e-9, "allowed at 0.1 Hz = the cap (velocity and accel both allow more)");
+        approx(L.positionAllowedMm(0, 0.0),  3.0,    1e-9, "no carrier = the cap");
+        CHECK(L.sinkKind(1) == SinkKind::Torque, "axes default to torque sinks");
+
+        // Skid at 5 Hz, amp 100, gain 2 mm asked -> overlay peak = 0.81 mm x 100.
+        EffectParams p; p.ampPct = 100.0; p.freqHz = 5.0; p.jitter = 0.0; p.routes[0] = { 0, 2.0 };
+        L.configureFx(FxType::Skid, p);
+        double pk = 0.0;
+        for (int i = 0; i < 2000; ++i) { L.driveFx(FxType::Skid, 1.0, 0.0); L.step(DT); pk = std::max(pk, std::fabs(L.overlayFor(0))); }
+        approx(pk / 100.0, 0.81, 0.03, "position sink: 5 Hz skid derated from 2 mm to 0.81 mm");
+
+        // The same route on a torque sink is not derated at all.
+        Layer T; T.configureFx(FxType::Skid, p);
+        double tk = 0.0;
+        for (int i = 0; i < 2000; ++i) { T.driveFx(FxType::Skid, 1.0, 0.0); T.step(DT); tk = std::max(tk, std::fabs(T.overlayFor(0))); }
+        approx(tk, 200.0, 2.0, "torque sink: the same route is amp x gain, undetrated");
+
+        // Engine on a vertical: the 13 Hz idle rock survives (crank-rate
+        // crossings still there) while the 30 Hz thumps are derated hard.
+        EP e; e.ampPct = 10.0; e.jitter = 0.0; e.eng.cylinders = 8.0; e.eng.litres = 4.0; e.freqHz = 30.0;
+        e.routes[0] = { 0, 3.0 };
+        Layer V; V.setSinkKind(0, SinkKind::Position); V.setPositionLimits(0, 80.0, 800.0, 3.0);
+        V.configureFx(FxType::RpmVibe, e); V.configureEngine(e.eng);
+        std::vector<double> raw, lp;
+        for (int i = 0; i < 2000; ++i) { V.driveEngine(1.0, 53.3, 1.0, false); V.step(DT); raw.push_back(V.overlayFor(0)); }
+        for (size_t i = 40; i < raw.size(); ++i) { double s = 0.0; for (size_t k = i - 40; k < i; ++k) s += raw[k]; lp.push_back(s / 40.0); }
+        int xr = 0; for (size_t i = 1; i < lp.size(); ++i) if ((lp[i] >= 0.0) != (lp[i-1] >= 0.0)) ++xr;
+        CHECK(xr >= 20 && xr <= 34, "engine on a position sink: the crank-rate rock survives the derating");
+        double peakMm = 0.0; for (double v : raw) peakMm = std::max(peakMm, std::fabs(v) / 100.0);
+        // Asked 0.3 mm (10% x 3 mm); the rock at 13 Hz is allowed ~0.115 mm and
+        // is ~a third of the effect, so a few hundredths of a mm come through.
+        CHECK(peakMm <= 0.3 + 1e-9 && peakMm > 0.02, "engine on a position sink: inside the asked 0.3 mm, not silent");
     }
 
     // ================= model trigger: detent capture =================

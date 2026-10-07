@@ -78,6 +78,8 @@ void MotionController::configure(const AppConfig& config)
     // shared with the live-apply staging path (a rig save applies without
     // a re-initialize).
     applyHaptics(config);
+    m_hapPositionBudget = std::max(0.0, std::min(1.0, config.hapticsPositionBudget));
+    m_hapPositionBudget = std::max(0.0, std::min(1.0, config.hapticsPositionBudget));
 
     // NULLCATX channel bindings (rig-level): resolve token strings once so
     // the RT path only does index lookups.
@@ -125,6 +127,7 @@ void MotionController::configure(const AppConfig& config)
         ac.beltOverspeedMs   = dc.beltOverspeedMs;
         ac.beltMaxTravelRevs = dc.beltMaxTravelRevs;
         ac.beltMaxRpm        = dc.beltMaxRpm;
+        ac.hapticsMaxMm      = dc.hapticsMaxMm;
         ac.beltRelaxerSec    = dc.beltRelaxerSec;
         ac.beltRelaxerPct    = dc.beltRelaxerPct;
         // Shaft-rpm math for the overspeed guard: getActualPositionRaw() returns
@@ -248,6 +251,9 @@ void MotionController::configure(const AppConfig& config)
 
     LOG_INFO(strf("MotionController: Configured %d axes at %dHz",
         m_numDrives, config.controlLoopHz));
+
+    // Haptic sink kinds + position limits read the axis configs filled above.
+    applyHapticSinks();
 }
 
 void MotionController::setEmergencyStop(bool active)
@@ -1598,6 +1604,32 @@ double MotionController::stepPositionOnline(int i, AxisMotionState& state,
         // the PDO write (downstream).
         outPos = conditionCommand(rt.onlineCond, targetMm,
                                   telemetryData.nominalFrameSec, ac.maxVelocityMmS, ac);
+        // Haptics on a position axis. A route gain on this axis is mm at
+        // 100% effect amplitude; the layer has already derated every
+        // contribution to what this axis can follow at the effect carrier
+        // (min of hapticsMaxMm, the haptic share of maxVelocity / w and of
+        // maxAcceleration / w^2 - the commissioning sweep rule), so the sum
+        // / 100 is an offset the actuator can reproduce. Added AFTER the
+        // cue conditioning (Interpolate/Filter never smear it), capped once
+        // more at hapticsMaxMm, and the SUM passes sumGuard with the FULL
+        // axis limits so a hard cue always wins and the drive never sees
+        // more than its limits. ONLINE only (never BLENDING, homing or
+        // parking), never on PP mode.
+        if (ac.hapticsMaxMm > 0.0 && state == AxisMotionState::ONLINE)
+        {
+            double hapMm = m_haptics.overlayFor(i) / 100.0;
+            if (hapMm != 0.0 || rt.hapActive)
+            {
+                const double brakeEps = 4.0 / std::max(1.0, ac.countsPerMm);
+                if (!rt.hapActive) { rt.sumGuard.seedState(outPos, 0.0); rt.hapActive = true; }
+                hapMm = std::max(-ac.hapticsMaxMm, std::min(ac.hapticsMaxMm, hapMm));
+                outPos = rt.sumGuard.stepBypass(outPos + hapMm, m_cycleTimeSec, m_cycleTimeSec,
+                                                ac.maxVelocityMmS, ac.maxAccelMmS2, brakeEps);
+                // Overlay gone: hand the command back to the cue path untouched.
+                if (hapMm == 0.0) rt.hapActive = false;
+            }
+        }
+        else rt.hapActive = false;
         outPos = std::max(ac.minPos, std::min(ac.maxPos, outPos));
     }
     return outPos;
@@ -1716,6 +1748,30 @@ void MotionController::applyHaptics(const AppConfig& c)
     applyHapticsTo(m_haptics, c.hapticsFx, c.hapticsEngine, c.hapticsMasterGain);
 }
 
+// What each axis is as a haptic destination, and for position axes the
+// limits the layer derates against: the haptic share of the axis velocity
+// and acceleration limits plus its hapticsMaxMm cap. Torque-mode axes and
+// devices are torque sinks; CSP axes are position sinks; PP-mode axes take
+// no haptics (the drive's own profiler would mangle them).
+void MotionController::applyHapticSinks()
+{
+    for (int i = 0; i < MAX_DRIVES; ++i)
+    {
+        const AxisConfig& ac = m_axisConfig[i];
+        const bool torquey = ac.torqueMode || ac.caps.isDevice();
+        if (i >= m_numDrives || torquey || ac.ppMode)
+        {
+            m_haptics.setSinkKind(i, haptics::SinkKind::Torque);
+            m_haptics.setPositionLimits(i, 0.0, 0.0, 0.0);
+            continue;
+        }
+        m_haptics.setSinkKind(i, haptics::SinkKind::Position);
+        m_haptics.setPositionLimits(i, m_hapPositionBudget * ac.maxVelocityMmS,
+                                       m_hapPositionBudget * ac.maxAccelMmS2,
+                                       ac.ppMode ? 0.0 : ac.hapticsMaxMm);
+    }
+}
+
 // Live-apply: a rig save stages the new haptics config here (web thread,
 // under the lock); the RT thread applies it at the top of the next cycle.
 // Same pattern as the device-params staging - feel tuning never needs a
@@ -1727,6 +1783,7 @@ void MotionController::stageHaptics(const AppConfig& c)
     m_hapStage.fx         = c.hapticsFx;
     m_hapStage.engine     = c.hapticsEngine;
     m_hapStage.masterGain = c.hapticsMasterGain;
+    m_hapStage.positionBudget = c.hapticsPositionBudget;
     m_hapStagePending.store(true, std::memory_order_release);
 }
 
@@ -1863,6 +1920,8 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
         { std::lock_guard<std::mutex> lk(m_hapStageLock); s = m_hapStage; }
         m_hapStagePending.store(false, std::memory_order_release);
         applyHapticsTo(m_haptics, s.fx, s.engine, s.masterGain);
+        m_hapPositionBudget = std::max(0.0, std::min(1.0, s.positionBudget));
+        applyHapticSinks();
         RT_LOG_INFO("MotionController: haptics settings applied live.");
     }
     if (estopNow) m_haptics.clearAll();

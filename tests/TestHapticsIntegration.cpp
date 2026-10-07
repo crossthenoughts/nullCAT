@@ -28,6 +28,7 @@
 #include "TelemetryInput.h"
 #include "Config.h"
 #include "HapticLaws.h"
+#include "MockA6Drive.h"
 
 #include <cstdio>
 #include <cmath>
@@ -72,12 +73,12 @@ static AppConfig makeBeltConfig(double skidAmp, double routeGain)
 }
 
 // Motion frame (belt demand zero) + a NULLCATX frame with the skid channel.
-static TelemetryData frame(double skidPct, bool fresh)
+static TelemetryData frame(double skidPct, bool fresh, double raw0 = 0.0)
 {
     TelemetryData sd{};
     sd.valid        = true;
     sd.numPositions = 2;
-    sd.positions[0] = 0.0;
+    sd.positions[0] = raw0;
     sd.positions[1] = 32767.0;
     sd.packetType   = TelemetryPacketType::Motion;
     sd.numNcx       = 13;
@@ -241,6 +242,106 @@ int main()
         v.fresh = false; settle(300);
         check(L.fxLevel(static_cast<int>(haptics::FxType::Skid)) < 0.01
               && L.fxLevel(static_cast<int>(haptics::FxType::TcPulse)) < 0.01, "I-7 stale stream fades every effect");
+    }
+
+    // ---- P-1..P-4: a POSITION (CSP) axis as a routing destination ----
+    // Route gain on a position axis is mm at 100% amplitude. The offset is
+    // tracked inside the haptic share of the axis limits (what the actuator
+    // can follow), capped at hapticsMaxMm, and the sum passes the full axis
+    // guard. A low-frequency effect comes through at its physics amplitude;
+    // a high-frequency one is attenuated by the acceleration budget, never
+    // clipped by the drive. PARKED produces nothing.
+    {
+        auto makePosConfig = [](double skidAmp, double gainMm, double freqHz, double capMm, double budget) {
+            DriveConfig dc;
+            dc.slaveIndex = 1; dc.name = "Seat"; dc.axisType = "linear_vertical";
+            dc.strokeMm = 100.0; dc.homingSpeed = 400.0; dc.homingBackoffMm = 1.5; dc.homingTorquePct = 25;
+            dc.homeDirection = "negative"; dc.invertDir = true; dc.parkMode = "endstop";
+            dc.maxVelocityMmS = 200.0; dc.maxAccelerationMmS2 = 2000.0; dc.maxJerkMmS3 = 20000.0;
+            dc.unparkTimeSec = 0.1; dc.parkTimeSec = 0.1; dc.countsPerMm = 100.0; dc.ballscrewPitch = 5.0;
+            dc.hapticsMaxMm = capMm;
+            AppConfig cfg;
+            cfg.controlLoopHz = 500; cfg.numDrives = 1; cfg.drives.push_back(dc);
+            cfg.hapticsPositionBudget = budget;
+            haptics::EffectParams& skid = cfg.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)];
+            skid.ampPct = skidAmp; skid.freqHz = freqHz; skid.jitter = 0.0;
+            skid.routes[0] = { 0, gainMm };
+            return cfg;
+        };
+        // Drive the controller with a mock drive (homes against a hardstop,
+        // auto-unparks, settles ONLINE); return the position span over the
+        // last `measure` cycles.
+        auto posRun = [](MotionController& mc, MockA6Drive& mock, const TelemetryData& sd, int cycles, int measure) {
+            Span sp; A6Drive* drives[1] = { &mock }; MotionOutput out{};
+            for (int i = 0; i < cycles; ++i)
+            {
+                out = MotionOutput{};
+                mc.process(sd, out, drives, 1);
+                if (i >= cycles - measure) { sp.lo = std::min(sp.lo, out.positions[0]); sp.hi = std::max(sp.hi, out.positions[0]); }
+            }
+            return sp;
+        };
+        auto bringOnline = [&](MotionController& mc, MockA6Drive& mock) {
+            mc.setEmergencyStop(false);
+            mock.setHardstop(-2.0, true, 50.0);
+            mc.startHoming();
+            TelemetryData empty{}; A6Drive* drives[1] = { &mock };
+            for (int i = 0; i < 20000 && mc.getAxisState(0) != AxisMotionState::ONLINE; ++i)
+            { MotionOutput out{}; mc.process(empty, out, drives, 1); }
+            return mc.getAxisState(0) == AxisMotionState::ONLINE;
+        };
+
+        // P-1: 5 Hz skid at 2 mm gain. Budget 0.4 x 2000 mm/s^2 allows
+        // A <= 800/(2*pi*5)^2 = 0.81 mm at 5 Hz, so the offset should
+        // swing ~+-0.8 mm around the cue (less than the 2 mm asked, more
+        // than the 3 mm cap could ever bite).
+        {
+            MotionController mc; MockA6Drive mock;
+            mc.configure(makePosConfig(100.0, 2.0, 5.0, 3.0, 0.4));
+            check(bringOnline(mc, mock), "P-1 position axis reaches ONLINE");
+            const Span quiet = posRun(mc, mock, frame(0.0, true, 32767.0), 600, 100);
+            const Span loud  = posRun(mc, mock, frame(100.0, true, 32767.0), 1000, 400);
+            check(quiet.width() < 0.05,                          "P-1 skid 0: position command steady");
+            // 0.4 x 2000 / (2 pi 5)^2 = 0.81 mm peak -> ~1.62 mm swing.
+            check(loud.width() > 1.4 && loud.width() < 1.9,       "P-1 5 Hz skid: ~+-0.8 mm swing (accel budget / w^2), not the 2 mm asked");
+        }
+        // P-2: the same at 35 Hz: the accel budget allows only ~0.017 mm,
+        // so the swing is small - the drive is never asked for more than it
+        // can follow.
+        {
+            MotionController mc; MockA6Drive mock;
+            mc.configure(makePosConfig(100.0, 2.0, 35.0, 3.0, 0.4));
+            check(bringOnline(mc, mock), "P-2 position axis reaches ONLINE");
+            posRun(mc, mock, frame(0.0, true, 32767.0), 600, 1);
+            const Span loud = posRun(mc, mock, frame(100.0, true, 32767.0), 1000, 400);
+            // 0.4 x 2000 / (2 pi 35)^2 = 0.0165 mm peak -> ~0.033 mm swing.
+            check(loud.width() > 0.02 && loud.width() < 0.06,     "P-2 35 Hz skid: attenuated to what the axis can follow (~0.03 mm swing)");
+        }
+        // P-3: hapticsMaxMm caps it: 1 Hz (budget allows 20 mm) at 5 mm
+        // gain, cap 0.5 mm -> ~+-0.5 mm.
+        {
+            MotionController mc; MockA6Drive mock;
+            mc.configure(makePosConfig(100.0, 5.0, 1.0, 0.5, 0.4));
+            check(bringOnline(mc, mock), "P-3 position axis reaches ONLINE");
+            posRun(mc, mock, frame(0.0, true, 32767.0), 600, 1);
+            const Span loud = posRun(mc, mock, frame(100.0, true, 32767.0), 2000, 1000);
+            check(loud.width() > 0.9 && loud.width() < 1.1,       "P-3 hapticsMaxMm caps the offset at +-0.5 mm");
+        }
+        // P-4: hapticsMaxMm 0 = this axis takes no haptics; PARKED takes none.
+        {
+            MotionController mc; MockA6Drive mock;
+            mc.configure(makePosConfig(100.0, 2.0, 5.0, 0.0, 0.4));
+            check(bringOnline(mc, mock), "P-4 position axis reaches ONLINE");
+            posRun(mc, mock, frame(0.0, true, 32767.0), 600, 1);
+            const Span loud = posRun(mc, mock, frame(100.0, true, 32767.0), 600, 200);
+            check(loud.width() < 0.05,                            "P-4 hapticsMaxMm 0: no haptics on this axis");
+            MotionController mc2; MockA6Drive mock2;
+            mc2.configure(makePosConfig(100.0, 2.0, 5.0, 3.0, 0.4));
+            mc2.setEmergencyStop(false);
+            const Span parked = posRun(mc2, mock2, frame(100.0, true), 600, 200);
+            check(mc2.getAxisState(0) == AxisMotionState::PARKED, "P-4 un-homed axis is PARKED");
+            check(parked.width() < 0.05,                          "P-4 PARKED: no haptics");
+        }
     }
 
     std::printf("TestHapticsIntegration: %d passed, %d failed\n", g_pass, g_fail);

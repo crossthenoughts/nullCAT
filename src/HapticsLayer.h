@@ -100,7 +100,7 @@ public:
             const double v   = e.ampPct * env
                              * std::sin(2.0 * wavesynth::kPi * e.freqHz * e.tSec);
             for (const Route& r : e.routes)
-                if (r.axis >= 0) m_overlay[r.axis] += v * r.gain;
+                if (r.axis >= 0) m_overlay[r.axis] += v * r.gain * sinkScale(r.axis, e.ampPct * r.gain, e.freqHz);
         }
 
         // Continuous effects: attack/release-smoothed level on a free-running
@@ -118,11 +118,26 @@ public:
             // The engine slot runs the pulse-train synth, not the oscillator.
             if (i == static_cast<int>(FxType::RpmVibe))
             {
-                const double v = m_engine.step(dtSec, p, m_engineParams, f.level, f.rng);
-                if (v != 0.0)
-                    for (const Route& r : p.routes)
-                        if (r.axis >= 0 && r.axis < MAX_HAPTIC_AXES && r.gain > 0.0)
-                            m_overlay[r.axis] += v * r.gain;
+                const EngineOut eo = m_engine.step(dtSec, p, m_engineParams, f.level, f.rng);
+                const double v = eo.total();
+                for (const Route& r : p.routes)
+                {
+                    if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES || r.gain <= 0.0) continue;
+                    if (m_sinkKind[r.axis] == SinkKind::Position)
+                    {
+                        // Each component derated by what this axis can follow
+                        // at ITS carrier: the idle rock survives on a vertical
+                        // where the thumps and buzz are tiny.
+                        const double ask = p.ampPct * r.gain;
+                        double pv = eo.rock   * sinkScale(r.axis, ask, eo.rockHz)
+                                  + eo.thumps * sinkScale(r.axis, ask, eo.thumpHz)
+                                  + eo.buzz   * sinkScale(r.axis, ask, eo.buzzHz);
+                        pv = std::max(-eo.cap, std::min(eo.cap, pv));
+                        m_overlay[r.axis] += pv * r.gain;
+                    }
+                    else if (v != 0.0)
+                        m_overlay[r.axis] += v * r.gain;
+                }
                 continue;
             }
 
@@ -139,7 +154,7 @@ public:
             const double v = p.ampPct * f.level * f.osc.step(freq, dtSec);
             for (const Route& r : p.routes)
                 if (r.axis >= 0 && r.axis < MAX_HAPTIC_AXES && r.gain > 0.0)
-                    m_overlay[r.axis] += v * r.gain;
+                    m_overlay[r.axis] += v * r.gain * sinkScale(r.axis, p.ampPct * r.gain, f.freqHz);
         }
 
         // Master trim last: per-effect settings stay untouched underneath.
@@ -152,6 +167,44 @@ public:
     double overlayFor(int axis) const
     {
         return (axis >= 0 && axis < MAX_HAPTIC_AXES) ? m_overlay[axis] : 0.0;
+    }
+
+    // ---- sinks -----------------------------------------------------------
+    // What each axis index IS as a destination. Torque (the default): the
+    // overlay is % of rated torque, a route gain is a plain multiplier.
+    // Position: a route gain is mm at 100% effect amplitude, the overlay is
+    // (% x gain) and the owner divides by 100 to get mm; every contribution
+    // is first derated to what the axis can physically follow at the
+    // effect's carrier - min(cap, vBudget/w, aBudget/w^2), the commissioning
+    // sweep's rule - so a 35 Hz texture on a heavy vertical arrives at the
+    // physics amplitude instead of a demand the drive would clip, while the
+    // 13 Hz idle rock comes through. Config apply; not RT.
+    void setSinkKind(int axis, SinkKind k)
+    {
+        if (axis >= 0 && axis < MAX_HAPTIC_AXES) m_sinkKind[axis] = k;
+    }
+    void setPositionLimits(int axis, double vBudgetMmS, double aBudgetMmS2, double capMm)
+    {
+        if (axis < 0 || axis >= MAX_HAPTIC_AXES) return;
+        m_posV[axis]   = std::max(0.0, vBudgetMmS);
+        m_posA[axis]   = std::max(0.0, aBudgetMmS2);
+        m_posCap[axis] = std::max(0.0, capMm);
+    }
+    SinkKind sinkKind(int axis) const
+    {
+        return (axis >= 0 && axis < MAX_HAPTIC_AXES) ? m_sinkKind[axis] : SinkKind::Torque;
+    }
+    // Largest peak offset (mm) a position axis can take at a carrier.
+    double positionAllowedMm(int axis, double hz) const
+    {
+        if (axis < 0 || axis >= MAX_HAPTIC_AXES) return 0.0;
+        double allowed = m_posCap[axis];
+        if (hz > 0.0)
+        {
+            const double w = 2.0 * wavesynth::kPi * hz;
+            allowed = std::min(allowed, std::min(m_posV[axis] / w, m_posA[axis] / (w * w)));
+        }
+        return allowed;
     }
 
     // ---- continuous effects -------------------------------------------------
@@ -266,6 +319,18 @@ private:
         uint64_t rng = 0x9E3779B97F4A7C15ull;   // xorshift state
     };
 
+    // Route scale for one contribution: 1 on a torque sink; on a position
+    // sink, allowed / asked where asked = (ampPct x gain) / 100 mm.
+    double sinkScale(int axis, double askedPctTimesGain, double hz) const
+    {
+        if (axis < 0 || axis >= MAX_HAPTIC_AXES || m_sinkKind[axis] != SinkKind::Position) return 1.0;
+        const double askedMm = askedPctTimesGain / 100.0;
+        if (askedMm <= 0.0) return 0.0;
+        return std::min(1.0, positionAllowedMm(axis, hz) / askedMm);
+    }
+
+    SinkKind     m_sinkKind[MAX_HAPTIC_AXES] = {};
+    double       m_posV[MAX_HAPTIC_AXES] = {}, m_posA[MAX_HAPTIC_AXES] = {}, m_posCap[MAX_HAPTIC_AXES] = {};
     EngineModel  m_engine;
     EngineParams m_engineParams;
     EffectParams m_params[EVENT_TYPE_COUNT];

@@ -90,6 +90,19 @@ namespace engine_k {
     constexpr int    kPulses              = 4;      // thump pool
 }
 
+// One cycle's output, kept as its three components with their carriers so
+// a sink that has to derate by frequency (a position axis) can scale each
+// part by what the actuator can follow at THAT part's frequency: the 13 Hz
+// idle rock survives on a vertical where the 30 Hz thumps are tiny.
+// total() is what a torque sink takes.
+struct EngineOut
+{
+    double rock = 0.0, thumps = 0.0, buzz = 0.0;     // % of rated, before routing gain
+    double rockHz = 0.0, thumpHz = 30.0, buzzHz = 0.0;
+    double cap = 0.0;                                 // the effect's own amplitude ceiling this cycle
+    double total() const { return std::max(-cap, std::min(cap, rock + thumps + buzz)); }
+};
+
 class EngineModel
 {
 public:
@@ -114,11 +127,13 @@ public:
     // p the shared params (ampPct, freqHz, jitter); e the engine params;
     // rng the caller's xorshift state. Returns the value before routing
     // gain, in % of rated, already capped at the effect's own amplitude.
-    double step(double dtSec, const EffectParams& p, const EngineParams& e, double level, uint64_t& rng)
+    EngineOut step(double dtSec, const EffectParams& p, const EngineParams& e, double level, uint64_t& rng)
     {
         using namespace engine_k;
+        EngineOut out;
         const double thumpHz = (p.freqHz >= kThumpMinHz) ? p.freqHz : kThumpDefaultHz;
         m_pulseDur = 1.0 / thumpHz;
+        out.thumpHz = thumpHz;
         const double cyl    = std::max(1.0, e.cylinders);
         const int    layout = static_cast<int>(e.layout + 0.5);
         const bool   rotary = (layout == 3);
@@ -200,12 +215,11 @@ public:
             firePulse(p.ampPct * level * kThumpMix * e.thump * heavy * limHit);
 
         // Sum the thumps in flight.
-        double v = 0.0;
         for (int s = 0; s < kPulses; ++s)
         {
             if (m_pulseT[s] >= m_pulseDur) continue;
             const double env = wavesynth::envelope(m_pulseT[s], m_pulseDur, m_pulseDur * 0.30);
-            v += m_pulseAmp[s] * env * std::sin(2.0 * wavesynth::kPi * (m_pulseT[s] / m_pulseDur));
+            out.thumps += m_pulseAmp[s] * env * std::sin(2.0 * wavesynth::kPi * (m_pulseT[s] / m_pulseDur));
             m_pulseT[s] += dtSec;
         }
 
@@ -214,8 +228,9 @@ public:
         {
             const double ph   = 2.0 * wavesynth::kPi * m_rockPhase;   // one cycle = 2 revs
             const double rock = std::sin(2.0 * ph) + kHalfOrderLope * p.jitter * std::sin(ph);
-            v += p.ampPct * level * kRockMix * e.rock * heavy * balance * rockFade
-               * (kRockLoadFloor + (1.0 - kRockLoadFloor) * m_load) * m_revScale * rock;
+            out.rock = p.ampPct * level * kRockMix * e.rock * heavy * balance * rockFade
+                     * (kRockLoadFloor + (1.0 - kRockLoadFloor) * m_load) * m_revScale * rock;
+            out.rockHz = crankHz;
         }
 
         // Buzz: pitch proportional to rpm at an order the actuator can carry.
@@ -225,21 +240,22 @@ public:
                                  : std::max(kBuzzOrderMin, std::min(kBuzzOrderMax, kBuzzBandTopHz / (maxRpm / 60.0)));
             const double carrier = std::max(kBuzzCarrierMinHz, std::min(kBuzzCarrierMaxHz, crankHz * order));
             m_buzzPhase = wrap(m_buzzPhase + carrier * dtSec);
+            out.buzzHz = carrier;
             const double rise = std::max(0.0, std::min(1.0, (x - kBuzzInAt) / (kBuzzFullBy - kBuzzInAt)));
             if (rise > 0.0 && !cut)
             {
                 const double lvl = rise * (1.0 - kBuzzTopGrowth + kBuzzTopGrowth * x)
                                  * (kBuzzLoadFloor + (1.0 - kBuzzLoadFloor) * m_load)
                                  * (m_limiter ? limHit : 1.0);
-                v += p.ampPct * level * kBuzzMix * e.buzz * (kBuzzHeavyFloor + (1.0 - kBuzzHeavyFloor) * heavy) * lvl
-                   * std::sin(2.0 * wavesynth::kPi * m_buzzPhase);
+                out.buzz = p.ampPct * level * kBuzzMix * e.buzz * (kBuzzHeavyFloor + (1.0 - kBuzzHeavyFloor) * heavy) * lvl
+                         * std::sin(2.0 * wavesynth::kPi * m_buzzPhase);
             }
         }
 
         // The engine never exceeds its own amplitude (x limHit on the limiter);
         // the axis clamp is the guard rail above this, not the shaping.
-        const double cap = p.ampPct * level * (m_limiter ? std::max(1.0, limHit) : 1.0);
-        return std::max(-cap, std::min(cap, v));
+        out.cap = p.ampPct * level * (m_limiter ? std::max(1.0, limHit) : 1.0);
+        return out;
     }
 
 private:

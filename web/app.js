@@ -745,6 +745,8 @@ const AXIS_SPEC=[
   {k:'maxVelocityMmS',label:'Max vel',type:'num',min:1,max:10000,step:1,unit:'mm/s',pos:true},
   // (rotary: mm/s reads as deg/s via the automatic unit swap; ranges shared)
   {k:'maxAccelerationMmS2',label:'Max accel',type:'num',min:1,max:100000,step:1,unit:'mm/s²',pos:true},
+  {k:'hapticsMaxMm',label:'Haptic max',type:'num',min:0,max:10,step:0.1,unit:'mm',pos:true,
+   tip:'Largest offset a haptic effect may add to this axis\'s position (0 = this axis takes no haptics). Effects are also kept to what the axis can follow at their frequency, using the pos budget share of its velocity and acceleration limits.'},
   // Rotary cap = the axis's own arc: a window wider than the travel can
   // never trip, so the limit is geometry, not opinion. Linear keeps 10000.
   {k:'followingErrorWindowMm',label:'Following-err window',type:'num',min:0,max:10000,step:0.1,unit:'mm',pos:true,
@@ -1069,12 +1071,36 @@ async function hapLoadSchema(){
   }catch(_){}
 }
 
-function hapTorqueAxes(){
+/* Every axis is a routing destination. A torque axis (belt, device) takes
+   a plain gain (x); a position (CSP) axis takes a gain in mm at 100%
+   effect amplitude, capped at its hapticsMaxMm and derated by the
+   controller to what the axis can follow at the effect's carrier (the
+   haptic share of its velocity/acceleration limits). PP-mode axes and axes
+   with hapticsMaxMm 0 take no haptics and are not listed. */
+function hapRouteAxes(){
   const out=[]; if(!cfgObj||!cfgObj.drives) return out;
   cfgObj.drives.forEach((d,i)=>{
-    if(d.mode==='torque'||d.axisType==='shifter'||d.axisType==='pedal')
-      out.push({i,name:d.name||('Axis '+(i+1))}); });
+    const torque=(d.mode==='torque'||d.axisType==='shifter'||d.axisType==='pedal');
+    if(torque){ out.push({i,name:d.name||('Axis '+(i+1)),kind:'torque',unit:'x',max:2,step:0.1}); return; }
+    if(d.mode==='pp'||!(+d.hapticsMaxMm>0)) return;
+    out.push({i,name:d.name||('Axis '+(i+1)),kind:'position',unit:'mm',max:+d.hapticsMaxMm,step:0.1,
+      maxV:+d.maxVelocityMmS||0,maxA:+d.maxAccelerationMmS2||0,cap:+d.hapticsMaxMm}); });
   return out;
+}
+// Largest peak a position axis can take at a carrier (mm): the controller's
+// rule, min(cap, budget*maxV/w, budget*maxA/w^2), so the drawer can say
+// "up to X mm at F Hz" before anything is saved or played.
+function hapAllowedMm(a,hz){
+  const budget=(cfgObj&&cfgObj.haptics&&isFinite(+cfgObj.haptics.positionBudget))?+cfgObj.haptics.positionBudget:0.4;
+  let allowed=a.cap;
+  if(hz>0){ const w=2*Math.PI*hz; allowed=Math.min(allowed,budget*a.maxV/w,budget*a.maxA/(w*w)); }
+  return allowed;
+}
+// The carrier a hint should use for an effect: its freq, or the engine's
+// idle rock (crank rate at ~800 rpm) since that is what a vertical carries.
+function hapHintHz(fx,dv){
+  if(fx.k==='rpmVibe') return 13;
+  return +dv.freqHz>0?+dv.freqHz:30;
 }
 
 // The wave has ONE meaning: playing right now. Idle draws a flat line
@@ -1141,9 +1167,11 @@ function hapDrawerRender(fx){
   hapOpenDrawer=fx.k;
   const dv=cfgObj.haptics[fx.k];
   const gain=(axis)=>{ const e=(dv.routes||[]).find(r=>r.axis===axis); return e?e.gain:0; };
-  let h='<div class="hd-t">'+fx.label+' · routes (gain 0 = not routed; any or all axes; Save to apply)</div>';
-  for(const a of hapTorqueAxes())
-    h+='<label>'+a.name+' <input type="number" min="0" max="2" step="0.1" data-axis="'+a.i+'" value="'+gain(a.i)+'"></label>';
+  let h='<div class="hd-t">'+fx.label+' · routes (0 = not routed; any or all axes; torque axes x, position axes mm at full amp; Save to apply)</div>';
+  for(const a of hapRouteAxes()){
+    const hint=(a.kind==='position')?' <span class="hk">up to '+hapAllowedMm(a,hapHintHz(fx,dv)).toFixed(2)+' mm @ '+hapHintHz(fx,dv)+' Hz</span>':'';
+    h+='<label>'+a.name+' <input type="number" min="0" max="'+a.max+'" step="'+a.step+'" data-axis="'+a.i+'" data-max="'+a.max+'" value="'+gain(a.i)+'"> '+a.unit+hint+'</label>';
+  }
   h+='<span class="fldtip" id="hapRouteMsg"></span>';
   dr.className='hap-drawer'; dr.innerHTML=h; dr.hidden=false;
   // The drawer stays open across edits so "belt 1, shifter 1" is one
@@ -1152,7 +1180,7 @@ function hapDrawerRender(fx){
   dr.querySelectorAll('input').forEach(inp=>{ inp.onchange=()=>{
     const routes=[];
     dr.querySelectorAll('input').forEach(x=>{
-      const g=+x.value; if(isFinite(g)&&g>0) routes.push({axis:+x.dataset.axis,gain:Math.min(2,g)}); });
+      const g=+x.value; if(isFinite(g)&&g>0) routes.push({axis:+x.dataset.axis,gain:Math.min(+x.dataset.max||2,g)}); });
     dv.routes=routes.slice(0,10);
     const t=hapTiles[fx.k]; if(t){ const c=t.tile.querySelector('.hap-routechip'); if(c) c.textContent=hapChipText(dv); }
     refreshDirtyUI();
@@ -1256,7 +1284,7 @@ function hapInit(){
   // Experimental gate (the same tickbox as the device section) + needs a
   // torque-capable axis to route anything to.
   const cb=$('cf-showdev');
-  if(!(cb&&cb.checked)||!hapTorqueAxes().length){ head.hidden=true; panel.hidden=true; return; }
+  if(!(cb&&cb.checked)||!hapRouteAxes().length){ head.hidden=true; panel.hidden=true; return; }
   head.hidden=false; panel.hidden=false;
   cfgObj.haptics=cfgObj.haptics||{};
   // Fill defaults IN PLACE: the route drawer and the tiles hold references
@@ -1273,6 +1301,7 @@ function hapInit(){
     if(Array.isArray(cfgObj.haptics[k].routes))
       cfgObj.haptics[k].routes=cfgObj.haptics[k].routes.filter(r=>r&&r.axis>=0);
   if(typeof cfgObj.haptics.masterGain!=='number') cfgObj.haptics.masterGain=1;
+  if(typeof cfgObj.haptics.positionBudget!=='number') cfgObj.haptics.positionBudget=0.4;
   const sb=$('hapSave'); if(sb&&!sb._wired){ sb._wired=true; sb.onclick=saveConfig; }
   strip.innerHTML='';
   for(const k in hapTiles) delete hapTiles[k];
@@ -1286,11 +1315,17 @@ function hapInit(){
       +'<svg class="hap-wave"></svg><div class="hrows">'
       +'<div class="hr"><span class="hk">gain x</span>'
       +'<input type="number" min="0" max="2" step="0.05" id="hapMasterGain" value="'+cfgObj.haptics.masterGain+'"></div>'
+      +'<div class="hr" title="Share of each position axis\'s velocity and acceleration limits that haptics may use (0 to 1). The motion cue always keeps priority."><span class="hk">pos budget</span>'
+      +'<input type="number" min="0" max="1" step="0.05" id="hapPosBudget" value="'+(isFinite(+cfgObj.haptics.positionBudget)?+cfgObj.haptics.positionBudget:0.4)+'"></div>'
       +'</div><div class="hb"><span class="hk" id="hapMuteState"></span>'
       +'<button class="btn btn-sm btn-action" type="button" id="hapMuteBtn">MUTE</button></div>';
     const gi=mc.querySelector('#hapMasterGain');
     gi.onchange=()=>{ const v=+gi.value; if(!isFinite(v)) return;
       cfgObj.haptics.masterGain=Math.max(0,Math.min(2,v)); gi.value=cfgObj.haptics.masterGain;
+      refreshDirtyUI(); };
+    const bi=mc.querySelector('#hapPosBudget');
+    bi.onchange=()=>{ const v=+bi.value; if(!isFinite(v)) return;
+      cfgObj.haptics.positionBudget=Math.max(0,Math.min(1,v)); bi.value=cfgObj.haptics.positionBudget;
       refreshDirtyUI(); };
     mc.querySelector('#hapMuteBtn').onclick=async()=>{
       const on=!hapMutedNow;

@@ -8,6 +8,19 @@ middle number carries breaking changes and the last carries fixes.
 
 Development branch. Nothing here is in a release yet.
 
+### Added
+- Haptics on position axes: any effect can now be routed to a CSP axis
+  (surge, the verticals) as well as a belt or device. The route's gain
+  is in mm at full amplitude, each axis has a Haptic max ceiling (3 mm
+  by default, 0 = no haptics on that axis), and a pos budget on the
+  Master tile sets the share of the axis's velocity and acceleration
+  limits haptics may use. Effects are derated to what the axis can
+  follow at their frequency, so a slow engine rock comes through on a
+  surge axis while a 90 Hz buzz stays small; the route editor shows
+  "up to X mm" per axis before anything is played. The offset rides on
+  the motion cue, which keeps priority, and the sum stays inside the
+  axis limits. PP-mode axes take no haptics.
+
 ### Changed
 - Haptics internals: the effect list is one table the controller serves
   to the browser (GET /api/haptics/schema), so adding an effect is one

@@ -212,6 +212,14 @@ struct DriveConfig
     double beltOverspeedMs   = 200.0;
     double beltMaxTravelRevs = 3.0;     // 0 = disabled
     double beltMaxRpm        = 800.0;   // fold knee; 0 = fold off (NOT recommended)
+
+    // Haptics on a POSITION (CSP) axis: the largest offset in mm any effect may
+    // add to the commanded position (0 = this axis takes no haptics). The
+    // amplitude is further limited per cycle to the share of the axis's
+    // velocity/acceleration limits set by the rig-global
+    // hapticsPositionBudget, so a 35 Hz texture on a heavy vertical lands at
+    // what the actuator can actually follow, never a demand the drive clips.
+    double hapticsMaxMm      = 3.0;
     double beltRelaxerSec    = 0.0;     // 0 = disabled
     double beltRelaxerPct    = 80.0;
 
@@ -253,6 +261,11 @@ struct AppConfig
     std::array<haptics::EffectParams, haptics::EFFECT_COUNT> hapticsFx = haptics::defaultEffectParams();
     haptics::EngineParams hapticsEngine;
     double                hapticsMasterGain  = 1.0;   // 0..2, scales every overlay
+    // Share of each POSITION axis's maxVelocity / maxAcceleration that haptics
+    // may use (0..1). Ease first: nothing else to set for safety; a light rig
+    // can give haptics more. The motion cue always keeps priority: the sum
+    // of cue + haptics passes the full axis guard afterwards.
+    double                hapticsPositionBudget = 0.4;
 
     // DC phase-lock compensator. Default OFF - when disabled the loop and
     // pump free-run exactly as before (byte-identical). When enabled, a

@@ -23,6 +23,11 @@ enum class FxType { RpmVibe = 0, AbsPulse = 1, Lockup = 2, Skid = 3, Road = 4,
                     Limiter = 5, TcPulse = 6, Kerb = 7, COUNT };
 static constexpr int FX_TYPE_COUNT = static_cast<int>(FxType::COUNT);
 
+// What an axis index is as a routing destination. Torque: the overlay is %
+// of rated torque. Position: the overlay is (% x gain) with gain in mm at
+// 100% amplitude, derated per effect to what the axis can follow.
+enum class SinkKind { Torque = 0, Position = 1 };
+
 // One destination: explicit axis index and a gain multiplier.
 // gain 0 or axis -1 = slot unused.
 struct Route

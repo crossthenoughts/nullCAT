@@ -117,19 +117,19 @@ Top level: `configVersion`, `numDrives` (1 to 10, must match `axes[]`),
 | `blendMaxVelocityMmS` | double | `20.0` | Cap on the blended-axis velocity contribution. |
 | `requireUserFaultReset` | bool | `false` | If true, faulted drives need a manual reset from the UI before motion resumes. Safety policy, so it travels with the rig. |
 | `ncxBindings` | array | all 13 tokens, slots 0 to 12 | NULLCATX channel bindings for the device and haptic effects. Each entry is `{"token", "slot", "scale", "offset"}`: the wire's numbered channel `slot` (0 to 15) maps onto the semantic `token`, with `value = raw * scale + offset`. Tokens: `rpm`, `speedKmh`, `gear`, `clutchPct` (0 = pedal up, 100 = floored), `throttlePct`, `brakePct`, `absActive`, `skid`, `lockup`, `roadNoise`, `limiter`, `tcActive`, `curbs` (see Docs/PROTOCOL.md for units). Each token binds at most once. The default matches the SimHub plugin's channel order, so it needs no editing; the Sim channels section of the web Setup view edits it and can reset it. An unbound token leaves the effects that use it silent. |
-| `haptics` | object | all effects off | Haptic effect layer tuning, one entry per effect plus `masterGain`. See below; normally edited on the web Haptics strip. |
+| `haptics` | object | all effects off | Haptic effect layer tuning, one entry per effect plus `masterGain` and `positionBudget`. See below; normally edited on the web Haptics strip. |
 
 ### global.haptics
 
-One object per effect: `detentClick`, `gearShift`, `rpmVibe` (the engine), `abs`, `lockup`, `skid`, `road`, `limiter`, `tc`, `kerb`, plus `masterGain` (number, 0 to 2, default `1`, scales every effect). Every effect is off until it has an amplitude above 0 and at least one route. Saves apply live, with no re-initialize.
+One object per effect: `detentClick`, `gearShift`, `rpmVibe` (the engine), `abs`, `lockup`, `skid`, `road`, `limiter`, `tc`, `kerb`, plus `masterGain` (number, 0 to 2, default `1`, scales every effect) and `positionBudget` (number, 0 to 1, default `0.4`, the share of each position axis's velocity and acceleration limits that haptics may use; see `hapticsMaxMm` below). Every effect is off until it has an amplitude above 0 and at least one route. Saves apply live, with no re-initialize.
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `ampPct` | double | `0` | Effect strength at full scale, % of the routed axis's rated torque (0 to 100). 0 = off. |
+| `ampPct` | double | `0` | Effect strength at full scale (0 to 100). On a torque axis, % of rated torque; on a position axis, % of the route's gain in mm. 0 = off. |
 | `freqHz` | double | per effect | Carrier frequency (4 to 500 Hz). For the engine this is the weight of each firing thump (default 30). |
 | `durMs` | double | per effect | Length of a one-shot effect (detent click, gear shift), 5 to 100 ms. |
 | `jitter` | double | per effect | 0 to 1. Roughens the carrier so skid, road and kerb feel like texture rather than a tone. For the engine it is the idle lope (per-revolution unevenness). |
-| `routes` | array | `[]` | Where the effect goes: `[{"axis": <index>, "gain": <0 to 2>}]`, up to 10 entries, torque axes only (belts and devices). No routes = the effect reaches nothing. |
+| `routes` | array | `[]` | Where the effect goes: `[{"axis": <index>, "gain": <number>}]`, up to 10 entries, any axis. On a torque axis (belt, device) `gain` is a multiplier, 0 to 2. On a position (CSP) axis `gain` is the offset in mm at 100 % amplitude, 0 to that axis's `hapticsMaxMm`. No routes = the effect reaches nothing. |
 
 Engine-only fields (`rpmVibe`):
 
@@ -166,6 +166,7 @@ Engine-only fields (`rpmVibe`):
 | `homingTorquePct` | int | `25` | Torque threshold for hardstop detection, percent of rated. |
 | `maxVelocityMmS` | double | `200.0` | Per-axis velocity cap. |
 | `maxAccelerationMmS2` | double | `10000.0` | Acceleration cap. Also the source of the tracking filter's braking clamp. |
+| `hapticsMaxMm` | double | `3.0` | Position (CSP) axes: the largest offset a haptic effect may add to the axis's position, 0 to 10 mm. `0` = this axis takes no haptics. Effects are additionally held to what the axis can follow at their carrier frequency: the smaller of this cap, `positionBudget x maxVelocityMmS / (2 pi f)` and `positionBudget x maxAccelerationMmS2 / (2 pi f)^2`. The offset rides on the motion cue, which keeps priority, and the sum is still bound by the axis limits. Only while ONLINE; ignored for torque and PP axes. |
 | `maxJerkMmS3` | double | `60000.0` | Retired, ignored. Loaded and saved for round-trip compatibility only; its consumer (the blending s-curve planner's jerk stage) no longer constrains anything. Safe to leave at any value. |
 | `followingErrorWindowMm` | double | `100.0` | Per-axis drive-side following-error window, written to object 0x6065 during init (counts = mm x countsPerMm). 100 mm is deliberately wide to tolerate PDO noise without false trips; since 0.9.5 the written value is additionally clamped to the axis's own travel (a window wider than the stroke could never trip, disabling the protection), logged when it happens. The config value itself is kept. |
 | `trackingWnHz` | double | `30.0` | The one feel knob for the ONLINE tracking filter (critically damped 2nd-order follower, only active in `filter` conditioning mode). Group delay is about `2/wn`: 10.6 ms at 30 Hz. Raise for tighter tracking, lower for more smoothing. Capped at 125 Hz. No overshoot at any amplitude: the guarantee comes from the braking-aware velocity clamp, not from jerk. |
