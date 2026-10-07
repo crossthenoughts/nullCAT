@@ -18,7 +18,8 @@
 
 #include <string>
 #include <vector>
-#include "HapticsLayer.h"   // haptics::EffectParams (rig-global haptic tuning)
+#include "HapticsRegistry.h"   // haptics::EffectParams / EngineParams + the effect table
+#include <array>
 
 // One node of a piecewise-linear curve (x = position in the device's unit,
 // y = force in % of rated). The web curve editor edits exactly these.
@@ -244,24 +245,13 @@ struct AppConfig
     double  blendTimeSec          = 2.0;
     double  blendMaxVelocityMmS   = 20.0;
     int     dcSyncOffsetNs        = 0;
-
-    // Haptic layer (rig-global, routable across torque axes; see
-    // HapticsLayer.h). ampPct 0 = effect off, the default for every one.
-    // Routing is one flat model for every effect: an explicit per-axis
-    // gain table, empty by default - an unrouted effect reaches nothing.
-    // The continuous effects are telemetry-driven (NULLCATX tokens
-    // brakePct, absActive, skid, lockup, roadNoise).
-    // EffectParams: { ampPct, freqHz, durMs, order, jitter }.
-    haptics::EffectParams hapticsDetentClick { 0.0,  90.0, 18.0 };
-    haptics::EffectParams hapticsGearShift   { 0.0,  60.0, 25.0 };
-    haptics::EffectParams hapticsRpmVibe     { 0.0,  30.0,  0.0, 0.0, 0.15 };   // freqHz = thump carrier, order 0 = auto buzz order, jitter = lope
-    haptics::EffectParams hapticsAbs         { 0.0,  12.0,  0.0, 2.0, 0.0  };
-    haptics::EffectParams hapticsLockup      { 0.0,   9.0,  0.0, 2.0, 0.2  };
-    haptics::EffectParams hapticsSkid        { 0.0,  35.0,  0.0, 2.0, 0.5  };
-    haptics::EffectParams hapticsRoad        { 0.0,  28.0,  0.0, 2.0, 0.6  };
-    haptics::EffectParams hapticsLimiter     { 0.0,  12.0,  0.0, 2.0, 0.15 };   // a slow hammer, not a buzz
-    haptics::EffectParams hapticsTc          { 0.0,  15.0,  0.0, 2.0, 0.0  };
-    haptics::EffectParams hapticsKerb        { 0.0,  40.0,  0.0, 2.0, 0.4  };
+    // Haptic layer (rig-global, routable across torque axes). One entry per
+    // effect in HapticsRegistry.h order, seeded with that table's defaults
+    // (every effect off, its carrier set). The engine's description and
+    // mix live beside it. Routing is one flat per-axis gain table per
+    // effect, empty by default - an unrouted effect reaches nothing.
+    std::array<haptics::EffectParams, haptics::EFFECT_COUNT> hapticsFx = haptics::defaultEffectParams();
+    haptics::EngineParams hapticsEngine;
     double                hapticsMasterGain  = 1.0;   // 0..2, scales every overlay
 
     // DC phase-lock compensator. Default OFF - when disabled the loop and

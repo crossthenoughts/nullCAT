@@ -30,6 +30,9 @@ static void CHECK(bool ok, const char* what)
 
 using haptics::Layer;
 using haptics::EffectParams;
+using haptics::EngineParams;
+// Engine tests bundle the shared params with the engine description.
+struct EP : EffectParams { EngineParams eng; };
 using haptics::EventType;
 
 static EffectParams click(double amp = 10.0, double freq = 100.0, double ms = 20.0)
@@ -198,8 +201,8 @@ int main()
     // ================= pulse-train engine =================
     {
         using haptics::FxType;
-        EffectParams p;
-        p.ampPct = 10.0; p.jitter = 0.0; p.cylinders = 8.0; p.litres = 4.0;   // 0.5 L/cyl = unit weight
+        EP p;
+        p.ampPct = 10.0; p.jitter = 0.0; p.eng.cylinders = 8.0; p.eng.litres = 4.0;   // 0.5 L/cyl = unit weight
         p.freqHz = 30.0;                                                   // the shipped thump carrier
         p.routes[0] = { 6, 1.0 };
 
@@ -208,7 +211,7 @@ int main()
         // which strips the 30 Hz thumps and leaves the crank-rate rock.
         struct Run { double peak = 0.0; std::vector<double> lp; };
         auto run = [&](double fireHz, double load, bool lim) {
-            Layer L; L.configureFx(FxType::RpmVibe, p);
+            Layer L; L.configureFx(FxType::RpmVibe, p); L.configureEngine(p.eng);
             Run r; std::vector<double> raw;
             for (int i = 0; i < 2000; ++i)                  // 1 s at 2 kHz
             {
@@ -242,7 +245,7 @@ int main()
         CHECK(high.peak <= 10.0 + 1e-9,   "high rpm still bounded by amp (overlap normalised)");
         CHECK(lpEnergy(high.lp) < 0.3 * lpEnergy(idle.lp), "rock fades out by high rpm");
         {
-            Layer Lh; Lh.configureFx(FxType::RpmVibe, p);
+            Layer Lh; Lh.configureFx(FxType::RpmVibe, p); Lh.configureEngine(p.eng);
             int g = 0, maxGap = 0;
             for (int i = 0; i < 2000; ++i)
             {
@@ -256,8 +259,8 @@ int main()
         // Fewer cylinders = sparser firings, same character: a 4-cyl at
         // 800 rpm (fireHz 26.7) still rocks at the same crank rate.
         {
-            EffectParams p4 = p; p4.cylinders = 4.0;
-            Layer L4; L4.configureFx(FxType::RpmVibe, p4);
+            EP p4 = p; p4.eng.cylinders = 4.0;
+            Layer L4; L4.configureFx(FxType::RpmVibe, p4); L4.configureEngine(p4.eng);
             std::vector<double> raw, lp;
             for (int i = 0; i < 2000; ++i) { L4.driveEngine(1.0, 26.7, 1.0, false); L4.step(DT); raw.push_back(L4.overlayFor(6)); }
             for (size_t i = 40; i < raw.size(); ++i)
@@ -270,8 +273,8 @@ int main()
         // collapses), thump 0 leaves only the rock (no gaps, no 30 Hz
         // content), both 0 is silence. Set-by-feel on the tile.
         {
-            auto lpOf = [&](const EffectParams& q, double fireHz) {
-                Layer L; L.configureFx(FxType::RpmVibe, q);
+            auto lpOf = [&](const EP& q, double fireHz) {
+                Layer L; L.configureFx(FxType::RpmVibe, q); L.configureEngine(q.eng);
                 std::vector<double> raw, lp; double pk = 0.0;
                 for (int i = 0; i < 2000; ++i) { L.driveEngine(1.0, fireHz, 1.0, false); L.step(DT);
                     raw.push_back(L.overlayFor(6)); pk = std::max(pk, std::fabs(raw.back())); }
@@ -279,9 +282,9 @@ int main()
                 { double s = 0.0; for (size_t k = i - 40; k < i; ++k) s += raw[k]; lp.push_back(s / 40.0); }
                 return std::make_pair(pk, lpEnergy(lp));
             };
-            EffectParams noRock = p;  noRock.rock  = 0.0;
-            EffectParams noThump = p; noThump.thump = 0.0;
-            EffectParams none = p;    none.rock = 0.0; none.thump = 0.0;
+            EP noRock = p;  noRock.eng.rock  = 0.0;
+            EP noThump = p; noThump.eng.thump = 0.0;
+            EP none = p;    none.eng.rock = 0.0; none.eng.thump = 0.0;
             const auto full = lpOf(p, 53.3), nr = lpOf(noRock, 53.3), nt = lpOf(noThump, 53.3), z = lpOf(none, 53.3);
             CHECK(nr.second < 0.15 * full.second, "rock x 0: crank-rate content gone, thumps remain");
             CHECK(nr.first > 2.0,                 "rock x 0: thumps still produce torque");
@@ -294,9 +297,9 @@ int main()
         // (order 1 here: 67 Hz, ~134 raw zero crossings/s), rising with
         // throttle; and it is silent at idle so the rock is untouched.
         {
-            EffectParams pb = p; pb.order = 1.0; pb.thump = 0.0; pb.rock = 0.0;   // buzz alone
+            EP pb = p; pb.eng.order = 1.0; pb.eng.thump = 0.0; pb.eng.rock = 0.0;   // buzz alone
             auto buzzRun = [&](double fireHz, double load) {
-                Layer L; L.configureFx(FxType::RpmVibe, pb);
+                Layer L; L.configureFx(FxType::RpmVibe, pb); L.configureEngine(pb.eng);
                 std::vector<double> raw; double pk = 0.0;
                 for (int i = 0; i < 2000; ++i) { L.driveEngine(1.0, fireHz, load, false); L.step(DT);
                     raw.push_back(L.overlayFor(6)); pk = std::max(pk, std::fabs(raw.back())); }
@@ -307,8 +310,8 @@ int main()
             CHECK(mid.second >= 110 && mid.second <= 160, "4000 rpm: carrier at crank x order (67 Hz)");
             CHECK(midCoast.first < mid.first * 0.7,      "buzz grows with throttle");
             CHECK(idleB.first < 0.5,                     "buzz is silent at idle (rock territory)");
-            EffectParams p2 = pb; p2.order = 2.0;
-            Layer L2; L2.configureFx(FxType::RpmVibe, p2);
+            EP p2 = pb; p2.eng.order = 2.0;
+            Layer L2; L2.configureFx(FxType::RpmVibe, p2); L2.configureEngine(p2.eng);
             std::vector<double> r2;
             for (int i = 0; i < 2000; ++i) { L2.driveEngine(1.0, 266.7, 1.0, false); L2.step(DT); r2.push_back(L2.overlayFor(6)); }
             const int x2 = crossings(r2);
@@ -321,8 +324,8 @@ int main()
         // thumps fade out once firings cannot be resolved.
         {
             auto buzzOnly = [&](double cyl, double maxRpm, double order, double rpm, bool lim, int warmCycles) {
-                EffectParams q = p; q.cylinders = cyl; q.maxRpm = maxRpm; q.order = order; q.rock = 0.0; q.thump = 0.0;
-                Layer L; L.configureFx(FxType::RpmVibe, q);
+                EP q = p; q.eng.cylinders = cyl; q.eng.maxRpm = maxRpm; q.eng.order = order; q.eng.rock = 0.0; q.eng.thump = 0.0;
+                Layer L; L.configureFx(FxType::RpmVibe, q); L.configureEngine(q.eng);
                 const double fireHz = rpm / 60.0 * cyl / 2.0;
                 for (int i = 0; i < warmCycles; ++i) { L.driveEngine(1.0, fireHz, 1.0, lim); L.step(DT); }
                 std::vector<double> raw; double pk = 0.0;
@@ -350,8 +353,8 @@ int main()
             const auto p60 = buzzOnly(8, 7000, 1, 4200, false, 0), p95 = buzzOnly(8, 7000, 1, 6650, false, 0);
             CHECK(p95.first > p60.first * 1.05,          "level keeps building to the redline");
             // Thumps fade: a V8 at 6000 rpm (400 firings/s) has no resolvable thumps.
-            EffectParams t = p; t.rock = 0.0; t.buzz = 0.0; t.maxRpm = 7000;
-            Layer Lt; Lt.configureFx(FxType::RpmVibe, t);
+            EP t = p; t.eng.rock = 0.0; t.eng.buzz = 0.0; t.eng.maxRpm = 7000;
+            Layer Lt; Lt.configureFx(FxType::RpmVibe, t); Lt.configureEngine(t.eng);
             double tpk = 0.0;
             for (int i = 0; i < 2000; ++i) { Lt.driveEngine(1.0, 400.0, 1.0, false); Lt.step(DT); tpk = std::max(tpk, std::fabs(Lt.overlayFor(6))); }
             CHECK(tpk < 0.5,                             "thumps fade out where firings cannot be resolved");
@@ -362,8 +365,8 @@ int main()
         // limiter jit makes the cut timing irregular.
         {
             auto limRun = [&](double hit, double hz, double jit) {
-                EffectParams q = p; q.limHit = hit; q.limHz = hz; q.limJit = jit; q.rock = 0.0; q.buzz = 0.0;
-                Layer L; L.configureFx(FxType::RpmVibe, q);
+                EP q = p; q.eng.limHit = hit; q.eng.limHz = hz; q.eng.limJit = jit; q.eng.rock = 0.0; q.eng.buzz = 0.0;
+                Layer L; L.configureFx(FxType::RpmVibe, q); L.configureEngine(q.eng);
                 double e = 0.0; int holes = 0, g = 0; std::vector<int> lens;
                 for (int i = 0; i < 4000; ++i)                    // 2 s
                 { L.driveEngine(1.0, 60.0, 1.0, true); L.step(DT);
@@ -377,8 +380,8 @@ int main()
             // firings/s, per-firing thumps faded out). limiter x must still
             // scale what is felt there - the buzz and the return hit.
             auto redline = [&](double hit) {
-                EffectParams q = p; q.limHit = hit; q.maxRpm = 7000;
-                Layer L; L.configureFx(FxType::RpmVibe, q);
+                EP q = p; q.eng.limHit = hit; q.eng.maxRpm = 7000;
+                Layer L; L.configureFx(FxType::RpmVibe, q); L.configureEngine(q.eng);
                 double e = 0.0;
                 for (int i = 0; i < 4000; ++i) { L.driveEngine(1.0, 466.7, 1.0, true); L.step(DT); e += std::fabs(L.overlayFor(6)); }
                 return e;
@@ -399,9 +402,9 @@ int main()
         // weakest on the V12 - a many-cylinder engine is smooth.
         {
             auto peakAt = [&](double cyl, double litres, double layout, bool thumpsOnly) {
-                EffectParams q = p; q.cylinders = cyl; q.litres = litres; q.layout = layout;
-                if (thumpsOnly) { q.rock = 0.0; q.buzz = 0.0; } else { q.thump = 0.0; q.buzz = 0.0; }
-                Layer L; L.configureFx(FxType::RpmVibe, q);
+                EP q = p; q.eng.cylinders = cyl; q.eng.litres = litres; q.eng.layout = layout;
+                if (thumpsOnly) { q.eng.rock = 0.0; q.eng.buzz = 0.0; } else { q.eng.thump = 0.0; q.eng.buzz = 0.0; }
+                Layer L; L.configureFx(FxType::RpmVibe, q); L.configureEngine(q.eng);
                 const double fireHz = (layout > 2.5) ? 800.0 / 60.0 * cyl : 800.0 / 60.0 * cyl / 2.0;
                 double pk = 0.0;
                 for (int i = 0; i < 2000; ++i) { L.driveEngine(1.0, fireHz, 1.0, false); L.step(DT);
@@ -424,14 +427,14 @@ int main()
         // 2-rotor at 800 rpm fires at 26.7 Hz, like a four), near-zero rock,
         // and the idle beat: the thump peaks swell and fade at ~2.5 Hz.
         {
-            EffectParams w = p; w.cylinders = 2; w.litres = 1.3; w.layout = 3; w.rock = 1.0; w.buzz = 0.0; w.thump = 1.0;
-            EffectParams wr = w; wr.thump = 0.0;                      // rock alone
-            Layer Lr; Lr.configureFx(FxType::RpmVibe, wr);
+            EP w = p; w.eng.cylinders = 2; w.eng.litres = 1.3; w.eng.layout = 3; w.eng.rock = 1.0; w.eng.buzz = 0.0; w.eng.thump = 1.0;
+            EP wr = w; wr.eng.thump = 0.0;                      // rock alone
+            Layer Lr; Lr.configureFx(FxType::RpmVibe, wr); Lr.configureEngine(wr.eng);
             double rockPk = 0.0;
             for (int i = 0; i < 2000; ++i) { Lr.driveEngine(1.0, 26.7, 1.0, false); Lr.step(DT); rockPk = std::max(rockPk, std::fabs(Lr.overlayFor(6))); }
             CHECK(rockPk < 2.0,                "Wankel: almost no reciprocating rock");
-            EffectParams wt = w; wt.rock = 0.0;                       // thumps alone: the beat
-            Layer Lt; Lt.configureFx(FxType::RpmVibe, wt);
+            EP wt = w; wt.eng.rock = 0.0;                       // thumps alone: the beat
+            Layer Lt; Lt.configureFx(FxType::RpmVibe, wt); Lt.configureEngine(wt.eng);
             double hi = 0.0, lo = 1e9;                                // peak per 100 ms window
             for (int win = 0; win < 20; ++win)
             {
@@ -451,7 +454,7 @@ int main()
         // holes of >= 25 ms AND hits at least as hard as off the limiter.
         // Random single misfires never produce holes that long.
         auto limShape = [&](bool lim){
-            Layer Le; Le.configureFx(FxType::RpmVibe, p);
+            Layer Le; Le.configureFx(FxType::RpmVibe, p); Le.configureEngine(p.eng);
             double pk = 0.0; int g = 0, maxGap = 0;
             for (int i = 0; i < 4000; ++i)
             { Le.driveEngine(1.0, 60.0, 1.0, lim); Le.step(DT);
@@ -465,7 +468,7 @@ int main()
         CHECK(on.first >= off.first * 0.9, "the return lurch hits at least as hard as normal running");
 
         // No firing rate = silence even when driven.
-        Layer Lz; Lz.configureFx(FxType::RpmVibe, p);
+        Layer Lz; Lz.configureFx(FxType::RpmVibe, p); Lz.configureEngine(p.eng);
         for (int i = 0; i < 200; ++i) { Lz.driveEngine(1.0, 0.0, 1.0, false); Lz.step(DT); }
         CHECK(Lz.overlayFor(6) == 0.0, "engine with no rpm is silent");
     }

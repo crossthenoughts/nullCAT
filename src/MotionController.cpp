@@ -307,13 +307,16 @@ void MotionController::drainCommands(A6Drive** /*drives*/, int /*numHwDrives*/)
             // Runs on the RT thread (this dispatch), so fire()/preview writes
             // never race the layer. Routing is the effect's own axis table;
             // the overlay gate keeps non-live axes silent regardless.
-            // intVal: -1 detent click, -2 gear-shift thunk, 0.. = fx preview.
-            if (cmd.intVal == -1)
-                m_haptics.fire(haptics::EventType::DetentClick, 1.0);
-            else if (cmd.intVal == -2)
-                m_haptics.fire(haptics::EventType::GearShift, 1.0);
-            else if (cmd.intVal >= 0 && cmd.intVal < haptics::FX_TYPE_COUNT)
-                m_hapticsPreviewSec[cmd.intVal] = 2.0;
+            // intVal = registry effect id: transients fire once, continuous
+            // and engine effects run a short full-level preview.
+            if (cmd.intVal >= 0 && cmd.intVal < haptics::EFFECT_COUNT)
+            {
+                const haptics::EffectInfo& info = haptics::effectInfo(cmd.intVal);
+                if (info.kind == haptics::Kind::Transient)
+                    m_haptics.fire(info.event, 1.0);
+                else
+                    haptics::startPreview(m_hapLaws, info.fx);
+            }
             break;
         case MotionCommand::Type::HapticsMute:
             m_haptics.setMuted(cmd.intVal != 0);
@@ -1688,19 +1691,29 @@ void MotionController::fireHaptics(const HapticTriggers& t)
         m_haptics.fire(haptics::EventType::DetentClick, 0.25 + 0.75 * t.detentVel);
 }
 
+// Push one set of haptics tuning into the layer: every registry effect
+// into its pool/level slot by kind, the engine description, master gain.
+static void applyHapticsTo(haptics::Layer& L, const std::array<haptics::EffectParams, haptics::EFFECT_COUNT>& fx,
+                           const haptics::EngineParams& engine, double masterGain)
+{
+    for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+    {
+        const haptics::EffectInfo& info = haptics::effectInfo(i);
+        const haptics::EffectParams& p = fx[static_cast<size_t>(i)];
+        switch (info.kind)
+        {
+            case haptics::Kind::Transient:  L.configure(info.event, p);  break;
+            case haptics::Kind::Continuous:
+            case haptics::Kind::Engine:     L.configureFx(info.fx, p);   break;
+        }
+    }
+    L.configureEngine(engine);
+    L.setMasterGain(masterGain);
+}
+
 void MotionController::applyHaptics(const AppConfig& c)
 {
-    m_haptics.configure(haptics::EventType::DetentClick, c.hapticsDetentClick);
-    m_haptics.configure(haptics::EventType::GearShift,   c.hapticsGearShift);
-    m_haptics.configureFx(haptics::FxType::RpmVibe,  c.hapticsRpmVibe);
-    m_haptics.configureFx(haptics::FxType::AbsPulse, c.hapticsAbs);
-    m_haptics.configureFx(haptics::FxType::Lockup,   c.hapticsLockup);
-    m_haptics.configureFx(haptics::FxType::Skid,     c.hapticsSkid);
-    m_haptics.configureFx(haptics::FxType::Road,     c.hapticsRoad);
-    m_haptics.configureFx(haptics::FxType::Limiter,  c.hapticsLimiter);
-    m_haptics.configureFx(haptics::FxType::TcPulse,  c.hapticsTc);
-    m_haptics.configureFx(haptics::FxType::Kerb,     c.hapticsKerb);
-    m_haptics.setMasterGain(c.hapticsMasterGain);
+    applyHapticsTo(m_haptics, c.hapticsFx, c.hapticsEngine, c.hapticsMasterGain);
 }
 
 // Live-apply: a rig save stages the new haptics config here (web thread,
@@ -1711,110 +1724,21 @@ void MotionController::applyHaptics(const AppConfig& c)
 void MotionController::stageHaptics(const AppConfig& c)
 {
     std::lock_guard<std::mutex> lk(m_hapStageLock);
-    m_hapStage = HapticsStage{
-        c.hapticsDetentClick, c.hapticsGearShift, c.hapticsRpmVibe, c.hapticsAbs,
-        c.hapticsLockup, c.hapticsSkid, c.hapticsRoad, c.hapticsLimiter,
-        c.hapticsTc, c.hapticsKerb, c.hapticsMasterGain };
+    m_hapStage.fx         = c.hapticsFx;
+    m_hapStage.engine     = c.hapticsEngine;
+    m_hapStage.masterGain = c.hapticsMasterGain;
     m_hapStagePending.store(true, std::memory_order_release);
 }
 
-// The effect laws: NULLCATX channels -> per-effect level (0..1) + carrier.
-// Everything fails safe: a stale channel stream (500 ms window), an unbound
-// token, or a zero magnitude all drive level 0, and the layer's release
-// ramp fades the effect out rather than cutting it. Magnitude channels
-// (skid/lockup/roadNoise) are 0-100 by wire convention. A web Test button
-// can force one effect to full level for a short preview.
+// The effect laws live in HapticLaws.h (one place for every
+// channel -> level rule, testable without a controller); this is the
+// per-cycle call plus the channel-health snapshot the status surface shows.
 void MotionController::driveContinuousHaptics(const TelemetryData& td)
 {
-    using haptics::FxType;
     const NcxValues v = m_ncxMap.extract(td);
-    const bool live = v.fresh;
-
-    const auto mag = [&](NcxValues::Token t) -> double
-    {
-        if (!live || !v.have[t]) return 0.0;
-        const double m = v.val[t] / 100.0;
-        return (m < 0.0) ? 0.0 : (m > 1.0 ? 1.0 : m);
-    };
-
-    // Engine: pulse-train firing model. Firing rate = rpm/60 x cyl/2
-    // (four-stroke); alive from just above cranking so idle CHUNKS instead
-    // of being gated away; throttle scales pulse strength (load); the
-    // limiter flag makes the synth drop firings (the bounce IS missing
-    // events). A web Test preview with no sim runs a canned idle.
-    {
-        const haptics::EffectParams& ep = m_haptics.fxParams(FxType::RpmVibe);
-        const double cyl = std::max(1.0, ep.cylinders);
-        // Four-stroke: cyl/2 firings per rev. Wankel: cylinders = rotors, one
-        // firing per rotor per eccentric-shaft rev.
-        const double perRev = (ep.layout > 2.5) ? cyl : cyl / 2.0;   // layout 3 = Wankel
-        double level = 0.0, fireHz = 0.0, load = 0.5;
-        const bool lim = live && v.have[NcxValues::Limiter] && v.val[NcxValues::Limiter] > 0.5;
-        if (live && v.have[NcxValues::Rpm] && v.val[NcxValues::Rpm] > 400.0)
-        {
-            level  = 1.0;
-            fireHz = v.val[NcxValues::Rpm] / 60.0 * perRev;
-            if (v.have[NcxValues::ThrottlePct])
-                load = std::max(0.0, std::min(1.0, v.val[NcxValues::ThrottlePct] / 100.0));
-        }
-        const double lv = previewOr(FxType::RpmVibe, level);
-        if (lv > 0.0 && fireHz < 0.5)
-            fireHz = 1100.0 / 60.0 * perRev;   // preview: a canned lumpy idle
-        m_haptics.driveEngine(lv, fireHz, load, lim);
-    }
-
-    // ABS pulse: only while the sim says ABS is cycling AND the brake is
-    // actually applied (some sims flicker the flag at zero brake).
-    {
-        const bool on = live && v.have[NcxValues::AbsActive] && v.val[NcxValues::AbsActive] > 0.5
-                        && v.have[NcxValues::BrakePct]  && v.val[NcxValues::BrakePct]  > 10.0;
-        m_haptics.driveFx(FxType::AbsPulse, previewOr(FxType::AbsPulse, on ? 1.0 : 0.0), 0.0);
-    }
-
-    m_haptics.driveFx(FxType::Lockup, previewOr(FxType::Lockup, mag(NcxValues::Lockup)),    0.0);
-    m_haptics.driveFx(FxType::Skid,   previewOr(FxType::Skid,   mag(NcxValues::Skid)),      0.0);
-    m_haptics.driveFx(FxType::Road,   previewOr(FxType::Road,   mag(NcxValues::RoadNoise)), 0.0);
-
-    // Limiter buzz / TC pulse: on while the sim says so (0/1 channels).
-    const auto flag = [&](NcxValues::Token t) -> double
-    { return (live && v.have[t] && v.val[t] > 0.5) ? 1.0 : 0.0; };
-    m_haptics.driveFx(FxType::Limiter, previewOr(FxType::Limiter, flag(NcxValues::Limiter)),  0.0);
-    m_haptics.driveFx(FxType::TcPulse, previewOr(FxType::TcPulse, flag(NcxValues::TcActive)), 0.0);
-    m_haptics.driveFx(FxType::Kerb,    previewOr(FxType::Kerb,    mag(NcxValues::Curbs)),     0.0);
-
-    // Gear-shift thunk: a transient on every gear-channel CHANGE (up or
-    // down). Edge state seeds on first sight and clears on staleness, so
-    // a returning stream never fires a stale crossing.
-    if (live && v.have[NcxValues::Gear])
-    {
-        const int g = (int)(v.val[NcxValues::Gear] < 0.0
-                          ? v.val[NcxValues::Gear] - 0.5
-                          : v.val[NcxValues::Gear] + 0.5);
-        if (m_gearSeen && g != m_lastGear)
-            m_haptics.fire(haptics::EventType::GearShift, 1.0);
-        m_lastGear = g;
-        m_gearSeen = true;
-    }
-    else
-    {
-        m_gearSeen = false;
-    }
-
-    // Publish the channel-health + live-level snapshot the status surface
-    // shows (which tokens the wire is actually delivering right now).
+    haptics::driveLaws(m_haptics, m_hapLaws, v, m_cycleTimeSec);
     for (int i = 0; i < NcxValues::TokenCount; ++i)
-        m_ncxHaveSnapshot[i] = live && v.have[i];
-}
-
-// Web Test button: force one continuous effect to full level for a short
-// preview so routing and amplitude can be felt without driving. The timer
-// decays on the RT thread; requests arrive through the command queue.
-double MotionController::previewOr(haptics::FxType t, double level)
-{
-    double& left = m_hapticsPreviewSec[static_cast<int>(t)];
-    if (left <= 0.0) return level;
-    left -= m_cycleTimeSec;
-    return 1.0;
+        m_ncxHaveSnapshot[i] = v.fresh && v.have[i];
 }
 
 double MotionController::stepDeviceOnline(int i, AxisMotionState& /*state*/,
@@ -1938,17 +1862,7 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
         HapticsStage s;   // trivially copyable, no allocation on this thread
         { std::lock_guard<std::mutex> lk(m_hapStageLock); s = m_hapStage; }
         m_hapStagePending.store(false, std::memory_order_release);
-        m_haptics.configure(haptics::EventType::DetentClick, s.detentClick);
-        m_haptics.configure(haptics::EventType::GearShift,   s.gearShift);
-        m_haptics.configureFx(haptics::FxType::RpmVibe,  s.rpmVibe);
-        m_haptics.configureFx(haptics::FxType::AbsPulse, s.abs);
-        m_haptics.configureFx(haptics::FxType::Lockup,   s.lockup);
-        m_haptics.configureFx(haptics::FxType::Skid,     s.skid);
-        m_haptics.configureFx(haptics::FxType::Road,     s.road);
-        m_haptics.configureFx(haptics::FxType::Limiter,  s.limiter);
-        m_haptics.configureFx(haptics::FxType::TcPulse,  s.tc);
-        m_haptics.configureFx(haptics::FxType::Kerb,     s.kerb);
-        m_haptics.setMasterGain(s.masterGain);
+        applyHapticsTo(m_haptics, s.fx, s.engine, s.masterGain);
         RT_LOG_INFO("MotionController: haptics settings applied live.");
     }
     if (estopNow) m_haptics.clearAll();

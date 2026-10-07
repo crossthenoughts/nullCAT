@@ -1309,19 +1309,11 @@ bool WebServer::start()
         postCmd("/api/haptics/test", [this, okResp, errResp](const httplib::Request& req, httplib::Response& res)
         {
             if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
-            const std::string& b = req.body;
-            int iv = -999;
-            if      (b.find("detentClick") != std::string::npos) iv = -1;
-            else if (b.find("gearShift")   != std::string::npos) iv = -2;
-            else if (b.find("rpmVibe")     != std::string::npos) iv = 0;
-            else if (b.find("abs")         != std::string::npos) iv = 1;
-            else if (b.find("lockup")      != std::string::npos) iv = 2;
-            else if (b.find("skid")        != std::string::npos) iv = 3;
-            else if (b.find("road")        != std::string::npos) iv = 4;
-            else if (b.find("limiter")     != std::string::npos) iv = 5;
-            else if (b.find("kerb")        != std::string::npos) iv = 7;
-            else if (b.find("tc")          != std::string::npos) iv = 6;
-            if (iv == -999) { errResp(res, "Unknown effect."); return; }
+            // Body: {"effect": "<registry key>"}.
+            const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(req.body));
+            const std::string key = doc.isObject() ? doc.object().value("effect").toString().toStdString() : std::string();
+            const haptics::EffectInfo* info = haptics::findEffect(key.c_str());
+            if (!info) { errResp(res, "Unknown effect."); return; }
 
             // The effect as SAVED has to be able to produce something, and
             // one of the axes it routes to has to be live, or the button is
@@ -1331,23 +1323,10 @@ bool WebServer::start()
             Config saved;
             if (!saved.load(m_configPath)) { errResp(res, "Cannot read the saved config."); return; }
             const AppConfig& sc = saved.get();
-            const haptics::EffectParams* ep = nullptr;
-            switch (iv)
-            {
-                case -1: ep = &sc.hapticsDetentClick; break;
-                case -2: ep = &sc.hapticsGearShift;   break;
-                case 0:  ep = &sc.hapticsRpmVibe;     break;
-                case 1:  ep = &sc.hapticsAbs;         break;
-                case 2:  ep = &sc.hapticsLockup;      break;
-                case 3:  ep = &sc.hapticsSkid;        break;
-                case 4:  ep = &sc.hapticsRoad;        break;
-                case 5:  ep = &sc.hapticsLimiter;     break;
-                case 6:  ep = &sc.hapticsTc;          break;
-                default: ep = &sc.hapticsKerb;        break;
-            }
-            if (ep->ampPct <= 0.0)
+            const haptics::EffectParams& ep = sc.hapticsFx[static_cast<size_t>(info->id)];
+            if (ep.ampPct <= 0.0)
             { errResp(res, "Effect amplitude is 0 in the saved config: set amp % and Save first."); return; }
-            if (!haptics::Layer::hasRoute(*ep))
+            if (!haptics::Layer::hasRoute(ep))
             { errResp(res, "Effect has no route in the saved config: open its route chip, set a gain, then Save."); return; }
             if (sc.hapticsMasterGain <= 0.0)
             { errResp(res, "Master gain is 0: nothing can be felt."); return; }
@@ -1355,7 +1334,7 @@ bool WebServer::start()
             const MotionStatus ms = m_motion->getMotionStatus();
             bool routedLive = false;
             std::string routedNames;
-            for (const haptics::Route& r : ep->routes)
+            for (const haptics::Route& r : ep.routes)
             {
                 if (r.axis < 0 || r.gain <= 0.0) continue;
                 if (static_cast<size_t>(r.axis) < sc.drives.size())
@@ -1369,9 +1348,62 @@ bool WebServer::start()
             if (!routedLive)
             { errResp(res, "Routed axis not live (" + routedNames + "): start the loop, then engage the device or tension the belt."); return; }
 
-            MotionCommand cmd; cmd.type = MotionCommand::Type::HapticsTest; cmd.intVal = iv;
+            MotionCommand cmd; cmd.type = MotionCommand::Type::HapticsTest; cmd.intVal = static_cast<int>(info->id);
             if (!m_motion->enqueueCommand(cmd)) { errResp(res, "Command queue full."); return; }
             okResp(res);
+        });
+
+        // GET /api/haptics/schema - the effect table (HapticsRegistry.h) as
+        // JSON: key, label, kind, channels, the tunables to show with their
+        // ranges, and the defaults. The browser builds its tiles from this,
+        // so it carries no copy of the effect list.
+        svr.Get("/api/haptics/schema", [](const httplib::Request&, httplib::Response& res)
+        {
+            QJsonArray effects;
+            for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+            {
+                const haptics::EffectInfo& info = haptics::effectInfo(i);
+                QJsonObject e;
+                e["key"]   = info.key;
+                e["label"] = info.label;
+                e["kind"]  = (info.kind == haptics::Kind::Transient) ? "transient"
+                           : (info.kind == haptics::Kind::Engine)    ? "engine" : "continuous";
+                if (info.kind != haptics::Kind::Transient) e["fxIdx"] = static_cast<int>(info.fx);
+                QJsonArray ch;
+                for (const char* c : info.channels) { if (!c) break; ch.append(c); }
+                e["channels"] = ch;
+                QJsonArray params;
+                for (int k = 0; k < info.paramCount; ++k)
+                {
+                    const haptics::ParamSpec& ps = info.params[k];
+                    QJsonObject p;
+                    p["key"] = ps.key; p["label"] = ps.label;
+                    p["min"] = ps.min; p["max"] = ps.max; p["step"] = ps.step;
+                    if (ps.opts)
+                    {
+                        QJsonArray opts;
+                        for (const QString& o : QString(ps.opts).split('|')) opts.append(o);
+                        p["opts"] = opts;
+                    }
+                    params.append(p);
+                }
+                e["params"] = params;
+                QJsonObject d;
+                d["ampPct"] = info.defaults.ampPct; d["freqHz"] = info.defaults.freqHz;
+                d["durMs"]  = info.defaults.durMs;  d["jitter"] = info.defaults.jitter;
+                if (info.kind == haptics::Kind::Engine)
+                {
+                    const haptics::EngineParams ed;
+                    d["cylinders"] = ed.cylinders; d["litres"] = ed.litres; d["layout"] = ed.layout;
+                    d["maxRpm"] = ed.maxRpm; d["rock"] = ed.rock; d["thump"] = ed.thump; d["buzz"] = ed.buzz;
+                    d["order"] = ed.order; d["limHit"] = ed.limHit; d["limHz"] = ed.limHz; d["limJit"] = ed.limJit;
+                }
+                e["defaults"] = d;
+                e["tip"] = info.tip;
+                effects.append(e);
+            }
+            QJsonObject root; root["effects"] = effects; root["masterGainDefault"] = 1.0;
+            res.set_content(QJsonDocument(root).toJson(QJsonDocument::Compact).toStdString(), "application/json");
         });
 
         // Haptics master mute (runtime only, not persisted): body {"on":true|false}.

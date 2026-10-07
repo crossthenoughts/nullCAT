@@ -177,17 +177,15 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
         }
         obj["ncxBindings"] = arr;
     }
-    // Haptic transients (HapticsLayer.h). Same always-write rule as
-    // ncxBindings: schema merge would make a deleted route immortal.
+    // Haptic effects (HapticsRegistry.h). Same always-write rule as
+    // ncxBindings: schema merge would make a deleted route immortal. One
+    // object per effect under its registry key; the engine description and
+    // mix are written inside the engine object (keys unchanged since 0.9.6).
     {
         const auto writeFx = [](const haptics::EffectParams& p)
         {
             QJsonObject o;
-            o["ampPct"] = p.ampPct; o["freqHz"] = p.freqHz; o["durMs"] = p.durMs;
-            o["order"]  = p.order;  o["jitter"] = p.jitter; o["cylinders"] = p.cylinders;
-            o["rock"]   = p.rock;   o["thump"]  = p.thump;  o["buzz"] = p.buzz;
-            o["litres"] = p.litres; o["layout"] = p.layout; o["maxRpm"] = p.maxRpm;
-            o["limHit"] = p.limHit; o["limHz"] = p.limHz; o["limJit"] = p.limJit;
+            o["ampPct"] = p.ampPct; o["freqHz"] = p.freqHz; o["durMs"] = p.durMs; o["jitter"] = p.jitter;
             QJsonArray r;
             for (const haptics::Route& rt : p.routes)
                 if (rt.axis != -1 && rt.gain > 0.0)
@@ -196,17 +194,20 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
             return o;
         };
         QJsonObject h;
-        h["detentClick"] = writeFx(c.hapticsDetentClick);
-        h["gearShift"]   = writeFx(c.hapticsGearShift);
-        h["rpmVibe"]     = writeFx(c.hapticsRpmVibe);
-        h["abs"]         = writeFx(c.hapticsAbs);
-        h["lockup"]      = writeFx(c.hapticsLockup);
-        h["skid"]        = writeFx(c.hapticsSkid);
-        h["road"]        = writeFx(c.hapticsRoad);
-        h["limiter"]     = writeFx(c.hapticsLimiter);
-        h["tc"]          = writeFx(c.hapticsTc);
-        h["kerb"]        = writeFx(c.hapticsKerb);
-        h["masterGain"]  = c.hapticsMasterGain;
+        for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+        {
+            const haptics::EffectInfo& info = haptics::effectInfo(i);
+            QJsonObject o = writeFx(c.hapticsFx[static_cast<size_t>(i)]);
+            if (info.kind == haptics::Kind::Engine)
+            {
+                const haptics::EngineParams& e = c.hapticsEngine;
+                o["cylinders"] = e.cylinders; o["litres"] = e.litres; o["layout"] = e.layout;
+                o["maxRpm"] = e.maxRpm; o["rock"] = e.rock; o["thump"] = e.thump; o["buzz"] = e.buzz;
+                o["order"] = e.order; o["limHit"] = e.limHit; o["limHz"] = e.limHz; o["limJit"] = e.limJit;
+            }
+            h[info.key] = o;
+        }
+        h["masterGain"] = c.hapticsMasterGain;
         obj["haptics"] = h;
     }
 }
@@ -242,18 +243,7 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
             p.ampPct = o.value("ampPct").toDouble(p.ampPct);
             p.freqHz = o.value("freqHz").toDouble(p.freqHz);
             p.durMs  = o.value("durMs").toDouble(p.durMs);
-            p.order  = o.value("order").toDouble(p.order);
             p.jitter = o.value("jitter").toDouble(p.jitter);
-            p.cylinders = o.value("cylinders").toDouble(p.cylinders);
-            p.rock      = o.value("rock").toDouble(p.rock);
-            p.thump     = o.value("thump").toDouble(p.thump);
-            p.buzz      = o.value("buzz").toDouble(p.buzz);
-            p.litres    = o.value("litres").toDouble(p.litres);
-            p.layout    = o.value("layout").toDouble(p.layout);
-            p.maxRpm    = o.value("maxRpm").toDouble(p.maxRpm);
-            p.limHit    = o.value("limHit").toDouble(p.limHit);
-            p.limHz     = o.value("limHz").toDouble(p.limHz);
-            p.limJit    = o.value("limJit").toDouble(p.limJit);
             if (o.contains("routes"))
             {
                 for (haptics::Route& rt : p.routes) { rt.axis = -1; rt.gain = 0.0; }
@@ -270,16 +260,28 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
                 }
             }
         };
-        if (h.contains("detentClick")) readFx(h.value("detentClick").toObject(), c.hapticsDetentClick);
-        if (h.contains("gearShift"))   readFx(h.value("gearShift").toObject(),   c.hapticsGearShift);
-        if (h.contains("rpmVibe"))     readFx(h.value("rpmVibe").toObject(),     c.hapticsRpmVibe);
-        if (h.contains("abs"))         readFx(h.value("abs").toObject(),         c.hapticsAbs);
-        if (h.contains("lockup"))      readFx(h.value("lockup").toObject(),      c.hapticsLockup);
-        if (h.contains("skid"))        readFx(h.value("skid").toObject(),        c.hapticsSkid);
-        if (h.contains("road"))        readFx(h.value("road").toObject(),        c.hapticsRoad);
-        if (h.contains("limiter"))     readFx(h.value("limiter").toObject(),     c.hapticsLimiter);
-        if (h.contains("tc"))          readFx(h.value("tc").toObject(),          c.hapticsTc);
-        if (h.contains("kerb"))        readFx(h.value("kerb").toObject(),        c.hapticsKerb);
+        for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+        {
+            const haptics::EffectInfo& info = haptics::effectInfo(i);
+            if (!h.contains(info.key)) continue;
+            const QJsonObject o = h.value(info.key).toObject();
+            readFx(o, c.hapticsFx[static_cast<size_t>(i)]);
+            if (info.kind == haptics::Kind::Engine)
+            {
+                haptics::EngineParams& e = c.hapticsEngine;
+                e.cylinders = o.value("cylinders").toDouble(e.cylinders);
+                e.litres    = o.value("litres").toDouble(e.litres);
+                e.layout    = o.value("layout").toDouble(e.layout);
+                e.maxRpm    = o.value("maxRpm").toDouble(e.maxRpm);
+                e.rock      = o.value("rock").toDouble(e.rock);
+                e.thump     = o.value("thump").toDouble(e.thump);
+                e.buzz      = o.value("buzz").toDouble(e.buzz);
+                e.order     = o.value("order").toDouble(e.order);
+                e.limHit    = o.value("limHit").toDouble(e.limHit);
+                e.limHz     = o.value("limHz").toDouble(e.limHz);
+                e.limJit    = o.value("limJit").toDouble(e.limJit);
+            }
+        }
         if (h.contains("masterGain"))  c.hapticsMasterGain = h.value("masterGain").toDouble(1.0);
     }
 }
@@ -1084,41 +1086,21 @@ std::vector<std::string> AppConfig::validate() const
         }
     }
 
-    // ---- Haptic transient layer (rig global) ----
+    // ---- Haptic effect layer (rig global) ----
     {
-        // transient=true validates durMs and allows the source-axis route;
-        // continuous effects have no firing axis, so their routes must name
-        // axes explicitly (and RpmVibe additionally checks order).
-        const auto checkFx = [&errors](const char* name, const haptics::EffectParams& p,
-                                       bool transient)
+        for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
         {
-            const std::string pfx = std::string("haptics.") + name + ": ";
+            const haptics::EffectInfo& info = haptics::effectInfo(i);
+            const haptics::EffectParams& p = hapticsFx[static_cast<size_t>(i)];
+            const std::string pfx = std::string("haptics.") + info.key + ": ";
             if (p.ampPct < 0.0 || p.ampPct > 100.0)
                 errors.push_back(pfx + "ampPct out of range [0, 100]");
             if (p.ampPct > 0.0 && p.freqHz > 0.0 && (p.freqHz < 4.0 || p.freqHz > 500.0))
                 errors.push_back(pfx + "freqHz out of range [4, 500]");
-            if (transient && p.ampPct > 0.0 && (p.durMs < 5.0 || p.durMs > 100.0))
+            if (info.kind == haptics::Kind::Transient && p.ampPct > 0.0 && (p.durMs < 5.0 || p.durMs > 100.0))
                 errors.push_back(pfx + "durMs out of range [5, 100]");
-            if (p.order != 0.0 && (p.order < 0.25 || p.order > 8.0))
-                errors.push_back(pfx + "order out of range [0.25, 8] (0 = auto)");
-            if (p.maxRpm < 0.0 || p.maxRpm > 30000.0)
-                errors.push_back(pfx + "maxRpm out of range [0, 30000] (0 = learn)");
-            if (p.limHit < 0.0 || p.limHit > 2.0)
-                errors.push_back(pfx + "limHit out of range [0, 2]");
-            if (p.limHz < 4.0 || p.limHz > 30.0)
-                errors.push_back(pfx + "limHz out of range [4, 30]");
-            if (p.limJit < 0.0 || p.limJit > 1.0)
-                errors.push_back(pfx + "limJit out of range [0, 1]");
             if (p.jitter < 0.0 || p.jitter > 1.0)
                 errors.push_back(pfx + "jitter out of range [0, 1]");
-            if (p.cylinders < 1.0 || p.cylinders > 16.0)
-                errors.push_back(pfx + "cylinders out of range [1, 16]");
-            if (p.rock < 0.0 || p.rock > 1.0 || p.thump < 0.0 || p.thump > 1.0 || p.buzz < 0.0 || p.buzz > 1.0)
-                errors.push_back(pfx + "rock/thump/buzz mix out of range [0, 1]");
-            if (p.litres < 0.1 || p.litres > 30.0)
-                errors.push_back(pfx + "litres out of range [0.1, 30]");
-            if (p.layout < 0.0 || p.layout > 3.0)
-                errors.push_back(pfx + "layout out of range [0, 3] (inline, V, flat, wankel)");
             for (const haptics::Route& r : p.routes)
             {
                 if (r.axis == -1 && r.gain <= 0.0) continue;   // unused slot
@@ -1127,17 +1109,29 @@ std::vector<std::string> AppConfig::validate() const
                 if (r.gain < 0.0 || r.gain > 2.0)
                     errors.push_back(pfx + "route gain out of range [0, 2]");
             }
-        };
-        checkFx("detentClick", hapticsDetentClick, true);
-        checkFx("gearShift",   hapticsGearShift,   true);
-        checkFx("rpmVibe",     hapticsRpmVibe,     false);
-        checkFx("abs",         hapticsAbs,         false);
-        checkFx("lockup",      hapticsLockup,      false);
-        checkFx("skid",        hapticsSkid,        false);
-        checkFx("road",        hapticsRoad,        false);
-        checkFx("limiter",     hapticsLimiter,     false);
-        checkFx("tc",          hapticsTc,          false);
-        checkFx("kerb",        hapticsKerb,        false);
+        }
+        {
+            const haptics::EngineParams& e = hapticsEngine;
+            const std::string pfx = "haptics.rpmVibe: ";
+            if (e.order != 0.0 && (e.order < 0.25 || e.order > 8.0))
+                errors.push_back(pfx + "order out of range [0.25, 8] (0 = auto)");
+            if (e.maxRpm < 0.0 || e.maxRpm > 30000.0)
+                errors.push_back(pfx + "maxRpm out of range [0, 30000] (0 = learn)");
+            if (e.limHit < 0.0 || e.limHit > 2.0)
+                errors.push_back(pfx + "limHit out of range [0, 2]");
+            if (e.limHz < 4.0 || e.limHz > 30.0)
+                errors.push_back(pfx + "limHz out of range [4, 30]");
+            if (e.limJit < 0.0 || e.limJit > 1.0)
+                errors.push_back(pfx + "limJit out of range [0, 1]");
+            if (e.cylinders < 1.0 || e.cylinders > 16.0)
+                errors.push_back(pfx + "cylinders out of range [1, 16]");
+            if (e.rock < 0.0 || e.rock > 1.0 || e.thump < 0.0 || e.thump > 1.0 || e.buzz < 0.0 || e.buzz > 1.0)
+                errors.push_back(pfx + "rock/thump/buzz mix out of range [0, 1]");
+            if (e.litres < 0.1 || e.litres > 30.0)
+                errors.push_back(pfx + "litres out of range [0.1, 30]");
+            if (e.layout < 0.0 || e.layout > 3.0)
+                errors.push_back(pfx + "layout out of range [0, 3] (inline, V, flat, wankel)");
+        }
         if (hapticsMasterGain < 0.0 || hapticsMasterGain > 2.0)
             errors.push_back("haptics.masterGain out of range [0, 2]");
     }

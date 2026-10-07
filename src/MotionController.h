@@ -26,6 +26,7 @@
 #include "TorqueHomingSequence.h"
 #include "DeviceForceModel.h"
 #include "HapticsLayer.h"
+#include "HapticLaws.h"
 #include "DeviceStateLayer.h"
 #include "GearRatioLearner.h"
 #include "SpscQueue.h"
@@ -438,24 +439,22 @@ private:
     TorqueHomingSequence m_torqueHoming[MAX_DRIVES];   // device axes (HomingKind::Torque)
     NcxMap           m_ncxMap;   // rig-level NULLCATX binding table (strings resolved once)
     haptics::Layer   m_haptics;  // routable haptic layer (RT-owned; see HapticsLayer.h)
-    double           m_hapticsPreviewSec[haptics::FX_TYPE_COUNT] = {};  // web Test countdowns
+    haptics::LawsState m_hapLaws;  // Test preview timers + gear edge state (RT-owned)
     void fireHaptics(const HapticTriggers& t);
     void driveContinuousHaptics(const TelemetryData& td);
-    double previewOr(haptics::FxType t, double level);
     void applyHaptics(const AppConfig& c);
-    // Live-apply stage (trivially copyable - no allocation on either side).
+    // Live-apply stage (trivially copyable - no allocation on either side):
+    // one slot per registry effect plus the engine description.
     struct HapticsStage
     {
-        haptics::EffectParams detentClick, gearShift, rpmVibe, abs,
-                              lockup, skid, road, limiter, tc, kerb;
+        std::array<haptics::EffectParams, haptics::EFFECT_COUNT> fx{};
+        haptics::EngineParams engine;
         double masterGain = 1.0;
     };
     HapticsStage     m_hapStage;
     std::mutex       m_hapStageLock;
     std::atomic<bool> m_hapStagePending{false};
-    // Gear-shift transient edge state + channel-health snapshot.
-    int              m_lastGear = 0;
-    bool             m_gearSeen = false;
+    // Channel-health snapshot for the status surface.
     bool             m_ncxHaveSnapshot[NcxValues::TokenCount] = {};
     // Per-car gear-ratio learner (survives configure(): re-init must not
     // forget a session's driving; only setCarCache() reseeds the cache).
