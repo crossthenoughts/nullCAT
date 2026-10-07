@@ -4,7 +4,7 @@ Notable changes to nullCAT. Format follows [Keep a Changelog](https://keepachang
 versioning is [Semantic Versioning](https://semver.org/) - while on `0.x`, the
 middle number carries breaking changes and the last carries fixes.
 
-## [0.9.6] - unreleased (pre-release)
+## [0.9.6] - 2026-10-07
 
 0.9.5 was a pre-release that never became an official release. If you
 are updating from 0.9.4, everything in the [0.9.5] section below (force
