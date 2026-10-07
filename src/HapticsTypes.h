@@ -91,6 +91,10 @@ struct DrivelineParams
     double clutchHz = 10.0;
     double lug      = 1.0;
     double lugHz    = 7.0;
+    double gearbox  = 0.0;    // 0 synchro (road H-pattern), 1 dog (sequential / dogbox)
+    double whine    = 0.0;    // straight-cut gear whine mix 0..1 (0 = helical, quiet)
+    double shunt    = 0.5;    // driveline shunt (backlash take-up) on throttle tip-in / lift, 0..1
+    double shuntHz  = 40.0;   // ...its knock carrier
 };
 
 // Per-effect tuning shared by every effect kind. ampPct 0 = the effect is

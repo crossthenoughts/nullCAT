@@ -317,6 +317,17 @@ and lets it go in a slow shudder that fades as the revs climb out of it.
 Neither plays in neutral. Needs the clutch, rpm and gear channels, with
 speed and throttle making it exact.
 
+**gearbox** says what kind of box the car has and shapes the Gear shift
+tile's thunk: a *synchro* road box clunks softly and a little longer; a
+*dog* box (sequential or an H-pattern dogbox) knocks hard and short,
+and a shift under power gets a second knock a moment later as the dogs
+engage. **whine x** is straight-cut gears meshing: a tone
+whose pitch follows the input shaft and steps on every shift, loud under
+load and quieter on the overrun; leave it at 0 for a helical road box.
+**shunt x / shunt hz** is the driveline's backlash taking up when the
+throttle snaps open or shut while rolling in gear, one knock each way,
+harder in a dog box; a slow throttle change makes no knock.
+
 ### The engine
 
 Describe the engine and the effect follows it:

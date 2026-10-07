@@ -130,7 +130,7 @@ private slots:
         c.hapticsSlipLon = { 0.9, 8.0, 0.2, 12.0, 0.6 };
         c.hapticsRoad    = { 12.0, 3.5 };
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Road)].routes[0].part = haptics::Part::RR;
-        c.hapticsDriveline = { 0.8, 9.0, 0.6, 6.5 };
+        c.hapticsDriveline = { 0.8, 9.0, 0.6, 6.5, 1.0, 0.7, 0.4, 55.0 };
         c.hapticsEngine.inertia = 0.3; c.hapticsEngine.turbo = 1; c.hapticsEngine.liftoff = 1.5; c.hapticsEngine.pops = 0.4;
         // Route parts on the per-wheel tiles survive; "all" is the default.
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)].routes[0].part   = haptics::Part::FL;
@@ -173,6 +173,8 @@ private slots:
         QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Road)].routes[0].part == haptics::Part::RR);
         QCOMPARE(r.hapticsDriveline.clutch, 0.8); QCOMPARE(r.hapticsDriveline.clutchHz, 9.0);
         QCOMPARE(r.hapticsDriveline.lug, 0.6);    QCOMPARE(r.hapticsDriveline.lugHz, 6.5);
+        QCOMPARE(r.hapticsDriveline.gearbox, 1.0); QCOMPARE(r.hapticsDriveline.whine, 0.7);
+        QCOMPARE(r.hapticsDriveline.shunt, 0.4);   QCOMPARE(r.hapticsDriveline.shuntHz, 55.0);
         QCOMPARE(r.hapticsEngine.inertia, 0.3);   QCOMPARE(r.hapticsEngine.turbo, 1.0);
         QCOMPARE(r.hapticsEngine.liftoff, 1.5);   QCOMPARE(r.hapticsEngine.pops, 0.4);
 

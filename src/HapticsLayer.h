@@ -54,7 +54,10 @@ public:
     // amplitude (impact velocity). Inert when the effect's ampPct is 0 or
     // every route is dead. When the pool is full the event is dropped (a
     // missed click is harmless; a stalled RT loop is not).
-    void fire(EventType t, double scale = 1.0)
+    // durScale / freqScale let a law shape one firing (a dog box's shift
+    // is a shorter, sharper knock than a synchro's clunk) without touching
+    // the saved params.
+    void fire(EventType t, double scale = 1.0, double durScale = 1.0, double freqScale = 1.0)
     {
         const EffectParams& p = m_params[static_cast<int>(t)];
         if (p.ampPct <= 0.0 || p.durMs <= 0.0) return;
@@ -67,8 +70,8 @@ public:
 
         // Snapshot params + routes at fire time.
         e->ampPct = p.ampPct * scale;
-        e->freqHz = (p.freqHz > 0.0) ? p.freqHz : 90.0;
-        e->durSec = p.durMs / 1000.0;
+        e->freqHz = ((p.freqHz > 0.0) ? p.freqHz : 90.0) * std::max(0.25, std::min(4.0, freqScale));
+        e->durSec = p.durMs / 1000.0 * std::max(0.25, std::min(4.0, durScale));
         e->tSec   = 0.0;
         bool anyRoute = false;
         for (int i = 0; i < MAX_ROUTES; ++i)
@@ -157,13 +160,16 @@ public:
                     if (r.gain <= 0.0) continue;
                     if (r.shaker >= 0)
                     {
-                        toShaker(r, p.ampPct * (o.judderEnv * std::sin(r.harm * o.judderPhase) + o.lugEnv * std::sin(r.harm * o.lugPhase)));
+                        toShaker(r, p.ampPct * (o.judderEnv * std::sin(r.harm * o.judderPhase) + o.lugEnv * std::sin(r.harm * o.lugPhase)
+                                              + o.whineEnv * std::sin(r.harm * o.whinePhase) + o.shunt));
                         continue;
                     }
                     if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
                     const double ask = p.ampPct * r.gain;
                     const double v = p.ampPct * (o.judder * sinkScale(r.axis, ask, o.judderHz)
-                                               + o.lug    * sinkScale(r.axis, ask, o.lugHz));
+                                               + o.lug    * sinkScale(r.axis, ask, o.lugHz)
+                                               + o.whine  * sinkScale(r.axis, ask, o.whineHz)
+                                               + o.shunt  * sinkScale(r.axis, ask, o.shuntHz));
                     if (v != 0.0) m_overlay[r.axis] += v * r.gain;
                 }
                 continue;
@@ -418,6 +424,9 @@ public:
     void configureDriveline(const DrivelineParams& d) { m_drivelineParams = d; }
     const DrivelineParams& drivelineParams() const   { return m_drivelineParams; }
     void driveDriveline(double judder, double lug)    { m_driveline.drive(judder, lug); }
+    void driveDrivelineWhine(double level, double hz) { m_driveline.driveWhine(level, hz); }
+    void drivelineShunt(double strength)              { m_driveline.shunt(strength); }
+    double drivelineWhineLevel() const                { return m_driveline.whineLevel(); }
     double drivelineJudderLevel() const               { return m_driveline.judderLevel(); }
     double drivelineLugLevel() const                  { return m_driveline.lugLevel(); }
 

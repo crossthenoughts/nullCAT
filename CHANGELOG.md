@@ -36,6 +36,13 @@ Development branch. Nothing here is in a release yet.
   the catch, dying and the stall kick are modelled below idle; the pit
   limiter cuts like the rev limiter without teaching the redline. New
   tokens `boost` and `pitLimiter`; the plugin sends both automatically.
+- Driveline tile grows a gearbox: `gearbox` (synchro or dog) shapes the
+  gear-shift thunk (a soft clunk, or a hard short knock with a second
+  knock as the dogs engage on a shift under power), `whine x` is
+  straight-cut gears meshing (pitch following the input shaft and
+  stepping on every shift, loud under load), and `shunt x / hz` is the
+  backlash taking up when the throttle snaps open or shut while rolling
+  in gear.
 - Shakers: bass shakers and other tactile transducers on one or more USB
   sound cards are routing destinations like the axes. Each effect's
   route editor lists Shaker 1..N with a gain and a harmonic (x2 puts a

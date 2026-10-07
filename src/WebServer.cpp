@@ -1494,6 +1494,7 @@ bool WebServer::start()
                 {
                     const haptics::DrivelineParams dd;
                     d["clutch"] = dd.clutch; d["clutchHz"] = dd.clutchHz; d["lug"] = dd.lug; d["lugHz"] = dd.lugHz;
+                    d["gearbox"] = dd.gearbox; d["whine"] = dd.whine; d["shunt"] = dd.shunt; d["shuntHz"] = dd.shuntHz;
                 }
                 e["defaults"] = d;
                 e["tip"] = info.tip;

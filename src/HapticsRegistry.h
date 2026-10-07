@@ -109,6 +109,10 @@ constexpr ParamSpec kDrivelineParams[] = {      // driveline: clutch judder + lu
     { "clutchHz", "clutch hz",  4,   20,  0.5,  nullptr },
     { "lug",      "lug x",      0,   1,   0.1,  nullptr },
     { "lugHz",    "lug hz",     3,   15,  0.5,  nullptr },
+    { "gearbox",  "gearbox",    0,   1,   1,    "synchro|dog" },
+    { "whine",    "whine x",    0,   1,   0.1,  nullptr },
+    { "shunt",    "shunt x",    0,   1,   0.1,  nullptr },
+    { "shuntHz",  "shunt hz",   20,  80,  1,    nullptr },
     { "jitter",   "jitter",     0,   1,   0.05, nullptr },
 };
 constexpr ParamSpec kTextureParams[] = {        // limiter, kerb
@@ -195,13 +199,16 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       { "curbs", nullptr }, { 0.0, 40.0, 0.0, 0.4 }, kTextureParams, 3,
       "Kerb-strip rumble, scaled by the curbs channel (0-100). Bind curbsProp in the plugin.", nullptr, {} },
     { Effect::Driveline,   "driveline",   "Driveline",    Kind::Driveline, EventType::COUNT, FxType::Driveline,
-      { "clutchPct", "rpm", "gear", "~speedKmh", "~throttlePct" }, { 0.0, 10.0, 0.0, 0.2 }, kDrivelineParams, 6,
+      { "clutchPct", "rpm", "gear", "~speedKmh", "~throttlePct" }, { 0.0, 10.0, 0.0, 0.2 }, kDrivelineParams, 10,
       "The transmission when the engine and the wheels disagree. Clutch: a slipping clutch grabbing and releasing "
       "at a launch or a bad downshift, the whole driveline shuddering at clutch hz, from how much slip (engine rpm "
       "against what the gear and road speed say, using the learned ratios), how much load, and how far into the "
       "slipping band the pedal is. Lug: full throttle at too few revs winding the driveline up and letting go at "
-      "lug hz, fading as the revs climb out of it. Nothing in neutral. Needs clutch, rpm and gear (speed and "
-      "throttle make it exact).", nullptr, {} },
+      "lug hz, fading as the revs climb out of it. Gearbox shapes the gear-shift thunk: a synchro box clunks "
+      "softly, a dog box knocks hard and, shifted under power, knocks again as the dogs engage. Whine is "
+      "straight-cut gears meshing, its pitch stepping with every gear and its level with load. Shunt is the "
+      "backlash taking up when the throttle snaps open or shut, in gear and rolling. Nothing in neutral. Needs "
+      "clutch, rpm and gear (speed and throttle make it exact).", nullptr, {} },
 };
 
 } // namespace registry_detail

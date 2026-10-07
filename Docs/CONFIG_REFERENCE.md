@@ -159,6 +159,9 @@ Driveline-only fields (`driveline`):
 |---|---|---|
 | `clutch`, `clutchHz` | `1`, `10` | Clutch judder: mix (0 to 1) and carrier (4 to 20 Hz). Plays while the clutch pedal is between 15 % and 85 % with slip across it (engine rpm against the learned ratio for the gear times road speed; a launch under 5 km/h is full slip), scaled by throttle. |
 | `lug`, `lugHz` | `1`, `7` | Lugging wind-up: mix (0 to 1) and carrier (3 to 15 Hz). Plays in gear at 50 % throttle or more between 12 % and 30 % of the redline, full at the low end. |
+| `gearbox` | `0` | 0 synchro, 1 dog. Shapes the gear-shift thunk (synchro: 0.75 x, 1.4 x longer, lower; dog: full, 0.7 x shorter, higher, plus an engagement knock 60 ms after a shift at 60 % throttle or more). |
+| `whine` | `0` | Straight-cut gear whine mix (0 to 1): pitch from rpm at the engine buzz's auto order stepping 6 % per gear, level 0.3 + 0.7 x throttle, in gear with the clutch driving. |
+| `shunt`, `shuntHz` | `0.5`, `40` | Backlash take-up knock (mix 0 to 1, carrier 20 to 80 Hz) when the throttle crosses 5 % and 20 % within 150 ms, rolling in gear; 1.4 x in a dog box, 0.8 x on a lift. |
 
 A 0.9.6 file that still carries these two effects as `skid` and `lockup` is read through those keys once (amplitude, routes, jitter and the old carrier onto `scrubHz` / `lockHz`) and rewritten under the new keys on the next load.
 

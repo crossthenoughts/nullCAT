@@ -22,6 +22,7 @@
 #include "DeviceStateLayer.h"   // NcxValues
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 namespace haptics {
 
@@ -36,6 +37,12 @@ struct LawsState
     // set both come out as ratio 0 when rolling. Unknown until learned.
     double rollK[WHEEL_COUNT]     = {};
     bool   rollKnown[WHEEL_COUNT] = {};
+    // Driveline shunt: the throttle a moment ago, for the zero-torque
+    // crossing; and the dog box's second knock after a shift under power.
+    double lastThrottle = 0.0;
+    bool   throttleSeen = false;
+    double lowThrottleAgo = 1e9, highThrottleAgo = 1e9;
+    double dogKnockIn = 0.0;   // seconds until the dog engagement knock (0 = none pending)
 };
 
 namespace laws_k {
@@ -65,6 +72,26 @@ namespace laws_k {
     constexpr double kLugFromX         = 0.30;     // lug fades out by this fraction of the redline...
     constexpr double kLugFullX         = 0.12;     // ...and is full at this one (just above idle)
     constexpr double kLugMinRpm        = 600.0;    // not while cranking or dying
+    // Whine: pitch from the input shaft at an order the actuator carries,
+    // stepping per gear (a lower gear meshes slower per engine rev).
+    constexpr double kWhineBandTopHz   = 120.0;    // auto order aims the redline here, like the engine buzz
+    constexpr double kWhineSamplesPerCycle = 8.0;
+    constexpr double kWhineGearStep    = 0.06;     // pitch x (1 - step x (6 - gear)): 1st lowest, 6th highest
+    constexpr double kWhineLoadFloor   = 0.3;      // straight-cut gears whine unloaded too, louder under load
+    constexpr double kWhineMinRpm      = 500.0;
+    // Shunt: the throttle crossing its zero-torque point fast.
+    constexpr double kShuntLowPct      = 5.0;
+    constexpr double kShuntHighPct     = 20.0;
+    constexpr double kShuntWindowSec   = 0.15;     // the crossing has to happen within this
+    constexpr double kShuntMinKmh      = 3.0;      // rolling, in gear
+    constexpr double kShuntDogGain     = 1.4;      // a dog box has more lash to take up
+    // Gearbox-shaped shift: synchro = softer, longer clunk; dog = harder,
+    // shorter knock, and under power a second knock when the dogs engage.
+    constexpr double kSynchroScale     = 0.75, kSynchroDur = 1.4, kSynchroFreq = 0.8;
+    constexpr double kDogScale         = 1.0,  kDogDur     = 0.7, kDogFreq     = 1.3;
+    constexpr double kDogPowerThrottle = 60.0;     // % throttle: a shift above this gets the engagement knock
+    constexpr double kDogKnockDelaySec = 0.06;
+    constexpr double kDogKnockScale    = 0.7;
 }
 
 // Start a Test preview on a continuous/engine slot.
@@ -309,6 +336,61 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
             }
         }
         L.driveDriveline(judder, lug);
+
+        // Whine: straight-cut mesh following the input shaft, in gear with
+        // the clutch driving; level from load with a floor (unloaded gears
+        // still sing). The carrier steps per gear.
+        {
+            double wl = 0.0, whz = 0.0;
+            const DrivelineParams& dp = L.drivelineParams();
+            if (preview) { wl = 1.0; whz = 60.0; }
+            else if (dp.whine > 0.0 && live && v.have[NcxValues::Rpm] && v.have[NcxValues::Gear]
+                     && v.val[NcxValues::Rpm] > kWhineMinRpm)
+            {
+                const double g0 = v.val[NcxValues::Gear];
+                const int    g  = static_cast<int>(g0 < 0.0 ? g0 - 0.5 : g0 + 0.5);
+                const bool clutchOpen = v.have[NcxValues::ClutchPct] && v.val[NcxValues::ClutchPct] > kClutchSlipHi;
+                if (g != 0 && !clutchOpen)
+                {
+                    const double maxRpm = (L.engineParams().maxRpm > 0.0) ? L.engineParams().maxRpm : L.learnedMaxRpm();
+                    const double bandTop = std::min(kWhineBandTopHz, (1.0 / std::max(1e-4, dtSec)) / kWhineSamplesPerCycle);
+                    const double order = bandTop / std::max(1000.0, maxRpm) * 60.0;
+                    const double gearK = 1.0 - kWhineGearStep * std::max(0.0, 6.0 - std::min(6.0, static_cast<double>(std::abs(g))));
+                    whz = v.val[NcxValues::Rpm] / 60.0 * order * gearK;
+                    const double load = v.have[NcxValues::ThrottlePct] ? std::max(0.0, std::min(1.0, v.val[NcxValues::ThrottlePct] / 100.0)) : 0.5;
+                    wl = kWhineLoadFloor + (1.0 - kWhineLoadFloor) * load;
+                }
+            }
+            L.driveDrivelineWhine(wl, whz);
+        }
+
+        // Shunt: the throttle crossing zero torque fast, in gear and rolling:
+        // backlash takes up with a knock, harder in a dog box.
+        {
+            const DrivelineParams& dp = L.drivelineParams();
+            const bool dog = dp.gearbox >= 0.5;
+            if (live && v.have[NcxValues::ThrottlePct])
+            {
+                const double thr = v.val[NcxValues::ThrottlePct];
+                if (thr <= kShuntLowPct)  st.lowThrottleAgo  = 0.0; else st.lowThrottleAgo  += dtSec;
+                if (thr >= kShuntHighPct) st.highThrottleAgo = 0.0; else st.highThrottleAgo += dtSec;
+                const bool inGearRolling = v.have[NcxValues::Gear] && std::fabs(v.val[NcxValues::Gear]) >= 0.5
+                                           && (!v.have[NcxValues::SpeedKmh] || v.val[NcxValues::SpeedKmh] > kShuntMinKmh);
+                if (st.throttleSeen && inGearRolling && dp.shunt > 0.0)
+                {
+                    // Tip-in: was at or below low within the window, now at or above high.
+                    if (thr >= kShuntHighPct && st.lastThrottle < kShuntHighPct && st.lowThrottleAgo < kShuntWindowSec && st.lowThrottleAgo > 0.0)
+                    { L.drivelineShunt(std::min(1.0, (dog ? kShuntDogGain : 1.0))); st.lowThrottleAgo = 1e9; }
+                    // Lift: was at or above high within the window, now at or below low.
+                    if (thr <= kShuntLowPct && st.lastThrottle > kShuntLowPct && st.highThrottleAgo < kShuntWindowSec && st.highThrottleAgo > 0.0)
+                    { L.drivelineShunt(std::min(1.0, 0.8 * (dog ? kShuntDogGain : 1.0))); st.highThrottleAgo = 1e9; }
+                }
+                st.lastThrottle = thr; st.throttleSeen = true;
+            }
+            else st.throttleSeen = false;
+            if (preview && st.dogKnockIn <= 0.0 && dp.shunt > 0.0 && st.previewSec[static_cast<int>(FxType::Driveline)] > kPreviewSec - dtSec * 1.5)
+                L.drivelineShunt(1.0);   // one knock at the start of a preview
+        }
     }
 
     // Magnitude-driven textures (0-100 on the wire).
@@ -326,13 +408,27 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
         const double g0 = v.val[NcxValues::Gear];
         const int g = static_cast<int>(g0 < 0.0 ? g0 - 0.5 : g0 + 0.5);
         if (st.gearSeen && g != st.lastGear)
-            L.fire(EventType::GearShift, 1.0);
+        {
+            // Shaped by the gearbox: synchro = a softer, longer clunk; dog =
+            // a harder, shorter knock and, shifted under power, a second
+            // knock a moment later when the dogs engage.
+            const bool dog = L.drivelineParams().gearbox >= 0.5;
+            if (dog) L.fire(EventType::GearShift, kDogScale, kDogDur, kDogFreq);
+            else     L.fire(EventType::GearShift, kSynchroScale, kSynchroDur, kSynchroFreq);
+            const double thr = v.have[NcxValues::ThrottlePct] ? v.val[NcxValues::ThrottlePct] : 0.0;
+            if (dog && thr >= kDogPowerThrottle) st.dogKnockIn = kDogKnockDelaySec;
+        }
         st.lastGear = g;
         st.gearSeen = true;
     }
     else
     {
         st.gearSeen = false;
+    }
+    if (st.dogKnockIn > 0.0)
+    {
+        st.dogKnockIn -= dtSec;
+        if (st.dogKnockIn <= 0.0) { L.fire(EventType::GearShift, kDogKnockScale, kDogDur, kDogFreq); st.dogKnockIn = 0.0; }
     }
 }
 

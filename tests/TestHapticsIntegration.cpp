@@ -407,6 +407,88 @@ int main()
             check(lug() < 0.02, "I-8 driveline: no lug in neutral");
         }
 
+        // Driveline: straight-cut whine, shunt and the gearbox-shaped shift.
+        {
+            haptics::Layer L; haptics::LawsState st;
+            for (int t = 0; t < NcxValues::TokenCount; ++t) v.have[t] = false;
+            haptics::EffectParams dp; dp.ampPct = 100.0; dp.jitter = 0.0; dp.routes[0] = { 0, 1.0 };
+            haptics::DrivelineParams dd; dd.whine = 1.0; dd.shunt = 1.0; dd.shuntHz = 40.0; dd.gearbox = 0.0;
+            haptics::EngineParams eg; eg.maxRpm = 7000.0;
+            L.configureFx(FxType::Driveline, dp); L.configureDriveline(dd); L.configureEngine(eg);
+            haptics::EffectParams gs; gs.ampPct = 100.0; gs.freqHz = 60.0; gs.durMs = 25.0; gs.routes[0] = { 1, 1.0 };
+            L.configure(haptics::EventType::GearShift, gs);
+            auto set = [&](NcxValues::Token t, double val) { v.have[t] = true; v.val[t] = val; };
+            auto settleD = [&](int n) { for (int i = 0; i < n; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); } };
+            auto hzOnAxis0 = [&](int n) {
+                std::vector<double> o;
+                for (int i = 0; i < n; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); o.push_back(L.overlayFor(0)); }
+                int xr = 0; for (size_t i = 1; i < o.size(); ++i) if ((o[i] >= 0.0) != (o[i-1] >= 0.0)) ++xr;
+                return xr / 2.0 / (o.size() * dt); };
+            // 3500 rpm (half the redline), 3rd gear, full throttle: the whine
+            // sits at the auto order for 3500 rpm x the 3rd-gear factor
+            // (band top 62.5 Hz at 500 Hz loop: 62.5 x 0.5 x (1 - 0.06 x 3) = 25.6 Hz).
+            set(NcxValues::Rpm, 3500.0); set(NcxValues::Gear, 3.0); set(NcxValues::ThrottlePct, 100.0); set(NcxValues::ClutchPct, 0.0);
+            settleD(200);
+            check(L.drivelineWhineLevel() > 0.95, "I-8 whine: full throttle in gear whines at full level");
+            const double hz3 = hzOnAxis0(1000);
+            check(std::fabs(hz3 - 25.6) < 1.5, "I-8 whine: the pitch follows rpm at the auto order (3rd gear)");
+            set(NcxValues::Gear, 4.0); settleD(200);
+            const double hz4 = hzOnAxis0(1000);
+            check(hz4 > hz3 + 1.0, "I-8 whine: a higher gear steps the pitch up at the same rpm");
+            set(NcxValues::ThrottlePct, 0.0); settleD(300);
+            check(std::fabs(L.drivelineWhineLevel() - 0.3) < 0.05, "I-8 whine: off throttle it drops to the unloaded floor, not silence");
+            set(NcxValues::ClutchPct, 95.0); settleD(300);
+            check(L.drivelineWhineLevel() < 0.02, "I-8 whine: clutch open = no load path, no whine");
+            set(NcxValues::ClutchPct, 0.0); set(NcxValues::Gear, 0.0); settleD(300);
+            check(L.drivelineWhineLevel() < 0.02, "I-8 whine: neutral is silent");
+
+            // Shunt: in 3rd, rolling, the throttle snapping from 0 to 80 within
+            // a few ms knocks once; creeping up over a second does not; lifting
+            // fast knocks again; nothing in neutral.
+            auto knocks = [&](int n) {
+                int bursts = 0; bool in = false;
+                for (int i = 0; i < n; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); const bool on = std::fabs(L.overlayFor(0)) > 1e-9; if (on && !in) ++bursts; in = on; }
+                return bursts; };
+            dd.whine = 0.0; L.configureDriveline(dd);
+            set(NcxValues::Gear, 3.0); set(NcxValues::SpeedKmh, 60.0); set(NcxValues::ThrottlePct, 0.0); settleD(200);
+            set(NcxValues::ThrottlePct, 80.0);
+            check(knocks(200) == 1, "I-8 shunt: a fast tip-in knocks once");
+            for (int i = 1; i <= 50; ++i) { set(NcxValues::ThrottlePct, 80.0 - i * 1.6); settleD(10); }   // 500 ms creep down to 0
+            check(knocks(100) == 0, "I-8 shunt: a slow lift does not knock");
+            set(NcxValues::ThrottlePct, 80.0); settleD(200);
+            set(NcxValues::ThrottlePct, 0.0);
+            check(knocks(200) == 1, "I-8 shunt: a fast lift knocks once");
+            set(NcxValues::Gear, 0.0); settleD(200); set(NcxValues::ThrottlePct, 80.0);
+            check(knocks(200) == 0, "I-8 shunt: nothing in neutral");
+
+            // Gearbox-shaped shift: the synchro clunk is longer and softer than
+            // the dog knock; a dog shift under power gets a second knock ~60 ms
+            // later; a dog shift off throttle does not.
+            auto shiftBurst = [&](double gearbox, double throttle, double& peak, double& lenMs, int& count) {
+                dd.gearbox = gearbox; L.configureDriveline(dd);
+                set(NcxValues::Gear, 2.0); set(NcxValues::ThrottlePct, throttle); set(NcxValues::SpeedKmh, 60.0); settleD(300);
+                set(NcxValues::Gear, 3.0);
+                peak = 0.0; lenMs = 0.0; count = 0; bool in = false; int first = -1, last = -1;
+                for (int i = 0; i < 150; ++i)
+                {
+                    haptics::driveLaws(L, st, v, dt); L.step(dt);
+                    const double a = std::fabs(L.overlayFor(1));
+                    peak = std::max(peak, a);
+                    const bool on = a > 1e-9;
+                    if (on && !in) { ++count; if (first < 0) first = i; }
+                    if (on) last = i; if (count == 1 && on) lenMs = (last - first + 1) * dt * 1000.0;
+                    in = on;
+                } };
+            double pS, lS, pD, lD; int cS, cD, cD0;
+            double pD0, lD0;
+            shiftBurst(0.0, 20.0, pS, lS, cS);
+            shiftBurst(1.0, 20.0, pD0, lD0, cD0);
+            shiftBurst(1.0, 100.0, pD, lD, cD);
+            check(cS == 1 && cD0 == 1, "I-8 shift: one thunk per gear change (synchro, and dog off throttle)");
+            check(pD0 > pS * 1.2 && lD0 < lS * 0.7, "I-8 shift: the dog knock is harder and shorter than the synchro clunk");
+            check(cD == 2, "I-8 shift: a dog shift under power gets the engagement knock too");
+        }
+
         // Road: per-corner suspension velocities replay the corners and the
         // roadNoise magnitude is ignored; without them roadNoise drives the
         // texture; a stale stream releases the replay.
