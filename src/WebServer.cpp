@@ -400,6 +400,13 @@ std::string WebServer::buildStatusJson() const
         for (int i = 0; i < NcxValues::TokenCount; ++i)
             s += std::string(i ? "," : "") + (ms.ncxHave[i] ? "true" : "false");
         s += "],";
+        // Sim identity from NULLCATY (empty until a sender names it).
+        if (m_telemetry)
+        {
+            const TelemetryData td = m_telemetry->getLatestData();
+            s += "\"simGame\":" + jsonStr(td.ncxFresh ? td.game : "") + ",";
+            s += "\"simCar\":"  + jsonStr(td.ncxFresh ? td.car  : "") + ",";
+        }
     }
     {
         int known = 0;
@@ -1367,8 +1374,11 @@ bool WebServer::start()
                 e["key"]   = info.key;
                 e["label"] = info.label;
                 e["kind"]  = (info.kind == haptics::Kind::Transient) ? "transient"
-                           : (info.kind == haptics::Kind::Engine)    ? "engine" : "continuous";
+                           : (info.kind == haptics::Kind::Engine)    ? "engine"
+                           : (info.kind == haptics::Kind::Slip)      ? "slip" : "continuous";
                 if (info.kind != haptics::Kind::Transient) e["fxIdx"] = static_cast<int>(info.fx);
+                // Per-wheel effects: routes carry a part (route editor shows the selector).
+                e["parts"] = (info.kind == haptics::Kind::Slip);
                 QJsonArray ch;
                 for (const char* c : info.channels) { if (!c) break; ch.append(c); }
                 e["channels"] = ch;
@@ -1398,11 +1408,24 @@ bool WebServer::start()
                     d["maxRpm"] = ed.maxRpm; d["rock"] = ed.rock; d["thump"] = ed.thump; d["buzz"] = ed.buzz;
                     d["order"] = ed.order; d["limHit"] = ed.limHit; d["limHz"] = ed.limHz; d["limJit"] = ed.limJit;
                 }
+                else if (info.kind == haptics::Kind::Slip)
+                {
+                    for (int k = 0; k < 5; ++k) d[info.slipKeys[k]] = haptics::slipField(info.slipDefaults, k);
+                }
                 e["defaults"] = d;
                 e["tip"] = info.tip;
                 effects.append(e);
             }
-            QJsonObject root; root["effects"] = effects; root["masterGainDefault"] = 1.0;
+            // The sim channel token registry (NcxTokens.h): the bindings
+            // editor's list, the status ncxHave[] order, and what the chip
+            // syntax ("slipAngle*", "a|b", "~optional") expands against.
+            QJsonArray tokens;
+            for (int t = 0; t < NcxTok::TokenCount; ++t) tokens.append(ncxTokenName(t));
+            QJsonArray parts;
+            for (int i = 0; i < haptics::PART_COUNT; ++i) parts.append(haptics::partKey(static_cast<haptics::Part>(i)));
+            QJsonObject root;
+            root["effects"] = effects; root["masterGainDefault"] = 1.0;
+            root["tokens"] = tokens; root["maxSlots"] = MAX_NCX_CHANNELS; root["parts"] = parts;
             res.set_content(QJsonDocument(root).toJson(QJsonDocument::Compact).toStdString(), "application/json");
         });
 

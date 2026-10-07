@@ -142,7 +142,7 @@ int main()
         EffectParams p;
         p.ampPct = 10.0; p.freqHz = 35.0; p.jitter = 0.0;
         p.routes[0] = { 4, 1.0 };                    // explicit axis
-        L.configureFx(FxType::Skid, p);
+        L.configureFx(FxType::Road, p);
 
         // Undriven: silent.
         L.step(DT);
@@ -151,25 +151,25 @@ int main()
         // Driven at full level: ramps in (attack), reaches near amp.
         double peak = 0.0;
         for (int i = 0; i < 400; ++i)                // 200 ms at 2 kHz
-        { L.driveFx(FxType::Skid, 1.0, 0.0); L.step(DT); peak = std::max(peak, std::fabs(L.overlayFor(4))); }
+        { L.driveFx(FxType::Road, 1.0, 0.0); L.step(DT); peak = std::max(peak, std::fabs(L.overlayFor(4))); }
         CHECK(peak > 8.0, "fx reaches near full amplitude when driven");
         CHECK(peak <= 10.0 + 1e-9, "fx never exceeds configured amplitude");
 
         // First cycles after drive start must be small (attack ramp).
-        Layer L2; L2.configureFx(FxType::Skid, p);
-        L2.driveFx(FxType::Skid, 1.0, 0.0); L2.step(DT);
+        Layer L2; L2.configureFx(FxType::Road, p);
+        L2.driveFx(FxType::Road, 1.0, 0.0); L2.step(DT);
         CHECK(std::fabs(L2.overlayFor(4)) < 1.0, "fx attack ramps, never snaps on");
 
         // Stop driving: release ramp decays to silence (fail-safe fade).
-        for (int i = 0; i < 800; ++i) { L.driveFx(FxType::Skid, 0.0, 0.0); L.step(DT); }
+        for (int i = 0; i < 800; ++i) { L.driveFx(FxType::Road, 0.0, 0.0); L.step(DT); }
         CHECK(L.overlayFor(4) == 0.0 || std::fabs(L.overlayFor(4)) < 0.05,
               "fx released: fades to silence");
 
         // Half level scales.
-        Layer L3; L3.configureFx(FxType::Skid, p);
+        Layer L3; L3.configureFx(FxType::Road, p);
         double half = 0.0;
         for (int i = 0; i < 400; ++i)
-        { L3.driveFx(FxType::Skid, 0.5, 0.0); L3.step(DT); half = std::max(half, std::fabs(L3.overlayFor(4))); }
+        { L3.driveFx(FxType::Road, 0.5, 0.0); L3.step(DT); half = std::max(half, std::fabs(L3.overlayFor(4))); }
         CHECK(half > 3.0 && half < 6.0, "fx level scales amplitude");
 
         // Amp 0 config: driven or not, silent.
@@ -179,17 +179,17 @@ int main()
 
         // No usable carrier (freq 0 config, none driven): silence, not DC.
         EffectParams pz = p; pz.freqHz = 0.0;
-        Layer L5; L5.configureFx(FxType::Skid, pz);
-        for (int i = 0; i < 200; ++i) { L5.driveFx(FxType::Skid, 1.0, 0.0); L5.step(DT); }
+        Layer L5; L5.configureFx(FxType::Road, pz);
+        for (int i = 0; i < 200; ++i) { L5.driveFx(FxType::Road, 1.0, 0.0); L5.step(DT); }
         CHECK(L5.overlayFor(4) == 0.0, "fx with no carrier is silent, never DC");
 
         // Driven frequency is honored (Lockup slot; the RpmVibe slot is
         // the pulse-train engine and ignores a driven carrier by design).
         EffectParams pr; pr.ampPct = 10.0; pr.freqHz = 0.0; pr.routes[0] = { 2, 1.0 };
-        Layer L6; L6.configureFx(FxType::Lockup, pr);
+        Layer L6; L6.configureFx(FxType::Kerb, pr);
         double vibe = 0.0;
         for (int i = 0; i < 400; ++i)
-        { L6.driveFx(FxType::Lockup, 1.0, 120.0); L6.step(DT); vibe = std::max(vibe, std::fabs(L6.overlayFor(2))); }
+        { L6.driveFx(FxType::Kerb, 1.0, 120.0); L6.step(DT); vibe = std::max(vibe, std::fabs(L6.overlayFor(2))); }
         CHECK(vibe > 8.0, "driven carrier frequency is honored");
         L6.clearAll(); L6.step(DT);
         CHECK(L6.overlayFor(2) == 0.0, "clearAll silences continuous effects instantly");
@@ -495,15 +495,15 @@ int main()
 
         // Skid at 5 Hz, amp 100, gain 2 mm asked -> overlay peak = 0.81 mm x 100.
         EffectParams p; p.ampPct = 100.0; p.freqHz = 5.0; p.jitter = 0.0; p.routes[0] = { 0, 2.0 };
-        L.configureFx(FxType::Skid, p);
+        L.configureFx(FxType::Road, p);
         double pk = 0.0;
-        for (int i = 0; i < 2000; ++i) { L.driveFx(FxType::Skid, 1.0, 0.0); L.step(DT); pk = std::max(pk, std::fabs(L.overlayFor(0))); }
+        for (int i = 0; i < 2000; ++i) { L.driveFx(FxType::Road, 1.0, 0.0); L.step(DT); pk = std::max(pk, std::fabs(L.overlayFor(0))); }
         approx(pk / 100.0, 0.81, 0.03, "position sink: 5 Hz skid derated from 2 mm to 0.81 mm");
 
         // The same route on a torque sink is not derated at all.
-        Layer T; T.configureFx(FxType::Skid, p);
+        Layer T; T.configureFx(FxType::Road, p);
         double tk = 0.0;
-        for (int i = 0; i < 2000; ++i) { T.driveFx(FxType::Skid, 1.0, 0.0); T.step(DT); tk = std::max(tk, std::fabs(T.overlayFor(0))); }
+        for (int i = 0; i < 2000; ++i) { T.driveFx(FxType::Road, 1.0, 0.0); T.step(DT); tk = std::max(tk, std::fabs(T.overlayFor(0))); }
         approx(tk, 200.0, 2.0, "torque sink: the same route is amp x gain, undetrated");
 
         // Engine on a vertical: the 13 Hz idle rock survives (crank-rate
@@ -521,6 +521,107 @@ int main()
         // Asked 0.3 mm (10% x 3 mm); the rock at 13 Hz is allowed ~0.115 mm and
         // is ~a third of the effect, so a few hundredths of a mm come through.
         CHECK(peakMm <= 0.3 + 1e-9 && peakMm > 0.02, "engine on a position sink: inside the asked 0.3 mm, not silent");
+    }
+
+    // ================= per-wheel slip model (Lateral / Longitudinal) =================
+    {
+        using haptics::FxType; using haptics::Part; using haptics::SlipParams; using haptics::SinkKind;
+        // Lateral tile: scrub (fronts) and slide (rears). Only FL driven:
+        // a route for the FL corner carries it, the FR corner and the rear
+        // axle carry nothing, "front" and "all" carry it (strongest wheel).
+        EffectParams p; p.ampPct = 100.0; p.jitter = 0.0;
+        p.routes[0] = { 0, 1.0, Part::FL };
+        p.routes[1] = { 1, 1.0, Part::FR };
+        p.routes[2] = { 2, 1.0, Part::Rear };
+        p.routes[3] = { 3, 1.0, Part::Front };
+        p.routes[4] = { 4, 1.0, Part::All };
+        SlipParams sp{ 1.0, 25.0, 1.0, 11.0, 7.0 };
+        Layer L; L.configureFx(FxType::Skid, p); L.configureSlip(FxType::Skid, sp);
+        double pk[5] = {};
+        for (int i = 0; i < 1000; ++i)
+        {
+            L.driveSlip(FxType::Skid, WheelFL, 1.0, 0.0);
+            L.step(DT);
+            for (int a = 0; a < 5; ++a) pk[a] = std::max(pk[a], std::fabs(L.overlayFor(a)));
+        }
+        CHECK(pk[0] > 90.0, "slip: the FL corner route carries the FL wheel at full amp");
+        CHECK(pk[1] < 1e-9,  "slip: the FR corner route carries nothing when only FL slips");
+        CHECK(pk[2] < 1e-9,  "slip: the rear axle route carries nothing when only a front slips");
+        CHECK(pk[3] > 90.0, "slip: the front axle route carries its strongest wheel");
+        CHECK(pk[4] > 90.0, "slip: the all route carries the strongest wheel anywhere");
+        CHECK(L.fxLevel(static_cast<int>(FxType::Skid)) > 0.99, "slip: tile level follows the strongest wheel");
+
+        // Abrupt onset: full within ~10 ms of the drive starting (a tyre lets
+        // go in milliseconds), release on the usual fade.
+        Layer A; A.configureFx(FxType::Skid, p); A.configureSlip(FxType::Skid, sp);
+        int cyclesToFull = -1;
+        for (int i = 0; i < 200; ++i)
+        {
+            A.driveSlip(FxType::Skid, WheelRL, 0.0, 1.0); A.step(DT);
+            if (cyclesToFull < 0 && A.slipWheelLevel(FxType::Skid, WheelRL) > 0.95) cyclesToFull = i;
+        }
+        CHECK(cyclesToFull >= 0 && cyclesToFull * DT <= 0.012, "slip: onset reaches full inside ~10 ms");
+        int cyclesToGone = -1;
+        for (int i = 0; i < 1000; ++i)
+        {
+            A.step(DT);   // not driven = releasing
+            if (cyclesToGone < 0 && A.slipWheelLevel(FxType::Skid, WheelRL) < 0.05) cyclesToGone = i;
+        }
+        CHECK(cyclesToGone > 0 && cyclesToGone * DT > 0.08 && cyclesToGone * DT < 0.2, "slip: release fades over ~120 ms");
+
+        // Severity staging: the carrier at full severity is (1 - 0.35) x set hz.
+        // Count zero crossings of a rear slide at 11 Hz over 2 s: ~7.15 Hz -> ~28-29.
+        Layer S; S.configureFx(FxType::Skid, p); S.configureSlip(FxType::Skid, sp);
+        std::vector<double> o;
+        for (int i = 0; i < 4000; ++i) { S.driveSlip(FxType::Skid, WheelRR, 0.0, 1.0); S.step(DT); if (i >= 200) o.push_back(S.overlayFor(2)); }
+        int xr = 0; for (size_t i = 1; i < o.size(); ++i) if ((o[i] >= 0.0) != (o[i-1] >= 0.0)) ++xr;
+        const double hzSeen = xr / 2.0 / ((o.size()) * DT);
+        approx(hzSeen, 11.0 * 0.65, 0.6, "slip: carrier at full severity slows to 65% of set hz (staging)");
+        Layer H; H.configureFx(FxType::Skid, p); H.configureSlip(FxType::Skid, sp);
+        o.clear();
+        for (int i = 0; i < 4000; ++i) { H.driveSlip(FxType::Skid, WheelRR, 0.0, 0.2); H.step(DT); if (i >= 200) o.push_back(H.overlayFor(2)); }
+        xr = 0; for (size_t i = 1; i < o.size(); ++i) if ((o[i] >= 0.0) != (o[i-1] >= 0.0)) ++xr;
+        approx(xr / 2.0 / (o.size() * DT), 11.0 * 0.93, 0.6, "slip: light severity keeps most of the set hz");
+
+        // Mix knobs: slide x 0 silences the rears, scrub still plays.
+        SlipParams noSlide = sp; noSlide.bMix = 0.0;
+        Layer M; M.configureFx(FxType::Skid, p); M.configureSlip(FxType::Skid, noSlide);
+        double rear = 0.0, front = 0.0;
+        for (int i = 0; i < 500; ++i)
+        {
+            M.driveSlip(FxType::Skid, WheelRR, 0.0, 1.0); M.driveSlip(FxType::Skid, WheelFL, 1.0, 0.0); M.step(DT);
+            rear = std::max(rear, std::fabs(M.overlayFor(2))); front = std::max(front, std::fabs(M.overlayFor(3)));
+        }
+        CHECK(rear < 1e-9 && front > 90.0, "slip: slide x 0 silences the rears only");
+
+        // Longitudinal: lock (a) and spin (b) on the same wheel are two
+        // carriers; the lock carrier scale follows road speed.
+        EffectParams q; q.ampPct = 100.0; q.jitter = 0.0; q.routes[0] = { 0, 1.0, Part::All };
+        SlipParams lon{ 1.0, 9.0, 0.0, 10.0, 0.8 };
+        Layer K; K.configureFx(FxType::Lockup, q); K.configureSlip(FxType::Lockup, lon);
+        K.setSlipCarrierScale(FxType::Lockup, 0.5, 1.0);
+        o.clear();
+        for (int i = 0; i < 4000; ++i) { K.driveSlip(FxType::Lockup, WheelFL, 1.0, 0.0); K.step(DT); if (i >= 200) o.push_back(K.overlayFor(0)); }
+        xr = 0; for (size_t i = 1; i < o.size(); ++i) if ((o[i] >= 0.0) != (o[i-1] >= 0.0)) ++xr;
+        approx(xr / 2.0 / (o.size() * DT), 9.0 * 0.5 * 0.65, 0.5, "slip: lock carrier = set hz x speed scale x staging");
+
+        // Position sink: each component derated at ITS carrier. A 25 Hz
+        // scrub asked at 2 mm on the 80 mm/s / 800 mm/s^2 axis is allowed
+        // 800/w^2 at the staged carrier (~16 Hz) = ~0.08 mm.
+        Layer P; P.setSinkKind(0, SinkKind::Position); P.setPositionLimits(0, 80.0, 800.0, 3.0);
+        EffectParams r; r.ampPct = 100.0; r.jitter = 0.0; r.routes[0] = { 0, 2.0, Part::All };
+        P.configureFx(FxType::Skid, r); P.configureSlip(FxType::Skid, sp);
+        double pmm = 0.0;
+        for (int i = 0; i < 2000; ++i) { P.driveSlip(FxType::Skid, WheelFL, 1.0, 0.0); P.step(DT); pmm = std::max(pmm, std::fabs(P.overlayFor(0)) / 100.0); }
+        const double wS = 2.0 * 3.14159265358979 * 25.0 * 0.65;
+        approx(pmm, 800.0 / (wS * wS), 0.01, "slip: position sink derates the scrub at its staged carrier");
+
+        // amp 0 = the model is cleared and nothing plays.
+        EffectParams z = p; z.ampPct = 0.0;
+        Layer Z; Z.configureFx(FxType::Skid, z); Z.configureSlip(FxType::Skid, sp);
+        double zk = 0.0;
+        for (int i = 0; i < 200; ++i) { Z.driveSlip(FxType::Skid, WheelFL, 1.0, 1.0); Z.step(DT); zk = std::max(zk, std::fabs(Z.overlayFor(0))); }
+        CHECK(zk < 1e-9 && Z.fxLevel(static_cast<int>(FxType::Skid)) == 0.0, "slip: amp 0 plays nothing and reports level 0");
     }
 
     // ================= model trigger: detent capture =================

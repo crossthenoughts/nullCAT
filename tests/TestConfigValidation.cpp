@@ -219,11 +219,19 @@ private slots:
             if (e.find("unknown token") != std::string::npos) found = true;
         QVERIFY2(found, "unknown token rejected");
 
-        cfg.ncxBindings = { { "rpm", 16, 1.0, 0.0 } };
+        // Protocol 1.3 widened the wire to 48 slots: 47 is the last valid one.
+        cfg.ncxBindings = { { "rpm", 47, 1.0, 0.0 } };
+        QVERIFY2(cfg.validate().empty(), "slot 47 accepted (wire carries 0..47)");
+        cfg.ncxBindings = { { "rpm", 48, 1.0, 0.0 } };
         found = false;
         for (const auto& e : cfg.validate())
             if (e.find("slot out of range") != std::string::npos) found = true;
-        QVERIFY2(found, "slot 16 rejected (wire carries 0..15)");
+        QVERIFY2(found, "slot 48 rejected (wire carries 0..47)");
+
+        // Every 1.3 token is a known name (the registry drives validation).
+        cfg.ncxBindings = { { "slipAngleFL", 14, 1.0, 0.0 }, { "suspVelRR", 33, 1.0, 0.0 },
+                           { "maxRpm", 13, 1.0, 0.0 }, { "loadRL", 28, 1.0, 0.0 } };
+        QVERIFY2(cfg.validate().empty(), "1.3 per-wheel tokens accepted");
 
         cfg.ncxBindings = { { "rpm", 0, 1.0, 0.0 }, { "rpm", 1, 1.0, 0.0 } };
         found = false;

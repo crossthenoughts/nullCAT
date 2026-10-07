@@ -271,15 +271,34 @@ bool TelemetryInput::receive()
     // freshness/rate machinery (m_hasData, m_lastMotionPacketMs, the rate
     // diagnostic, the onNewData motion callback), or a channels-only sender
     // would masquerade as live motion telemetry.
-    if (parsed.packetType == TelemetryPacketType::Ncx)
+    if (parsed.packetType == TelemetryPacketType::Ncx ||
+        parsed.packetType == TelemetryPacketType::Ncy)
     {
-        {
-            std::lock_guard<std::mutex> lock(m_dataMutex);
-            m_ncxCount = parsed.numNcx;
-            for (int i = 0; i < parsed.numNcx; ++i) m_ncxVals[i] = parsed.ncx[i];
-        }
         auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count();
+        {
+            std::lock_guard<std::mutex> lock(m_dataMutex);
+            // A stream that died and came back starts clean: nothing a
+            // previous session named is still "present".
+            const int64_t last = m_lastNcxPacketMs.load();
+            if (last != 0 && (nowMs - last) >= 500)
+            {
+                for (bool& h : m_ncyHave) h = false;
+                m_ncyGame[0] = m_ncyCar[0] = '\0';
+            }
+            if (parsed.packetType == TelemetryPacketType::Ncx)
+            {
+                m_ncxCount = parsed.numNcx;
+                for (int i = 0; i < parsed.numNcx; ++i) m_ncxVals[i] = parsed.ncx[i];
+            }
+            else
+            {
+                for (int t = 0; t < NcxTok::TokenCount; ++t)
+                    if (parsed.ncyHave[t]) { m_ncyHave[t] = true; m_ncyVals[t] = parsed.ncy[t]; }
+                if (parsed.game[0]) std::memcpy(m_ncyGame, parsed.game, NCY_STR_LEN);
+                if (parsed.car[0])  std::memcpy(m_ncyCar,  parsed.car,  NCY_STR_LEN);
+            }
+        }
         m_lastNcxPacketMs.store(static_cast<int64_t>(nowMs));
         return true;
     }
@@ -410,6 +429,9 @@ TelemetryData TelemetryInput::getLatestData() const
     TelemetryData d = m_latestData;
     d.numNcx = m_ncxCount;
     for (int i = 0; i < m_ncxCount; ++i) d.ncx[i] = m_ncxVals[i];
+    for (int t = 0; t < NcxTok::TokenCount; ++t) { d.ncyHave[t] = m_ncyHave[t]; d.ncy[t] = m_ncyVals[t]; }
+    std::memcpy(d.game, m_ncyGame, NCY_STR_LEN);
+    std::memcpy(d.car,  m_ncyCar,  NCY_STR_LEN);
     d.ncxFresh = (lastNcx != 0) && (nowMs - lastNcx) < 500;
     return d;
 }
@@ -448,12 +470,20 @@ void TelemetryInput::shutdown()
 //                                          timestamp field on the wire
 //                                          (timestampMs is always 0).
 //   NULLCATX,<ch0>,<ch1>,...,<chN>\n     -- raw sim telemetry channels (up
-//                                          to 16) for the device state
-//                                          effects. The wire carries plain
-//                                          numbers; MEANING is assigned by
-//                                          the rig's ncxBindings config.
-//                                          Same port, own rate; either
-//                                          stream runs without the other.
+//                                          to MAX_NCX_CHANNELS) for the
+//                                          device state effects. The wire
+//                                          carries plain numbers; MEANING is
+//                                          assigned by the rig's ncxBindings
+//                                          config. Same port, own rate;
+//                                          either stream runs without the
+//                                          other.
+//   NULLCATY,<key>=<value>,...\n         -- the same channels by NAME (a
+//                                          token from NcxTokens.h, value in
+//                                          its canonical unit, no bindings)
+//                                          plus the identity strings game=
+//                                          and car=. Unknown keys are
+//                                          ignored; a key with no '=' or a
+//                                          non-numeric value is skipped.
 //
 // This runs ON THE RT THREAD at telemetry rate, so: no heap, no
 // std::string. Pointer/length spans throughout; each numeric field is
@@ -490,11 +520,72 @@ bool TelemetryInput::parsePacket(const char* buf, int len, TelemetryData& out)
         }
         return *ref == '\0';
     };
-    const bool isNcx = headerIs("NULLCATX");     // longer token first
-    if (!isNcx && !headerIs("NULLCAT")) return false;
+    const bool isNcx = headerIs("NULLCATX");     // longer tokens first
+    const bool isNcy = !isNcx && headerIs("NULLCATY");
+    if (!isNcx && !isNcy && !headerIs("NULLCAT")) return false;
 
     out.numPositions = 0;
     out.numNcx       = 0;
+    constexpr int kMaxFieldLen = 64;
+    const char* end = p + len;
+
+    if (isNcy)
+    {
+        // key=value fields. Numeric keys must name a token; the two string
+        // keys are copied verbatim (truncated to the store). A packet is
+        // valid when at least one field landed.
+        out.packetType = TelemetryPacketType::Ncy;
+        for (bool& h : out.ncyHave) h = false;
+        out.game[0] = out.car[0] = '\0';
+        int landed = 0;
+        const char* f = comma + 1;
+        while (f <= end)
+        {
+            const char* fc = static_cast<const char*>(std::memchr(f, ',', static_cast<size_t>(end - f)));
+            const char* b  = fc ? fc : end;
+            const char* a  = f;
+            while (a < b && std::isspace(static_cast<unsigned char>(a[0])))  ++a;
+            while (b > a && std::isspace(static_cast<unsigned char>(b[-1]))) --b;
+            const char* eq = static_cast<const char*>(std::memchr(a, '=', static_cast<size_t>(b - a)));
+            if (eq && eq > a)
+            {
+                const char* ke = eq;
+                while (ke > a && std::isspace(static_cast<unsigned char>(ke[-1]))) --ke;
+                const char* va = eq + 1;
+                while (va < b && std::isspace(static_cast<unsigned char>(va[0]))) ++va;
+                const int klen = static_cast<int>(ke - a), vlen = static_cast<int>(b - va);
+                const auto keyIs = [&](const char* ref)
+                { return static_cast<int>(std::strlen(ref)) == klen && std::memcmp(ref, a, static_cast<size_t>(klen)) == 0; };
+                if (keyIs("game") || keyIs("car"))
+                {
+                    char* dstS = keyIs("game") ? out.game : out.car;
+                    const int n = std::min(vlen, NCY_STR_LEN - 1);
+                    std::memcpy(dstS, va, static_cast<size_t>(n));
+                    dstS[n] = '\0';
+                    if (n > 0) ++landed;
+                }
+                else
+                {
+                    const int tok = ncxTokenIndexN(a, klen);
+                    if (tok >= 0 && vlen > 0 && vlen < kMaxFieldLen)
+                    {
+                        char fld[kMaxFieldLen];
+                        std::memcpy(fld, va, static_cast<size_t>(vlen));
+                        fld[vlen] = '\0';
+                        char* endp = nullptr;
+                        const double val = std::strtod(fld, &endp);
+                        if (endp != fld) { out.ncyHave[tok] = true; out.ncy[tok] = val; ++landed; }
+                    }
+                }
+            }
+            if (!fc) break;
+            f = fc + 1;
+        }
+        out.timestampMs = 0;
+        out.valid = (landed > 0);
+        return out.valid;
+    }
+
     out.packetType   = isNcx ? TelemetryPacketType::Ncx
                              : TelemetryPacketType::Motion;
     double*   dst    = isNcx ? out.ncx : out.positions;
@@ -503,8 +594,6 @@ bool TelemetryInput::parsePacket(const char* buf, int len, TelemetryData& out)
 
     // Fields: comma-separated numerics; empty/garbage fields are skipped and
     // the position array COMPACTS (pinned behavior).
-    constexpr int kMaxFieldLen = 64;
-    const char* end = p + len;
     const char* f   = comma + 1;
     while (f <= end && dstN < dstCap)
     {

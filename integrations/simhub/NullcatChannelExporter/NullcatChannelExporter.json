@@ -1,24 +1,62 @@
 {
   "_help": "nullCAT Channel Exporter settings. Put this file next to NullcatChannelExporter.dll in your SimHub folder and restart SimHub. Lines starting with _ are notes and are ignored.",
 
-  "_help_host": "Where nullCAT listens: the Pi or PC running nullCAT, and the same UDP port as your motion telemetry (default 4444). nullCAT tells the two streams apart by their headers.",
+  "_help_host": "Where nullCAT listens: the Pi or PC running nullCAT, and the same UDP port as your motion telemetry (default 4444). nullCAT tells the streams apart by their headers.",
   "host": "127.0.0.1",
   "port": 4444,
 
-  "_help_channels": "Nine channels need no setup and are always sent: rpm, speed, gear, clutch, throttle, brake, ABS active, rev limiter (computed from rpm vs the car max) and TC active. They drive the Engine, Gear shift, ABS, Limiter and TC effects in nullCAT.",
+  "_help_channels": "Ten channels need no setup and are always sent: rpm, speed, gear, clutch, throttle, brake, ABS active, rev limiter (computed from rpm vs the car max), TC active and the car's max rpm. They drive the Engine, Gear shift, ABS, Limiter and TC effects in nullCAT. The game and car names are sent once a second.",
 
-  "_help_props": "The four below are OPTIONAL 0..100 magnitudes that SimHub has no standard property for (they vary by game). Each value is the full name of ANY SimHub property that yields 0..100. Find names in SimHub under Settings, Properties (copy the exact text, dots included), or make your own with an NCalc formula. ShakeIt effects can also be exported as properties from the effect's settings and then appear in the same list. Leave a value empty and that channel sends 0, so its effect stays silent.",
-  "_help_name_shape": "A property name looks like PluginName.Section.ValueName, for example DataCorePlugin.GameData.Brake (that one is the brake, 0..100, and is already sent automatically).",
+  "_help_props": "Everything below is OPTIONAL. Each value is the full name of ANY SimHub property. Find names in SimHub under Settings, Properties (copy the exact text, dots included), or make your own with an NCalc formula. ShakeIt effects can also be exported as properties from the effect's settings and then appear in the same list. Leave a value empty and that channel is not sent, so its effect stays silent.",
+  "_help_name_shape": "A property name looks like PluginName.Section.ValueName, for example DataCorePlugin.GameData.Brake (that one is the brake, 0..100, and is already sent automatically). The game's raw fields are under DataCorePlugin.GameRawData.",
 
-  "_help_skidProp": "Tyre slip / skid magnitude 0..100: drives the Skid effect.",
+  "_help_magnitudes": "The four magnitudes are 0..100 summaries. skid and lockup are the FALLBACK for the two slip effects when the per-wheel channels below are not bound: they feed all four wheels at once.",
+  "_help_skidProp": "Tyre slip magnitude 0..100: fallback for the Lateral slip effect.",
   "skidProp": "",
 
-  "_help_lockupProp": "Brake lockup magnitude 0..100: drives the Lockup effect.",
+  "_help_lockupProp": "Brake lockup magnitude 0..100: fallback for the Longitudinal slip effect.",
   "lockupProp": "",
 
   "_help_roadProp": "Road surface texture 0..100: drives the Road effect.",
   "roadProp": "",
 
   "_help_curbsProp": "Kerb strike magnitude 0..100: drives the Kerb effect.",
-  "curbsProp": ""
+  "curbsProp": "",
+
+  "_help_wheels": "Per-wheel channels, RAW physics, no shaping: nullCAT holds the tyre model. A group is sent only when all four wheels (FL, FR, RL, RR) are bound. Each group has a Scale for unit conversion (the value is multiplied by it before sending).",
+
+  "_help_slipAngle": "Tyre slip angle per wheel in DEGREES, signed: drives the Lateral slip effect (scrub at the fronts, slide at the rears). Set slipAngleScale to 57.2958 if the game gives radians.",
+  "slipAngleFLProp": "",
+  "slipAngleFRProp": "",
+  "slipAngleRLProp": "",
+  "slipAngleRRProp": "",
+  "slipAngleScale": 1,
+
+  "_help_slipRatio": "Longitudinal slip ratio per wheel, signed: negative = the wheel turns slower than the road (locking), positive = faster (spinning), -1 = fully locked. Drives the Longitudinal slip effect. If the game gives it as a percentage, set slipRatioScale to 0.01.",
+  "slipRatioFLProp": "",
+  "slipRatioFRProp": "",
+  "slipRatioRLProp": "",
+  "slipRatioRRProp": "",
+  "slipRatioScale": 1,
+
+  "_help_wheelSpeed": "Wheel rotational speed per wheel in ANY unit (rev/s, rad/s, km/h at the tread): used for the Longitudinal slip effect when the game has no slip ratio. nullCAT learns each wheel's rolling factor against road speed while you cruise, so no radius or unit setup is needed.",
+  "wheelSpeedFLProp": "",
+  "wheelSpeedFRProp": "",
+  "wheelSpeedRLProp": "",
+  "wheelSpeedRRProp": "",
+  "wheelSpeedScale": 1,
+
+  "_help_load": "Vertical tyre load per wheel in any unit: the loaded tyre's slip is weighted up. Optional.",
+  "loadFLProp": "",
+  "loadFRProp": "",
+  "loadRLProp": "",
+  "loadRRProp": "",
+  "loadScale": 1,
+
+  "_help_suspVel": "Suspension velocity per corner in mm/s, signed. Reserved for the per-corner road effect. Set suspVelScale to 1000 if the game gives m/s.",
+  "suspVelFLProp": "",
+  "suspVelFRProp": "",
+  "suspVelRLProp": "",
+  "suspVelRRProp": "",
+  "suspVelScale": 1
 }

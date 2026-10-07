@@ -1058,17 +1058,36 @@ function devAxes(){ return ((cfgObj&&cfgObj.drives)||[]).map((d,i)=>({d,i})).fil
    entry: label, kind, the channels it needs, the tunables with ranges (a
    param with opts renders as a choice), and the tip. */
 let HAP_FX=[], HAP_DEF={};
+/* The sim channel token registry also comes from the schema (NcxTokens.h):
+   the bindings editor's list, the order of the status ncxHave[] array, the
+   wire's slot count, and the route parts the per-wheel effects take. */
+let NCX_TOKENS=[], NCX_DEFAULT=[], NCX_MAX_SLOTS=48, HAP_PARTS=['all'];
 async function hapLoadSchema(){
   try{
     const r=await fetch(API+'/api/haptics/schema'); if(!r.ok) return;
     const j=await r.json();
     HAP_FX=(j.effects||[]).map(e=>({
-      k:e.key, label:e.label, transient:e.kind==='transient', fxIdx:e.fxIdx,
+      k:e.key, label:e.label, transient:e.kind==='transient', slip:e.kind==='slip', parts:!!e.parts, fxIdx:e.fxIdx,
       chan:e.channels||[], tip:e.tip||'',
       params:(e.params||[]).map(p=>[p.key,p.label,p.min,p.max,p.step,p.opts])}));
     HAP_DEF={};
     for(const e of j.effects||[]) HAP_DEF[e.key]=Object.assign({routes:[]},e.defaults||{});
+    NCX_TOKENS=j.tokens||[];
+    NCX_DEFAULT=NCX_TOKENS.map((t,i)=>({token:t,slot:i,scale:1,offset:0}));
+    NCX_MAX_SLOTS=+j.maxSlots||48;
+    HAP_PARTS=j.parts||['all'];
   }catch(_){}
+}
+/* A tile's channel entry, as the registry writes it: "a|b" = any of these,
+   a trailing '*' = any of the four wheel tokens (slipAngle* covers
+   slipAngleFL..RR), a leading '~' = optional (shown dim, never as missing).
+   Returns {label, optional, ok(haveArray)}. */
+function hapChanSpec(entry){
+  const optional=entry.startsWith('~'); const body=optional?entry.slice(1):entry;
+  const alts=body.split('|');
+  const expand=(a)=>a.endsWith('*')?NCX_TOKENS.filter(t=>t.startsWith(a.slice(0,-1))):[a];
+  return {label:body, optional,
+    ok:(have)=>alts.some(a=>{ const toks=expand(a); return toks.length>0&&toks.every(t=>!!have[NCX_TOKENS.indexOf(t)]); })};
 }
 
 /* Every axis is a routing destination. A torque axis (belt, device) takes
@@ -1082,9 +1101,12 @@ function hapRouteAxes(){
   cfgObj.drives.forEach((d,i)=>{
     const torque=(d.mode==='torque'||d.axisType==='shifter'||d.axisType==='pedal');
     if(torque){ out.push({i,name:d.name||('Axis '+(i+1)),kind:'torque',unit:'x',max:2,step:0.1}); return; }
-    if(d.mode==='pp'||!(+d.hapticsMaxMm>0)) return;
-    out.push({i,name:d.name||('Axis '+(i+1)),kind:'position',unit:'mm',max:+d.hapticsMaxMm,step:0.1,
-      maxV:+d.maxVelocityMmS||0,maxA:+d.maxAccelerationMmS2||0,cap:+d.hapticsMaxMm}); });
+    // A file that predates the field means the controller's default (3 mm);
+    // only an explicit 0 opts the axis out.
+    const cap=(d.hapticsMaxMm===undefined||d.hapticsMaxMm===null||d.hapticsMaxMm==='')?3:+d.hapticsMaxMm;
+    if(d.mode==='pp'||!(cap>0)) return;
+    out.push({i,name:d.name||('Axis '+(i+1)),kind:'position',unit:'mm',max:cap,step:0.1,
+      maxV:+d.maxVelocityMmS||0,maxA:+d.maxAccelerationMmS2||0,cap:cap}); });
   return out;
 }
 // Largest peak a position axis can take at a carrier (mm): the controller's
@@ -1100,6 +1122,8 @@ function hapAllowedMm(a,hz){
 // idle rock (crank rate at ~800 rpm) since that is what a vertical carries.
 function hapHintHz(fx,dv){
   if(fx.k==='rpmVibe') return 13;
+  if(fx.k==='slipLat') return +dv.slideHz>0?+dv.slideHz:11;
+  if(fx.k==='slipLon') return +dv.lockHz>0?+dv.lockHz:9;
   return +dv.freqHz>0?+dv.freqHz:30;
 }
 
@@ -1167,20 +1191,28 @@ function hapDrawerRender(fx){
   hapOpenDrawer=fx.k;
   const dv=cfgObj.haptics[fx.k];
   const gain=(axis)=>{ const e=(dv.routes||[]).find(r=>r.axis===axis); return e?e.gain:0; };
-  let h='<div class="hd-t">'+fx.label+' · routes (0 = not routed; any or all axes; torque axes x, position axes mm at full amp; Save to apply)</div>';
+  const part=(axis)=>{ const e=(dv.routes||[]).find(r=>r.axis===axis); return (e&&e.part)||'all'; };
+  let h='<div class="hd-t">'+fx.label+' · routes (0 = not routed; any or all axes; torque axes x, position axes mm at full amp'
+    +(fx.parts?'; part = which wheels this axis carries':'')+'; Save to apply)</div>';
   for(const a of hapRouteAxes()){
     const hint=(a.kind==='position')?' <span class="hk">up to '+hapAllowedMm(a,hapHintHz(fx,dv)).toFixed(2)+' mm @ '+hapHintHz(fx,dv)+' Hz</span>':'';
-    h+='<label>'+a.name+' <input type="number" min="0" max="'+a.max+'" step="'+a.step+'" data-axis="'+a.i+'" data-max="'+a.max+'" value="'+gain(a.i)+'"> '+a.unit+hint+'</label>';
+    const sel=fx.parts?' <select data-part="'+a.i+'" title="Which wheels this axis carries: the strongest of them">'
+      +HAP_PARTS.map(pk=>'<option value="'+pk+'"'+(pk===part(a.i)?' selected':'')+'>'+pk.toUpperCase()+'</option>').join('')+'</select>':'';
+    h+='<label>'+a.name+' <input type="number" min="0" max="'+a.max+'" step="'+a.step+'" data-axis="'+a.i+'" data-max="'+a.max+'" value="'+gain(a.i)+'"> '+a.unit+sel+hint+'</label>';
   }
   h+='<span class="fldtip" id="hapRouteMsg"></span>';
   dr.className='hap-drawer'; dr.innerHTML=h; dr.hidden=false;
   // The drawer stays open across edits so "belt 1, shifter 1" is one
   // visit, not two (it used to close on the first change, dropping the
   // field being typed into). The tile's chip mirrors the routes in place.
-  dr.querySelectorAll('input').forEach(inp=>{ inp.onchange=()=>{
+  dr.querySelectorAll('input,select').forEach(inp=>{ inp.onchange=()=>{
     const routes=[];
-    dr.querySelectorAll('input').forEach(x=>{
-      const g=+x.value; if(isFinite(g)&&g>0) routes.push({axis:+x.dataset.axis,gain:Math.min(+x.dataset.max||2,g)}); });
+    dr.querySelectorAll('input[data-axis]').forEach(x=>{
+      const g=+x.value; if(!(isFinite(g)&&g>0)) return;
+      const r={axis:+x.dataset.axis,gain:Math.min(+x.dataset.max||2,g)};
+      const ps=dr.querySelector('select[data-part="'+x.dataset.axis+'"]');
+      if(ps&&ps.value&&ps.value!=='all') r.part=ps.value;
+      routes.push(r); });
     dv.routes=routes.slice(0,10);
     const t=hapTiles[fx.k]; if(t){ const c=t.tile.querySelector('.hap-routechip'); if(c) c.textContent=hapChipText(dv); }
     refreshDirtyUI();
@@ -1204,7 +1236,7 @@ function ncxInit(){
       row.className='frow';
       row.innerHTML='<select data-f="token">'+NCX_TOKENS.map(t=>
           '<option'+(t===b.token?' selected':'')+'>'+t+'</option>').join('')+'</select>'
-        +' slot <input type="number" min="0" max="15" style="width:52px" data-f="slot" value="'+b.slot+'">'
+        +' slot <input type="number" min="0" max="'+(NCX_MAX_SLOTS-1)+'" style="width:52px" data-f="slot" value="'+b.slot+'">'
         +' scale <input type="number" step="0.001" style="width:70px" data-f="scale" value="'+b.scale+'">'
         +' offset <input type="number" step="0.001" style="width:70px" data-f="offset" value="'+b.offset+'">'
         +' <button class="btn btn-sm" type="button" data-del="1">✕</button>';
@@ -1248,10 +1280,10 @@ function hapLive(s){
     const ch=t.tile.querySelector('[data-chan]');
     if(ch&&t.fx.chan&&Array.isArray(s.ncxHave)){
       let allOk=true;
-      ch.textContent=t.fx.chan.map(tok=>{
-        const ok=!!s.ncxHave[NCX_TOKENS.indexOf(tok)];
-        allOk=allOk&&ok;
-        return tok+(ok?' ✓':' ✗');
+      ch.textContent=t.fx.chan.map(entry=>{
+        const sp=hapChanSpec(entry); const ok=sp.ok(s.ncxHave);
+        if(!sp.optional) allOk=allOk&&ok;
+        return sp.label+(ok?' ✓':(sp.optional?' ·':' ✗'));
       }).join('  ');
       ch.classList.toggle('bad',!allOk);
     }
@@ -1337,12 +1369,12 @@ function hapInit(){
   for(const fx of HAP_FX){
     const dv=cfgObj.haptics[fx.k];
     const tile=document.createElement('div');
-    tile.className='hap-tile'+(dv.ampPct>0?' on':''); tile.title=fx.tip;
+    tile.className='hap-tile'+(dv.ampPct>0?' on':''); tile.title=fx.tip; tile.dataset.fx=fx.k;
     let h='<div class="dh"><span class="dot"></span><span class="nm">'+fx.label+'</span></div>';
     // The chip row is always present (empty for channel-less effects) so
     // the wave line lands at the same height on every tile.
     h+=(fx.chan&&fx.chan.length)
-      ?'<div class="hk hchan" data-chan="1">'+fx.chan.join(' ')+'</div>'
+      ?'<div class="hk hchan" data-chan="1">'+fx.chan.map(e=>hapChanSpec(e).label).join(' ')+'</div>'
       :'<div class="hk hchan"></div>';
     h+='<svg class="hap-wave"></svg><div class="hrows">';
     for(const [key,lab,min,max,st,opts] of fx.params){

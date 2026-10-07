@@ -96,9 +96,27 @@ try {
     hapTiles:     document.querySelectorAll('#hapStrip .hap-tile').length,
     hapTests:     document.querySelectorAll('#hapStrip [data-test]').length,
     hapHidden:    (document.getElementById('hapPanel') || { hidden: true }).hidden,
+    // Sim channels bindings editor (Setup): one row per default binding,
+    // its token list from the schema registry. This is the surface that
+    // referenced an undefined token table after the 0.9.7 refactor.
+    ncxRows:      document.querySelectorAll('#ncxRows .frow').length,
+    ncxTokenOpts: (document.querySelector('#ncxRows select') || { options: [] }).options.length,
   }));
+  // Open the Lateral slip tile's route drawer: a per-wheel effect lists a
+  // part selector beside every axis gain.
+  const drawer = await page.evaluate(() => {
+    const chip = document.querySelector('#hapStrip .hap-tile[data-fx="slipLat"] .hap-routechip');
+    if (!chip) return { chip: false };
+    chip.click();
+    const dr = document.getElementById('hapDrawer');
+    return { chip: true, hidden: !dr || dr.hidden,
+             gains: dr ? dr.querySelectorAll('input[data-axis]').length : 0,
+             parts: dr ? dr.querySelectorAll('select[data-part]').length : 0,
+             partOpts: dr && dr.querySelector('select[data-part]') ? dr.querySelector('select[data-part]').options.length : 0 };
+  });
   const schema = await (await fetch(`http://127.0.0.1:${PORT}/api/haptics/schema`)).json();
   const nEffects = (schema.effects || []).length;
+  const nTokens  = (schema.tokens  || []).length;
 
   const fails = [];
   if (pageErrors.length)        fails.push('page errors: ' + pageErrors.join(' | '));
@@ -110,9 +128,19 @@ try {
   if (st.hapHidden)             fails.push('haptics strip is hidden (experimental flag + belt axis set)');
   if (st.hapTiles !== nEffects + 1) fails.push(`strip has ${st.hapTiles} tiles, expected ${nEffects} effects + Master`);
   if (st.hapTests !== nEffects) fails.push(`strip has ${st.hapTests} Test buttons, expected ${nEffects}`);
+  if (nTokens < 34)             fails.push(`schema lists ${nTokens} channel tokens`);
+  if (st.ncxRows !== nTokens)   fails.push(`bindings editor has ${st.ncxRows} rows, expected one per token (${nTokens})`);
+  if (st.ncxTokenOpts !== nTokens) fails.push(`bindings token list has ${st.ncxTokenOpts} options, expected ${nTokens}`);
+  if (!drawer.chip)             fails.push('no route chip on the Lateral slip tile');
+  else {
+    if (drawer.hidden)          fails.push('route drawer did not open');
+    if (drawer.gains !== 2)     fails.push(`route drawer lists ${drawer.gains} axes, expected 2 (Seat + Belt)`);
+    if (drawer.parts !== 2)     fails.push(`route drawer has ${drawer.parts} part selectors, expected one per axis`);
+    if (drawer.partOpts !== 7)  fails.push(`part selector has ${drawer.partOpts} options, expected 7 (all, front, rear, 4 corners)`);
+  }
 
   if (fails.length) { console.error(childOut.slice(-2000)); die('\n  ' + fails.join('\n  ')); }
-  console.log(`SMOKE OK: badge Connected, ${st.buttons} buttons, haptics strip ${st.hapTiles} tiles from a ${nEffects}-effect schema, 0 page/console errors.`);
+  console.log(`SMOKE OK: badge Connected, ${st.buttons} buttons, haptics strip ${st.hapTiles} tiles from a ${nEffects}-effect schema, ${st.ncxRows} binding rows, part selectors in the drawer, 0 page/console errors.`);
 } finally {
   await browser.close().catch(() => {});
   child.kill('SIGTERM');

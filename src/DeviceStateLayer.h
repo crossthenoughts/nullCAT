@@ -29,22 +29,24 @@
 #include "DeviceForceModel.h" // DeviceStateMods
 #include "TelemetryInput.h"   // TelemetryData (ncx channels)
 #include <cmath>
+#include <cstring>
 #include <string>
 #include <vector>
 
-// Semantic channel values after binding resolution.
-// The 0.9.6 tokens feed the haptic effect suite: brakePct/absActive gate
-// the ABS pulse, skid/lockup/roadNoise are 0-100 magnitudes computed
-// SENDER-side (per-game adaptation lives in the sender; the wire carries
-// clean semantics; an unbound or zero channel leaves its effect inert).
-struct NcxValues
+// Semantic channel values after binding resolution (NcxTokens.h is the
+// registry). The 0.9.6 tokens feed the haptic effect suite: brakePct/
+// absActive gate the ABS pulse, skid/lockup/roadNoise are 0-100
+// magnitudes computed sender-side. The 1.3 per-wheel tokens are RAW
+// physics (slip angle, slip ratio, wheel speed, load, suspension velocity)
+// that nullCAT turns into effect levels itself, so any sender stays a
+// dumb template. An unbound or absent channel leaves its effect inert.
+struct NcxValues : NcxTok
 {
-    enum Token { Rpm, SpeedKmh, Gear, ClutchPct, ThrottlePct,
-                 BrakePct, AbsActive, Skid, Lockup, RoadNoise,
-                 Limiter, TcActive, Curbs, TokenCount };
     bool   fresh = false;             // channel stream alive (<500 ms)
     bool   have[TokenCount] = {};     // token bound AND present in the packet
     double val[TokenCount]  = {};
+    char   game[NCY_STR_LEN] = {};    // NULLCATY identity, empty when unsent
+    char   car[NCY_STR_LEN]  = {};
 };
 
 // Gear ratios (rpm per km/h), index 1..8; produced by GearRatioLearner,
@@ -59,20 +61,7 @@ struct GearRatios
 
 inline int ncxTokenIndex(const std::string& t)
 {
-    if (t == "rpm")         return NcxValues::Rpm;
-    if (t == "speedKmh")    return NcxValues::SpeedKmh;
-    if (t == "gear")        return NcxValues::Gear;
-    if (t == "clutchPct")   return NcxValues::ClutchPct;
-    if (t == "throttlePct") return NcxValues::ThrottlePct;
-    if (t == "brakePct")    return NcxValues::BrakePct;
-    if (t == "absActive")   return NcxValues::AbsActive;
-    if (t == "skid")        return NcxValues::Skid;
-    if (t == "lockup")      return NcxValues::Lockup;
-    if (t == "roadNoise")   return NcxValues::RoadNoise;
-    if (t == "limiter")     return NcxValues::Limiter;
-    if (t == "tcActive")    return NcxValues::TcActive;
-    if (t == "curbs")       return NcxValues::Curbs;
-    return -1;
+    return ncxTokenIndexN(t.data(), static_cast<int>(t.size()));
 }
 
 // Pre-resolved binding table: strings die at configure time.
@@ -101,6 +90,12 @@ public:
             v.have[m_e[i].token] = true;
             v.val[m_e[i].token]  = td.ncx[m_e[i].slot] * m_e[i].scale + m_e[i].offset;
         }
+        // Named (NULLCATY) values are canonical units by contract: no
+        // scale/offset, and they win over a slot binding for the same token.
+        for (int t = 0; t < NcxTok::TokenCount; ++t)
+            if (td.ncyHave[t]) { v.have[t] = true; v.val[t] = td.ncy[t]; }
+        std::memcpy(v.game, td.game, NCY_STR_LEN);
+        std::memcpy(v.car,  td.car,  NCY_STR_LEN);
         return v;
     }
 

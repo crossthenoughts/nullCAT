@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <chrono>
 #include <string>
+#include "NcxTokens.h"
 
 static constexpr int MAX_DRIVES = 10;
 
@@ -16,10 +17,14 @@ enum class TelemetryPacketType
     Ncx,      // NULLCATX,<ch0>,...   - raw sim telemetry channels (device
               //   state effects; meaning is assigned by the ncxBindings
               //   config, never by the wire)
+    Ncy,      // NULLCATY,<key>=<value>,... - named channels (token names
+              //   as keys, canonical units, no bindings) and the sim
+              //   identity strings (game, car)
     Invalid
 };
 
-static constexpr int MAX_NCX_CHANNELS = 16;
+static constexpr int MAX_NCX_CHANNELS = 48;
+static constexpr int NCY_STR_LEN      = 48;   // game / car names, NUL-terminated
 
 struct TelemetryData
 {
@@ -36,6 +41,14 @@ struct TelemetryData
     int             numNcx                   = 0;
     double          ncx[MAX_NCX_CHANNELS]    = {};
     bool            ncxFresh                 = false;
+    // NULLCATY named values: per token, present + value. A parsed Ncy
+    // packet carries only the keys it named; getLatestData() merges them
+    // into the persistent per-token store (a 1 Hz identity line and a fast
+    // channel line coexist). Same freshness window as the X stream.
+    bool            ncyHave[NcxTok::TokenCount] = {};
+    double          ncy[NcxTok::TokenCount]     = {};
+    char            game[NCY_STR_LEN]           = {};
+    char            car[NCY_STR_LEN]            = {};
 };
 
 class TelemetryInput
@@ -147,6 +160,13 @@ private:
     int     m_ncxCount = 0;
     double  m_ncxVals[MAX_NCX_CHANNELS] = {};
     std::atomic<int64_t> m_lastNcxPacketMs{0};
+    // Persistent NULLCATY store: each Y packet merges the keys it names;
+    // cleared when the channel stream has gone stale (so a returning
+    // sender never resurrects old values).
+    bool    m_ncyHave[NcxTok::TokenCount] = {};
+    double  m_ncyVals[NcxTok::TokenCount] = {};
+    char    m_ncyGame[NCY_STR_LEN] = {};
+    char    m_ncyCar[NCY_STR_LEN]  = {};
 
     // UDP-rate diagnostic: receive-thread-only counters + published atomics.
     void    updateUdpRate(const TelemetryData& d);

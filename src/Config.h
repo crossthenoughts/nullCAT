@@ -19,6 +19,7 @@
 #include <string>
 #include <vector>
 #include "HapticsRegistry.h"   // haptics::EffectParams / EngineParams + the effect table
+#include "NcxTokens.h"         // the sim channel token registry
 #include <array>
 
 // One node of a piecewise-linear curve (x = position in the device's unit,
@@ -260,6 +261,9 @@ struct AppConfig
     // effect, empty by default - an unrouted effect reaches nothing.
     std::array<haptics::EffectParams, haptics::EFFECT_COUNT> hapticsFx = haptics::defaultEffectParams();
     haptics::EngineParams hapticsEngine;
+    // The two per-wheel slip tiles' own tunables (registry slipDefaults).
+    haptics::SlipParams   hapticsSlipLat = haptics::effectInfo(haptics::Effect::Skid).slipDefaults;
+    haptics::SlipParams   hapticsSlipLon = haptics::effectInfo(haptics::Effect::Lockup).slipDefaults;
     double                hapticsMasterGain  = 1.0;   // 0..2, scales every overlay
     // Share of each POSITION axis's maxVelocity / maxAcceleration that haptics
     // may use (0..1). Ease first: nothing else to set for safety; a light rig
@@ -305,25 +309,19 @@ struct AppConfig
     std::vector<DriveConfig> drives;
 
     // NULLCATX channel bindings (rig.json global; empty = no channel wire).
-    // Default = the full protocol 1.1 token registry at its recommended
-    // slots (Docs/PROTOCOL.md), so a fresh rig works with the SimHub plugin
-    // with NO hand-edited JSON. A rig.json that carries its own ncxBindings
-    // key replaces this wholesale, as ever - configs are never mutated.
-    std::vector<NcxBinding> ncxBindings = {
-        { "rpm",         0, 1.0, 0.0 },
-        { "speedKmh",    1, 1.0, 0.0 },
-        { "gear",        2, 1.0, 0.0 },
-        { "clutchPct",   3, 1.0, 0.0 },
-        { "throttlePct", 4, 1.0, 0.0 },
-        { "brakePct",    5, 1.0, 0.0 },
-        { "absActive",   6, 1.0, 0.0 },
-        { "skid",        7, 1.0, 0.0 },
-        { "lockup",      8, 1.0, 0.0 },
-        { "roadNoise",   9, 1.0, 0.0 },
-        { "limiter",    10, 1.0, 0.0 },
-        { "tcActive",   11, 1.0, 0.0 },
-        { "curbs",      12, 1.0, 0.0 },
-    };
+    // Default = the full token registry (NcxTokens.h, Docs/PROTOCOL.md) at
+    // its recommended slots, token i at slot i, so a fresh rig works with
+    // the SimHub plugin with NO hand-edited JSON. A rig.json that carries
+    // its own ncxBindings key replaces this wholesale, as ever - configs
+    // are never mutated.
+    std::vector<NcxBinding> ncxBindings = defaultNcxBindings();
+    static std::vector<NcxBinding> defaultNcxBindings()
+    {
+        std::vector<NcxBinding> out;
+        for (int t = 0; t < NcxTok::TokenCount; ++t)
+            out.push_back({ ncxTokenName(t), t, 1.0, 0.0 });
+        return out;
+    }
 
     bool    requireUserFaultReset = false;
     // Runs 24+ SDO reads per drive during init -- useful for first-time setup,

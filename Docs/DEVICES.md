@@ -175,21 +175,61 @@ effect silent.
 | Gear shift | a thunk on every gear change | gear |
 | Engine | the engine running, from idle to the limiter (below) | rpm, throttle, limiter |
 | ABS | a regular pulse while ABS works and the brake is on | brake, ABS active |
-| Lockup | brake lockup judder | lockup |
-| Skid | tyre slip texture | skid |
+| Longitudinal slip | a wheel locking under braking, or spinning under power, per wheel (below) | per-wheel slip ratio or wheel speeds, road speed; or the single lockup channel |
+| Lateral slip | the tyres sliding sideways: the fronts scrubbing wide, the rears stepping out, per wheel (below) | per-wheel slip angles; or the single skid channel |
 | Road | road surface texture | road |
 | Limiter | an extra hammer while on the rev limiter | limiter |
 | TC pulse | a pulse while traction control cuts | TC active |
 | Kerb | kerb strip rumble | kerbs |
 
 With the SimHub plugin, rpm, speed, gear, clutch, throttle, brake, ABS,
-limiter and traction control arrive automatically. Skid, lockup, road
-and kerbs need a SimHub property named in the plugin's settings file
-(see the plugin README).
+limiter and traction control arrive automatically. The per-wheel slip
+channels, road and kerbs need SimHub properties named in the plugin's
+settings file (see the plugin README). Any other motion software that
+can send a text line can feed the same channels (see PROTOCOL.md).
 
 `freq hz` sets the carrier: lower is a heavier, slower shake, higher is
 a finer buzz. `jitter` roughens it so slip, road and kerbs feel like
 texture rather than a tone.
+
+### Tyre slip
+
+The two slip tiles work per wheel: each of the four tyres has its own
+severity, and the effect plays on whichever axis you route it to with a
+**part**: the route editor gives every axis a selector, `ALL` (the
+strongest wheel anywhere), `FRONT` or `REAR` (the stronger wheel of that
+axle), or one corner (`FL`, `FR`, `RL`, `RR`). On a four-post rig route
+each vertical actuator to its own corner and the inside front locking up
+judders that corner and nothing else. On a three-actuator rig route the
+rear actuator to `REAR`; a belt or shaker takes `ALL`.
+
+**Lateral slip** is the tyres sliding sideways. The fronts give
+**scrub**: a fine, fast texture as they push wide. The rears give
+**slide**: an irregular, slower chatter as the back steps out. Each has
+its own mix and carrier. **peak deg** is the slip angle at which a tyre is
+fully gone (7 for most cars; lower for slicks, higher for road tyres);
+nothing plays below about 60 % of it, which is normal cornering. As slip
+grows the carrier slows and roughens on its own (squeal, moan, shudder)
+and the onset is abrupt, because that is what a tyre letting go feels
+like.
+
+**Longitudinal slip** is the tread slipping along the road. **lock** is a
+wheel turning slower than the car under braking: a heavy judder whose
+beat falls with road speed. **spin** is a driven wheel turning faster
+than the car: the axle tramping at its own resonance. **peak ratio** is
+the slip ratio at full severity (0.8 by default; a locked wheel is -1);
+nothing plays inside the first 0.15, where the tyre is still gripping.
+
+When the sim sends wheel loads, the loaded tyre's slip is weighted up and
+the unloaded one's down, so the outside tyre in a corner shakes harder.
+
+Where the sim only gives one overall slip value, the single `skid` and
+`lockup` channels still work and feed all four wheels at once; the parts
+then simply select the same thing. Where it gives wheel speeds but no
+slip ratios, nullCAT learns each wheel's rolling factor while you cruise
+(brake off, light throttle, above 30 km/h) and works the ratio out
+itself, so a sender's wheel-speed unit and staggered tyre sizes need no
+setting up.
 
 ### The engine
 

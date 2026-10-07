@@ -458,6 +458,7 @@ private:
     {
         std::array<haptics::EffectParams, haptics::EFFECT_COUNT> fx{};
         haptics::EngineParams engine;
+        haptics::SlipParams   slipLat, slipLon;
         double masterGain = 1.0;
         double positionBudget = 0.4;
     };

@@ -9,6 +9,27 @@ middle number carries breaking changes and the last carries fixes.
 Development branch. Nothing here is in a release yet.
 
 ### Added
+- Tyre slip per wheel: the Skid and Lockup tiles become **Lateral slip**
+  (scrub at the fronts, slide at the rears) and **Longitudinal slip**
+  (lock under braking, spin under power), each modelled for all four
+  wheels from the sim's raw slip angles, slip ratios or wheel speeds,
+  weighted by tyre load when the sim sends it. Severity starts where the
+  tyre actually lets go (peak deg / peak ratio), the onset is abrupt and
+  the carrier slows and roughens as the slide grows. Every route on
+  these tiles has a **part**: a corner, an axle or all, so a four-post
+  rig feels the inside front lock up on that corner. The old single skid
+  and lockup channels still work and feed all four wheels. Saved 0.9.6
+  tuning carries over.
+- Protocol 1.3: the channel wire takes 48 slots, with per-wheel tokens
+  for slip angle, slip ratio, wheel speed, load and suspension velocity
+  plus maxRpm; and a new named line, `NULLCATY,key=value,...`, so any
+  motion software with a text output (FlyPT, SimTools, a custom feeder)
+  can send channels by name with no slot order and tell nullCAT which
+  game and car are running. SimHub remains one sender among others.
+- SimHub plugin 1.3: sends the car's max rpm and the game and car names,
+  and takes optional per-wheel bindings (slip angle, slip ratio, wheel
+  speed, load, suspension velocity, each with a unit scale) that go out
+  by name only when bound. Older plugins keep working unchanged.
 - Haptics on position axes: any effect can now be routed to a CSP axis
   (surge, the verticals) as well as a belt or device. The route's gain
   is in mm at full amplitude, each axis has a Haptic max ceiling (3 mm
@@ -22,6 +43,10 @@ Development branch. Nothing here is in a release yet.
   axis limits. PP-mode axes take no haptics.
 
 ### Changed
+- The sim channel token list is served to the browser with the haptics
+  schema (the Sim channels editor and the tile channel ticks read it from
+  there; a hand copy in the page had been dropped during the refactor
+  below, which left that editor broken on the development branch only).
 - Haptics internals: the effect list is one table the controller serves
   to the browser (GET /api/haptics/schema), so adding an effect is one
   row plus one law instead of edits in eight places; the engine model and

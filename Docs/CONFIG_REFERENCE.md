@@ -116,12 +116,12 @@ Top level: `configVersion`, `numDrives` (1 to 10, must match `axes[]`),
 | `blendTimeSec` | double | `2.0` | Smoothing time constant for cross-axis blended motion. |
 | `blendMaxVelocityMmS` | double | `20.0` | Cap on the blended-axis velocity contribution. |
 | `requireUserFaultReset` | bool | `false` | If true, faulted drives need a manual reset from the UI before motion resumes. Safety policy, so it travels with the rig. |
-| `ncxBindings` | array | all 13 tokens, slots 0 to 12 | NULLCATX channel bindings for the device and haptic effects. Each entry is `{"token", "slot", "scale", "offset"}`: the wire's numbered channel `slot` (0 to 15) maps onto the semantic `token`, with `value = raw * scale + offset`. Tokens: `rpm`, `speedKmh`, `gear`, `clutchPct` (0 = pedal up, 100 = floored), `throttlePct`, `brakePct`, `absActive`, `skid`, `lockup`, `roadNoise`, `limiter`, `tcActive`, `curbs` (see Docs/PROTOCOL.md for units). Each token binds at most once. The default matches the SimHub plugin's channel order, so it needs no editing; the Sim channels section of the web Setup view edits it and can reset it. An unbound token leaves the effects that use it silent. |
+| `ncxBindings` | array | all 34 tokens, slots 0 to 33 | NULLCATX channel bindings for the device and haptic effects. Each entry is `{"token", "slot", "scale", "offset"}`: the wire's numbered channel `slot` (0 to 47) maps onto the semantic `token`, with `value = raw * scale + offset`. Tokens: `rpm`, `speedKmh`, `gear`, `clutchPct` (0 = pedal up, 100 = floored), `throttlePct`, `brakePct`, `absActive`, `skid`, `lockup`, `roadNoise`, `limiter`, `tcActive`, `curbs`, `maxRpm`, and the per-wheel groups `slipAngleFL..RR`, `slipRatioFL..RR`, `wheelSpeedFL..RR`, `loadFL..RR`, `suspVelFL..RR` (see Docs/PROTOCOL.md for units). Each token binds at most once. The default matches the SimHub plugin's channel order, so it needs no editing; the Sim channels section of the web Setup view edits it and can reset it. An unbound token leaves the effects that use it silent. Bindings only apply to NULLCATX; a NULLCATY line names its tokens directly in canonical units. |
 | `haptics` | object | all effects off | Haptic effect layer tuning, one entry per effect plus `masterGain` and `positionBudget`. See below; normally edited on the web Haptics strip. |
 
 ### global.haptics
 
-One object per effect: `detentClick`, `gearShift`, `rpmVibe` (the engine), `abs`, `lockup`, `skid`, `road`, `limiter`, `tc`, `kerb`, plus `masterGain` (number, 0 to 2, default `1`, scales every effect) and `positionBudget` (number, 0 to 1, default `0.4`, the share of each position axis's velocity and acceleration limits that haptics may use; see `hapticsMaxMm` below). Every effect is off until it has an amplitude above 0 and at least one route. Saves apply live, with no re-initialize.
+One object per effect: `detentClick`, `gearShift`, `rpmVibe` (the engine), `abs`, `slipLon` (longitudinal slip), `slipLat` (lateral slip), `road`, `limiter`, `tc`, `kerb`, plus `masterGain` (number, 0 to 2, default `1`, scales every effect) and `positionBudget` (number, 0 to 1, default `0.4`, the share of each position axis's velocity and acceleration limits that haptics may use; see `hapticsMaxMm` below). Every effect is off until it has an amplitude above 0 and at least one route. Saves apply live, with no re-initialize.
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
@@ -129,7 +129,20 @@ One object per effect: `detentClick`, `gearShift`, `rpmVibe` (the engine), `abs`
 | `freqHz` | double | per effect | Carrier frequency (4 to 500 Hz). For the engine this is the weight of each firing thump (default 30). |
 | `durMs` | double | per effect | Length of a one-shot effect (detent click, gear shift), 5 to 100 ms. |
 | `jitter` | double | per effect | 0 to 1. Roughens the carrier so skid, road and kerb feel like texture rather than a tone. For the engine it is the idle lope (per-revolution unevenness). |
-| `routes` | array | `[]` | Where the effect goes: `[{"axis": <index>, "gain": <number>}]`, up to 10 entries, any axis. On a torque axis (belt, device) `gain` is a multiplier, 0 to 2. On a position (CSP) axis `gain` is the offset in mm at 100 % amplitude, 0 to that axis's `hapticsMaxMm`. No routes = the effect reaches nothing. |
+| `routes` | array | `[]` | Where the effect goes: `[{"axis": <index>, "gain": <number>, "part": <string>}]`, up to 10 entries, any axis. On a torque axis (belt, device) `gain` is a multiplier, 0 to 2. On a position (CSP) axis `gain` is the offset in mm at 100 % amplitude, 0 to that axis's `hapticsMaxMm`. `part` (the two slip effects only, default `"all"`): which wheels this axis carries, `all`, `front`, `rear`, `fl`, `fr`, `rl`, `rr`; the strongest of them plays. No routes = the effect reaches nothing. |
+
+Slip-only fields. Both tiles are per-wheel models with two components, each with a mix (0 to 1) and a carrier; the route's `part` picks the wheels. `freqHz` is kept in the object but unused by these two.
+
+| Effect | Field | Default | Notes |
+|---|---|---|---|
+| `slipLat` | `scrub`, `scrubHz` | `1`, `25` | The fronts pushing wide: mix and carrier (8 to 60 Hz). |
+| `slipLat` | `slide`, `slideHz` | `1`, `11` | The rears stepping out: mix and carrier (4 to 30 Hz). |
+| `slipLat` | `peakDeg` | `7` | Slip angle (degrees) at full severity, 2 to 20. Nothing plays below 60 % of it. |
+| `slipLon` | `lock`, `lockHz` | `1`, `9` | A wheel locking under braking: mix and carrier (4 to 30 Hz) at 80 km/h; the carrier follows road speed. |
+| `slipLon` | `spin`, `spinHz` | `1`, `10` | A driven wheel spinning: mix and carrier (4 to 30 Hz), fixed. |
+| `slipLon` | `peakRatio` | `0.8` | Slip ratio at full severity, 0.2 to 2. Nothing plays inside 0.15. |
+
+A 0.9.6 file that still carries these two effects as `skid` and `lockup` is read through those keys once (amplitude, routes, jitter and the old carrier onto `scrubHz` / `lockHz`) and rewritten under the new keys on the next load.
 
 Engine-only fields (`rpmVibe`):
 
@@ -284,7 +297,7 @@ A second line format on the SAME port feeds the force-device effects
     NULLCATX,<ch0>,<ch1>,...,<chN>
 
 - Same parsing rules as motion lines (decimal CSV, case-insensitive
-  header, skipped fields compact). At most **16** channels are read.
+  header, skipped fields compact). At most **48** channels are read.
 - The channels are plain numbers in whatever units the sender has; the
   rig's `ncxBindings` config says which channel means what and rescales
   it. Send raw sim values (rpm, speed, gear, clutch) - no shaping on the
@@ -294,6 +307,9 @@ A second line format on the SAME port feeds the force-device effects
   as motion telemetry - it cannot hold off the motion-loss standby.
 - If the channel stream stops for 500 ms, every state effect drops out
   and devices fall back to their plain configured feel.
+- The same channels can be sent by name instead, with no bindings:
+  `NULLCATY,rpm=6500,gear=3,slipAngleFL=4.2,...`, plus `game=` and
+  `car=` for the sim identity. See Docs/PROTOCOL.md.
 
 ## Tips
 

@@ -27,6 +27,7 @@
 
 #include "HapticsTypes.h"
 #include "EngineModel.h"
+#include "SlipModel.h"
 #include "WaveSynth.h"
 #include <algorithm>
 #include <cstdint>
@@ -110,10 +111,21 @@ public:
         {
             Fx& f = m_fx[i];
             const EffectParams& p = m_fxParams[i];
-            // Level ramp: ~50 ms attack, ~120 ms release.
-            const double rate = (f.targetLevel > f.level) ? dtSec / 0.050 : dtSec / 0.120;
-            f.level += std::max(-rate, std::min(rate, f.targetLevel - f.level));
-            if (p.ampPct <= 0.0 || f.level < 1e-4) continue;
+            const bool slipSlot = slipFor(static_cast<FxType>(i)) != nullptr;
+            if (!slipSlot)
+            {
+                // Level ramp: ~50 ms attack, ~120 ms release. (The slip
+                // model ramps per wheel itself.)
+                const double rate = (f.targetLevel > f.level) ? dtSec / 0.050 : dtSec / 0.120;
+                f.level += std::max(-rate, std::min(rate, f.targetLevel - f.level));
+                if (p.ampPct <= 0.0 || f.level < 1e-4) continue;
+            }
+            else if (p.ampPct <= 0.0)
+            {
+                slipFor(static_cast<FxType>(i))->clear();
+                f.level = 0.0;
+                continue;
+            }
 
             // The engine slot runs the pulse-train synth, not the oscillator.
             if (i == static_cast<int>(FxType::RpmVibe))
@@ -137,6 +149,26 @@ public:
                     }
                     else if (v != 0.0)
                         m_overlay[r.axis] += v * r.gain;
+                }
+                continue;
+            }
+
+            // The two slip slots run the per-wheel model: each route takes
+            // the strongest wheel of its part, per component, derated per
+            // component carrier on a position sink.
+            if (SlipModel* sm = slipFor(static_cast<FxType>(i)))
+            {
+                sm->step(dtSec, p, *slipParamsFor(static_cast<FxType>(i)));
+                f.level = sm->level();
+                if (f.level < 1e-4) continue;
+                for (const Route& r : p.routes)
+                {
+                    if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES || r.gain <= 0.0) continue;
+                    const SlipModel::Out o = sm->outputFor(r.part);
+                    const double ask = p.ampPct * r.gain;
+                    const double v = p.ampPct * (o.a * sinkScale(r.axis, ask, o.aHz)
+                                               + o.b * sinkScale(r.axis, ask, o.bHz));
+                    if (v != 0.0) m_overlay[r.axis] += v * r.gain;
                 }
                 continue;
             }
@@ -224,6 +256,33 @@ public:
     const EngineParams& engineParams() const   { return m_engineParams; }
     double learnedMaxRpm() const               { return m_engine.learnedMaxRpm(); }
 
+    // ---- per-wheel slip (the Lockup = longitudinal and Skid = lateral
+    // slots). Config apply for the params; the law drives wheels per cycle.
+    void configureSlip(FxType t, const SlipParams& s)
+    {
+        if (SlipParams* sp = slipParamsFor(t)) *sp = s;
+    }
+    const SlipParams& slipParams(FxType t) const
+    {
+        return (t == FxType::Skid) ? m_slipLatParams : m_slipLonParams;
+    }
+    // Component severities (0..1) for one wheel this cycle. Lateral: a =
+    // scrub, b = slide. Longitudinal: a = lock, b = spin.
+    void driveSlip(FxType t, int wheel, double a, double b)
+    {
+        if (SlipModel* sm = slipFor(t)) sm->drive(wheel, a, b);
+    }
+    void setSlipCarrierScale(FxType t, double aScale, double bScale)
+    {
+        if (SlipModel* sm = slipFor(t)) sm->setCarrierScale(aScale, bScale);
+    }
+    double slipWheelLevel(FxType t, int wheel) const
+    {
+        const SlipModel* sm = (t == FxType::Skid) ? &m_slipLat : (t == FxType::Lockup) ? &m_slipLon : nullptr;
+        return sm ? sm->wheelLevel(wheel) : 0.0;
+    }
+    static bool isSlipSlot(FxType t) { return t == FxType::Skid || t == FxType::Lockup; }
+
     // Drive one continuous effect for THIS cycle: level 0..1 (silence to
     // full configured amplitude) and the carrier frequency to use (RpmVibe
     // passes rpm/60 x order; others pass their configured freqHz). Called
@@ -290,6 +349,8 @@ public:
         for (Event& e : m_events) e.active = false;
         for (Fx& f : m_fx) { f.targetLevel = 0.0; f.level = 0.0; f.osc.reset(); }
         m_engine.clear();
+        m_slipLat.clear();
+        m_slipLon.clear();
         for (double& o : m_overlay) o = 0.0;
     }
 
@@ -329,10 +390,26 @@ private:
         return std::min(1.0, positionAllowedMm(axis, hz) / askedMm);
     }
 
+    SlipModel* slipFor(FxType t)
+    {
+        return (t == FxType::Skid) ? &m_slipLat : (t == FxType::Lockup) ? &m_slipLon : nullptr;
+    }
+    const SlipParams* slipParamsFor(FxType t) const
+    {
+        return (t == FxType::Skid) ? &m_slipLatParams : (t == FxType::Lockup) ? &m_slipLonParams : nullptr;
+    }
+    SlipParams* slipParamsFor(FxType t)
+    {
+        return (t == FxType::Skid) ? &m_slipLatParams : (t == FxType::Lockup) ? &m_slipLonParams : nullptr;
+    }
+
     SinkKind     m_sinkKind[MAX_HAPTIC_AXES] = {};
     double       m_posV[MAX_HAPTIC_AXES] = {}, m_posA[MAX_HAPTIC_AXES] = {}, m_posCap[MAX_HAPTIC_AXES] = {};
     EngineModel  m_engine;
     EngineParams m_engineParams;
+    SlipModel    m_slipLat, m_slipLon;
+    SlipParams   m_slipLatParams{ 1.0, 25.0, 1.0, 11.0, 7.0 };
+    SlipParams   m_slipLonParams{ 1.0,  9.0, 1.0, 10.0, 0.8 };
     EffectParams m_params[EVENT_TYPE_COUNT];
     EffectParams m_fxParams[FX_TYPE_COUNT];
     Event        m_events[MAX_EVENTS];

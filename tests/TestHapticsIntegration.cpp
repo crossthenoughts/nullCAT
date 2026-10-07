@@ -207,7 +207,9 @@ int main()
             else                                       L.configureFx(info.fx, p);
         }
         NcxValues v{}; v.fresh = true;
-        for (int i = 0; i < NcxValues::TokenCount; ++i) v.have[i] = true;
+        // The 0.9.6 token set only: the per-wheel 1.3 tokens stay unbound so
+        // the single skid/lockup channels take their fallback path here.
+        for (int i = 0; i <= NcxValues::Curbs; ++i) v.have[i] = true;
         const double dt = 0.002;
         auto settle = [&](int n) { for (int i = 0; i < n; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); } };
 
@@ -217,9 +219,11 @@ int main()
         v.val[NcxValues::BrakePct] = 60.0; settle(100);
         check(L.fxLevel(static_cast<int>(haptics::FxType::AbsPulse)) > 0.9,  "I-7 ABS flag + brake drives the pulse");
 
-        // Magnitude channel: 50 -> level 0.5.
+        // Single skid channel (fallback): 50 -> every wheel at 0.5 -> tile level 0.5.
         v.val[NcxValues::Skid] = 50.0; settle(200);
         check(std::fabs(L.fxLevel(static_cast<int>(haptics::FxType::Skid)) - 0.5) < 0.05, "I-7 skid 50 drives level 0.5");
+        check(std::fabs(L.slipWheelLevel(haptics::FxType::Skid, WheelRR) - 0.5) < 0.05, "I-7 single skid channel reaches every wheel");
+        v.val[NcxValues::Skid] = 0.0; settle(300);
 
         // Flag channel: TC.
         v.val[NcxValues::TcActive] = 1.0; settle(100);
@@ -244,6 +248,85 @@ int main()
               && L.fxLevel(static_cast<int>(haptics::FxType::TcPulse)) < 0.01, "I-7 stale stream fades every effect");
     }
 
+    // ---- I-8: the per-wheel slip laws (protocol 1.3 raw physics in) ----
+    {
+        using haptics::FxType;
+        haptics::Layer L;
+        haptics::LawsState st;
+        haptics::EffectParams p; p.ampPct = 50.0; p.routes[0] = { 0, 1.0 };
+        L.configureFx(FxType::Skid, p);   L.configureSlip(FxType::Skid,   { 1.0, 25.0, 1.0, 11.0, 7.0 });
+        L.configureFx(FxType::Lockup, p); L.configureSlip(FxType::Lockup, { 1.0, 9.0, 1.0, 10.0, 0.8 });
+        NcxValues v{}; v.fresh = true;
+        const double dt = 0.002;
+        auto settle = [&](int n) { for (int i = 0; i < n; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); } };
+        auto lvl = [&](FxType t, int w) { return L.slipWheelLevel(t, w); };
+        auto setW = [&](int group, double fl, double fr, double rl, double rr)
+        {
+            const double x[4] = { fl, fr, rl, rr };
+            for (int w = 0; w < 4; ++w) { v.have[group + w] = true; v.val[group + w] = x[w]; }
+        };
+        v.have[NcxValues::SpeedKmh] = true; v.val[NcxValues::SpeedKmh] = 100.0;
+
+        // Lateral: slip angle past 60% of peak deg. Peak 7: 4.2 deg = onset,
+        // 7 deg = full; 5.6 deg = halfway. Only FL slides.
+        setW(NcxValues::SlipAngleFL, 7.0, 0.0, 0.0, 0.0); settle(100);
+        check(lvl(FxType::Skid, WheelFL) > 0.95 && lvl(FxType::Skid, WheelFR) < 0.01 && lvl(FxType::Skid, WheelRR) < 0.01,
+              "I-8 lateral: 7 deg on FL alone drives FL alone");
+        setW(NcxValues::SlipAngleFL, -5.6, 3.0, 0.0, 0.0); settle(100);
+        check(std::fabs(lvl(FxType::Skid, WheelFL) - 0.5) < 0.05, "I-8 lateral: -5.6 deg (sign ignored) = halfway");
+        check(lvl(FxType::Skid, WheelFR) < 0.01, "I-8 lateral: 3 deg is normal cornering, nothing");
+        // A single skid channel is ignored once per-wheel angles arrive.
+        v.have[NcxValues::Skid] = true; v.val[NcxValues::Skid] = 100.0; settle(100);
+        check(lvl(FxType::Skid, WheelRR) < 0.01, "I-8 lateral: per-wheel angles win over the single channel");
+        v.have[NcxValues::Skid] = false;
+
+        // Load weighting: the loaded tyre is weighted up (capped at 1.5x).
+        setW(NcxValues::SlipAngleFL, 5.6, 5.6, 0.0, 0.0);
+        setW(NcxValues::LoadFL, 6000.0, 1000.0, 2500.0, 2500.0);   // mean 3000: FL 2x -> 1.5 cap, FR 0.33
+        settle(100);
+        check(std::fabs(lvl(FxType::Skid, WheelFL) - 0.75) < 0.05, "I-8 load: the loaded FL at 0.5 x 1.5 = 0.75");
+        check(std::fabs(lvl(FxType::Skid, WheelFR) - 0.167) < 0.05, "I-8 load: the unloaded FR at 0.5 x 0.33");
+        for (int w = 0; w < 4; ++w) v.have[NcxValues::LoadFL + w] = false;
+        setW(NcxValues::SlipAngleFL, 0.0, 0.0, 0.0, 0.0); settle(300);
+
+        // Longitudinal from slip ratio: - locks, + spins; onset 0.15, full at
+        // peak 0.8. FL -0.8 = full lock; RR +0.475 = halfway spin.
+        setW(NcxValues::SlipRatioFL, -0.8, 0.0, 0.0, 0.475); settle(100);
+        check(lvl(FxType::Lockup, WheelFL) > 0.95, "I-8 longitudinal: ratio -0.8 on FL = full lock on FL");
+        check(std::fabs(lvl(FxType::Lockup, WheelRR) - 0.5) < 0.05, "I-8 longitudinal: ratio +0.475 on RR = halfway spin");
+        check(lvl(FxType::Lockup, WheelFR) < 0.01, "I-8 longitudinal: a rolling wheel is silent");
+        // Nothing at a standstill: ratios mean nothing there.
+        v.val[NcxValues::SpeedKmh] = 2.0; settle(300);
+        check(lvl(FxType::Lockup, WheelFL) < 0.01, "I-8 longitudinal: silent below 5 km/h");
+        v.val[NcxValues::SpeedKmh] = 100.0;
+        for (int w = 0; w < 4; ++w) v.have[NcxValues::SlipRatioFL + w] = false;
+        settle(300);
+
+        // Wheel speeds in a sender's own unit: the rolling factor is learned
+        // while cruising (brake 0, throttle < 30, > 30 km/h), then the ratio
+        // comes from wheelSpeed x k / speed - 1.
+        v.have[NcxValues::ThrottlePct] = true; v.val[NcxValues::ThrottlePct] = 10.0;
+        v.have[NcxValues::BrakePct]    = true; v.val[NcxValues::BrakePct]    = 0.0;
+        setW(NcxValues::WheelSpeedFL, 10.0, 10.0, 11.0, 11.0);   // rev/s; rears on taller tyres
+        settle(1500);                                             // learn: k = 10 fronts, 9.09 rears
+        check(lvl(FxType::Lockup, WheelRL) < 0.01, "I-8 wheel speed: staggered tyres read as rolling after learning");
+        v.val[NcxValues::BrakePct] = 80.0;
+        setW(NcxValues::WheelSpeedFL, 5.0, 10.0, 11.0, 11.0);    // FL half speed: ratio -0.5 -> (0.5-0.15)/0.65 = 0.54
+        settle(100);
+        check(std::fabs(lvl(FxType::Lockup, WheelFL) - 0.54) < 0.06, "I-8 wheel speed: FL at half speed under braking = 0.54 lock");
+        check(lvl(FxType::Lockup, WheelFR) < 0.01, "I-8 wheel speed: the other front rolls");
+        // A braking frame never retrains the factor (FL would otherwise learn 20).
+        settle(500);
+        check(std::fabs(lvl(FxType::Lockup, WheelFL) - 0.54) < 0.06, "I-8 wheel speed: the factor is not learned while braking");
+        for (int w = 0; w < 4; ++w) v.have[NcxValues::WheelSpeedFL + w] = false;
+        settle(300);
+
+        // Single lockup channel: the fallback when neither ratios nor wheel
+        // speeds arrive. 100 -> every wheel fully locked, no spin.
+        v.have[NcxValues::Lockup] = true; v.val[NcxValues::Lockup] = 100.0; settle(100);
+        check(lvl(FxType::Lockup, WheelRR) > 0.95, "I-8 single lockup channel reaches every wheel");
+    }
+
     // ---- P-1..P-4: a POSITION (CSP) axis as a routing destination ----
     // Route gain on a position axis is mm at 100% amplitude. The offset is
     // tracked inside the haptic share of the axis limits (what the actuator
@@ -266,6 +349,10 @@ int main()
             haptics::EffectParams& skid = cfg.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)];
             skid.ampPct = skidAmp; skid.freqHz = freqHz; skid.jitter = 0.0;
             skid.routes[0] = { 0, gainMm };
+            // Lateral slip tile, scrub only. The single skid channel at 100
+            // drives full severity, where the staged carrier is 65% of the
+            // set hz: set it so the carrier lands at freqHz.
+            cfg.hapticsSlipLat = { 1.0, freqHz / 0.65, 0.0, 11.0, 7.0 };
             return cfg;
         };
         // Drive the controller with a mock drive (homes against a hardstop,

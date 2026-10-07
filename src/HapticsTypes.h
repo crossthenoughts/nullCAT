@@ -17,8 +17,9 @@ static constexpr int MAX_ROUTES      = MAX_HAPTIC_AXES;  // an effect may route 
 enum class EventType { DetentClick = 0, GearShift = 1, COUNT };
 static constexpr int EVENT_TYPE_COUNT = static_cast<int>(EventType::COUNT);
 
-// Telemetry-driven CONTINUOUS effects. RpmVibe is the engine model; the
-// rest are oscillators whose LEVEL (0..1) is driven per cycle by a law.
+// Telemetry-driven CONTINUOUS effects. RpmVibe is the engine model; Lockup
+// and Skid are the two per-wheel slip models (longitudinal and lateral);
+// the rest are oscillators whose LEVEL (0..1) is driven per cycle by a law.
 enum class FxType { RpmVibe = 0, AbsPulse = 1, Lockup = 2, Skid = 3, Road = 4,
                     Limiter = 5, TcPulse = 6, Kerb = 7, COUNT };
 static constexpr int FX_TYPE_COUNT = static_cast<int>(FxType::COUNT);
@@ -28,12 +29,40 @@ static constexpr int FX_TYPE_COUNT = static_cast<int>(FxType::COUNT);
 // 100% amplitude, derated per effect to what the axis can follow.
 enum class SinkKind { Torque = 0, Position = 1 };
 
-// One destination: explicit axis index and a gain multiplier.
-// gain 0 or axis -1 = slot unused.
+// Which wheels a route carries, for the per-wheel effects (slip). All = the
+// strongest wheel; Front/Rear = the strongest of that axle; a corner = that
+// wheel only. Effects without wheels ignore it.
+enum class Part { All = 0, Front, Rear, FL, FR, RL, RR, COUNT };
+static constexpr int PART_COUNT = static_cast<int>(Part::COUNT);
+inline const char* partKey(Part p)
+{
+    static const char* const k[PART_COUNT] = { "all", "front", "rear", "fl", "fr", "rl", "rr" };
+    const int i = static_cast<int>(p);
+    return (i >= 0 && i < PART_COUNT) ? k[i] : "all";
+}
+
+// One destination: explicit axis index, a gain multiplier and, for the
+// per-wheel effects, which wheels it carries. gain 0 or axis -1 = unused.
 struct Route
 {
     int    axis = -1;
     double gain = 0.0;
+    Part   part = Part::All;
+};
+
+// The two per-wheel slip tiles share one shape: two components (A on some
+// wheels, B on others), each with its own mix and carrier. Lateral: A =
+// front scrub, B = rear slide. Longitudinal: A = lock judder, B = spin
+// tramp. peak is the tyre-limit scale the raw channel is normalised
+// against (lateral: slip angle in degrees at full severity; longitudinal:
+// slip ratio at full severity).
+struct SlipParams
+{
+    double aMix = 1.0;
+    double aHz  = 25.0;
+    double bMix = 1.0;
+    double bHz  = 11.0;
+    double peak = 8.0;
 };
 
 // Per-effect tuning shared by every effect kind. ampPct 0 = the effect is

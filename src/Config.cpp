@@ -12,6 +12,8 @@
 // ============================================================
 #include "Config.h"
 #include "AxisKind.h"
+#include "TelemetryInput.h"   // MAX_NCX_CHANNELS
+#include <cstring>
 
 #include <QString>
 #include <QFile>
@@ -182,14 +184,18 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
     // object per effect under its registry key; the engine description and
     // mix are written inside the engine object (keys unchanged since 0.9.6).
     {
-        const auto writeFx = [](const haptics::EffectParams& p)
+        const auto writeFx = [](const haptics::EffectParams& p, bool parts)
         {
             QJsonObject o;
             o["ampPct"] = p.ampPct; o["freqHz"] = p.freqHz; o["durMs"] = p.durMs; o["jitter"] = p.jitter;
             QJsonArray r;
             for (const haptics::Route& rt : p.routes)
                 if (rt.axis != -1 && rt.gain > 0.0)
-                { QJsonObject ro; ro["axis"] = rt.axis; ro["gain"] = rt.gain; r.append(ro); }
+                {
+                    QJsonObject ro; ro["axis"] = rt.axis; ro["gain"] = rt.gain;
+                    if (parts && rt.part != haptics::Part::All) ro["part"] = haptics::partKey(rt.part);
+                    r.append(ro);
+                }
             o["routes"] = r;
             return o;
         };
@@ -197,13 +203,18 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
         for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
         {
             const haptics::EffectInfo& info = haptics::effectInfo(i);
-            QJsonObject o = writeFx(c.hapticsFx[static_cast<size_t>(i)]);
+            QJsonObject o = writeFx(c.hapticsFx[static_cast<size_t>(i)], info.kind == haptics::Kind::Slip);
             if (info.kind == haptics::Kind::Engine)
             {
                 const haptics::EngineParams& e = c.hapticsEngine;
                 o["cylinders"] = e.cylinders; o["litres"] = e.litres; o["layout"] = e.layout;
                 o["maxRpm"] = e.maxRpm; o["rock"] = e.rock; o["thump"] = e.thump; o["buzz"] = e.buzz;
                 o["order"] = e.order; o["limHit"] = e.limHit; o["limHz"] = e.limHz; o["limJit"] = e.limJit;
+            }
+            else if (info.kind == haptics::Kind::Slip)
+            {
+                const haptics::SlipParams& s = (info.id == haptics::Effect::Skid) ? c.hapticsSlipLat : c.hapticsSlipLon;
+                for (int k = 0; k < 5; ++k) o[info.slipKeys[k]] = haptics::slipField(s, k);
             }
             h[info.key] = o;
         }
@@ -247,7 +258,7 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
             p.jitter = o.value("jitter").toDouble(p.jitter);
             if (o.contains("routes"))
             {
-                for (haptics::Route& rt : p.routes) { rt.axis = -1; rt.gain = 0.0; }
+                for (haptics::Route& rt : p.routes) { rt.axis = -1; rt.gain = 0.0; rt.part = haptics::Part::All; }
                 int n = 0;
                 for (const QJsonValue& v : o.value("routes").toArray())
                 {
@@ -257,6 +268,7 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
                     if (axis < 0) continue;
                     p.routes[n].axis = axis;
                     p.routes[n].gain = ro.value("gain").toDouble(0.0);
+                    p.routes[n].part = haptics::partFromKey(ro.value("part").toString("all").toStdString().c_str());
                     ++n;
                 }
             }
@@ -264,9 +276,24 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
         for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
         {
             const haptics::EffectInfo& info = haptics::effectInfo(i);
-            if (!h.contains(info.key)) continue;
-            const QJsonObject o = h.value(info.key).toObject();
+            // A 0.9.6 file carries the slip tiles under their old keys
+            // ("skid", "lockup"): read those when the new key is absent so
+            // an amplitude and its routes survive the rename.
+            const char* legacy = haptics::legacyEffectKey(info.id);
+            const bool  haveNew = h.contains(info.key);
+            if (!haveNew && !(legacy && h.contains(legacy))) continue;
+            const QJsonObject o = h.value(haveNew ? info.key : legacy).toObject();
             readFx(o, c.hapticsFx[static_cast<size_t>(i)]);
+            if (info.kind == haptics::Kind::Slip)
+            {
+                haptics::SlipParams& s = (info.id == haptics::Effect::Skid) ? c.hapticsSlipLat : c.hapticsSlipLon;
+                for (int k = 0; k < 5; ++k)
+                    haptics::slipField(s, k) = o.value(info.slipKeys[k]).toDouble(haptics::slipField(s, k));
+                // Old single-carrier file: its freqHz was the one carrier;
+                // carry it onto the component the old effect was (skid =
+                // texture = scrub, lockup = judder = lock).
+                if (!haveNew && o.contains("freqHz")) s.aHz = o.value("freqHz").toDouble(s.aHz);
+            }
             if (info.kind == haptics::Kind::Engine)
             {
                 haptics::EngineParams& e = c.hapticsEngine;
@@ -639,6 +666,7 @@ bool Config::load(const std::string& anchorPath)
         // ---- native two-file format (the steady state) ----
         m_config = AppConfig{};
         if (haveHost) readHostConfig(hostObj, m_config);
+        bool rewriteRig = false;
         if (haveRig)
         {
             m_config.configVersion = rigObj.value("configVersion").toInt(2);
@@ -646,9 +674,22 @@ bool Config::load(const std::string& anchorPath)
             loadAxesArray(rigObj.value("axes").toArray(), m_config.drives);
             int nd = rigObj.value("numDrives").toInt(static_cast<int>(m_config.drives.size()));
             m_config.numDrives = std::max(1, std::min(nd, static_cast<int>(m_config.drives.size())));
+            // A file carrying a haptic effect under a retired key (0.9.6
+            // "skid"/"lockup") was read through the migration; rewrite it
+            // once under the current keys so the web, which serves the file
+            // as is, shows the same tuning the controller runs and a later
+            // save cannot write defaults over it.
+            const QJsonObject h = rigObj.value("global").toObject().value("haptics").toObject();
+            for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+            {
+                const haptics::EffectInfo& info = haptics::effectInfo(i);
+                const char* legacy = haptics::legacyEffectKey(info.id);
+                if (legacy && h.contains(legacy)) rewriteRig = true;
+            }
         }
         if (m_config.drives.empty()) seedDefaultDrive();
         m_lastError.clear();
+        if (rewriteRig) saveRig(anchorPath);
         return true;
     }
 
@@ -1115,6 +1156,22 @@ std::vector<std::string> AppConfig::validate() const
                 if (r.gain < 0.0 || r.gain > 2.0)
                     errors.push_back(pfx + "route gain out of range [0, 2]");
             }
+            if (info.kind == haptics::Kind::Slip)
+            {
+                const haptics::SlipParams& s = (info.id == haptics::Effect::Skid) ? hapticsSlipLat : hapticsSlipLon;
+                for (int k = 0; k < info.paramCount; ++k)
+                {
+                    const haptics::ParamSpec& ps = info.params[k];
+                    for (int f = 0; f < 5; ++f)
+                        if (std::strcmp(ps.key, info.slipKeys[f]) == 0)
+                        {
+                            const double val = haptics::slipField(s, f);
+                            if (val < ps.min || val > ps.max)
+                                errors.push_back(pfx + ps.key + " out of range [" + std::to_string(ps.min) + ", "
+                                                 + std::to_string(ps.max) + "]");
+                        }
+                }
+            }
         }
         {
             const haptics::EngineParams& e = hapticsEngine;
@@ -1146,23 +1203,19 @@ std::vector<std::string> AppConfig::validate() const
 
     // ---- NULLCATX channel bindings (rig global) ----
     {
-        static const char* kTokens[] = { "rpm", "speedKmh", "gear", "clutchPct", "throttlePct",
-                                         "brakePct", "absActive", "skid", "lockup", "roadNoise",
-                                         "limiter", "tcActive", "curbs" };
         std::vector<std::string> seen;
         for (size_t i = 0; i < ncxBindings.size(); ++i)
         {
             const NcxBinding& b = ncxBindings[i];
             const std::string pfx = "ncxBindings[" + std::to_string(i) + "]: ";
-            bool known = false;
-            for (const char* t : kTokens) if (b.token == t) { known = true; break; }
-            if (!known)
-                errors.push_back(pfx + "unknown token \"" + b.token +
-                                 "\" (rpm, speedKmh, gear, clutchPct, throttlePct, "
-                                 "brakePct, absActive, skid, lockup, roadNoise, "
-                                 "limiter, tcActive, curbs)");
-            if (b.slot < 0 || b.slot >= 16)
-                errors.push_back(pfx + "slot out of range [0, 15]");
+            if (ncxTokenIndexN(b.token.data(), static_cast<int>(b.token.size())) < 0)
+            {
+                std::string list;
+                for (int t = 0; t < NcxTok::TokenCount; ++t) list += std::string(t ? ", " : "") + ncxTokenName(t);
+                errors.push_back(pfx + "unknown token \"" + b.token + "\" (" + list + ")");
+            }
+            if (b.slot < 0 || b.slot >= MAX_NCX_CHANNELS)
+                errors.push_back(pfx + "slot out of range [0, " + std::to_string(MAX_NCX_CHANNELS - 1) + "]");
             if (b.scale == 0.0)
                 errors.push_back(pfx + "scale must be nonzero");
             for (const std::string& s : seen)

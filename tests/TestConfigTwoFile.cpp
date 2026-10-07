@@ -124,6 +124,11 @@ private slots:
         c.hapticsEngine.buzz = 0.9; c.hapticsEngine.order = 0.5; c.hapticsEngine.limHit = 1.2;
         c.hapticsEngine.limHz = 10; c.hapticsEngine.limJit = 0.3;
         c.hapticsMasterGain = 1.3;
+        c.hapticsSlipLat = { 0.7, 28.0, 0.4, 9.0, 6.5 };
+        c.hapticsSlipLon = { 0.9, 8.0, 0.2, 12.0, 0.6 };
+        // Route parts on the per-wheel tiles survive; "all" is the default.
+        c.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)].routes[0].part   = haptics::Part::FL;
+        c.hapticsFx[static_cast<size_t>(haptics::Effect::Lockup)].routes[1].part = haptics::Part::Rear;
         QVERIFY(a.saveRig(anchor(dir).toStdString()));
 
         Config b; QVERIFY(b.load(anchor(dir).toStdString()));
@@ -142,6 +147,67 @@ private slots:
         QCOMPARE(r.hapticsEngine.buzz, 0.9);      QCOMPARE(r.hapticsEngine.order, 0.5);
         QCOMPARE(r.hapticsEngine.limHit, 1.2);    QCOMPARE(r.hapticsEngine.limHz, 10.0);
         QCOMPARE(r.hapticsEngine.limJit, 0.3);    QCOMPARE(r.hapticsMasterGain, 1.3);
+        QCOMPARE(r.hapticsSlipLat.aMix, 0.7); QCOMPARE(r.hapticsSlipLat.aHz, 28.0); QCOMPARE(r.hapticsSlipLat.bMix, 0.4);
+        QCOMPARE(r.hapticsSlipLat.bHz, 9.0);  QCOMPARE(r.hapticsSlipLat.peak, 6.5);
+        QCOMPARE(r.hapticsSlipLon.aMix, 0.9); QCOMPARE(r.hapticsSlipLon.aHz, 8.0);  QCOMPARE(r.hapticsSlipLon.bMix, 0.2);
+        QCOMPARE(r.hapticsSlipLon.bHz, 12.0); QCOMPARE(r.hapticsSlipLon.peak, 0.6);
+        QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)].routes[0].part   == haptics::Part::FL);
+        QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)].routes[1].part   == haptics::Part::All);
+        QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Lockup)].routes[1].part == haptics::Part::Rear);
+
+        // The file carries the tiles under their current keys with the
+        // readable slip fields, and the old keys are gone.
+        QJsonObject rig = readObj(dir.path() + "/rig.json");
+        QJsonObject h = rig.value("global").toObject().value("haptics").toObject();
+        QVERIFY(h.contains("slipLat") && h.contains("slipLon"));
+        QVERIFY(!h.contains("skid") && !h.contains("lockup"));
+        QCOMPARE(h.value("slipLat").toObject().value("scrubHz").toDouble(), 28.0);
+        QCOMPARE(h.value("slipLon").toObject().value("peakRatio").toDouble(), 0.6);
+        QCOMPARE(h.value("slipLat").toObject().value("routes").toArray().at(0).toObject().value("part").toString(), QString("fl"));
+    }
+
+    // A 0.9.6 rig file saved the two slip tiles as "skid" and "lockup" with
+    // one carrier each. Their amplitude, routes and carrier must come back
+    // under the new tiles so a tuned rig keeps feeling the same after the
+    // update, and the next save writes the new keys.
+    void haptics_legacySlipKeysMigrate()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        Config a; QVERIFY(a.load(anchor(dir).toStdString()));
+        QJsonObject rig = readObj(dir.path() + "/rig.json");
+        QJsonObject g = rig.value("global").toObject();
+        QJsonObject h = g.value("haptics").toObject();
+        h.remove("slipLat"); h.remove("slipLon");
+        QJsonObject skid;   skid["ampPct"] = 35.0;   skid["freqHz"] = 40.0; skid["jitter"] = 0.5;
+        QJsonArray sr; { QJsonObject ro; ro["axis"] = 3; ro["gain"] = 1.0; sr.append(ro); } skid["routes"] = sr;
+        QJsonObject lockup; lockup["ampPct"] = 60.0; lockup["freqHz"] = 7.0; lockup["jitter"] = 0.2;
+        QJsonArray lr; { QJsonObject ro; ro["axis"] = 0; ro["gain"] = 0.8; lr.append(ro); } lockup["routes"] = lr;
+        h["skid"] = skid; h["lockup"] = lockup;
+        g["haptics"] = h; rig["global"] = g;
+        writeText(dir.path() + "/rig.json", QJsonDocument(rig).toJson());
+
+        Config b; QVERIFY(b.load(anchor(dir).toStdString()));
+        const AppConfig& r = b.get();
+        const haptics::EffectParams& lat = r.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)];
+        const haptics::EffectParams& lon = r.hapticsFx[static_cast<size_t>(haptics::Effect::Lockup)];
+        QCOMPARE(lat.ampPct, 35.0); QCOMPARE(lat.jitter, 0.5);
+        QCOMPARE(lat.routes[0].axis, 3); QCOMPARE(lat.routes[0].gain, 1.0);
+        QVERIFY(lat.routes[0].part == haptics::Part::All);
+        QCOMPARE(r.hapticsSlipLat.aHz, 40.0);           // the old carrier became the scrub carrier
+        QCOMPARE(r.hapticsSlipLat.bHz, 11.0);           // the slide keeps its default
+        QCOMPARE(lon.ampPct, 60.0); QCOMPARE(lon.jitter, 0.2);
+        QCOMPARE(lon.routes[0].axis, 0); QCOMPARE(lon.routes[0].gain, 0.8);
+        QCOMPARE(r.hapticsSlipLon.aHz, 7.0);            // the old carrier became the lock carrier
+
+        // The load itself rewrote the file under the new keys (the web serves
+        // rig.json as is, so it must never see the retired keys), keeping
+        // the migrated tuning.
+        QJsonObject h2 = readObj(dir.path() + "/rig.json").value("global").toObject().value("haptics").toObject();
+        QVERIFY(h2.contains("slipLat") && h2.contains("slipLon"));
+        QVERIFY(!h2.contains("skid") && !h2.contains("lockup"));
+        QCOMPARE(h2.value("slipLat").toObject().value("ampPct").toDouble(), 35.0);
+        QCOMPARE(h2.value("slipLat").toObject().value("scrubHz").toDouble(), 40.0);
+        QCOMPARE(h2.value("slipLon").toObject().value("routes").toArray().at(0).toObject().value("gain").toDouble(), 0.8);
     }
 
     // Single-writer isolation: saveRig() must not rewrite host.json (and vice versa).

@@ -1,17 +1,25 @@
 # nullCAT Channel Exporter (SimHub plugin)
 
 Sends raw sim telemetry to nullCAT for the force-device effects (shifter,
-active pedal) and the haptic effect layer. One UDP line per tick, nothing
-else (wire protocol 1.2, see `Docs/PROTOCOL.md` in the nullCAT repo):
+active pedal) and the haptic effect layer. Up to three UDP lines per tick,
+nothing else (wire protocol 1.3, see `Docs/PROTOCOL.md` in the nullCAT
+repo):
 
     NULLCATX,<rpm>,<speedKmh>,<gear>,<clutchPct>,<throttlePct>,
              <brakePct>,<absActive>,<skid>,<lockup>,<roadNoise>,
-             <limiter>,<tcActive>,<curbs>
+             <limiter>,<tcActive>,<curbs>,<maxRpm>
+    NULLCATY,slipAngleFL=..,slipAngleFR=..,...   (the per-wheel channels you bind)
+    NULLCATY,game=..,car=..                      (once a second)
 
 All the feel and logic lives in nullCAT - this plugin never changes when
 effects do. Gear is numeric on the wire: `0` = neutral, `-1` = reverse.
-A channel the current game cannot feed sends 0, which leaves its effect
-silently inert on the rig.
+A channel the current game cannot feed is sent as 0 (the classic line) or
+not at all (the per-wheel line), which leaves its effect silently inert
+on the rig.
+
+SimHub is one sender among others: FlyPT Mover, SimTools or your own
+feeder can send the same lines (see the sender templates in
+`Docs/PROTOCOL.md`).
 
 ## Install
 
@@ -34,21 +42,54 @@ below it and is ignored by the plugin. The two settings everyone needs:
 ```
 
 `host` is the Pi or PC running nullCAT; use the same port as your motion
-telemetry (nullCAT tells the two streams apart by their headers). Without
+telemetry (nullCAT tells the streams apart by their headers). Without
 the file the plugin sends to `127.0.0.1:4444`.
 
 ## What is sent without any setup
 
-Nine channels come from SimHub's standard data and need nothing from you:
+Ten channels come from SimHub's standard data and need nothing from you:
 rpm, speed, gear, clutch, throttle, brake, ABS active, rev limiter
-(computed from rpm vs the car's max) and TC active. They drive the Engine,
-Gear shift, ABS, Limiter and TC effects.
+(computed from rpm vs the car's max), TC active and the car's max rpm.
+They drive the Engine, Gear shift, ABS, Limiter and TC effects. The game
+and car names go along once a second.
 
-## Optional: skid, lockup, road and kerb channels
+## Optional: per-wheel slip for the tyre effects
 
-These four are 0-100 magnitudes that SimHub has no standard property for
-(they vary by game), so you point each at ANY SimHub property that yields
-0-100. The annotated JSON has one line per channel:
+The Lateral slip and Longitudinal slip effects work per wheel. Bind the
+game's raw per-wheel fields and nullCAT does the rest (it holds the tyre
+model: where slip starts to matter, the limit, load weighting, how the
+texture changes as the slide grows). Each group needs all four wheels,
+in the order FL, FR, RL, RR:
+
+```json
+"slipAngleFLProp": "DataCorePlugin.GameRawData....",
+"slipAngleFRProp": "...",
+"slipAngleRLProp": "...",
+"slipAngleRRProp": "...",
+"slipAngleScale":  1
+```
+
+| Group | What to bind | Unit on the wire | Used by |
+|---|---|---|---|
+| `slipAngle*` | tyre slip angle per wheel | degrees (`slipAngleScale: 57.2958` for radians) | Lateral slip |
+| `slipRatio*` | longitudinal slip ratio per wheel | signed ratio, -1 = locked | Longitudinal slip |
+| `wheelSpeed*` | wheel rotational speed per wheel | any unit; nullCAT learns the rolling factor | Longitudinal slip, when the game has no slip ratio |
+| `load*` | vertical tyre load per wheel | any unit (ratios only) | weights the loaded tyre up (optional) |
+| `suspVel*` | suspension velocity per corner | mm/s (`suspVelScale: 1000` for m/s) | reserved for the per-corner road effect |
+
+Which fields exist depends on the game. Assetto Corsa, Competizione and
+EVO expose slip angle, slip ratio and (AC, EVO) load per wheel; rFactor 2
+and Le Mans Ultimate expose the contact-patch velocities and tyre load;
+Automobilista 2 exposes wheel speeds (`mTyreRPS`) and suspension
+velocities but no slip, so bind `wheelSpeed*` there; iRacing exposes
+suspension velocities only. The raw fields are listed in SimHub under
+Settings, Properties, filtered on `GameRawData`.
+
+## Optional: the single magnitude channels
+
+Where a game gives nothing per wheel, the four 0-100 magnitudes still
+work. `skid` and `lockup` are the fallback for the two slip effects (they
+feed all four wheels at once); `road` and `curbs` drive their own effects.
 
 ```json
 "skidProp":   "",
@@ -63,14 +104,16 @@ looks like `PluginName.Section.ValueName`, for example
 `DataCorePlugin.GameData.Brake` (that one is the brake, already sent).
 You can also build your own with an NCalc formula, and ShakeIt effects can
 be exported as properties from the effect's settings; both then appear in
-the same list. Empty = that channel sends 0 and its effect stays silent.
-Values are clamped to 0-100.
+the same list. Empty = not sent and its effect stays silent. Magnitudes
+are clamped to 0-100; per-wheel values are sent as they are, times the
+group's scale.
 
 ## nullCAT side
 
-Nothing to bind: a fresh rig config ships with all 13 channels bound in
-this plugin's slot order. If you have changed them, the Sim channels
-section of the web Setup view has a "Reset to defaults" button.
+Nothing to bind: a fresh rig config ships with every channel bound in
+this plugin's slot order, and the per-wheel line names its channels
+itself. If you have changed the bindings, the Sim channels section of the
+web Setup view has a "Reset to defaults" button.
 
 See the Haptics section of `Docs/DEVICES.md` in the nullCAT repository
 for what each effect does, which channels it needs, and how to tune it.
