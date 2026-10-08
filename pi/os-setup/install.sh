@@ -375,9 +375,9 @@ DEST="/opt/nullcat/versions/v${NULLCAT_VERSION}"
 # SAME version, /opt/nullcat/current points INTO ${DEST}, so the rm -rf
 # below would destroy the only copy of the operator's edits (found the
 # hard way: bench-tuned device curves vanished on a same-version
-# re-install). carcache.json and devicepresets.json are learned/authored
-# state and ferry with the config.
-CFG_FILES="host.json rig.json buttons.json carcache.json devicepresets.json"
+# re-install). carcache.json, devicepresets.json, effectstatus.json and
+# profiles.json are learned/authored state and ferry with the config.
+CFG_FILES="host.json rig.json buttons.json carcache.json devicepresets.json effectstatus.json profiles.json"
 CFG_STASH="$(mktemp -d)"
 for f in ${CFG_FILES}; do
     if sudo test -f "/opt/nullcat/current/${f}"; then

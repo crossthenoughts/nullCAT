@@ -1095,9 +1095,33 @@ function hapChanSpec(entry){
   const optional=entry.startsWith('~'); const body=optional?entry.slice(1):entry;
   const alts=body.split('|');
   const expand=(a)=>a.endsWith('*')?NCX_TOKENS.filter(t=>t.startsWith(a.slice(0,-1))):[a];
-  return {label:body, optional,
-    ok:(have)=>alts.some(a=>{ const toks=expand(a); return toks.length>0&&toks.every(t=>!!have[NCX_TOKENS.indexOf(t)]); })};
+  const altOk=(a,have)=>{ const toks=expand(a); return toks.length>0&&toks.every(t=>!!have[NCX_TOKENS.indexOf(t)]); };
+  return {label:body, optional, alts,
+    ok:(have)=>alts.some(a=>altOk(a,have)),
+    // The alternative actually feeding the law: the first one present
+    // (the laws prefer per-wheel data over a magnitude in the same order).
+    live:(have)=>alts.find(a=>altOk(a,have))||null,
+    // Chip text with the live value and its session peak beside a plain
+    // token (flags and gear show no number; a wheel group's numbers are on
+    // the tile's per-wheel line instead).
+    text:(have,vals,pks)=>{
+      const a=alts.find(x=>altOk(x,have));
+      if(!a||a.endsWith('*')) return body;
+      const i=NCX_TOKENS.indexOf(a); if(i<0) return body;
+      if(HAP_FLAG_TOKENS.includes(a)) return body;
+      const v=+vals[i]||0, pk=+pks[i]||0;
+      return body+' '+hapNum(v)+(a==='gear'?'':'/'+hapNum(pk)); }};
 }
+const HAP_FLAG_TOKENS=['absActive','limiter','tcActive','pitLimiter'];
+// Which status hapWheels set a tile's per-wheel line reads (-1 = none):
+// 0 lateral severity, 1 longitudinal severity, 2 road replay travel mm.
+function hapWheelSet(k){ return k==='slipLat'?0:k==='slipLon'?1:k==='road'?2:-1; }
+// The trims that belong to one input path or the other: when per-wheel
+// data is live the magnitude trim is dimmed, and vice versa, so only the
+// trim that acts on what is arriving reads as live.
+const HAP_TRIM_WHEEL=['peakDeg','peakRatio','fullMm','hpHz'], HAP_TRIM_MAG=['peakPct'];
+// Compact number for the readouts: integers as is, else up to 2 decimals.
+function hapNum(v){ v=+v||0; return Number.isInteger(v)?String(v):(Math.abs(v)>=100?v.toFixed(0):Math.abs(v)>=10?v.toFixed(1):v.toFixed(2)); }
 
 /* Every axis is a routing destination. A torque axis (belt, device) takes
    a plain gain (x); a position (CSP) axis takes a gain in mm at 100%
@@ -1177,16 +1201,24 @@ function hapWave(svg,fx,dv,ph,level){
   svg.innerHTML='<polyline points="'+pts.join(' ')+'"/>';
   svg.setAttribute('viewBox','0 0 '+W+' '+H);
 }
-// Scroll the preview for ms, then settle back to the flat line.
-function hapAnimate(svg,fx,dv,ms){
+// Scroll the preview for ms, then settle back to the flat line. tag
+// names the source on the wave ('test') while it runs.
+function hapAnimate(svg,fx,dv,ms,tag){
   const t0=performance.now();
   const frame=(now)=>{
     const el=now-t0;
-    if(el>=ms){ hapWave(svg,fx,dv); return; }
+    if(el>=ms){ hapWave(svg,fx,dv); hapWaveTag(svg,''); return; }
     hapWave(svg,fx,dv,el/1000);
+    if(tag) hapWaveTag(svg,tag);
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
+}
+// The source tag in the wave's corner: 'test' during a preview, 'live x'
+// (the live level) while sim data drives the effect, empty when idle.
+function hapWaveTag(svg,text){
+  const el=svg&&svg.parentElement?svg.parentElement.querySelector('[data-wtag]'):null;
+  if(el&&el.textContent!==text) el.textContent=text;
 }
 
 function hapChipText(dv){
@@ -1402,13 +1434,31 @@ function hapLive(s){
     // Channel-health chip: token names with a live tick/cross.
     const ch=t.tile.querySelector('[data-chan]');
     if(ch&&t.fx.chan&&Array.isArray(s.ncxHave)){
-      let allOk=true;
+      let allOk=true, wheelLive=false, magLive=false;
+      const vals=Array.isArray(s.ncxVal)?s.ncxVal:[], pks=Array.isArray(s.ncxPk)?s.ncxPk:[];
       ch.textContent=t.fx.chan.map(entry=>{
         const sp=hapChanSpec(entry); const ok=sp.ok(s.ncxHave);
         if(!sp.optional) allOk=allOk&&ok;
-        return sp.label+(ok?' ✓':(sp.optional?' ·':' ✗'));
+        // Which path feeds a two-path entry (per-wheel group or magnitude).
+        if(sp.alts.length>1){ const a=sp.live(s.ncxHave); if(a){ if(a.endsWith('*')) wheelLive=true; else magLive=true; } }
+        return sp.text(s.ncxHave,vals,pks)+(ok?' ✓':(sp.optional?' ·':' ✗'));
       }).join('  ');
       ch.classList.toggle('bad',!allOk);
+      // Only the trim that acts on the live path reads as live.
+      t.tile.querySelectorAll('[data-pk]').forEach(row=>{
+        const key=row.dataset.pk;
+        const dim=(wheelLive&&HAP_TRIM_MAG.includes(key))||(magLive&&!wheelLive&&HAP_TRIM_WHEEL.includes(key));
+        row.classList.toggle('dim',dim);
+        row.title=dim?(wheelLive?'Per-wheel data is live: this trim applies to the single-channel fallback only':'The single channel is live: this trim applies to per-wheel data only'):'';
+      });
+    }
+    // Per-wheel readout: now/peak per corner from the matching status set.
+    const wl=t.tile.querySelector('[data-wheels]');
+    if(wl&&Array.isArray(s.hapWheels)&&Array.isArray(s.hapWheelsPk)){
+      const k=+wl.dataset.wheels, now=s.hapWheels[k]||[], pk=s.hapWheelsPk[k]||[];
+      const f=(v)=>(k===2?(+v||0).toFixed(1):(+v||0).toFixed(2));
+      wl.textContent=['FL','FR','RL','RR'].map((n,i)=>n+' '+f(now[i])+'/'+f(pk[i])).join('  ');
+      wl.classList.toggle('hot',pk.some(v=>+v>0.05));
     }
     if(t.fx.transient){
       if(firedEdge&&t.dv.ampPct>0&&!t.anim){
@@ -1418,17 +1468,25 @@ function hapLive(s){
       }
     }else if(t.fx.fxIdx!==undefined&&Array.isArray(s.hapFx)){
       t.level=+s.hapFx[t.fx.fxIdx]||0;
+      // Driven level (before amp/route gating) with its session peak: the
+      // input readout for effects without a per-wheel line.
+      if(Array.isArray(s.hapIn)){
+        const inNow=+s.hapIn[t.fx.fxIdx]||0, inPk=+(s.hapInPk||[])[t.fx.fxIdx]||0;
+        t.inText='in '+inNow.toFixed(2)+'/'+inPk.toFixed(2);
+      }
       if(t.level>0.05&&!t.anim){
         t.anim=true;
         const t0=performance.now();
         const frame=(now)=>{
           if(t.level<=0.05||!document.body.contains(t.svg)){
-            t.anim=false; hapWave(t.svg,t.fx,t.dv); return; }
+            t.anim=false; hapWave(t.svg,t.fx,t.dv); hapWaveTag(t.svg,''); return; }
           hapWave(t.svg,t.fx,t.dv,(now-t0)/1000,t.level);   // live level scales height
+          hapWaveTag(t.svg,t.testUntil>now?'test':'live '+t.level.toFixed(2));
           requestAnimationFrame(frame);
         };
         requestAnimationFrame(frame);
       }
+      const it=t.tile.querySelector('[data-in]'); if(it&&t.inText) it.textContent=t.inText;
     }
   }
 }
@@ -1549,9 +1607,18 @@ function hapInit(){
     h+=(fx.chan&&fx.chan.length)
       ?'<div class="hk hchan" data-chan="1">'+fx.chan.map(e=>hapChanSpec(e).label).join(' ')+'</div>'
       :'<div class="hk hchan"></div>';
-    h+='<svg class="hap-wave"></svg><div class="hrows">';
+    // The wave carries a source tag (live input vs Test) so a moving wave
+    // with nothing felt reads as "live input, small", not as stuck.
+    h+='<div class="hap-wwrap"><svg class="hap-wave"></svg><span class="hap-wtag" data-wtag="1"></span></div>';
+    // Per-wheel readout (slip severities 0..1, road travel mm): value and
+    // session peak per corner. Test drives 1.00 on every wheel, so the
+    // line is the direct comparison; the peak holds until Reset peaks.
+    const wset=hapWheelSet(fx.k);
+    if(wset>=0) h+='<div class="hk hwheels" data-wheels="'+wset+'" title="Per wheel: now/peak since Reset peaks (Test = 1.00 on every wheel)">FL -  FR -  RL -  RR -</div>';
+    else if(!fx.transient&&fx.fxIdx!==undefined) h+='<div class="hk hwheels" data-in="1" title="What this effect is driven with: now/peak since Reset peaks (Test = 1.00)">in -</div>';
+    h+='<div class="hrows">';
     for(const [key,lab,min,max,st,opts] of fx.params){
-      h+='<div class="hr"><span class="hk">'+lab+'</span>';
+      h+='<div class="hr" data-pk="'+key+'"><span class="hk">'+lab+'</span>';
       if(opts)   // a choice, not a number: value = option index
         h+='<select data-k="'+key+'">'+opts.map((o,i)=>'<option value="'+i+'"'+(Math.round(+dv[key])===i?' selected':'')+'>'+o+'</option>').join('')+'</select></div>';
       else
@@ -1569,7 +1636,7 @@ function hapInit(){
       tile.classList.toggle('on',dv.ampPct>0);
       refreshDirtyUI();
     }; });
-    hapTiles[fx.k]={svg,fx,dv,tile,level:0,anim:false};
+    hapTiles[fx.k]={svg,fx,dv,tile,level:0,anim:false,testUntil:0,inText:''};
     tile.querySelector('.hap-routechip').onclick=()=>hapDrawerRender(fx);
     tile.querySelector('[data-test]').onclick=async(ev)=>{
       const b=ev.target; b.disabled=true;
@@ -1581,7 +1648,9 @@ function hapInit(){
         const m=$('hapMsg');
         if(j.ok){
           if(m) m.textContent='';
-          hapAnimate(svg,fx,dv, fx.transient?Math.max(400,(+dv.durMs||18)*4):2000);
+          const ms=fx.transient?Math.max(400,(+dv.durMs||18)*4):2000;
+          const t=hapTiles[fx.k]; if(t) t.testUntil=performance.now()+ms;
+          hapAnimate(svg,fx,dv,ms,'test');
         }else if(m){
           m.textContent='Test refused: '+(j.error||'no response');
           setTimeout(()=>{ if(m.textContent.startsWith('Test refused')) m.textContent=''; },6000);

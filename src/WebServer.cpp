@@ -397,9 +397,39 @@ std::string WebServer::buildStatusJson() const
         s += "\"hapFx\":[";
         for (int i = 0; i < haptics::FX_TYPE_COUNT; ++i)
             s += (i ? "," : "") + jsonDouble(ms.hapticsFxLevel[i], 3);
+        // Tile readouts: what each effect is driven with (hapIn, with its
+        // session peak hapInPk), the per-wheel sets [lateral severity,
+        // longitudinal severity, road travel mm] now and at peak, and the
+        // channel values with their peaks (same order as ncxHave).
+        s += "],\"hapIn\":[";
+        for (int i = 0; i < haptics::FX_TYPE_COUNT; ++i)
+            s += (i ? "," : "") + jsonDouble(ms.hapticsIn[i], 3);
+        s += "],\"hapInPk\":[";
+        for (int i = 0; i < haptics::FX_TYPE_COUNT; ++i)
+            s += (i ? "," : "") + jsonDouble(ms.hapticsInPk[i], 3);
+        s += "],\"hapWheels\":[";
+        for (int k = 0; k < MotionStatus::HAP_WHEEL_SETS; ++k)
+        {
+            s += (k ? ",[" : "[");
+            for (int w = 0; w < 4; ++w) s += (w ? "," : "") + jsonDouble(ms.hapticsWheel[k][w], 3);
+            s += "]";
+        }
+        s += "],\"hapWheelsPk\":[";
+        for (int k = 0; k < MotionStatus::HAP_WHEEL_SETS; ++k)
+        {
+            s += (k ? ",[" : "[");
+            for (int w = 0; w < 4; ++w) s += (w ? "," : "") + jsonDouble(ms.hapticsWheelPk[k][w], 3);
+            s += "]";
+        }
         s += "],\"ncxHave\":[";
         for (int i = 0; i < NcxValues::TokenCount; ++i)
             s += std::string(i ? "," : "") + (ms.ncxHave[i] ? "true" : "false");
+        s += "],\"ncxVal\":[";
+        for (int i = 0; i < NcxValues::TokenCount; ++i)
+            s += (i ? "," : "") + jsonDouble(ms.ncxVal[i], 3);
+        s += "],\"ncxPk\":[";
+        for (int i = 0; i < NcxValues::TokenCount; ++i)
+            s += (i ? "," : "") + jsonDouble(ms.ncxPk[i], 3);
         s += "],";
         // Sim identity from NULLCATY (empty until a sender names it).
         if (m_telemetry)
@@ -2088,6 +2118,9 @@ bool WebServer::start()
         {
             if (!m_loop) { errResp(res, "Components not ready."); return; }
             m_loop->requestStatsReset();
+            // The haptic tile peaks go with the drive peaks; asked for
+            // directly as well so the idle clock (loop stopped) honours it.
+            if (m_motion) m_motion->requestHapticPeakReset();
             okResp(res);
         });
 

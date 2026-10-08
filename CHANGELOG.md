@@ -106,8 +106,34 @@ Development branch. Nothing here is in a release yet.
   "up to X mm" per axis before anything is played. The offset rides on
   the motion cue, which keeps priority, and the sum stays inside the
   axis limits. PP-mode axes take no haptics.
+- Tile readouts: every effect tile shows what it is being fed. The
+  channel chip carries each bound channel's live value and its session
+  peak (`skid 23/41`), the two slip tiles and Road show a per-wheel
+  now/peak line (Test is 1.00 on every wheel, so a lap reads against it
+  directly), the other tiles an `in now/peak`, and the wave is tagged
+  `test` or `live x` so a moving wave with nothing felt reads as small
+  live input rather than a stuck effect. The peaks hold until **Reset
+  peaks** in the header, the same button that re-baselines the drive
+  cards, so a slide can be read after the sim gives the screen back.
+- `peak %` on the magnitude-fed paths (the slip tiles' single-channel
+  fallback, Kerb, Road's texture): the channel value that counts as full
+  severity, so a property that only reaches 25 in a burnout still gives
+  a full slide. The tile dims whichever trim does not act on the input
+  path that is live (per-wheel data or the single channel).
+- `ncxFrozenMs` in host.json: the frozen-stream guard is now off by
+  default and opt-in with a window, because a car idling at a standstill
+  sends identical packets too and the guard muted the engine after two
+  seconds in the pits. The SimHub plugin goes quiet on pause by itself.
 
 ### Changed
+- Route gains are validated per destination: a position axis takes mm
+  up to its own Haptic max, a torque axis or shaker a 0 to 2 multiplier.
+  The validator used to stop every route at 2 while the route editor
+  offered the axis cap, so a 2.5 mm route on a 3 mm axis was refused on
+  Save.
+- Slip at a standstill: the lateral fallback is speed-gated like the
+  longitudinal one (nothing below 5 km/h), so a held skid value from a
+  stationary car no longer plays.
 - Haptics strip: tiles pack into columns top to bottom, so the tall
   Engine tile sits beside a stack of short ones instead of stretching
   every tile in its row to its own height.

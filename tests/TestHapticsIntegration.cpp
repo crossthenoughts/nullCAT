@@ -72,7 +72,8 @@ static AppConfig makeBeltConfig(double skidAmp, double routeGain)
     return cfg;
 }
 
-// Motion frame (belt demand zero) + a NULLCATX frame with the skid channel.
+// Motion frame (belt demand zero) + a NULLCATX frame with the skid channel,
+// rolling at 80 km/h (the slip laws are silent at a standstill).
 static TelemetryData frame(double skidPct, bool fresh, double raw0 = 0.0)
 {
     TelemetryData sd{};
@@ -82,6 +83,7 @@ static TelemetryData frame(double skidPct, bool fresh, double raw0 = 0.0)
     sd.positions[1] = 32767.0;
     sd.packetType   = TelemetryPacketType::Motion;
     sd.numNcx       = 13;
+    sd.ncx[static_cast<int>(NcxValues::SpeedKmh)] = 80.0;
     sd.ncx[static_cast<int>(NcxValues::Skid)] = skidPct;
     sd.ncxFresh     = fresh;
     return sd;
@@ -219,10 +221,28 @@ int main()
         v.val[NcxValues::BrakePct] = 60.0; settle(100);
         check(L.fxLevel(static_cast<int>(haptics::FxType::AbsPulse)) > 0.9,  "I-7 ABS flag + brake drives the pulse");
 
-        // Single skid channel (fallback): 50 -> every wheel at 0.5 -> tile level 0.5.
+        // Single skid channel (fallback): 50 -> every wheel at 0.5 -> tile
+        // level 0.5. Only while rolling: a stationary car's skid value is
+        // noise (the 0.9.7 bench read a held value at a standstill).
         v.val[NcxValues::Skid] = 50.0; settle(200);
+        check(L.fxLevel(static_cast<int>(haptics::FxType::Skid)) < 0.01, "I-7 skid at a standstill is silent");
+        v.val[NcxValues::SpeedKmh] = 60.0; settle(200);
         check(std::fabs(L.fxLevel(static_cast<int>(haptics::FxType::Skid)) - 0.5) < 0.05, "I-7 skid 50 drives level 0.5");
         check(std::fabs(L.slipWheelLevel(haptics::FxType::Skid, WheelRR) - 0.5) < 0.05, "I-7 single skid channel reaches every wheel");
+        // peak %: the channel value that counts as a full slide. 25 ->
+        // skid 50 is clamped to full, skid 12.5 is halfway. Kerb the same.
+        {
+            haptics::EffectParams q = p; q.peakPct = 25.0;
+            L.configureFx(haptics::FxType::Skid, q); L.configureFx(haptics::FxType::Kerb, q);
+            settle(200);
+            check(L.slipWheelLevel(haptics::FxType::Skid, WheelFL) > 0.95, "I-7 peak % 25: skid 50 is a full slide");
+            v.val[NcxValues::Skid] = 12.5; settle(300);
+            check(std::fabs(L.slipWheelLevel(haptics::FxType::Skid, WheelFL) - 0.5) < 0.05, "I-7 peak % 25: skid 12.5 is halfway");
+            v.val[NcxValues::Curbs] = 25.0; settle(200);
+            check(L.fxLevel(static_cast<int>(haptics::FxType::Kerb)) > 0.95, "I-7 peak % 25: curbs 25 is a full kerb");
+            v.val[NcxValues::Curbs] = 0.0;
+            L.configureFx(haptics::FxType::Skid, p); L.configureFx(haptics::FxType::Kerb, p);
+        }
         v.val[NcxValues::Skid] = 0.0; settle(300);
 
         // Flag channel: TC.

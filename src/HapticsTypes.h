@@ -112,6 +112,11 @@ struct EffectParams
     double freqHz = 90.0;   // burst/texture carrier (engine: thump carrier)
     double durMs  = 18.0;   // burst length (transients only)
     double jitter = 0.0;    // 0..1 carrier roughness (engine: lope)
+    // Effects fed by a 0..100 magnitude channel (kerb, road texture, the
+    // slip tiles' single-channel fallback): the channel value that counts
+    // as full severity. A property that peaks at 25 in a burnout gets
+    // peakPct 25, same idea as the per-wheel tiles' peak deg / peak ratio.
+    double peakPct = 100.0;
     Route  routes[MAX_ROUTES] = {};
 };
 

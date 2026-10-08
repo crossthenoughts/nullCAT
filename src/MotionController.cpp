@@ -711,9 +711,48 @@ void MotionController::publishHapticsStatusLocked()
         m_statusSnapshot.hapticsFiredBy[i] = m_haptics.fireCount(static_cast<haptics::EventType>(i));
     m_statusSnapshot.hapticsMuted = m_haptics.muted();
     for (int i = 0; i < haptics::FX_TYPE_COUNT; ++i)
+    {
         m_statusSnapshot.hapticsFxLevel[i] = m_haptics.fxOutputLevel(i);   // felt, not driven
+        m_statusSnapshot.hapticsIn[i]      = m_haptics.fxLevel(i);         // driven
+        m_statusSnapshot.hapticsInPk[i]    = m_hapInPk[i];
+    }
+    for (int w = 0; w < 4; ++w)
+    {
+        m_statusSnapshot.hapticsWheel[0][w] = m_haptics.slipWheelLevel(haptics::FxType::Skid, w);
+        m_statusSnapshot.hapticsWheel[1][w] = m_haptics.slipWheelLevel(haptics::FxType::Lockup, w);
+        m_statusSnapshot.hapticsWheel[2][w] = m_haptics.roadWheelTravelMm(w);
+        for (int s = 0; s < MotionStatus::HAP_WHEEL_SETS; ++s)
+            m_statusSnapshot.hapticsWheelPk[s][w] = m_hapWheelPk[s][w];
+    }
     for (int i = 0; i < NcxValues::TokenCount; ++i)
+    {
         m_statusSnapshot.ncxHave[i] = m_ncxHaveSnapshot[i];
+        m_statusSnapshot.ncxVal[i]  = m_ncxValSnapshot[i];
+        m_statusSnapshot.ncxPk[i]   = m_ncxPk[i];
+    }
+}
+
+// Session peaks of the tile readouts, taken every haptics step (the
+// status publish is try-lock and may skip a cycle; a peak must not).
+// Peaks hold the magnitude: a signed slip angle peaks at its |value|.
+void MotionController::trackHapticPeaks()
+{
+    if (m_hapPeakReset.exchange(false, std::memory_order_acq_rel))
+    {
+        for (double& p : m_hapInPk) p = 0.0;
+        for (auto& set : m_hapWheelPk) for (double& p : set) p = 0.0;
+        for (double& p : m_ncxPk) p = 0.0;
+    }
+    for (int i = 0; i < haptics::FX_TYPE_COUNT; ++i)
+        m_hapInPk[i] = std::max(m_hapInPk[i], m_haptics.fxLevel(i));
+    for (int w = 0; w < 4; ++w)
+    {
+        m_hapWheelPk[0][w] = std::max(m_hapWheelPk[0][w], m_haptics.slipWheelLevel(haptics::FxType::Skid, w));
+        m_hapWheelPk[1][w] = std::max(m_hapWheelPk[1][w], m_haptics.slipWheelLevel(haptics::FxType::Lockup, w));
+        m_hapWheelPk[2][w] = std::max(m_hapWheelPk[2][w], std::fabs(m_haptics.roadWheelTravelMm(w)));
+    }
+    for (int i = 0; i < NcxValues::TokenCount; ++i)
+        if (m_ncxHaveSnapshot[i]) m_ncxPk[i] = std::max(m_ncxPk[i], std::fabs(m_ncxValSnapshot[i]));
 }
 
 void MotionController::startUnpark(A6Drive** drives, int numHwDrives)
@@ -1843,6 +1882,7 @@ void MotionController::hapticsIdleTick(const TelemetryData& td)
     applyStagedHaptics();
     driveContinuousHaptics(td);
     m_haptics.step(m_cycleTimeSec);
+    trackHapticPeaks();
     pushShakers();
     {
         std::unique_lock<std::shared_mutex> lock(m_statusLock, std::try_to_lock);
@@ -1859,7 +1899,10 @@ void MotionController::driveContinuousHaptics(const TelemetryData& td)
     const NcxValues v = m_ncxMap.extract(td);
     haptics::driveLaws(m_haptics, m_hapLaws, v, m_cycleTimeSec, &m_ratioLearner.ratios());
     for (int i = 0; i < NcxValues::TokenCount; ++i)
+    {
         m_ncxHaveSnapshot[i] = v.fresh && v.have[i];
+        m_ncxValSnapshot[i]  = m_ncxHaveSnapshot[i] ? v.val[i] : 0.0;
+    }
 }
 
 double MotionController::stepDeviceOnline(int i, AxisMotionState& /*state*/,
@@ -1986,6 +2029,7 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
         if (estopNow) m_haptics.clearAll();
         else          driveContinuousHaptics(telemetryData);
         m_haptics.step(m_cycleTimeSec);
+        trackHapticPeaks();
         pushShakers();
         m_hapticsBusy.store(false, std::memory_order_release);
     }

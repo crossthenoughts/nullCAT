@@ -118,7 +118,7 @@ private slots:
         for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
         {
             haptics::EffectParams& p = c.hapticsFx[static_cast<size_t>(i)];
-            p.ampPct = 10.0 + i; p.freqHz = 20.0 + i; p.durMs = 20.0; p.jitter = 0.05 * i;
+            p.ampPct = 10.0 + i; p.freqHz = 20.0 + i; p.durMs = 20.0; p.jitter = 0.05 * i; p.peakPct = 30.0 + i;
             p.routes[0] = { 0, 0.5 + 0.1 * i }; p.routes[1] = { 1, 1.0 };
         }
         c.hapticsEngine.cylinders = 8; c.hapticsEngine.litres = 6.5; c.hapticsEngine.layout = 1;
@@ -152,6 +152,7 @@ private slots:
         {
             const haptics::EffectParams& p = r.hapticsFx[static_cast<size_t>(i)];
             QCOMPARE(p.ampPct, 10.0 + i); QCOMPARE(p.freqHz, 20.0 + i); QCOMPARE(p.jitter, 0.05 * i);
+            QCOMPARE(p.peakPct, 30.0 + i);
             QCOMPARE(p.routes[0].axis, 0); QCOMPARE(p.routes[0].gain, 0.5 + 0.1 * i);
             QCOMPARE(p.routes[1].axis, 1); QCOMPARE(p.routes[1].gain, 1.0);
             QCOMPARE(p.routes[2].axis, -1);
@@ -242,10 +243,13 @@ private slots:
         double fx[haptics::FX_TYPE_COUNT] = {};
         uint64_t fired[haptics::EVENT_TYPE_COUNT] = {};
 
-        // Channel spec matching: "a|b", "group*", "~optional".
+        // Channel spec matching: "a|b", "group*", "~optional". Lateral slip
+        // needs road speed as well (silent at a standstill).
         QVERIFY(!EffectStatus::channelsDelivered(effectInfo(Effect::Skid), have));
         have[NcxTok::Skid] = true;
-        QVERIFY2(EffectStatus::channelsDelivered(effectInfo(Effect::Skid), have), "skid alone satisfies slipAngle*|skid");
+        QVERIFY2(!EffectStatus::channelsDelivered(effectInfo(Effect::Skid), have), "skid without speed is not delivered");
+        have[NcxTok::SpeedKmh] = true;
+        QVERIFY2(EffectStatus::channelsDelivered(effectInfo(Effect::Skid), have), "skid + speed satisfies slipAngle*|skid, speedKmh");
         have[NcxTok::Skid] = false;
         for (int w = 0; w < 3; ++w) have[NcxTok::SlipAngleFL + w] = true;
         QVERIFY2(!EffectStatus::channelsDelivered(effectInfo(Effect::Skid), have), "three of four wheels is not the group");

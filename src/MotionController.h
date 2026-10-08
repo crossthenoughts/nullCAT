@@ -118,6 +118,19 @@ struct MotionStatus
     bool            hapticsMuted                  = false;
     double          hapticsFxLevel[haptics::FX_TYPE_COUNT] = {};
     bool            ncxHave[NcxValues::TokenCount]          = {};
+    // What each effect is being DRIVEN with (0..1, before amp/route/mute
+    // gating) and the per-wheel severities of the two slip tiles plus the
+    // Road replay's per-corner travel (mm), each with a session peak that
+    // holds until Reset peaks: the tile readouts, so a session's worst
+    // slide can be read after the sim gave the screen back. Same for the
+    // channel values themselves (the chip shows value and peak).
+    static constexpr int HAP_WHEEL_SETS = 3;   // 0 lateral, 1 longitudinal, 2 road mm
+    double          hapticsIn     [haptics::FX_TYPE_COUNT] = {};
+    double          hapticsInPk   [haptics::FX_TYPE_COUNT] = {};
+    double          hapticsWheel  [HAP_WHEEL_SETS][4]      = {};
+    double          hapticsWheelPk[HAP_WHEEL_SETS][4]      = {};
+    double          ncxVal[NcxValues::TokenCount]          = {};
+    double          ncxPk [NcxValues::TokenCount]          = {};
 };
 
 class MotionController
@@ -313,7 +326,15 @@ public:
 
     // Guard diagnostics (per-axis CSP conditioner). resetGuardStats() at loop-start;
     // getGuardStats(i) read live for the cards and at loop-stop for the session log.
-    void    resetGuardStats() { for (int i = 0; i < MAX_DRIVES; ++i) m_runtime[i].onlineCond.resetGuardStats(); }
+    void    resetGuardStats()
+    {
+        for (int i = 0; i < MAX_DRIVES; ++i) m_runtime[i].onlineCond.resetGuardStats();
+        requestHapticPeakReset();
+    }
+    // Haptic session peaks (tile readouts) re-baseline with the drive
+    // peaks: Reset peaks in the header, and every loop start. Consumed by
+    // whichever path steps the haptics next (RT loop or idle clock).
+    void    requestHapticPeakReset() { m_hapPeakReset.store(true, std::memory_order_release); }
     CommandConditioner::GuardStats getGuardStats(int i) const
     {
         if (i < 0 || i >= MAX_DRIVES) return {};
@@ -484,8 +505,11 @@ private:
     HapticsStage     m_hapStage;
     std::mutex       m_hapStageLock;
     std::atomic<bool> m_hapStagePending{false};
-    // Channel-health snapshot for the status surface.
+    // Channel-health snapshot for the status surface, the channel values
+    // beside it, and the session peaks (haptics-thread owned; copied into
+    // the snapshot by publishHapticsStatusLocked).
     bool             m_ncxHaveSnapshot[NcxValues::TokenCount] = {};
+    void trackHapticPeaks();
     // Per-car gear-ratio learner (survives configure(): re-init must not
     // forget a session's driving; only setCarCache() reseeds the cache).
     GearRatioLearner m_ratioLearner;
@@ -567,4 +591,10 @@ private:
     void processHomingAxis(int i, A6Drive* drive, MotionOutput& output);
     void processDeviceHomingAxis(int i, A6Drive* drive, MotionOutput& output);
     void clearAxisLimits(int axis, A6Drive* drive);  // widen stale post-fault limits before rehome
+
+    double           m_ncxValSnapshot [NcxValues::TokenCount] = {};
+    double           m_ncxPk          [NcxValues::TokenCount] = {};
+    double           m_hapInPk   [haptics::FX_TYPE_COUNT]    = {};
+    double           m_hapWheelPk[MotionStatus::HAP_WHEEL_SETS][4] = {};
+    std::atomic<bool> m_hapPeakReset{false};
 };

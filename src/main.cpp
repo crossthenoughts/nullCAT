@@ -143,6 +143,7 @@ int main(int argc, char* argv[])
 
     // Telemetry UDP input
     TelemetryInput telemetry;
+    telemetry.setFrozenMs(cfg.ncxFrozenMs);
     if (!telemetry.initialize(cfg.telemetryPort, cfg.telemetryBindAddr))
     {
         LOG_WARNING(strf("TelemetryInput: Failed to bind UDP port %d. "

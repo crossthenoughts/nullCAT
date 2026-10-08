@@ -107,6 +107,14 @@ try {
     simDotsGrey:  document.querySelectorAll('#hapStrip .hap-tile [data-sdot].d0').length,
     gameSel:      !!document.getElementById('hapGameSel'),
     shakerFields: !!document.getElementById('cf-shakers') && !!document.getElementById('cf-audiodev2') && !!document.getElementById('hapAxisDelay'),
+    // Readouts: the two slip tiles and Road carry a per-wheel now/peak
+    // line, every other continuous tile an input now/peak line, every
+    // wave a source tag slot, and the magnitude-fed tiles a peak % trim.
+    wheelLines:   document.querySelectorAll('#hapStrip .hap-tile [data-wheels]').length,
+    inLines:      document.querySelectorAll('#hapStrip .hap-tile [data-in]').length,
+    waveTags:     document.querySelectorAll('#hapStrip .hap-tile [data-wtag]').length,
+    peakTrims:    document.querySelectorAll('#hapStrip .hap-tile input[data-k="peakPct"]').length,
+    wheelText:    (document.querySelector('#hapStrip .hap-tile[data-fx="slipLat"] [data-wheels]') || {}).textContent || '',
   }));
   // Open the Lateral slip tile's route drawer: a per-wheel effect lists a
   // part selector beside every axis gain.
@@ -141,6 +149,11 @@ try {
   if (st.simDotsGrey !== nEffects) fails.push(`${st.simDotsGrey} grey sim dots with no sim, expected ${nEffects}`);
   if (!st.gameSel)              fails.push('no game selector on the Master tile');
   if (!st.shakerFields)         fails.push('shaker host fields or the axis delay field are missing');
+  if (st.wheelLines !== 3)      fails.push(`${st.wheelLines} per-wheel readout lines, expected 3 (Lateral, Longitudinal, Road)`);
+  if (st.inLines < 5)           fails.push(`${st.inLines} input readout lines, expected one per other continuous tile`);
+  if (st.waveTags !== nEffects) fails.push(`${st.waveTags} wave source tags, expected one per effect tile (${nEffects})`);
+  if (st.peakTrims !== 4)       fails.push(`${st.peakTrims} peak % trims, expected 4 (two slip tiles, Kerb, Road)`);
+  if (!/FL 0\.00\/0\.00/.test(st.wheelText)) fails.push(`Lateral slip per-wheel line reads "${st.wheelText}", expected now/peak per corner from the status`);
   if (!drawer.chip)             fails.push('no route chip on the Lateral slip tile');
   else {
     if (drawer.hidden)          fails.push('route drawer did not open');

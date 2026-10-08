@@ -48,7 +48,7 @@ fresh_layout() {
     OPT="$T/opt"; rm -rf "$OPT"; mkdir -p "$OPT/versions/v$1/logs"
     printf '#!/usr/bin/env bash\n[ "$1" = --version ] && echo "%s"\n' "$1" > "$OPT/versions/v$1/nullcat-pi"
     chmod +x "$OPT/versions/v$1/nullcat-pi"
-    for f in host.json rig.json buttons.json carcache.json devicepresets.json effectstatus.json; do
+    for f in host.json rig.json buttons.json carcache.json devicepresets.json effectstatus.json profiles.json; do
         echo "{\"file\":\"$f\",\"from\":\"v$1\"}" > "$OPT/versions/v$1/$f"
     done
     ln -sfn "$OPT/versions/v$1" "$OPT/current"
@@ -67,7 +67,7 @@ rc="$(run_update "$TB" 0.9.7)"
 check '[ "$rc" = 0 ]' "normal update exits 0"
 check '[ "$(readlink -f "$OPT/current")" = "$(readlink -f "$OPT/versions/v0.9.7")" ]' "current points at v0.9.7"
 check '[ "$("$OPT/current/nullcat-pi" --version)" = 0.9.7 ]' "the new binary is live"
-for f in host.json rig.json buttons.json carcache.json devicepresets.json effectstatus.json; do
+for f in host.json rig.json buttons.json carcache.json devicepresets.json effectstatus.json profiles.json; do
     check "grep -q '\"from\":\"v0.9.6\"' '$OPT/versions/v0.9.7/$f'" "config copied forward: $f"
 done
 check '[ ! -e "$OPT/versions/v0.9.7.new" ]' "no .new residue after the swap"

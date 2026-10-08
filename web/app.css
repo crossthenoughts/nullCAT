@@ -304,6 +304,15 @@ body[data-view="setup"] .vw-op{ display:none !important; }
 .hap-wave{ width:100%; height:26px; display:block; padding-bottom:5px;
   border-bottom:1.5px solid var(--hair); }
 .hap-wave polyline{ fill:none; stroke:var(--live); stroke-width:1.5; }
+/* Wave source tag ('test' / 'live 0.31') in the wave's corner, and the
+   per-wheel or input readout line (now/peak) under it. */
+.hap-wwrap{ position:relative; }
+.hap-wtag{ position:absolute; top:0; right:2px; font-family:var(--mono); font-size:.52rem;
+  letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft); pointer-events:none; }
+.hwheels{ font-family:var(--mono); font-size:.58rem; letter-spacing:.04em; color:var(--ink-soft);
+  font-variant-numeric:tabular-nums; white-space:pre; margin:2px 0 1px; }
+.hwheels.hot{ color:var(--ink); }
+.hr.dim{ opacity:.4; }
 .hrows{ display:flex; flex-direction:column; gap:3px; }
 .hr{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .hr .hk{ font-family:var(--mono); font-size:.6rem; letter-spacing:.08em;

@@ -84,6 +84,7 @@ constexpr ParamSpec kSlipLatParams[] = {        // lateral slip: scrub (fronts) 
     { "slideHz", "slide hz",   4,   30,  1,    nullptr },
     { "peakDeg", "peak deg",   2,   20,  0.5,  nullptr },
     { "jitter",  "jitter",     0,   1,   0.05, nullptr },
+    { "peakPct", "peak %",     1,   100, 1,    nullptr },   // skid channel fallback only
 };
 constexpr ParamSpec kSlipLonParams[] = {        // longitudinal slip: lock judder + spin tramp
     { "ampPct",    "amp %",      0,   100, 1,    nullptr },
@@ -93,15 +94,17 @@ constexpr ParamSpec kSlipLonParams[] = {        // longitudinal slip: lock judde
     { "spinHz",    "spin hz",    4,   30,  1,    nullptr },
     { "peakRatio", "peak ratio", 0.2, 2,   0.05, nullptr },
     { "jitter",    "jitter",     0,   1,   0.05, nullptr },
+    { "peakPct",   "peak %",     1,   100, 1,    nullptr },   // lockup channel fallback only
 };
 constexpr const char* kSlipLatKeys[5] = { "scrub", "scrubHz", "slide", "slideHz", "peakDeg" };
 constexpr const char* kSlipLonKeys[5] = { "lock", "lockHz", "spin", "spinHz", "peakRatio" };
 constexpr ParamSpec kRoadParams[] = {           // road: texture carrier + per-corner replay settings
-    { "ampPct", "amp %",     0,   100, 1,    nullptr },
-    { "freqHz", "freq hz",   10,  120, 1,    nullptr },
-    { "jitter", "jitter",    0,   1,   0.05, nullptr },
-    { "fullMm", "full mm",   0.5, 50,  0.5,  nullptr },
-    { "hpHz",   "cut hz",    0.5, 10,  0.5,  nullptr },
+    { "ampPct",  "amp %",     0,   100, 1,    nullptr },
+    { "freqHz",  "freq hz",   10,  120, 1,    nullptr },
+    { "jitter",  "jitter",    0,   1,   0.05, nullptr },
+    { "fullMm",  "full mm",   0.5, 50,  0.5,  nullptr },
+    { "hpHz",    "cut hz",    0.5, 10,  0.5,  nullptr },
+    { "peakPct", "peak %",    1,   100, 1,    nullptr },   // roadNoise texture fallback only
 };
 constexpr ParamSpec kDrivelineParams[] = {      // driveline: clutch judder + lugging wind-up
     { "ampPct",   "amp %",      0,   100, 1,    nullptr },
@@ -115,10 +118,16 @@ constexpr ParamSpec kDrivelineParams[] = {      // driveline: clutch judder + lu
     { "shuntHz",  "shunt hz",   20,  80,  1,    nullptr },
     { "jitter",   "jitter",     0,   1,   0.05, nullptr },
 };
-constexpr ParamSpec kTextureParams[] = {        // limiter, kerb
+constexpr ParamSpec kTextureParams[] = {        // limiter (flag-driven: nothing to trim)
     { "ampPct", "amp %",     0,   100, 1,    nullptr },
     { "freqHz", "freq hz",   10,  120, 1,    nullptr },
     { "jitter", "jitter",    0,   1,   0.05, nullptr },
+};
+constexpr ParamSpec kKerbParams[] = {           // kerb: magnitude-driven, so it has peak %
+    { "ampPct",  "amp %",     0,   100, 1,    nullptr },
+    { "freqHz",  "freq hz",   10,  120, 1,    nullptr },
+    { "jitter",  "jitter",    0,   1,   0.05, nullptr },
+    { "peakPct", "peak %",    1,   100, 1,    nullptr },
 };
 constexpr ParamSpec kEngineParams[] = {
     { "ampPct",    "amp %",                 0,   100,   1,    nullptr },
@@ -165,28 +174,30 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       { "brakePct", "absActive", nullptr }, { 0.0, 12.0, 0.0, 0.0 }, kPulseParams, 2,
       "Pulses while ABS cycles under braking. Needs the absActive and brakePct channels.", nullptr, {} },
     { Effect::Lockup,      "slipLon",     "Longitudinal slip", Kind::Slip, EventType::COUNT, FxType::Lockup,
-      { "slipRatio*|wheelSpeed*|lockup", "speedKmh", "~load*", nullptr }, { 0.0, 9.0, 0.0, 0.2 }, kSlipLonParams, 7,
+      { "slipRatio*|wheelSpeed*|lockup", "speedKmh", "~load*", nullptr }, { 0.0, 9.0, 0.0, 0.2 }, kSlipLonParams, 8,
       "Each wheel's tread slipping along the road, per wheel. Lock: a wheel turning slower than the car under "
       "braking, a heavy judder whose beat falls with road speed. Spin: a driven wheel turning faster than the car, "
       "the axle tramping at its own resonance. Severity rises from the slip ratio past the tyre's limit up to peak "
       "ratio; the loaded tyre is weighted up when wheel loads arrive. Route with a part (a corner, an axle, all) so "
       "the inside front locking judders that corner. Needs per-wheel slip ratios, or wheel speeds (the rolling "
-      "factor is learned while cruising), or the single lockup channel as a fallback.",
+      "factor is learned while cruising), or the single lockup channel as a fallback (peak % is the channel "
+      "value that counts as a full slide on that path).",
       kSlipLonKeys, { 1.0, 9.0, 1.0, 10.0, 0.8 } },
     { Effect::Skid,        "slipLat",     "Lateral slip", Kind::Slip, EventType::COUNT, FxType::Skid,
-      { "slipAngle*|skid", "~load*", nullptr }, { 0.0, 25.0, 0.0, 0.5 }, kSlipLatParams, 7,
+      { "slipAngle*|skid", "speedKmh", "~load*", nullptr }, { 0.0, 25.0, 0.0, 0.5 }, kSlipLatParams, 8,
       "The tyres sliding sideways, per wheel. Scrub: the fronts pushing wide, a fine fast texture. Slide: the "
       "rears stepping out, an irregular slower chatter. Severity rises from the slip angle past the tyre's limit "
       "up to peak deg; the carrier slows and roughens as it goes (squeal, moan, shudder) and the onset is abrupt. "
       "The loaded tyre is weighted up when wheel loads arrive. Route with a part (a corner, an axle, all). Needs "
-      "per-wheel slip angles, or the single skid channel as a fallback.",
+      "per-wheel slip angles, or the single skid channel as a fallback (peak % is the channel value that counts "
+      "as a full slide on that path). Nothing at a standstill.",
       kSlipLatKeys, { 1.0, 25.0, 1.0, 11.0, 7.0 } },
     { Effect::Road,        "road",        "Road",         Kind::Road, EventType::COUNT, FxType::Road,
-      { "suspVel*|roadNoise", nullptr }, { 0.0, 28.0, 0.0, 0.6 }, kRoadParams, 5,
+      { "suspVel*|roadNoise", nullptr }, { 0.0, 28.0, 0.0, 0.6 }, kRoadParams, 6,
       "The road surface. With per-corner suspension velocities from the sim it REPLAYS the road: each corner's "
       "travel, with the slow body motion cut away (cut hz) so only the bumps remain, at their real timing; full mm "
       "is the bump that counts as 100%. Route with a part so each actuator plays its own corner. Without them, a "
-      "texture at freq hz scaled by the roadNoise channel (0-100).", nullptr, {} },
+      "texture at freq hz scaled by the roadNoise channel, full at peak %.", nullptr, {} },
     { Effect::Limiter,     "limiter",     "Limiter",      Kind::Continuous, EventType::COUNT, FxType::Limiter,
       { "limiter", nullptr }, { 0.0, 12.0, 0.0, 0.15 }, kTextureParams, 3,
       "Extra hammer on top of the engine effect while the limiter is in (the engine effect already cuts "
@@ -196,8 +207,8 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       { "tcActive", nullptr }, { 0.0, 15.0, 0.0, 0.0 }, kPulseParams, 2,
       "Traction control cutting. Needs the tcActive channel.", nullptr, {} },
     { Effect::Kerb,        "kerb",        "Kerb",         Kind::Continuous, EventType::COUNT, FxType::Kerb,
-      { "curbs", nullptr }, { 0.0, 40.0, 0.0, 0.4 }, kTextureParams, 3,
-      "Kerb-strip rumble, scaled by the curbs channel (0-100). Bind curbsProp in the plugin.", nullptr, {} },
+      { "curbs", nullptr }, { 0.0, 40.0, 0.0, 0.4 }, kKerbParams, 4,
+      "Kerb-strip rumble, scaled by the curbs channel: full at peak %. Bind curbsProp in the plugin.", nullptr, {} },
     { Effect::Driveline,   "driveline",   "Driveline",    Kind::Driveline, EventType::COUNT, FxType::Driveline,
       { "clutchPct", "rpm", "gear", "~speedKmh", "~throttlePct" }, { 0.0, 10.0, 0.0, 0.2 }, kDrivelineParams, 10,
       "The transmission when the engine and the wheels disagree. Clutch: a slipping clutch grabbing and releasing "

@@ -280,11 +280,38 @@ the unloaded one's down, so the outside tyre in a corner shakes harder.
 
 Where the sim only gives one overall slip value, the single `skid` and
 `lockup` channels still work and feed all four wheels at once; the parts
-then simply select the same thing. Where it gives wheel speeds but no
-slip ratios, nullCAT learns each wheel's rolling factor while you cruise
-(brake off, light throttle, above 30 km/h) and works the ratio out
+then simply select the same thing. **peak %** is the channel value that
+counts as a full slide on that path (100 by default): a property that
+only ever reaches 25 in a burnout gets `peak %` 25 and the tile reaches
+full severity like the per-wheel tiles do. Where it gives wheel speeds
+but no slip ratios, nullCAT learns each wheel's rolling factor while you
+cruise (brake off, light throttle, above 30 km/h) and works the ratio out
 itself, so a sender's wheel-speed unit and staggered tyre sizes need no
-setting up.
+setting up. Nothing plays below 5 km/h: slip means nothing at a
+standstill.
+
+### Reading what the effects are fed
+
+The Test button plays an effect at **full** severity (1.00 on every
+wheel), which is the reference, not what a lap gives. To see what a lap
+actually gives, each tile reads out its input:
+
+- the channel chip shows every bound channel with its live value and its
+  session peak (`skid 23/41 ✓`);
+- the two slip tiles and Road show a per-wheel line, `FL 0.00/0.82 FR
+  ... ` (now/peak, severity for slip, mm for Road);
+- the other continuous tiles show `in 0.12/0.60`, the level they are
+  driven with now and at peak;
+- the wave carries a tag: `test` during a Test, `live 0.31` while the sim
+  drives it. A wave that keeps moving after a Test with nothing felt is
+  live input at a small level, not a stuck effect.
+
+The peaks hold until **Reset peaks** in the header (the same button that
+re-baselines the drive cards), so you can alt-tab out of the sim after a
+slide and read what it did. Only the trim that acts on the live input
+path reads as live: with per-wheel data arriving, `peak deg` / `peak
+ratio` / `full mm` are it and `peak %` is dimmed; with a single channel
+it is the other way round. Drive, read the peak, set the trim, Save.
 
 ### Road
 
@@ -391,11 +418,15 @@ about 650 rpm a running engine shudders harder as it dies and stops with
 one last kick; restart it and it catches again.
 
 If the channel stream stops for half a second, every effect fades out.
-The same happens when packets keep arriving but nothing in them changes
-for two seconds (a paused sim, or a sender repeating its last frame):
-the Devices section then says *frozen* instead of *receiving*, and the
-log notes each time the stream starts, stops, freezes or resumes. The
-SimHub plugin also goes quiet by itself while the game is paused.
+The SimHub plugin goes quiet by itself while the game is paused, which
+is what makes that work. A sender that cannot go quiet and keeps
+repeating its last frame through a pause can be covered by the
+frozen-stream guard: `ncxFrozenMs` in host.json (off by default) treats
+a stream whose values have not changed for that many milliseconds as
+stopped; the Devices section then says *frozen* instead of *receiving*.
+It is off by default because a car idling at a standstill sends exactly
+the same numbers for as long as it idles, and the guard would mute the
+engine after two seconds in the pits.
 
 ## Troubleshooting
 

@@ -183,7 +183,22 @@ int main()
         check(ok && std::strlen(d.car) == NCY_STR_LEN - 1, "an over-long name is truncated to the store, never overrun");
     }
 
-    // ---- frozen-stream guard (ingest path, no socket) ----
+    // ---- frozen-stream guard: OFF by default ----
+    // An idling car at a standstill sends exactly the same numbers for as
+    // long as it idles (integer idle rpm, zero speed, zero pedals), so the
+    // default is to keep trusting an unchanging stream.
+    {
+        TelemetryInput ti;
+        auto feed = [&](const char* line) { TelemetryData p; TelemetryInput::parsePacket(line, (int)std::strlen(line), p); ti.ingest(p); };
+        auto wait = [](int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); };
+        check(ti.frozenMs() == 0, "the guard is off unless host.json turns it on");
+        feed("NULLCATX,2000,0,0");
+        for (int i = 0; i < 12; ++i) { wait(200); feed("NULLCATX,2000,0,0"); }
+        TelemetryData s = ti.getLatestData();
+        check(s.ncxFresh && !s.ncxFrozen, "guard off: an idling car's unchanging stream stays fresh past 2 s");
+    }
+
+    // ---- frozen-stream guard (ingest path, no socket), turned on ----
     // Packets that keep arriving with every value unchanged for 2 s are a
     // paused sim or a sender replaying its last frame: the stream reads as
     // NOT fresh (effects release) and as frozen, until a value changes.
@@ -191,6 +206,7 @@ int main()
     // NULLCATY value merged over the X stream counts like any other.
     {
         TelemetryInput ti;
+        ti.setFrozenMs(NCX_FROZEN_MS);
         auto feed = [&](const char* line) { TelemetryData p; TelemetryInput::parsePacket(line, (int)std::strlen(line), p); ti.ingest(p); };
         auto wait = [](int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); };
 

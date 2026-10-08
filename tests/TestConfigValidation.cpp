@@ -289,6 +289,64 @@ private slots:
         auto errors = cfg.validate();
         QVERIFY2(errors.size() >= 2, "Expected at least 2 errors");
     }
+
+    // Route gain unit follows the destination: a position axis takes mm
+    // up to ITS hapticsMaxMm (the route editor offers the same cap; the
+    // old flat [0, 2] refused what the editor allowed), a torque axis or a
+    // shaker takes a 0..2 multiplier.
+    void routeGain_perDestination()
+    {
+        AppConfig cfg = validConfig();
+        cfg.drives[0].name = "FR"; cfg.drives[0].hapticsMaxMm = 3.0;
+        DriveConfig belt = cfg.drives[0]; belt.name = "Belt"; belt.mode = "torque"; belt.axisType = "belt";
+        cfg.drives.push_back(belt); cfg.numDrives = 2;
+        haptics::EffectParams& p = cfg.hapticsFx[static_cast<size_t>(haptics::Effect::Kerb)];
+        p.ampPct = 50.0;
+        auto hasErr = [&](const char* needle) {
+            for (const auto& e : cfg.validate()) if (e.find(needle) != std::string::npos) return true;
+            return false; };
+
+        p.routes[0] = { 0, 2.5 };                      // 2.5 mm on a 3 mm axis
+        QVERIFY2(cfg.validate().empty(), "2.5 mm on a position axis with hapticsMaxMm 3 passes");
+        p.routes[0] = { 0, 3.5 };
+        QVERIFY2(hasErr("haptic max"), "3.5 mm on a 3 mm axis is refused, naming the axis cap");
+        p.routes[0] = { 1, 2.5 };                      // x on the belt
+        QVERIFY2(hasErr("[0, 2] x"), "2.5 x on a torque axis is refused");
+        p.routes[0] = { 1, 2.0 };
+        QVERIFY2(cfg.validate().empty(), "2.0 x on a torque axis passes");
+        p.routes[0] = haptics::Route{}; p.routes[0].shaker = 0; p.routes[0].gain = 2.5;
+        QVERIFY2(hasErr("[0, 2]"), "2.5 x on a shaker is refused");
+        p.routes[0] = { 0, -0.5 };
+        QVERIFY2(hasErr(">= 0"), "a negative gain is refused");
+    }
+
+    // peak % (the magnitude channel value that counts as full) is 1..100.
+    void peakPct_range()
+    {
+        AppConfig cfg = validConfig();
+        haptics::EffectParams& p = cfg.hapticsFx[static_cast<size_t>(haptics::Effect::Kerb)];
+        QCOMPARE(p.peakPct, 100.0);
+        p.peakPct = 0.0;
+        bool found = false;
+        for (const auto& e : cfg.validate()) if (e.find("peakPct") != std::string::npos) found = true;
+        QVERIFY2(found, "peakPct 0 is refused");
+        p.peakPct = 25.0;
+        QVERIFY(cfg.validate().empty());
+    }
+
+    // The frozen-stream guard is off by default and only takes a usable window.
+    void ncxFrozenMs_range()
+    {
+        AppConfig cfg = validConfig();
+        QCOMPARE(cfg.ncxFrozenMs, 0);
+        QVERIFY(cfg.validate().empty());
+        cfg.ncxFrozenMs = 100;
+        bool found = false;
+        for (const auto& e : cfg.validate()) if (e.find("ncxFrozenMs") != std::string::npos) found = true;
+        QVERIFY2(found, "a 100 ms window is refused");
+        cfg.ncxFrozenMs = 2000;
+        QVERIFY(cfg.validate().empty());
+    }
 };
 
 QTEST_APPLESS_MAIN(TestConfigValidation)

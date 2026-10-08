@@ -115,10 +115,14 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
         left -= dtSec;
         return 1.0;
     };
-    const auto mag = [&](NcxValues::Token t) -> double
+    // A 0..100 magnitude channel as severity: full at the effect's peak %
+    // (100 = the channel's own full scale), so a property that only ever
+    // reaches 25 can still drive a full slide.
+    const auto mag = [&](NcxValues::Token t, FxType fx) -> double
     {
         if (!live || !v.have[t]) return 0.0;
-        return std::max(0.0, std::min(1.0, v.val[t] / 100.0));
+        const double peak = std::max(1.0, L.fxParams(fx).peakPct);
+        return std::max(0.0, std::min(1.0, v.val[t] / peak));
     };
     const auto flag = [&](NcxValues::Token t) -> double
     { return (live && v.have[t] && v.val[t] > 0.5) ? 1.0 : 0.0; };
@@ -189,6 +193,9 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
                     loadW[w] = std::max(0.0, std::min(kLoadWeightMax, std::max(0.0, v.val[NcxValues::LoadFL + w]) / mean));
         }
         const double speed = (live && v.have[NcxValues::SpeedKmh]) ? std::max(0.0, v.val[NcxValues::SpeedKmh]) : 0.0;
+        // Slip means nothing at a standstill (a stationary car reports
+        // slip angles and skid magnitudes that are noise or stale).
+        const bool moving = speed > kSlipMinSpeedKmh;
 
         // Lateral: slip angle (deg) past the onset share of peak deg.
         {
@@ -197,16 +204,16 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
             const double onset = kSlipOnsetFrac * peak;
             const bool preview = st.previewSec[static_cast<int>(FxType::Skid)] > 0.0;
             const bool perWheel = haveW(NcxValues::SlipAngleFL);
-            const double single = mag(NcxValues::Skid);
+            const double single = mag(NcxValues::Skid, FxType::Skid);
             for (int w = 0; w < WHEEL_COUNT; ++w)
             {
                 double sev = 0.0;
-                if (perWheel)
+                if (moving && perWheel)
                 {
                     const double ang = std::fabs(v.val[NcxValues::SlipAngleFL + w]);
                     sev = std::max(0.0, std::min(1.0, (ang - onset) / std::max(1e-6, peak - onset)));
                 }
-                else if (live && v.have[NcxValues::Skid])
+                else if (moving && !perWheel && live && v.have[NcxValues::Skid])
                     sev = single;
                 sev = std::min(1.0, sev * loadW[w]);
                 if (preview) sev = 1.0;
@@ -224,8 +231,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
             const bool preview = st.previewSec[static_cast<int>(FxType::Lockup)] > 0.0;
             const bool haveRatio = haveW(NcxValues::SlipRatioFL);
             const bool haveWs    = !haveRatio && haveW(NcxValues::WheelSpeedFL) && v.have[NcxValues::SpeedKmh];
-            const double single  = mag(NcxValues::Lockup);
-            const bool moving = speed > kSlipMinSpeedKmh;
+            const double single  = mag(NcxValues::Lockup, FxType::Lockup);
 
             // Learn the rolling factor while cruising on wheel speeds.
             if (haveWs && speed > kRollLearnMinKmh
@@ -257,7 +263,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
                     lock = std::max(0.0, std::min(1.0, (-r - kLonOnsetRatio) / (peak - kLonOnsetRatio)));
                     spin = std::max(0.0, std::min(1.0, ( r - kLonOnsetRatio) / (peak - kLonOnsetRatio)));
                 }
-                else if (!haveRatio && !haveWs && live && v.have[NcxValues::Lockup])
+                else if (moving && !haveRatio && !haveWs && live && v.have[NcxValues::Lockup])
                     lock = single;
                 lock = std::min(1.0, lock * loadW[w]);
                 spin = std::min(1.0, spin * loadW[w]);
@@ -290,7 +296,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
             L.driveFx(FxType::Road, 0.0, 0.0);
         }
         else
-            L.driveFx(FxType::Road, previewOr(FxType::Road, mag(NcxValues::RoadNoise)), 0.0);
+            L.driveFx(FxType::Road, previewOr(FxType::Road, mag(NcxValues::RoadNoise, FxType::Road)), 0.0);
     }
 
     // Driveline: clutch judder while the pedal is in the slipping band with
@@ -394,7 +400,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
     }
 
     // Magnitude-driven textures (0-100 on the wire).
-    L.driveFx(FxType::Kerb,   previewOr(FxType::Kerb,   mag(NcxValues::Curbs)),     0.0);
+    L.driveFx(FxType::Kerb,   previewOr(FxType::Kerb,   mag(NcxValues::Curbs, FxType::Kerb)), 0.0);
 
     // Flag-driven pulses (0/1 on the wire).
     L.driveFx(FxType::Limiter, previewOr(FxType::Limiter, flag(NcxValues::Limiter)),  0.0);

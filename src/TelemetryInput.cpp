@@ -460,7 +460,8 @@ TelemetryData TelemetryInput::getLatestData() const
     std::memcpy(d.game, m_ncyGame, NCY_STR_LEN);
     std::memcpy(d.car,  m_ncyCar,  NCY_STR_LEN);
     const bool arriving = (lastNcx != 0) && (nowMs - lastNcx) < 500;
-    const bool frozen   = arriving && lastChange != 0 && (nowMs - lastChange) >= NCX_FROZEN_MS;
+    const int64_t frozenMs = m_frozenMs.load();
+    const bool frozen   = frozenMs > 0 && arriving && lastChange != 0 && (nowMs - lastChange) >= frozenMs;
     d.ncxFresh  = arriving && !frozen;
     d.ncxFrozen = frozen;
 
@@ -477,7 +478,7 @@ TelemetryData TelemetryInput::getLatestData() const
         else if (state == 1)
             RT_LOG_INFO("TelemetryInput: sim channel stream resumed (values changing again).");
         else if (state == 2)
-            RT_LOG_INFO("TelemetryInput: sim channel stream frozen (packets arriving, every value unchanged for %d ms): effects released.", (int)NCX_FROZEN_MS);
+            RT_LOG_INFO("TelemetryInput: sim channel stream frozen (packets arriving, every value unchanged for %d ms): effects released.", (int)frozenMs);
         else
             RT_LOG_INFO("TelemetryInput: sim channel stream stopped (no packet for %d ms): effects released.", (int)(nowMs - lastNcx));
     }

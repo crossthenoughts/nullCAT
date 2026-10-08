@@ -62,6 +62,7 @@ static void writeHostConfig(const AppConfig& c, QJsonObject& obj)
     obj["tempPollSec"]              = c.tempPollSec;
     obj["telemetryPort"]               = c.telemetryPort;
     obj["telemetryBindAddr"]           = QString::fromStdString(c.telemetryBindAddr);
+    obj["ncxFrozenMs"]              = c.ncxFrozenMs;
     obj["webPort"]                  = c.webPort;
     obj["webBindAddr"]              = QString::fromStdString(c.webBindAddr);
     obj["webAuthToken"]             = QString::fromStdString(c.webAuthToken);
@@ -119,6 +120,7 @@ static void readHostConfig(const QJsonObject& obj, AppConfig& c)
     if (obj.contains("tempPollSec"))              c.tempPollSec              = obj.value("tempPollSec").toDouble(15.0);
     if (obj.contains("telemetryPort"))               c.telemetryPort               = obj.value("telemetryPort").toInt(4444);
     if (obj.contains("telemetryBindAddr"))           c.telemetryBindAddr           = obj.value("telemetryBindAddr").toString("").toStdString();  // "" = platform default
+    if (obj.contains("ncxFrozenMs"))              c.ncxFrozenMs              = obj.value("ncxFrozenMs").toInt(0);
     if (obj.contains("webPort"))                  c.webPort                  = obj.value("webPort").toInt(8080);
     if (obj.contains("webBindAddr"))              c.webBindAddr              = obj.value("webBindAddr").toString("127.0.0.1").toStdString();
     if (obj.contains("webAuthToken"))             c.webAuthToken             = obj.value("webAuthToken").toString("").toStdString();  // "" = auth off
@@ -221,6 +223,7 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
         {
             QJsonObject o;
             o["ampPct"] = p.ampPct; o["freqHz"] = p.freqHz; o["durMs"] = p.durMs; o["jitter"] = p.jitter;
+            o["peakPct"] = p.peakPct;
             QJsonArray r;
             for (const haptics::Route& rt : p.routes)
                 if ((rt.axis != -1 || rt.shaker != -1) && rt.gain > 0.0)
@@ -306,10 +309,11 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
         // "own axis" (-2) route default.
         const auto readFx = [](const QJsonObject& o, haptics::EffectParams& p)
         {
-            p.ampPct = o.value("ampPct").toDouble(p.ampPct);
-            p.freqHz = o.value("freqHz").toDouble(p.freqHz);
-            p.durMs  = o.value("durMs").toDouble(p.durMs);
-            p.jitter = o.value("jitter").toDouble(p.jitter);
+            p.ampPct  = o.value("ampPct").toDouble(p.ampPct);
+            p.freqHz  = o.value("freqHz").toDouble(p.freqHz);
+            p.durMs   = o.value("durMs").toDouble(p.durMs);
+            p.jitter  = o.value("jitter").toDouble(p.jitter);
+            p.peakPct = o.value("peakPct").toDouble(p.peakPct);
             if (o.contains("routes"))
             {
                 for (haptics::Route& rt : p.routes) rt = haptics::Route{};
@@ -976,6 +980,12 @@ std::vector<std::string> AppConfig::validate() const
         errors.push_back("conditioningMode='" + conditioningMode +
                          "' must be bypass | interpolate | filter");
 
+    // 0 = off; a window shorter than a packet period could never mean
+    // "nothing changed", so anything on starts at 500 ms.
+    if (ncxFrozenMs != 0 && (ncxFrozenMs < 500 || ncxFrozenMs > 60000))
+        errors.push_back("ncxFrozenMs=" + std::to_string(ncxFrozenMs) +
+                         " must be 0 (off) or in [500, 60000]");
+
     if (numDrives < 1 || numDrives > 10)
         errors.push_back("numDrives=" + std::to_string(numDrives) +
                          " out of range [1, 10]");
@@ -1227,6 +1237,8 @@ std::vector<std::string> AppConfig::validate() const
                 errors.push_back(pfx + "durMs out of range [5, 100]");
             if (p.jitter < 0.0 || p.jitter > 1.0)
                 errors.push_back(pfx + "jitter out of range [0, 1]");
+            if (p.peakPct < 1.0 || p.peakPct > 100.0)
+                errors.push_back(pfx + "peakPct out of range [1, 100]");
             for (const haptics::Route& r : p.routes)
             {
                 if (r.axis == -1 && r.shaker == -1 && r.gain <= 0.0) continue;   // unused slot
@@ -1236,8 +1248,28 @@ std::vector<std::string> AppConfig::validate() const
                     errors.push_back(pfx + "route harm out of range [1, 8]");
                 if (r.shaker < 0 && (r.axis < 0 || r.axis >= haptics::MAX_HAPTIC_AXES))
                     errors.push_back(pfx + "route axis out of range");
-                if (r.gain < 0.0 || r.gain > 2.0)
-                    errors.push_back(pfx + "route gain out of range [0, 2]");
+                if (r.gain < 0.0)
+                    errors.push_back(pfx + "route gain must be >= 0");
+                // The gain's unit follows the destination: a torque axis
+                // or a shaker takes a plain multiplier (0..2); a position
+                // axis takes millimetres, capped by that axis's own
+                // hapticsMaxMm (the route editor offers the same cap).
+                else if (r.shaker >= 0 || r.axis < 0 || static_cast<size_t>(r.axis) >= drives.size())
+                {
+                    if (r.gain > 2.0) errors.push_back(pfx + "route gain out of range [0, 2]");
+                }
+                else
+                {
+                    const DriveConfig& d = drives[static_cast<size_t>(r.axis)];
+                    if (d.mode == "torque")
+                    {
+                        if (r.gain > 2.0)
+                            errors.push_back(pfx + "route gain to " + d.name + " out of range [0, 2] x");
+                    }
+                    else if (r.gain > d.hapticsMaxMm)
+                        errors.push_back(pfx + "route gain to " + d.name + " is " + std::to_string(r.gain).substr(0, 4)
+                                         + " mm, above that axis's haptic max of " + std::to_string(d.hapticsMaxMm).substr(0, 4) + " mm");
+                }
             }
             if (info.kind == haptics::Kind::Driveline)
             {

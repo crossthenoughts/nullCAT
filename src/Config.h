@@ -251,6 +251,11 @@ struct AppConfig
     // same-PC case (loopback); "0.0.0.0" / link-NIC IP for a dedicated NUC
     // fed by a separate game PC. Per-machine, so it lives in host.json.
     std::string telemetryBindAddr = "127.0.0.1";
+    // host: frozen-stream guard window for the sim channel stream, ms.
+    // 0 (default) = off: packets whose values never change keep their
+    // effects playing (an idling car IS unchanging). A sender that replays
+    // its last frame through a pause and cannot go silent can set 2000.
+    int     ncxFrozenMs       = 0;
 
     double  blendTimeSec          = 2.0;
     double  blendMaxVelocityMmS   = 20.0;

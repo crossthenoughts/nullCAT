@@ -25,10 +25,14 @@ enum class TelemetryPacketType
 
 static constexpr int MAX_NCX_CHANNELS = 48;
 static constexpr int NCY_STR_LEN      = 48;   // game / car names, NUL-terminated
-// Frozen-stream guard: packets still arriving but no numeric value has
-// changed for this long = a paused sim or a sender replaying its last
-// frame; the stream is treated as not fresh (effects release) until a
-// value changes again.
+// Frozen-stream guard (OFF unless host.json sets ncxFrozenMs): packets
+// still arriving but no numeric value has changed for this long = a
+// paused sim or a sender replaying its last frame; the stream is treated
+// as not fresh (effects release) until a value changes again. Off by
+// default because an idling car at a standstill is exactly as still as a
+// paused one (integer idle rpm, zero speed, zero pedals), and the SimHub
+// plugin already goes silent on pause. NCX_FROZEN_MS is the window a
+// sender without a pause fail-safe would use.
 static constexpr int64_t NCX_FROZEN_MS = 2000;
 
 struct TelemetryData
@@ -145,6 +149,11 @@ public:
     // channel store with the frozen-stream bookkeeping. Public for tests.
     bool ingest(const TelemetryData& parsed);
 
+    // Frozen-stream guard window in ms; 0 (the default) = off. Set once at
+    // startup from host.json (ncxFrozenMs).
+    void    setFrozenMs(int64_t ms) { m_frozenMs.store(ms < 0 ? 0 : ms); }
+    int64_t frozenMs() const        { return m_frozenMs.load(); }
+
 private:
     static constexpr uintptr_t INVALID_SOCKET_VALUE = static_cast<uintptr_t>(~0);
     uintptr_t m_socket            = INVALID_SOCKET_VALUE;
@@ -171,6 +180,7 @@ private:
     double  m_ncxVals[MAX_NCX_CHANNELS] = {};
     std::atomic<int64_t> m_lastNcxPacketMs{0};
     std::atomic<int64_t> m_lastNcxChangeMs{0};   // last packet whose numbers differed
+    std::atomic<int64_t> m_frozenMs{0};          // guard window, 0 = off
     mutable std::atomic<int> m_ncxStreamState{0}; // 0 stopped, 1 live, 2 frozen (getLatestData, any thread)
     // Persistent NULLCATY store: each Y packet merges the keys it names;
     // cleared when the channel stream has gone stale (so a returning

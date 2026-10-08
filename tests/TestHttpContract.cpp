@@ -214,6 +214,17 @@ int main()
     check(has(get("/api/status"), "\"hapDots\":[") && has(get("/api/status"), "\"hapGame\":")
           && has(get("/api/status"), "\"ncxFrozen\":false") && has(get("/api/status"), "\"hapProfile\":"),
           "GET /api/status carries hapDots, hapGame, hapProfile and ncxFrozen");
+    // Tile readouts: driven levels with peaks, the three per-wheel sets
+    // (lateral, longitudinal, road mm) now and at peak, channel values
+    // and peaks in token order.
+    {
+        const std::string st = get("/api/status");
+        check(has(st, "\"hapIn\":[") && has(st, "\"hapInPk\":[")
+              && has(st, "\"hapWheels\":[[") && has(st, "\"hapWheelsPk\":[[")
+              && has(st, "\"ncxVal\":[") && has(st, "\"ncxPk\":["),
+              "GET /api/status carries the tile readouts (hapIn/Pk, hapWheels/Pk, ncxVal/Pk)");
+        check(has(post("/api/resetstats", "{}"), "\"ok\":true"), "POST /api/resetstats accepted (clears the haptic peaks too)");
+    }
     // Shakers (off in this host config): the status says so, the device list
     // answers, and the tone test is refused with the reason.
     check(has(get("/api/status"), "\"shakers\":{\"enabled\":false"),
