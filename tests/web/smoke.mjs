@@ -115,7 +115,20 @@ try {
     waveTags:     document.querySelectorAll('#hapStrip .hap-tile [data-wtag]').length,
     peakTrims:    document.querySelectorAll('#hapStrip .hap-tile input[data-k="peakPct"]').length,
     wheelText:    (document.querySelector('#hapStrip .hap-tile[data-fx="slipLat"] [data-wheels]') || {}).textContent || '',
+    // Car table: the Master tile's car line with its actions and the
+    // follow switch, the preset search box over the whole table, and the
+    // Engine tile's folded notes block (hidden with no car named).
+    carRow:       !!document.getElementById('hapCarNow') && !!document.getElementById('hapCarPull')
+                  && !!document.getElementById('hapCarSave') && !!document.getElementById('hapCarForget')
+                  && !!document.getElementById('hapFollowCar') && !!document.getElementById('hapCarApply'),
+    carNow:       (document.getElementById('hapCarNow') || {}).textContent || '',
+    carFollow:    !!(document.getElementById('hapFollowCar') || {}).checked,
+    carOpts:      (document.getElementById('hapCarList') || { options: [] }).options.length,
+    carNotes:     !!document.querySelector('#hapStrip .hap-tile[data-fx="rpmVibe"] [data-car]'),
+    carNotesHidden: (document.querySelector('#hapStrip .hap-tile[data-fx="rpmVibe"] [data-car]') || { hidden: true }).hidden,
   }));
+  const carsApi = await (await fetch(`http://127.0.0.1:${PORT}/api/cars/list`)).json();
+  const nCars = (carsApi.cars || []).length;
   // Open the Lateral slip tile's route drawer: a per-wheel effect lists a
   // part selector beside every axis gain.
   const drawer = await page.evaluate(() => {
@@ -154,6 +167,13 @@ try {
   if (st.waveTags !== nEffects) fails.push(`${st.waveTags} wave source tags, expected one per effect tile (${nEffects})`);
   if (st.peakTrims !== 4)       fails.push(`${st.peakTrims} peak % trims, expected 4 (two slip tiles, Kerb, Road)`);
   if (!/FL 0\.00\/0\.00/.test(st.wheelText)) fails.push(`Lateral slip per-wheel line reads "${st.wheelText}", expected now/peak per corner from the status`);
+  if (!st.carRow)               fails.push('car table row on the Master tile is incomplete (car line, pull, save, forget, follow, apply)');
+  if (st.carNow !== '(none)')   fails.push(`car line reads "${st.carNow}" with no sim, expected (none)`);
+  if (!st.carFollow)            fails.push('follow car is not ticked by default');
+  if (nCars < 450)              fails.push(`/api/cars/list carries ${nCars} entries, expected the shipped table (450+)`);
+  if (st.carOpts !== nCars)     fails.push(`preset search lists ${st.carOpts} cars, expected ${nCars} from /api/cars/list`);
+  if (!st.carNotes)             fails.push('no car notes block on the Engine tile');
+  if (!st.carNotesHidden)       fails.push('car notes block is showing with no car named');
   if (!drawer.chip)             fails.push('no route chip on the Lateral slip tile');
   else {
     if (drawer.hidden)          fails.push('route drawer did not open');

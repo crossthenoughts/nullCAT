@@ -67,6 +67,7 @@ add_executable(nullcat-pi
     ${SRC}/CarCache.cpp
     ${SRC}/EffectStatus.cpp
     ${SRC}/HapticsProfiles.cpp
+    ${SRC}/CarTable.cpp
     ${SRC}/ShakerOutput.cpp
     ${SRC}/Logging.cpp
     ${SRC}/WebServer.cpp
@@ -130,7 +131,9 @@ add_custom_command(TARGET nullcat-pi POST_BUILD
         ${CMAKE_CURRENT_SOURCE_DIR}/../web $<TARGET_FILE_DIR:nullcat-pi>/web
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_CURRENT_SOURCE_DIR}/../Docs/drive_profiles $<TARGET_FILE_DIR:nullcat-pi>/drive_profiles
-    COMMENT "Staging web/, logs/, drive_profiles/ next to nullcat-pi"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_SOURCE_DIR}/../resources/cars.json $<TARGET_FILE_DIR:nullcat-pi>/cars.json
+    COMMENT "Staging web/, logs/, drive_profiles/, cars.json next to nullcat-pi"
 )
 
 # Standalone drive-provisioning tool. Run with the master service STOPPED (it owns
@@ -291,6 +294,7 @@ add_executable(TestHttpContract
     ${SRC}/WebServer.cpp
     ${SRC}/EffectStatus.cpp
     ${SRC}/HapticsProfiles.cpp
+    ${SRC}/CarTable.cpp
     ${SRC}/ShakerOutput.cpp)
 target_include_directories(TestHttpContract PRIVATE
     ${SRC}
@@ -324,6 +328,7 @@ if(NULLCAT_FULL_TESTS)
         ${SRC}/CarCache.cpp
         ${SRC}/EffectStatus.cpp
         ${SRC}/HapticsProfiles.cpp
+        ${SRC}/CarTable.cpp
         ${SRC}/ShakerOutput.cpp
         ${SRC}/Logging.cpp
         ${SRC}/DriveFaultMonitor.cpp)
@@ -345,9 +350,11 @@ if(NULLCAT_FULL_TESTS)
               TestAxisKind TestFaultCodes TestCommissioning
               TestCommissioningFlow TestB222O TestDeviceForce
               TestTorqueHoming TestDeviceState TestGearRatio TestHaptics
-              TestTorqueEnableBytes)
+              TestTorqueEnableBytes TestCarTable)
         add_logic_test(${T})
     endforeach()
+    # TestCarTable reads the shipped resources/cars.json from the tree.
+    target_compile_definitions(TestCarTable PRIVATE NULLCAT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/..")
 
     # TestTrackingFilter's Regression() case requires bit-identical FP: with
     # fused multiply-add the exact-ZOH comparison drifts and the zero-tolerance

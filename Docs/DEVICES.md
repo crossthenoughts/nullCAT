@@ -190,6 +190,39 @@ profile, and from then on nullCAT loads that profile by itself whenever
 that car runs, with a line in the log. A profile with no binding is
 manual only. Profiles live in `profiles.json` beside the rig config.
 
+### The car table
+
+A profile is a copy of your rig's whole strip. The car table is the other
+half: what belongs to the car. nullCAT ships an entry for every car in
+Assetto Corsa (Kunos content and DLC) and Automobilista 2, carrying the
+engine's description and character (cylinders, litres, layout, turbo,
+rock, thump, buzz, lope, inertia, lift-off, pops, the limiter bounce), the
+limiter, the driveline (gearbox type, whine, shunt, clutch, lug) and
+whether the real car has ABS and TC, with the amplitudes of those five
+tiles. Nothing else: an entry never carries routes, master gain, the pos
+budget or the slip, road and kerb tiles. Those are your rig's, and they
+stay exactly as you set them when an entry is applied. So the rig-level
+trim lives in the routes (a 0.3 gain on the Engine route instead of 0.7)
+and the car-level feel moves with the car.
+
+The **car** row on the Master tile shows the car the sim is naming and
+what the table has for it (`Mazda 787B · stock`, `· yours` for your own
+entry, `· no entry`). **Pull car preset** applies that entry to the five
+tiles. **Follow car** (on by default) does the same by itself whenever the
+sim names a car the table knows; untick it and the table only acts when
+asked. A profile bound to the car wins over the table.
+
+**Preset** is a search box over the whole table: when your car has no
+entry, pick the nearest one (another GT3, the same engine in a different
+body), **apply** it, tune to taste, then **save for this car**. That files
+the saved five tiles under the current car in your own layer
+(`cars.local.json` beside the rig config, kept across updates), which
+wins over the shipped entry from then on; **forget** drops it. The Engine
+tile names the matched car and folds its notes under it: the real-world
+figures and reasoning behind the values, there to refer to when tuning.
+The shipped table is `cars.json` beside the program; every update replaces
+it, so put your own tuning in your layer, not in that file.
+
 ### Routing to a position axis
 
 A torque axis takes a plain gain (x). A position axis takes its gain in

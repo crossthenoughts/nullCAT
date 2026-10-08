@@ -270,6 +270,7 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
         h["masterGain"] = c.hapticsMasterGain;
         h["positionBudget"] = c.hapticsPositionBudget;
         h["axisDelayMs"] = c.hapticsAxisDelayMs;
+        h["followCar"] = c.hapticsFollowCar;
         return h;
     }
 }
@@ -395,6 +396,7 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
         if (h.contains("masterGain"))  c.hapticsMasterGain = h.value("masterGain").toDouble(1.0);
         if (h.contains("positionBudget")) c.hapticsPositionBudget = h.value("positionBudget").toDouble(0.4);
         if (h.contains("axisDelayMs")) c.hapticsAxisDelayMs = h.value("axisDelayMs").toDouble(0.0);
+        if (h.contains("followCar"))   c.hapticsFollowCar = h.value("followCar").toBool(true);
     }
 }
 

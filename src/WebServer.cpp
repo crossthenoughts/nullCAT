@@ -480,6 +480,19 @@ std::string WebServer::buildStatusJson() const
             const std::string game = m_effectStatus.currentGame();
             const EffectStatus::Records rec = m_effectStatus.records(game);
             s += "\"hapProfile\":" + jsonStr(m_profiles.active()) + ",";
+            // The car table's view of the current car: its entry (key,
+            // name, where from), whether that entry is what the tiles
+            // carry, and a generation that bumps on every apply so a page
+            // can refresh its copy of the config.
+            {
+                std::lock_guard<std::mutex> lk(m_carMx);
+                s += "\"hapCar\":" + jsonStr(m_carState.car) + ",";
+                s += "\"hapCarKey\":" + jsonStr(m_carState.match.key) + ",";
+                s += "\"hapCarName\":" + jsonStr(m_carState.match.name) + ",";
+                s += "\"hapCarSrc\":" + jsonStr(m_carState.match.source) + ",";
+                s += std::string("\"hapCarApplied\":") + (m_carState.applied ? "true" : "false") + ",";
+            }
+            s += "\"hapCarGen\":" + jsonInt(m_carGen.load()) + ",";
             s += "\"hapGame\":" + jsonStr(game) + ",\"hapDots\":[";
             for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
             {
@@ -816,6 +829,15 @@ bool WebServer::start()
     // Effect status sampler: a few Hz, below-normal priority, independent
     // of any browser. Loads the remembered file first.
     if (!m_configPath.empty()) { m_effectStatus.load(m_configPath); m_profiles.load(m_configPath); }
+    // The car table: the shipped file (missing = an empty table, nothing
+    // else changes) and the user's layer beside the config.
+    if (!m_stockCarsPath.empty() && !m_cars.loadStock(m_stockCarsPath))
+        LOG_WARNING(strf("Haptics: car table %s not found or unreadable; the strip will not follow the car.",
+                         m_stockCarsPath.c_str()));
+    if (!m_configPath.empty()) m_cars.loadUser(m_configPath);
+    if (m_cars.stockCount() || m_cars.userCount())
+        LOG_INFO(strf("Haptics: car table loaded, %d cars shipped, %d of yours.",
+                      m_cars.stockCount(), m_cars.userCount()));
     m_statusThread = std::thread([this]()
     {
 #ifdef _WIN32
@@ -1661,6 +1683,125 @@ bool WebServer::start()
             okResp(res);
         });
 
+        // ---- Car table: the current car's entry and the whole list; pull
+        // (apply an entry: the current car's, or any by key, as a starting
+        // point for a car the table lacks); save the strip's car-owned
+        // values under the current car; forget that user entry.
+        svr.Get("/api/cars", [this](const httplib::Request&, httplib::Response& res)
+        {
+            QJsonObject root;
+            {
+                std::lock_guard<std::mutex> lk(m_carMx);
+                root["car"]     = QString::fromStdString(m_carState.car);
+                root["game"]    = QString::fromStdString(m_carState.game);
+                root["key"]     = QString::fromStdString(m_carState.match.key);
+                root["name"]    = QString::fromStdString(m_carState.match.name);
+                root["source"]  = QString::fromStdString(m_carState.match.source);
+                root["notes"]   = QString::fromStdString(m_carState.match.notes);
+                root["applied"] = m_carState.applied;
+            }
+            root["follow"] = followCarEnabled();
+            root["stock"]  = m_cars.stockCount();
+            root["user"]   = m_cars.userCount();
+            root["gen"]    = m_carGen.load();
+            res.set_content(QJsonDocument(root).toJson(QJsonDocument::Compact).toStdString(), "application/json");
+        });
+        svr.Get("/api/cars/list", [this](const httplib::Request&, httplib::Response& res)
+        {
+            QJsonArray arr;
+            for (const CarTable::Item& it : m_cars.list())
+            {
+                QJsonObject o;
+                o["key"] = QString::fromStdString(it.key);  o["name"]   = QString::fromStdString(it.name);
+                o["game"] = QString::fromStdString(it.game); o["source"] = QString::fromStdString(it.source);
+                arr.append(o);
+            }
+            QJsonObject root; root["cars"] = arr;
+            res.set_content(QJsonDocument(root).toJson(QJsonDocument::Compact).toStdString(), "application/json");
+        });
+        postCmd("/api/cars/pull", [this, errResp](const httplib::Request& req, httplib::Response& res)
+        {
+            // Body: {"key": "<entry>"} applies that entry; {} applies the
+            // current car's own entry.
+            const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(req.body));
+            const std::string key = doc.isObject() ? doc.object().value("key").toString().toStdString() : std::string();
+            CarTable::Match m;
+            if (!key.empty())
+            {
+                m = m_cars.findKey(key);
+                if (m.source.empty()) { errResp(res, "No such entry in the car table."); return; }
+            }
+            else
+            {
+                std::string car;
+                { std::lock_guard<std::mutex> lk(m_carMx); m = m_carState.match; car = m_carState.car; }
+                if (car.empty()) { errResp(res, "The sim has not named a car yet."); return; }
+                if (m.source.empty()) { errResp(res, "No entry for " + car + " in the car table: pick one from the list as a starting point."); return; }
+            }
+            std::string err;
+            if (!applyCarEntry(m, err)) { errResp(res, "Could not apply the car preset: " + err); return; }
+            {
+                std::lock_guard<std::mutex> lk(m_carMx);
+                // Applied by hand: the tiles carry this entry now, which is
+                // the car's own only when it was the car's own.
+                m_carState.applied = key.empty() || (m.key == m_carState.match.key);
+            }
+            LOG_INFO(strf("Haptics: car preset '%s' (%s) applied from the web.", m.key.c_str(), m.source.c_str()));
+            res.set_content("{\"ok\":true,\"key\":" + jsonStr(m.key) + ",\"name\":" + jsonStr(m.name)
+                            + ",\"source\":" + jsonStr(m.source) + "}", "application/json");
+        });
+        postCmd("/api/cars/save", [this, errResp](const httplib::Request& req, httplib::Response& res)
+        {
+            // The SAVED strip's car-owned values under the current car's
+            // key, in the user layer. Name and notes: the body's, else the
+            // existing entry's (user, then stock), else the car's name.
+            if (m_configPath.empty()) { errResp(res, "No config path configured."); return; }
+            std::string car, game;
+            CarTable::Match cur;
+            { std::lock_guard<std::mutex> lk(m_carMx); car = m_carState.car; game = m_carState.game; cur = m_carState.match; }
+            if (car.empty()) { errResp(res, "The sim has not named a car yet: nothing to save under."); return; }
+            const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(req.body));
+            const QJsonObject body = doc.isObject() ? doc.object() : QJsonObject();
+            std::string name  = body.value("name").toString().trimmed().toStdString();
+            std::string notes = body.contains("notes") ? body.value("notes").toString().toStdString() : cur.notes;
+            if (name.empty()) name = cur.name.empty() ? car : cur.name;
+            if (name.size() > 64) name.resize(64);
+            if (notes.size() > 4000) notes.resize(4000);
+            Config cfg;
+            if (!cfg.load(m_configPath)) { errResp(res, "Cannot read the config."); return; }
+            const std::string key = m_cars.keyFor(game, car);
+            m_cars.putUser(key, CarTable::fromHapticsObject(Config::writeHapticsObject(cfg.get()), name, notes));
+            if (!m_cars.saveUser(m_configPath)) { errResp(res, "Cannot write cars.local.json."); return; }
+            {
+                std::lock_guard<std::mutex> lk(m_carMx);
+                m_carState.match   = m_cars.find(game, car);
+                m_carState.applied = true;
+            }
+            LOG_INFO(strf("Haptics: car preset '%s' saved to your layer.", key.c_str()));
+            res.set_content("{\"ok\":true,\"key\":" + jsonStr(key) + "}", "application/json");
+        });
+        postCmd("/api/cars/forget", [this, errResp, okResp](const httplib::Request& req, httplib::Response& res)
+        {
+            // Body: {"key": "<entry>"}, else the current car's user entry.
+            if (m_configPath.empty()) { errResp(res, "No config path configured."); return; }
+            const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(req.body));
+            std::string key = doc.isObject() ? doc.object().value("key").toString().toStdString() : std::string();
+            std::string car, game;
+            { std::lock_guard<std::mutex> lk(m_carMx); car = m_carState.car; game = m_carState.game; }
+            if (key.empty())
+            {
+                if (car.empty()) { errResp(res, "The sim has not named a car yet."); return; }
+                key = m_cars.keyFor(game, car);
+            }
+            if (!m_cars.removeUser(key)) { errResp(res, "No entry of yours for " + key + "."); return; }
+            m_cars.saveUser(m_configPath);
+            {
+                std::lock_guard<std::mutex> lk(m_carMx);
+                if (!car.empty()) { m_carState.match = m_cars.find(game, car); m_carState.applied = false; }
+            }
+            okResp(res);
+        });
+
         // Shakers: the playback devices the backend can see (for the host
         // settings picker) and a per-channel tone test (40 Hz for a second,
         // through the whole chain, with or without the control loop).
@@ -2327,27 +2468,86 @@ void WebServer::sampleEffectStatus()
                 else
                     LOG_WARNING(strf("Haptics: profile '%s' could not be loaded: %s", want.c_str(), err.c_str()));
             }
+            // Then the car table: a profile bound to THIS CAR is the user's
+            // word on it and wins; a game-bound profile set the rig up and
+            // the car's entry goes on top of it.
+            const bool carBound = !car.empty() && m_profiles.bindings().count(HapticsProfiles::carKey(car)) > 0;
+            carIdentity(game, car, !carBound && followCarEnabled());
         }
     }
     else if (!live)
         m_lastIdentity.clear();   // a returning stream looks its profile up again
 }
 
-// Copy a profile over the live haptics set: into rig.json (the working
-// copy), then staged live. Serialised with saves from the web.
+// A new car (or game) from the stream: look its entry up for the strip to
+// show, and when the strip follows the car, apply it.
+void WebServer::carIdentity(const std::string& game, const std::string& car, bool mayApply)
+{
+    CarTable::Match m = m_cars.find(game, car);
+    bool applied = false;
+    if (mayApply && !m.source.empty())
+    {
+        std::string err;
+        applied = applyCarEntry(m, err);
+        if (applied)
+            LOG_INFO(strf("Haptics: car preset '%s' (%s) applied for %s.", m.key.c_str(), m.source.c_str(), car.c_str()));
+        else
+            LOG_WARNING(strf("Haptics: car preset '%s' could not be applied: %s", m.key.c_str(), err.c_str()));
+    }
+    std::lock_guard<std::mutex> lk(m_carMx);
+    m_carState.match   = m;
+    m_carState.car     = car;
+    m_carState.game    = game;
+    m_carState.applied = applied;
+}
+
+// The follow switch lives in rig.json's haptics object (saved from the
+// strip, applied live like the rest of it); read it from the file so a
+// save from the web is honoured on the next car without a restart.
+bool WebServer::followCarEnabled() const
+{
+    if (m_configPath.empty()) return false;
+    Config cfg;
+    if (!cfg.load(m_configPath)) return false;
+    return cfg.get().hapticsFollowCar;
+}
+
+bool WebServer::applyCarEntry(const CarTable::Match& m, std::string& err)
+{
+    if (m.source.empty()) { err = "no entry"; return false; }
+    std::lock_guard<std::mutex> lk(m_profilesIo);
+    if (!applyHapticsObjectLocked(CarTable::toHapticsObject(m.entry), err)) return false;
+    m_carGen.fetch_add(1);
+    return true;
+}
+
+// Merge a haptics object (a whole profile, or a car entry's five tiles)
+// over the live set: into rig.json (the working copy), then staged live.
+// Serialised with saves from the web by m_profilesIo, held by the caller.
+bool WebServer::applyHapticsObjectLocked(const QJsonObject& h, std::string& err)
+{
+    if (m_configPath.empty()) { err = "no config path"; return false; }
+    Config cfg;
+    if (!cfg.load(m_configPath)) { err = "cannot read the config"; return false; }
+    Config::readHapticsObject(h, cfg.get());
+    const auto errs = cfg.get().validate();
+    if (!errs.empty()) { err = "fails validation: " + errs.front(); return false; }
+    if (!cfg.saveRig(m_configPath)) { err = "cannot write rig.json"; return false; }
+    m_rigKnownMtime.store(fileMtime(siblingFile(m_configPath, "rig.json")));
+    if (m_motion) m_motion->stageHaptics(cfg.get());
+    return true;
+}
+
+// Copy a profile over the live haptics set. The follow-car switch is the
+// rig's, not the profile's: a profile never flips it.
 bool WebServer::loadProfile(const std::string& name, std::string& err)
 {
     if (m_configPath.empty()) { err = "no config path"; return false; }
     if (!m_profiles.has(name)) { err = "unknown profile"; return false; }
     std::lock_guard<std::mutex> lk(m_profilesIo);
-    Config cfg;
-    if (!cfg.load(m_configPath)) { err = "cannot read the config"; return false; }
-    Config::readHapticsObject(m_profiles.get(name), cfg.get());
-    const auto errs = cfg.get().validate();
-    if (!errs.empty()) { err = "profile fails validation: " + errs.front(); return false; }
-    if (!cfg.saveRig(m_configPath)) { err = "cannot write rig.json"; return false; }
-    m_rigKnownMtime.store(fileMtime(siblingFile(m_configPath, "rig.json")));
-    if (m_motion) m_motion->stageHaptics(cfg.get());
+    QJsonObject h = m_profiles.get(name);
+    h.remove("followCar");
+    if (!applyHapticsObjectLocked(h, err)) { err = "profile " + err; return false; }
     m_profiles.setActive(name);
     m_profiles.save(m_configPath);
     return true;
@@ -2360,7 +2560,9 @@ bool WebServer::snapshotProfile(const std::string& name, std::string& err)
     std::lock_guard<std::mutex> lk(m_profilesIo);
     Config cfg;
     if (!cfg.load(m_configPath)) { err = "cannot read the config"; return false; }
-    m_profiles.put(name, Config::writeHapticsObject(cfg.get()));
+    QJsonObject h = Config::writeHapticsObject(cfg.get());
+    h.remove("followCar");
+    m_profiles.put(name, h);
     m_profiles.setActive(name);
     if (!m_profiles.save(m_configPath)) { err = "cannot write profiles.json"; return false; }
     return true;

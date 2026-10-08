@@ -98,7 +98,7 @@ if [ -e "$NEW" ] && [ "$(readlink -f "$NEW")" = "$CUR_TARGET" ]; then
 fi
 rm -rf "$STAGE_NEW"
 mv "$STAGING/$NAME" "$STAGE_NEW"
-for f in host.json rig.json buttons.json carcache.json devicepresets.json effectstatus.json profiles.json; do
+for f in host.json rig.json buttons.json carcache.json devicepresets.json effectstatus.json profiles.json cars.local.json; do
     [ -f "$CUR_TARGET/$f" ] && cp -p "$CUR_TARGET/$f" "$STAGE_NEW/$f" && say "config copied forward: $f"
 done
 mkdir -p "$STAGE_NEW/logs"

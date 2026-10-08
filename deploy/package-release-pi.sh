@@ -42,6 +42,7 @@ fi
 # same layout as the Windows zip so relative links resolve as on GitHub)
 cp "$REPO/resources/host.reference.json" "$STAGE/"
 cp "$REPO/resources/rig.reference.json"  "$STAGE/"
+cp "$REPO/resources/cars.json"           "$STAGE/"
 cp "$REPO/LICENSE"                "$STAGE/LICENSE.txt"
 cp "$REPO/THIRD_PARTY_NOTICES.md" "$STAGE/"
 cp "$REPO/SAFETY.md"              "$STAGE/"
@@ -72,13 +73,13 @@ cat > "$STAGE/manifest.json" <<EOF
 EOF
 
 # ---- Sanity: nothing machine-local or stale slips in
-for f in host.json rig.json buttons.json config.json; do
+for f in host.json rig.json buttons.json cars.local.json config.json; do
     if [ -e "$STAGE/$f" ]; then echo "FORBIDDEN file staged: $f" >&2; exit 1; fi
 done
 for f in nullcat-pi provision manifest.json web/index.html \
          os-setup/nullcat-update.sh os-setup/nullcat-pi.service \
          os-setup/nullcat-update@.service SAFETY.md \
-         host.reference.json rig.reference.json docs/PI_SETUP.md; do
+         host.reference.json rig.reference.json cars.json docs/PI_SETUP.md; do
     if [ ! -e "$STAGE/$f" ]; then echo "MISSING from stage: $f" >&2; exit 1; fi
 done
 

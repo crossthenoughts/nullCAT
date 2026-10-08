@@ -114,6 +114,7 @@ set(SOURCES
     src/CarCache.cpp
     src/EffectStatus.cpp
     src/HapticsProfiles.cpp
+    src/CarTable.cpp
     src/ShakerOutput.cpp
     src/Logging.cpp
     src/WebServer.cpp
@@ -257,7 +258,13 @@ add_custom_command(TARGET nullCAT POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/resources/rig.reference.json"
         "$<TARGET_FILE_DIR:nullCAT>/rig.reference.json"
-    COMMENT "Copying host/rig reference files to output directory"
+    # The shipped car table (CarTable.h) lives beside the executable too,
+    # refreshed by every build and update; the user's cars.local.json is a
+    # config file and is never touched.
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/resources/cars.json"
+        "$<TARGET_FILE_DIR:nullCAT>/cars.json"
+    COMMENT "Copying host/rig reference files and the car table to output directory"
 )
 
 # License + safety texts belong in every distributed bundle (GPL binary
@@ -354,6 +361,7 @@ set(TEST_CORE_SOURCES
     src/CarCache.cpp
     src/EffectStatus.cpp
     src/HapticsProfiles.cpp
+    src/CarTable.cpp
     src/ShakerOutput.cpp
     src/Logging.cpp
     src/DriveFaultMonitor.cpp
@@ -453,6 +461,11 @@ add_motion_test(TestConfigValidation tests/TestConfigValidation.cpp)
 
 # ---- Slice 2: host/rig two-file config split ----
 add_motion_test(TestConfigTwoFile tests/TestConfigTwoFile.cpp)
+
+# ---- Car table (cars.json + cars.local.json): lookup, layers, the
+# five-tile merge, and the shipped file itself ----
+add_motion_test(TestCarTable tests/TestCarTable.cpp)
+target_compile_definitions(TestCarTable PRIVATE NULLCAT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 # ---- Build 222D: RT-safe logging tests ----
 add_motion_test(TestRTLogging tests/TestRTLogging.cpp)

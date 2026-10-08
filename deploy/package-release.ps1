@@ -67,6 +67,7 @@ Copy-Item "$rel\concrt*.dll"      $stage -ErrorAction SilentlyContinue
 Copy-Item "$rel\web"                    $stage -Recurse
 Copy-Item "$rel\host.reference.json"    $stage
 Copy-Item "$rel\rig.reference.json"     $stage
+Copy-Item "$rel\cars.json"              $stage
 Copy-Item "$rel\LICENSE.txt"            $stage
 Copy-Item "$rel\THIRD_PARTY_NOTICES.md" $stage
 Copy-Item "$rel\SAFETY.md"              $stage
@@ -91,7 +92,7 @@ Invoke-Tool "windeployqt" ("`"$QtDir\bin\windeployqt.exe`" --release --no-transl
     "--no-system-d3d-compiler --no-opengl-sw `"$stage\nullCAT.exe`"")
 
 # ---- 5. Sanity check: nothing machine-local or stale slipped in ----
-$forbidden = @("host.json", "rig.json", "buttons.json",
+$forbidden = @("host.json", "rig.json", "buttons.json", "cars.local.json",
                "config.json") + (Get-ChildItem $stage -Filter "Test*.exe")
 foreach ($f in $forbidden) {
     if (Test-Path (Join-Path $stage "$f")) { throw "Forbidden file staged: $f" }
@@ -99,7 +100,7 @@ foreach ($f in $forbidden) {
 $mustHave = @("nullCAT.exe", "nullCATWatchdog.exe", "LICENSE.txt", "SAFETY.md",
               "THIRD_PARTY_NOTICES.md", "web\index.html", "Qt6Core.dll",
               "platforms\qwindows.dll", "host.reference.json", "rig.reference.json",
-              "KNOWN_LIMITATIONS.md", "docs\FIRST_SETUP_WINDOWS.md",
+              "cars.json", "KNOWN_LIMITATIONS.md", "docs\FIRST_SETUP_WINDOWS.md",
               "docs\media\simhub-update-command.png", "docs\CONFIG_REFERENCE.md")
 foreach ($f in $mustHave) {
     if (-not (Test-Path (Join-Path $stage $f))) { throw "Missing from stage: $f" }

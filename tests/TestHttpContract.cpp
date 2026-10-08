@@ -34,7 +34,9 @@
 #include "Logging.h"
 #include "httplib.h"
 
+#include <algorithm>
 #include <cstdio>
+#include <fstream>
 #include <string>
 #include <thread>
 #include <chrono>
@@ -144,11 +146,23 @@ int main()
     std::filesystem::remove_all(cfgDir);
     std::filesystem::create_directories(cfgDir);
     { Config seed; seed.load((cfgDir / "config.json").string()); }   // cold start writes host.json + rig.json
+    // A two-car shipped table beside it, as the mains find cars.json
+    // beside the executable.
+    {
+        std::ofstream t(cfgDir / "cars.json");
+        t << "{\"games\":{\"ac\":\"AssettoCorsa\"},\"cars\":{"
+             "\"ac:ks_mazda_787b\":{\"name\":\"Mazda 787B\",\"engine\":{\"ampPct\":45,\"cylinders\":4,\"layout\":3},"
+             "\"limiter\":{\"ampPct\":35},\"driveline\":{\"ampPct\":35,\"gearbox\":1},\"abs\":{\"ampPct\":0},\"tc\":{\"ampPct\":0},"
+             "\"notes\":\"four-rotor\"},"
+             "\"ac:ks_ferrari_f40\":{\"name\":\"Ferrari F40\",\"engine\":{\"ampPct\":46,\"cylinders\":8,\"turbo\":1},"
+             "\"limiter\":{\"ampPct\":30},\"driveline\":{\"ampPct\":30},\"abs\":{\"ampPct\":0},\"tc\":{\"ampPct\":0},\"notes\":\"twin turbo\"}}}";
+    }
 
     WebServer web;
     web.setComponents(&motion, &loop, &master, &cfg);
     web.setTelemetry(&telemetry);
     web.setConfigPath((cfgDir / "config.json").string());
+    web.setCarTablePath((cfgDir / "cars.json").string());
     web.setPort(PORT);
     web.setBindAddr(HOST);
     web.setOnStopRequested([&loop]() { if (loop.isRunning()) loop.stop(); });
@@ -250,6 +264,38 @@ int main()
     check(has(post("/api/haptics/profiles/delete", "{\"name\":\"Bench\"}"), "\"ok\":true")
           && has(get("/api/haptics/profiles"), "\"profiles\":[]"),
           "POST /api/haptics/profiles/delete forgets it and its binding");
+    // Car table: the shipped file beside the config lists, an entry pulled
+    // by key lands in the saved rig (five tiles only, routes untouched),
+    // the status carries the car fields, and with no car named by the sim
+    // the current-car actions refuse with a reason.
+    {
+        check(has(get("/api/cars"), "\"stock\":2") && has(get("/api/cars"), "\"follow\":true")
+              && has(get("/api/cars"), "\"car\":\"\""),
+              "GET /api/cars reports the table size, the follow switch and no current car");
+        check(has(get("/api/cars/list"), "\"key\":\"ac:ks_ferrari_f40\"") && has(get("/api/cars/list"), "\"name\":\"Mazda 787B\"")
+              && has(get("/api/cars/list"), "\"source\":\"stock\""),
+              "GET /api/cars/list carries every entry with key, name and layer");
+        const std::string st = get("/api/status");
+        check(has(st, "\"hapCar\":\"\"") && has(st, "\"hapCarKey\":\"\"") && has(st, "\"hapCarSrc\":\"\"")
+              && has(st, "\"hapCarApplied\":false") && has(st, "\"hapCarGen\":0"),
+              "GET /api/status carries the car table fields (hapCar/Key/Src/Applied/Gen)");
+        check(has(post("/api/cars/pull", "{\"key\":\"ac:ks_ferrari_f40\"}"), "\"name\":\"Ferrari F40\""),
+              "POST /api/cars/pull applies an entry by key");
+        // /api/rig is the file itself (indented, a space after each colon).
+        std::string rig = get("/api/rig");
+        rig.erase(std::remove(rig.begin(), rig.end(), ' '), rig.end());
+        check(has(rig, "\"cylinders\":8") && has(rig, "\"turbo\":1") && has(rig, "\"followCar\":true"),
+              "the pulled entry is in the saved rig (engine description) and the follow switch stayed");
+        check(has(get("/api/status"), "\"hapCarGen\":1"), "GET /api/status hapCarGen bumped on the apply");
+        check(has(post("/api/cars/pull", "{\"key\":\"ac:nope\"}"), "\"ok\":false"),
+              "POST /api/cars/pull refuses an unknown key");
+        check(has(post("/api/cars/pull", "{}"), "has not named a car"),
+              "POST /api/cars/pull with no car named by the sim refuses with the reason");
+        check(has(post("/api/cars/save", "{}"), "has not named a car"),
+              "POST /api/cars/save with no car named by the sim refuses with the reason");
+        check(has(post("/api/cars/forget", "{\"key\":\"ac:ks_ferrari_f40\"}"), "\"ok\":false"),
+              "POST /api/cars/forget refuses when there is no entry of yours");
+    }
 
     // ---- init (sim) -> masterOp ----
     check(has(post("/api/init"), "\"ok\":true"), "POST /api/init accepted");

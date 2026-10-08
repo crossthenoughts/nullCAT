@@ -355,3 +355,15 @@ body[data-view="setup"] .vw-op{ display:none !important; }
 .hap-tile .dh .sdot.d2{ background:var(--ok); opacity:1; }
 .hap-game{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
 .hap-game select{ max-width:160px; }
+.hap-game label{ display:flex; align-items:center; gap:4px; cursor:pointer; }
+.hap-game input[type=text]{ width:150px; text-align:left; font-size:.72rem; }
+/* The car table's line on the Engine tile: the matched car, its notes
+   folded under it (the real-world figures behind the values). */
+.hcar{ font-size:.62rem; margin:2px 0 0; }
+.hcar[hidden]{ display:none; }
+.hcar summary{ cursor:pointer; font-family:var(--mono); font-size:.6rem; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--ink-soft); list-style:none; }
+.hcar summary::-webkit-details-marker{ display:none; }
+.hcar summary::before{ content:'\25B8\00a0'; }
+.hcar[open] summary::before{ content:'\25BE\00a0'; }
+.hnotes{ white-space:normal; line-height:1.35; margin-top:3px; color:var(--ink); }

@@ -1362,6 +1362,9 @@ let hapLastFired=-1;
 let hapDotsPinned=false;   // a game other than the current one is shown
 let hapGamesKnown=[];
 let hapProfileLive=null;   // the active profile as the server last reported it
+let hapCarLive=null;       // the car table's view of the current car as last reported
+let hapCarGenLive=null;    // apply generation: a change means the tiles moved
+let hapCarItems=[];        // the whole table for the search box: {key,name,game,source}
 function hapSetDot(k,d){
   const t=hapTiles[k]; if(!t) return;
   const el=t.tile.querySelector('[data-sdot]'); if(!el) return;
@@ -1389,6 +1392,46 @@ async function hapProfilesRender(sel,prefer){
     const cur=prefer||j.active||'';
     sel.innerHTML='<option value="">(none)</option>'+(j.profiles||[]).map(n=>'<option value="'+n.replace(/"/g,'&quot;')+'"'+(n===cur?' selected':'')+'>'+n+(bound[n]?' · '+bound[n].join(', '):'')+'</option>').join('');
   }catch(_){}
+}
+// Car table: the Master tile's car line (what the sim names, the entry
+// found for it and where from) and the Engine tile's folded notes.
+function hapCarText(c){
+  if(!c||!c.car) return '(none)';
+  if(!c.source) return c.car+' · no entry';
+  return (c.name||c.car)+' · '+(c.source==='user'?'yours':'stock')+(c.applied?'':' · not applied');
+}
+function hapCarRow(c){
+  const now=$('hapCarNow'); if(now) now.textContent=hapCarText(c);
+  const fb=$('hapCarForget'); if(fb) fb.disabled=!(c&&c.source==='user');
+  const pb=$('hapCarPull'); if(pb) pb.disabled=!(c&&c.source);
+  const sb=$('hapCarSave'); if(sb) sb.disabled=!(c&&c.car);
+  const t=hapTiles.rpmVibe; if(!t) return;
+  const det=t.tile.querySelector('[data-car]'); if(!det) return;
+  if(!c||!c.source){ det.hidden=true; return; }
+  det.hidden=false;
+  det.querySelector('[data-carsum]').textContent=(c.name||c.car)+' · '+(c.source==='user'?'yours':'stock');
+  det.querySelector('[data-carnotes]').textContent=c.notes||'(no notes)';
+}
+async function hapCarRefresh(){
+  try{ const r=await fetch(API+'/api/cars'); if(!r.ok) return; hapCarRow(await r.json()); }catch(_){}
+}
+// The search box's list: "name · game" (plus "· yours" for your own
+// entries), mapped back to the key on apply.
+function hapCarLabel(it){ return it.name+' · '+it.game+(it.source==='user'?' · yours':''); }
+async function hapCarListLoad(){
+  try{
+    const r=await fetch(API+'/api/cars/list'); if(!r.ok) return;
+    hapCarItems=(await r.json()).cars||[];
+    const dl=$('hapCarList'); if(!dl) return;
+    dl.innerHTML=hapCarItems.map(it=>'<option value="'+hapCarLabel(it).replace(/"/g,'&quot;')+'"></option>').join('');
+  }catch(_){}
+}
+function hapCarPicked(text){
+  const q=(text||'').trim().toLowerCase(); if(!q) return null;
+  let it=hapCarItems.find(i=>hapCarLabel(i).toLowerCase()===q);
+  if(!it) it=hapCarItems.find(i=>i.name.toLowerCase()===q||i.key.toLowerCase()===q);
+  if(!it) it=hapCarItems.find(i=>hapCarLabel(i).toLowerCase().includes(q));
+  return it||null;
 }
 async function hapGameShow(game){
   hapDotsPinned=!!game;
@@ -1421,6 +1464,16 @@ function hapLive(s){
   if(typeof s.hapProfile==='string'&&s.hapProfile!==hapProfileLive){
     const first=(hapProfileLive===null); hapProfileLive=s.hapProfile;
     if(!first){ const sel=$('hapProfSel'); if(sel) hapProfilesRender(sel); if(dirtyState().count===0) loadConfig(); }
+  }
+  // Car table: a new apply generation means five tiles moved (follow car,
+  // or a pull from another page); a new match means the car line changed.
+  if(typeof s.hapCarGen==='number'&&s.hapCarGen!==hapCarGenLive){
+    const first=(hapCarGenLive===null); hapCarGenLive=s.hapCarGen;
+    if(!first&&dirtyState().count===0) loadConfig();
+  }
+  if(typeof s.hapCarKey==='string'){
+    const sig=(s.hapCar||'')+'|'+s.hapCarKey+'|'+(s.hapCarSrc||'')+'|'+(s.hapCarApplied?1:0);
+    if(sig!==hapCarLive){ hapCarLive=sig; hapCarRefresh(); }
   }
   // Sim dots: the remembered record for the game shown (the current one
   // unless the Master tile's selector picked another, then it is fetched).
@@ -1516,6 +1569,7 @@ function hapInit(){
   if(typeof cfgObj.haptics.masterGain!=='number') cfgObj.haptics.masterGain=1;
   if(typeof cfgObj.haptics.positionBudget!=='number') cfgObj.haptics.positionBudget=0.4;
   if(typeof cfgObj.haptics.axisDelayMs!=='number') cfgObj.haptics.axisDelayMs=0;
+  if(typeof cfgObj.haptics.followCar!=='boolean') cfgObj.haptics.followCar=true;
   const sb=$('hapSave'); if(sb&&!sb._wired){ sb._wired=true; sb.onclick=saveConfig; }
   strip.innerHTML='';
   for(const k in hapTiles) delete hapTiles[k];
@@ -1543,6 +1597,16 @@ function hapInit(){
       +'<button class="btn btn-sm" type="button" id="hapProfBind" title="Load this profile automatically whenever the sim names the current car (or game)">use for this car</button>'
       +'<button class="btn btn-sm" type="button" id="hapProfDel" title="Forget the chosen profile and its bindings">delete</button>'
       +'<span class="hk" id="hapProfMsg"></span></div>'
+      +'<div class="hr hap-game" title="The car table: how each car\'s engine, limiter, driveline, ABS and TC feel, shipped for the Assetto Corsa and Automobilista 2 rosters plus your own entries. Applying an entry moves those five tiles only; routes, master gain and every other tile stay yours."><span class="hk">car</span>'
+      +'<span class="hk" id="hapCarNow">(none)</span>'
+      +'<button class="btn btn-sm" type="button" id="hapCarPull" title="Apply this car\'s entry to the engine, limiter, driveline, ABS and TC tiles">pull car preset</button>'
+      +'<button class="btn btn-sm" type="button" id="hapCarSave" title="File the SAVED engine, limiter, driveline, ABS and TC settings under this car in your own layer; it then wins over the shipped entry. Save the strip first if you have edits.">save for this car</button>'
+      +'<button class="btn btn-sm" type="button" id="hapCarForget" title="Drop your entry for this car; the shipped one (if any) is used again">forget</button>'
+      +'<label class="hk" title="Take the engine, limiter, driveline, ABS and TC settings from the car table whenever the sim names a car it knows. Routes, master gain and the other tiles never move. Off: the table only acts on pull car preset."><input type="checkbox" id="hapFollowCar"'+(cfgObj.haptics.followCar!==false?' checked':'')+'> follow car</label>'
+      +'<span class="hk" id="hapCarMsg"></span></div>'
+      +'<div class="hr hap-game" title="Any entry in the table as a starting point: the nearest car when yours has none. Apply it, tune to taste, then save for this car."><span class="hk">preset</span>'
+      +'<input type="text" id="hapCarPick" list="hapCarList" placeholder="search cars" autocomplete="off"><datalist id="hapCarList"></datalist>'
+      +'<button class="btn btn-sm" type="button" id="hapCarApply" title="Apply the picked entry to the engine, limiter, driveline, ABS and TC tiles">apply</button></div>'
       +'</div><div class="hb"><span class="hk" id="hapMuteState"></span>'
       +'<button class="btn btn-sm btn-action" type="button" id="hapMuteBtn">MUTE</button></div>';
     mc.querySelector('#hapGameSel').onchange=(ev)=>hapGameShow(ev.target.value);
@@ -1578,6 +1642,35 @@ function hapInit(){
       if(!confirm('Forget profile "'+name+'" and its car/game bindings?')) return;
       try{ await post('/api/haptics/profiles/delete',{name}); say('deleted '+name); await hapProfilesRender(psel); }catch(e){ say(String(e.message||e)); }
     };
+    // Car table row + search box. Applying an entry rewrites five tiles on
+    // the server and the page reloads its config copy (unsaved edits on
+    // the strip would be lost, so ask first).
+    const cmsg=mc.querySelector('#hapCarMsg');
+    const csay=(t)=>{ if(cmsg) cmsg.textContent=t; };
+    const applyEntry=async(key)=>{
+      if(dirtyState().count>0&&!confirm('You have unsaved edits on this page; applying a car preset rewrites the saved engine, limiter, driveline, ABS and TC settings and reloads the page state. Continue?')) return;
+      try{ const j=await post('/api/cars/pull',key?{key}:{}); csay('applied '+(j.name||j.key||'')); await loadConfig(); await hapCarRefresh(); }
+      catch(e){ csay(String(e.message||e)); }
+    };
+    mc.querySelector('#hapCarPull').onclick=()=>applyEntry('');
+    mc.querySelector('#hapCarApply').onclick=()=>{
+      const it=hapCarPicked(mc.querySelector('#hapCarPick').value);
+      if(!it){ csay('no such car in the table'); return; }
+      applyEntry(it.key);
+    };
+    mc.querySelector('#hapCarSave').onclick=async()=>{
+      if(dirtyState().count>0){ csay('save the strip first'); return; }
+      try{ const j=await post('/api/cars/save',{}); csay('saved as '+(j.key||'yours')); await hapCarListLoad(); await hapCarRefresh(); }
+      catch(e){ csay(String(e.message||e)); }
+    };
+    mc.querySelector('#hapCarForget').onclick=async()=>{
+      if(!confirm('Drop your own entry for this car?')) return;
+      try{ await post('/api/cars/forget',{}); csay('forgotten'); await hapCarListLoad(); await hapCarRefresh(); }
+      catch(e){ csay(String(e.message||e)); }
+    };
+    const fc=mc.querySelector('#hapFollowCar');
+    fc.onchange=()=>{ cfgObj.haptics.followCar=!!fc.checked; refreshDirtyUI(); };
+    hapCarListLoad();
     const gi=mc.querySelector('#hapMasterGain');
     gi.onchange=()=>{ const v=+gi.value; if(!isFinite(v)) return;
       cfgObj.haptics.masterGain=Math.max(0,Math.min(2,v)); gi.value=cfgObj.haptics.masterGain;
@@ -1624,7 +1717,11 @@ function hapInit(){
       else
         h+='<input type="number" min="'+min+'" max="'+max+'" step="'+st+'" data-k="'+key+'" value="'+dv[key]+'"></div>';
     }
-    h+='</div><div class="hb"><button class="hap-routechip" type="button">'+hapChipText(dv)+'</button>'
+    h+='</div>';
+    // The Engine tile names the car the table matched and folds its notes
+    // (the real-world figures the values came from) under it.
+    if(fx.k==='rpmVibe') h+='<details class="hcar" data-car="1" hidden><summary data-carsum="1"></summary><div class="hnotes" data-carnotes="1"></div></details>';
+    h+='<div class="hb"><button class="hap-routechip" type="button">'+hapChipText(dv)+'</button>'
       +'<button class="btn btn-sm btn-action" type="button" data-test="1">Test</button></div>';
     tile.innerHTML=h;
     const svg=tile.querySelector('svg'); hapWave(svg,fx,dv);
@@ -1661,6 +1758,7 @@ function hapInit(){
     };
     strip.appendChild(tile);
   }
+  hapCarRefresh();   // the car line and the Engine tile's notes, once the tiles exist
 }
 
 function devInit(){

@@ -37,6 +37,7 @@
 #include "Logging.h"
 #include "EffectStatus.h"
 #include "HapticsProfiles.h"
+#include "CarTable.h"
 #include "ShakerBank.h"
 
 #include <string>
@@ -67,6 +68,9 @@ public:
     void setWebRoot(const std::string& path)    { m_webRoot    = path; }
     // Path to config.json - enables GET/POST /api/config (passthrough save).
     void setConfigPath(const std::string& path) { m_configPath = path; }
+    // The shipped car table (cars.json beside the executable). Set before
+    // start(); the user layer is found beside the config.
+    void setCarTablePath(const std::string& path) { m_stockCarsPath = path; }
     // Telemetry handle - lets /api/status report the receiving indicator.
     void setTelemetry(TelemetryInput* s)              { m_telemetry     = s; }
     // The shaker sound card (status, device list, tone test); may be null.
@@ -217,6 +221,22 @@ private:
     std::string       m_lastIdentity;        // "car|game" last looked up
     bool loadProfile(const std::string& name, std::string& err);
     bool snapshotProfile(const std::string& name, std::string& err);
+    // Merge a (partial) haptics object over the live set: rig.json first,
+    // then staged live. Caller holds m_profilesIo.
+    bool applyHapticsObjectLocked(const QJsonObject& h, std::string& err);
+
+    // Car table (cars.json shipped beside the executable + cars.local.json
+    // beside the config): the entry for the car the sim names, applied by
+    // the sampler when the strip follows the car, or on request.
+    CarTable          m_cars;
+    std::string       m_stockCarsPath;
+    struct CarState { CarTable::Match match; std::string car, game; bool applied = false; };
+    CarState          m_carState;            // guarded by m_carMx
+    mutable std::mutex m_carMx;              // mutable: read by the const status builder
+    std::atomic<int>  m_carGen{0};           // bumps on every apply (auto or asked)
+    void carIdentity(const std::string& game, const std::string& car, bool mayApply);
+    bool applyCarEntry(const CarTable::Match& m, std::string& err);
+    bool followCarEnabled() const;
 
     // Set inside the server thread once svr is constructed; used by stop()
     // to call svr.stop() and unblock svr.listen().

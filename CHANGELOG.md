@@ -9,6 +9,22 @@ middle number carries breaking changes and the last carries fixes.
 Development branch. Nothing here is in a release yet.
 
 ### Added
+- The car table: an entry for every car in Assetto Corsa (Kunos content
+  and DLC) and Automobilista 2 carrying what belongs to the car (the
+  engine's description and character, the limiter, the driveline, ABS and
+  TC where the real car has them, with those five tiles' amplitudes) and
+  notes on the real-world figures behind the values. Never routes, master
+  gain or any other tile: applying an entry moves the five car tiles and
+  leaves your rig tuning alone. **Follow car** on the Master tile (on by
+  default) applies the entry whenever the sim names a car; **pull car
+  preset** does it on request; a **preset** search box applies any entry
+  as a starting point for a car the table lacks; **save for this car**
+  files your tuning under the current car in `cars.local.json`, which
+  wins over the shipped `cars.json` and survives updates. The Engine tile
+  names the matched car and folds its notes under it. A profile bound to
+  the car still wins. Existing users: with follow car on, the Engine,
+  Limiter, Driveline, ABS and TC tiles move on the first car change after
+  this update; untick it on the Master tile to keep them by hand.
 - Tyre slip per wheel: the Skid and Lockup tiles become **Lateral slip**
   (scrub at the fronts, slide at the rears) and **Longitudinal slip**
   (lock under braking, spin under power), each modelled for all four
