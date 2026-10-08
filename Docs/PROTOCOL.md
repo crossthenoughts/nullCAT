@@ -83,7 +83,8 @@ same line type:
 | Key | Value |
 |---|---|
 | `game` | the running sim's name, free text (up to 47 characters) |
-| `car` | the current car, free text (up to 47 characters) |
+| `car` | the current car as the sim shows it, free text (up to 47 characters) |
+| `carId` | optional: the car's stable id in that sim (Assetto Corsa: the content folder, e.g. `ks_mazda_787b`), up to 47 characters. nullCAT's car table is keyed by it where a sim has one; without it the table matches on `car` |
 
 Unknown keys, keys without `=`, and non-numeric values for a numeric
 token are skipped; the rest of the line still lands. Whitespace around
@@ -100,7 +101,7 @@ binding for the same token.
 Example lines:
 
 ```
-NULLCATY,game=Automobilista 2,car=Formula Ultimate Gen2
+NULLCATY,game=Automobilista 2,car=Formula Ultimate Gen2,carId=Formula Ultimate Gen2
 NULLCATY,rpm=11480,speedKmh=212.4,gear=5,throttlePct=100,brakePct=0,slipRatioRL=0.08,slipRatioRR=0.31,slipAngleFL=2.1
 ```
 
@@ -172,7 +173,7 @@ one slowly for the identity:
 
 ```
 NULLCATY,rpm={rpm},speedKmh={speed_kmh},gear={gear},throttlePct={throttle_pct},brakePct={brake_pct},clutchPct={clutch_pct},slipAngleFL={slip_angle_fl_deg},slipAngleFR={slip_angle_fr_deg},slipAngleRL={slip_angle_rl_deg},slipAngleRR={slip_angle_rr_deg},slipRatioFL={slip_ratio_fl},slipRatioFR={slip_ratio_fr},slipRatioRL={slip_ratio_rl},slipRatioRR={slip_ratio_rr}
-NULLCATY,game={game_name},car={car_name}
+NULLCATY,game={game_name},car={car_name},carId={car_id}
 ```
 
 Units matter: degrees for slip angles, a signed ratio for slip ratios,
@@ -187,7 +188,7 @@ and can come from the same tool.
   `wheelSpeed*`, `load*`, `suspVel*` and `maxRpm`, consumed by the new
   per-wheel Lateral slip and Longitudinal slip effects (`skid` and
   `lockup` remain as fallbacks). Added line type 3, `NULLCATY`, named
-  channels plus the `game` and `car` identity strings. No change to the
+  channels plus the `game`, `car` and optional `carId` identity strings. No change to the
   motion line or to NULLCATX parsing; every 1.2 sender remains fully
   compatible.
 - **1.2** (nullCAT 0.9.6): added tokens `limiter`, `tcActive`, `curbs` for

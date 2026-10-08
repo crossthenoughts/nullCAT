@@ -83,6 +83,33 @@ bool CarTable::readRows(const QJsonObject& root, std::map<std::string, Row>& int
     return n > 0;
 }
 
+// The name index of a layer: "<game>:<display name>" normalised, pointing
+// at the entry's key. A name that is also some entry's key is not
+// indexed (the key is the authority); a name shared by two entries goes
+// to the first in key order.
+void CarTable::rebuildNames(Layer& layer) const
+{
+    layer.byName.clear();
+    for (const auto& kv : layer.rows)
+    {
+        const std::string name = kv.second.entry.value("name").toString().toStdString();
+        if (name.empty()) continue;
+        const size_t colon = kv.first.find(':');
+        const std::string game = colon == std::string::npos ? std::string() : kv.first.substr(0, colon);
+        const std::string nn = game + ":" + normalise(name);
+        if (nn == kv.first || layer.rows.count(nn)) continue;
+        layer.byName.emplace(nn, kv.first);
+    }
+}
+
+const CarTable::Row* CarTable::lookup(const Layer& layer, const std::string& nk) const
+{
+    if (const auto it = layer.rows.find(nk); it != layer.rows.end()) return &it->second;
+    if (const auto in = layer.byName.find(nk); in != layer.byName.end())
+        if (const auto it = layer.rows.find(in->second); it != layer.rows.end()) return &it->second;
+    return nullptr;
+}
+
 bool CarTable::loadStock(const std::string& path)
 {
     bool ok = false;
@@ -93,12 +120,14 @@ bool CarTable::loadStock(const std::string& path)
     readRows(root, rows, &games);
     std::lock_guard<std::mutex> lk(m_mx);
     m_games = games;
-    m_stock.clear();
-    for (auto& kv : rows) m_stock[normaliseKey(kv.first)] = kv.second;
+    m_stock.rows.clear();
+    for (auto& kv : rows) m_stock.rows[normaliseKey(kv.first)] = kv.second;
+    rebuildNames(m_stock);
     // The user layer was keyed before the alias map existed: re-key it.
     std::map<std::string, Row> user;
-    for (auto& kv : m_user) user[normaliseKey(kv.second.key)] = kv.second;
-    m_user = user;
+    for (auto& kv : m_user.rows) user[normaliseKey(kv.second.key)] = kv.second;
+    m_user.rows = user;
+    rebuildNames(m_user);
     return true;
 }
 
@@ -110,8 +139,9 @@ bool CarTable::loadUser(const std::string& anchorPath)
     std::map<std::string, Row> rows;
     readRows(root, rows, nullptr);
     std::lock_guard<std::mutex> lk(m_mx);
-    m_user.clear();
-    for (auto& kv : rows) m_user[normaliseKey(kv.first)] = kv.second;
+    m_user.rows.clear();
+    for (auto& kv : rows) m_user.rows[normaliseKey(kv.first)] = kv.second;
+    rebuildNames(m_user);
     return true;
 }
 
@@ -120,7 +150,7 @@ bool CarTable::saveUser(const std::string& anchorPath) const
     QJsonObject root, cars;
     {
         std::lock_guard<std::mutex> lk(m_mx);
-        for (const auto& kv : m_user) cars[QString::fromStdString(kv.second.key)] = kv.second.entry;
+        for (const auto& kv : m_user.rows) cars[QString::fromStdString(kv.second.key)] = kv.second.entry;
     }
     root["_help"] = "nullCAT car table, your layer: how a car's engine, limiter, driveline, ABS and TC feel, "
                     "saved from the Haptics strip with 'save for this car'. Wins over the shipped cars.json "
@@ -132,8 +162,8 @@ bool CarTable::saveUser(const std::string& anchorPath) const
     return f.commit();
 }
 
-int CarTable::stockCount() const { std::lock_guard<std::mutex> lk(m_mx); return static_cast<int>(m_stock.size()); }
-int CarTable::userCount() const  { std::lock_guard<std::mutex> lk(m_mx); return static_cast<int>(m_user.size()); }
+int CarTable::stockCount() const { std::lock_guard<std::mutex> lk(m_mx); return static_cast<int>(m_stock.rows.size()); }
+int CarTable::userCount() const  { std::lock_guard<std::mutex> lk(m_mx); return static_cast<int>(m_user.rows.size()); }
 
 std::string CarTable::keyFor(const std::string& game, const std::string& car) const
 {
@@ -148,33 +178,40 @@ std::string CarTable::keyFor(const std::string& game, const std::string& car) co
     return id + ":" + c.substr(s);
 }
 
+CarTable::Match CarTable::toMatch(const Row& row, const char* source)
+{
+    Match m;
+    m.key    = row.key;
+    m.entry  = row.entry;
+    m.source = source;
+    m.name   = row.entry.value("name").toString().toStdString();
+    m.notes  = row.entry.value("notes").toString().toStdString();
+    if (m.name.empty())
+    {
+        const size_t colon = row.key.find(':');
+        m.name = colon == std::string::npos ? row.key : row.key.substr(colon + 1);
+    }
+    return m;
+}
+
 CarTable::Match CarTable::find(const std::string& game, const std::string& car) const
 {
     if (car.empty()) return Match{};
-    return findKey(keyFor(game, car));
+    const std::string key = keyFor(game, car);
+    std::lock_guard<std::mutex> lk(m_mx);
+    const std::string nk = normaliseKey(key);
+    if (const Row* r = lookup(m_user, nk))  return toMatch(*r, "user");
+    if (const Row* r = lookup(m_stock, nk)) return toMatch(*r, "stock");
+    return Match{};
 }
 
 CarTable::Match CarTable::findKey(const std::string& key) const
 {
     std::lock_guard<std::mutex> lk(m_mx);
     const std::string nk = normaliseKey(key);
-    const Row* row = nullptr;
-    const char* source = "";
-    if (const auto it = m_user.find(nk); it != m_user.end()) { row = &it->second; source = "user"; }
-    else if (const auto it2 = m_stock.find(nk); it2 != m_stock.end()) { row = &it2->second; source = "stock"; }
-    if (!row) return Match{};
-    Match m;
-    m.key    = row->key;
-    m.entry  = row->entry;
-    m.source = source;
-    m.name   = row->entry.value("name").toString().toStdString();
-    m.notes  = row->entry.value("notes").toString().toStdString();
-    if (m.name.empty())
-    {
-        const size_t colon = row->key.find(':');
-        m.name = colon == std::string::npos ? row->key : row->key.substr(colon + 1);
-    }
-    return m;
+    if (const auto it = m_user.rows.find(nk); it != m_user.rows.end())   return toMatch(it->second, "user");
+    if (const auto it = m_stock.rows.find(nk); it != m_stock.rows.end()) return toMatch(it->second, "stock");
+    return Match{};
 }
 
 std::vector<CarTable::Item> CarTable::list() const
@@ -196,8 +233,8 @@ std::vector<CarTable::Item> CarTable::list() const
     };
     {
         std::lock_guard<std::mutex> lk(m_mx);
-        add(m_user, "user");
-        add(m_stock, "stock");
+        add(m_user.rows, "user");
+        add(m_stock.rows, "stock");
     }
     std::sort(out.begin(), out.end(), [](const Item& a, const Item& b)
     {
@@ -213,13 +250,16 @@ void CarTable::putUser(const std::string& key, const QJsonObject& entry)
 {
     std::lock_guard<std::mutex> lk(m_mx);
     Row r; r.key = key; r.entry = entry;
-    m_user[normaliseKey(key)] = r;
+    m_user.rows[normaliseKey(key)] = r;
+    rebuildNames(m_user);
 }
 
 bool CarTable::removeUser(const std::string& key)
 {
     std::lock_guard<std::mutex> lk(m_mx);
-    return m_user.erase(normaliseKey(key)) > 0;
+    const bool gone = m_user.rows.erase(normaliseKey(key)) > 0;
+    if (gone) rebuildNames(m_user);
+    return gone;
 }
 
 QJsonObject CarTable::toHapticsObject(const QJsonObject& entry)

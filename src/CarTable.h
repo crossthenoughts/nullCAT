@@ -16,11 +16,15 @@
 // strip; a car entry moves five tiles' amps and character.
 //
 // Keys: "<game>:<car>". The game is the short id from the file's "games"
-// map (ac, ams2, ...; the stream's SimHub game name resolves to it), the
-// car is what the sim names (SimHub CarModel: the content folder id for
-// AC, the in-game name for AMS2). Lookups normalise both halves (lower
-// case, letters and digits only) so case and punctuation in the stream
-// never miss an entry. The user layer wins over stock on the same key.
+// map (ac, ams2, ...; whatever the sender calls the game resolves to it),
+// the car is its stable id in that sim (the content folder for AC, the
+// in-game name for AMS2). Each entry also carries the car's display
+// "name" as the sim shows it, and a lookup matches EITHER: senders differ
+// (SimHub names the car, a shared-memory reader has the folder id, a
+// hand-written feeder has whatever it has) and the table must recognise
+// the car from any of them. Lookups normalise both halves (lower case,
+// letters and digits only) so case and punctuation never miss an entry.
+// The user layer wins over stock whichever way it matched.
 //
 // Main/web thread only, like HapticsProfiles.
 // ============================================================
@@ -51,10 +55,11 @@ public:
     int stockCount() const;
     int userCount() const;
 
-    // The entry for what the sim names: the user layer first, then stock.
+    // The entry for what the sender names, by its key (stable id) or its
+    // display name: the user layer first, then stock.
     Match find(const std::string& game, const std::string& car) const;
-    // An entry by its key (either layer, user first), e.g. one picked from
-    // the list to use as a starting point for another car.
+    // An entry by its key only (either layer, user first), e.g. one picked
+    // from the list to use as a starting point for another car.
     Match findKey(const std::string& key) const;
     // Every entry, user and stock, sorted by game then name.
     std::vector<Item> list() const;
@@ -78,13 +83,21 @@ public:
 
 private:
     struct Row { std::string key; QJsonObject entry; };
-    std::map<std::string, Row> m_stock, m_user;          // by normalised key
+    struct Layer
+    {
+        std::map<std::string, Row>         rows;     // by normalised key
+        std::map<std::string, std::string> byName;   // normalised "<game>:<name>" -> normalised key
+    };
+    Layer m_stock, m_user;
     std::map<std::string, std::string> m_games;          // normalised game name -> short id
     mutable std::mutex m_mx;
 
     // Both halves normalised, the game resolved through the alias map.
     // Callers hold m_mx.
     std::string normaliseKey(const std::string& key) const;
+    void   rebuildNames(Layer& layer) const;
+    const Row* lookup(const Layer& layer, const std::string& nk) const;   // key, then name
+    static Match toMatch(const Row& row, const char* source);
     static bool readRows(const QJsonObject& root, std::map<std::string, Row>& into,
                          std::map<std::string, std::string>* games);
 };

@@ -165,7 +165,12 @@ int main()
               "tokens the line did not name are NOT present");
         check(std::string(d.game) == "AMS2" && std::string(d.car) == "Formula Ultimate Gen2",
               "game= and car= strings are copied (spaces kept)");
+        check(d.carId[0] == '\0', "no carId= on the line: the id is empty (an older plugin)");
         check(d.numNcx == 0 && d.numPositions == 0, "an Ncy packet carries no slots and no positions");
+
+        d = parse("NULLCATY,game=AssettoCorsa,car=Mazda 787B,carId=ks_mazda_787b", &ok);
+        check(ok && std::string(d.car) == "Mazda 787B" && std::string(d.carId) == "ks_mazda_787b",
+              "carId= lands beside car= (SimHub CarId: the content folder for AC)");
 
         d = parse("NULLCATY,boostBar=1.2,RPM=100,rpm,=5,rpm=abc,gear=3", &ok);
         check(ok && d.ncyHave[NcxTok::Gear] && !d.ncyHave[NcxTok::Rpm],

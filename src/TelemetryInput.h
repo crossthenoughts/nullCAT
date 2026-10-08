@@ -58,7 +58,8 @@ struct TelemetryData
     bool            ncyHave[NcxTok::TokenCount] = {};
     double          ncy[NcxTok::TokenCount]     = {};
     char            game[NCY_STR_LEN]           = {};
-    char            car[NCY_STR_LEN]            = {};
+    char            car[NCY_STR_LEN]            = {};    // the car as the sim shows it (SimHub CarModel)
+    char            carId[NCY_STR_LEN]          = {};    // its stable id (SimHub CarId: the content folder for AC); "" from an older plugin
 };
 
 class TelemetryInput
@@ -187,8 +188,9 @@ private:
     // sender never resurrects old values).
     bool    m_ncyHave[NcxTok::TokenCount] = {};
     double  m_ncyVals[NcxTok::TokenCount] = {};
-    char    m_ncyGame[NCY_STR_LEN] = {};
-    char    m_ncyCar[NCY_STR_LEN]  = {};
+    char    m_ncyGame[NCY_STR_LEN]  = {};
+    char    m_ncyCar[NCY_STR_LEN]   = {};
+    char    m_ncyCarId[NCY_STR_LEN] = {};
 
     // UDP-rate diagnostic: receive-thread-only counters + published atomics.
     void    updateUdpRate(const TelemetryData& d);

@@ -100,6 +100,15 @@ private slots:
         // No name in the entry: the key's car half stands in.
         QCOMPARE(t.find("ams2", "Lotus 98T").name, std::string("Lotus 98T"));
 
+        // By the display name too: senders differ (SimHub names the car,
+        // a shared-memory reader has the folder id), any of them must land.
+        QCOMPARE(t.find("AssettoCorsa", "Mazda 787B").key, std::string("ac:ks_mazda_787b"));
+        QCOMPARE(t.find("Assetto Corsa", "mazda-787b").key, std::string("ac:ks_mazda_787b"));
+        QCOMPARE(t.find("AC", "MAZDA 787B").source, std::string("stock"));
+        QVERIFY(t.find("Automobilista2", "Mazda 787B").source.empty());   // the name belongs to AC
+        // findKey is keys only: a display name is not a key.
+        QVERIFY(t.findKey("ac:Mazda 787B").source.empty());
+
         // Misses: wrong game, unknown car, no car at all.
         QVERIFY(t.find("Automobilista2", "ks_mazda_787b").source.empty());
         QVERIFY(t.find("AssettoCorsa", "ks_mazda_mx5").source.empty());
@@ -133,6 +142,14 @@ private slots:
         QCOMPARE(m.source, std::string("user"));
         QCOMPARE(m.notes, std::string("softer"));
         QCOMPARE(m.entry.value("engine").toObject().value("ampPct").toDouble(), 25.0);
+        // ...and by name, the user layer still wins over the stock name.
+        QCOMPARE(t.find("AssettoCorsa", "Mazda 787B").source, std::string("user"));
+        // An entry saved under a sender's display name (no id known) is
+        // found by that name and by the stock key's name alike.
+        QJsonObject byName; byName["name"] = "Lotus 98T"; byName["notes"] = "mine";
+        t.putUser(t.keyFor("Automobilista2", "Lotus 98T"), byName);
+        QCOMPARE(t.find("AMS2", "lotus 98t").source, std::string("user"));
+        QVERIFY(t.removeUser("ams2:Lotus 98T"));
 
         // Both layers show in the list (game, then name, then the layer:
         // stock before user for the same car).
@@ -275,6 +292,11 @@ private slots:
         QCOMPARE(t.find("AssettoCorsa", "ks_mazda_787b").source, std::string("stock"));
         QCOMPARE(t.find("Automobilista2", "Lotus 98T").source, std::string("stock"));
         QCOMPARE(t.find("Automobilista2", "McLaren MP4/4").source, std::string("stock"));
+        // SimHub names AC cars by display name: the shipped names are the
+        // game's own (ui_car.json), so that path lands too.
+        QCOMPARE(t.find("AssettoCorsa", "Mazda 787B").key, std::string("ac:ks_mazda_787b"));
+        QCOMPARE(t.find("AssettoCorsa", "Nissan 370z Nismo").key, std::string("ac:ks_nissan_370z"));
+        QCOMPARE(t.find("AssettoCorsa", "Ferrari F40").key, std::string("ac:ferrari_f40"));
         // Every entry has the five sections, notes, and never routes.
         QFile f(path); QVERIFY(f.open(QIODevice::ReadOnly));
         const QJsonObject cars = QJsonDocument::fromJson(f.readAll()).object().value("cars").toObject();

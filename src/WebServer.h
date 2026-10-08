@@ -230,11 +230,22 @@ private:
     // the sampler when the strip follows the car, or on request.
     CarTable          m_cars;
     std::string       m_stockCarsPath;
-    struct CarState { CarTable::Match match; std::string car, game; bool applied = false; };
+    // car = the name the sim shows (what profiles bind to), carId = its
+    // stable id when the plugin sends one; the table is looked up by the
+    // id first, then the name, and a saved entry files under the id.
+    struct CarState { CarTable::Match match; std::string car, carId, game; bool applied = false; };
     CarState          m_carState;            // guarded by m_carMx
     mutable std::mutex m_carMx;              // mutable: read by the const status builder
     std::atomic<int>  m_carGen{0};           // bumps on every apply (auto or asked)
-    void carIdentity(const std::string& game, const std::string& car, bool mayApply);
+    // The identity the table last applied for by itself. Unlike
+    // m_lastIdentity it survives a stream dropout, so a pause (the plugin
+    // goes quiet) and the same car coming back is not a new car: the
+    // strip follows CAR CHANGES, never a returning stream, or a tweak made
+    // in the pits would be undone on unpause.
+    std::string       m_carAppliedIdent;
+    void carIdentity(const std::string& game, const std::string& car, const std::string& carId, bool mayApply);
+    CarTable::Match findCar(const std::string& game, const std::string& car, const std::string& carId) const;
+    std::string carKeyFor(const std::string& game, const std::string& car, const std::string& carId) const;
     bool applyCarEntry(const CarTable::Match& m, std::string& err);
     bool followCarEnabled() const;
 

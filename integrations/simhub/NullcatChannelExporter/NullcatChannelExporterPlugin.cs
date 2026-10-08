@@ -12,7 +12,7 @@
 //   NULLCATY,boost=..,pitLimiter=..,slipAngleFL=..,...   (boost and pit limiter always; the
 //            per-wheel groups only when bound in the settings file, by name)
 //
-//   NULLCATY,game=..,car=..                         (once a second)
+//   NULLCATY,game=..,car=..,carId=..               (once a second)
 //
 // That is the whole job. No shaping, no game-specific logic, no state:
 // nullCAT owns all of that (it holds the tyre model and maps channels onto
@@ -196,14 +196,18 @@ namespace NullcatChannelExporter
 
             // Identity once a second: which game and car the channels
             // describe (free text; commas and '=' would break the line).
+            // car = the name the sim shows (CarModel), carId = SimHub's
+            // stable id for it (the content folder in Assetto Corsa), which
+            // nullCAT's car table is keyed by.
             var now = DateTime.UtcNow;
             if ((now - _lastIdentity).TotalSeconds >= 1.0)
             {
                 _lastIdentity = now;
-                var game = Clean(data.GameName);
-                var car  = Clean(d.CarModel);
+                var game  = Clean(data.GameName);
+                var car   = Clean(d.CarModel);
+                var carId = Clean(d.CarId);
                 if (game.Length > 0 || car.Length > 0)
-                    Send("NULLCATY,game=" + game + ",car=" + car);
+                    Send("NULLCATY,game=" + game + ",car=" + car + ",carId=" + carId);
             }
         }
 

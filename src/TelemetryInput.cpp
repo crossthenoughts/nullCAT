@@ -291,7 +291,7 @@ bool TelemetryInput::ingest(const TelemetryData& parsed)
             if (last != 0 && (nowMs - last) >= 500)
             {
                 for (bool& h : m_ncyHave) h = false;
-                m_ncyGame[0] = m_ncyCar[0] = '\0';
+                m_ncyGame[0] = m_ncyCar[0] = m_ncyCarId[0] = '\0';
             }
             // Frozen-stream guard: a packet whose numeric payload is
             // bit-identical to the stored values is a repeat (a paused sim,
@@ -320,6 +320,9 @@ bool TelemetryInput::ingest(const TelemetryData& parsed)
                     }
                 if (parsed.game[0]) std::memcpy(m_ncyGame, parsed.game, NCY_STR_LEN);
                 if (parsed.car[0])  std::memcpy(m_ncyCar,  parsed.car,  NCY_STR_LEN);
+                // The id travels with the name: a line naming the car
+                // without an id (an older plugin) clears the stale id.
+                if (parsed.car[0])  std::memcpy(m_ncyCarId, parsed.carId, NCY_STR_LEN);
             }
             if (changed || last == 0 || (nowMs - last) >= 500) m_lastNcxChangeMs.store(static_cast<int64_t>(nowMs));
             else if (!numeric && m_lastNcxChangeMs.load() == 0) m_lastNcxChangeMs.store(static_cast<int64_t>(nowMs));
@@ -457,8 +460,9 @@ TelemetryData TelemetryInput::getLatestData() const
     d.numNcx = m_ncxCount;
     for (int i = 0; i < m_ncxCount; ++i) d.ncx[i] = m_ncxVals[i];
     for (int t = 0; t < NcxTok::TokenCount; ++t) { d.ncyHave[t] = m_ncyHave[t]; d.ncy[t] = m_ncyVals[t]; }
-    std::memcpy(d.game, m_ncyGame, NCY_STR_LEN);
-    std::memcpy(d.car,  m_ncyCar,  NCY_STR_LEN);
+    std::memcpy(d.game,  m_ncyGame,  NCY_STR_LEN);
+    std::memcpy(d.car,   m_ncyCar,   NCY_STR_LEN);
+    std::memcpy(d.carId, m_ncyCarId, NCY_STR_LEN);
     const bool arriving = (lastNcx != 0) && (nowMs - lastNcx) < 500;
     const int64_t frozenMs = m_frozenMs.load();
     const bool frozen   = frozenMs > 0 && arriving && lastChange != 0 && (nowMs - lastChange) >= frozenMs;
@@ -585,7 +589,7 @@ bool TelemetryInput::parsePacket(const char* buf, int len, TelemetryData& out)
         // valid when at least one field landed.
         out.packetType = TelemetryPacketType::Ncy;
         for (bool& h : out.ncyHave) h = false;
-        out.game[0] = out.car[0] = '\0';
+        out.game[0] = out.car[0] = out.carId[0] = '\0';
         int landed = 0;
         const char* f = comma + 1;
         while (f <= end)
@@ -605,9 +609,9 @@ bool TelemetryInput::parsePacket(const char* buf, int len, TelemetryData& out)
                 const int klen = static_cast<int>(ke - a), vlen = static_cast<int>(b - va);
                 const auto keyIs = [&](const char* ref)
                 { return static_cast<int>(std::strlen(ref)) == klen && std::memcmp(ref, a, static_cast<size_t>(klen)) == 0; };
-                if (keyIs("game") || keyIs("car"))
+                if (keyIs("game") || keyIs("car") || keyIs("carId"))
                 {
-                    char* dstS = keyIs("game") ? out.game : out.car;
+                    char* dstS = keyIs("game") ? out.game : keyIs("car") ? out.car : out.carId;
                     const int n = std::min(vlen, NCY_STR_LEN - 1);
                     std::memcpy(dstS, va, static_cast<size_t>(n));
                     dstS[n] = '\0';

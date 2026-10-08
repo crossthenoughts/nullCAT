@@ -487,6 +487,7 @@ std::string WebServer::buildStatusJson() const
             {
                 std::lock_guard<std::mutex> lk(m_carMx);
                 s += "\"hapCar\":" + jsonStr(m_carState.car) + ",";
+                s += "\"hapCarId\":" + jsonStr(m_carState.carId) + ",";
                 s += "\"hapCarKey\":" + jsonStr(m_carState.match.key) + ",";
                 s += "\"hapCarName\":" + jsonStr(m_carState.match.name) + ",";
                 s += "\"hapCarSrc\":" + jsonStr(m_carState.match.source) + ",";
@@ -1693,6 +1694,7 @@ bool WebServer::start()
             {
                 std::lock_guard<std::mutex> lk(m_carMx);
                 root["car"]     = QString::fromStdString(m_carState.car);
+                root["carId"]   = QString::fromStdString(m_carState.carId);
                 root["game"]    = QString::fromStdString(m_carState.game);
                 root["key"]     = QString::fromStdString(m_carState.match.key);
                 root["name"]    = QString::fromStdString(m_carState.match.name);
@@ -1756,9 +1758,9 @@ bool WebServer::start()
             // key, in the user layer. Name and notes: the body's, else the
             // existing entry's (user, then stock), else the car's name.
             if (m_configPath.empty()) { errResp(res, "No config path configured."); return; }
-            std::string car, game;
+            std::string car, carId, game;
             CarTable::Match cur;
-            { std::lock_guard<std::mutex> lk(m_carMx); car = m_carState.car; game = m_carState.game; cur = m_carState.match; }
+            { std::lock_guard<std::mutex> lk(m_carMx); car = m_carState.car; carId = m_carState.carId; game = m_carState.game; cur = m_carState.match; }
             if (car.empty()) { errResp(res, "The sim has not named a car yet: nothing to save under."); return; }
             const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(req.body));
             const QJsonObject body = doc.isObject() ? doc.object() : QJsonObject();
@@ -1769,12 +1771,12 @@ bool WebServer::start()
             if (notes.size() > 4000) notes.resize(4000);
             Config cfg;
             if (!cfg.load(m_configPath)) { errResp(res, "Cannot read the config."); return; }
-            const std::string key = m_cars.keyFor(game, car);
+            const std::string key = carKeyFor(game, car, carId);
             m_cars.putUser(key, CarTable::fromHapticsObject(Config::writeHapticsObject(cfg.get()), name, notes));
             if (!m_cars.saveUser(m_configPath)) { errResp(res, "Cannot write cars.local.json."); return; }
             {
                 std::lock_guard<std::mutex> lk(m_carMx);
-                m_carState.match   = m_cars.find(game, car);
+                m_carState.match   = findCar(game, car, carId);
                 m_carState.applied = true;
             }
             LOG_INFO(strf("Haptics: car preset '%s' saved to your layer.", key.c_str()));
@@ -1786,18 +1788,21 @@ bool WebServer::start()
             if (m_configPath.empty()) { errResp(res, "No config path configured."); return; }
             const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(req.body));
             std::string key = doc.isObject() ? doc.object().value("key").toString().toStdString() : std::string();
-            std::string car, game;
-            { std::lock_guard<std::mutex> lk(m_carMx); car = m_carState.car; game = m_carState.game; }
+            std::string car, carId, game;
+            { std::lock_guard<std::mutex> lk(m_carMx); car = m_carState.car; carId = m_carState.carId; game = m_carState.game; }
             if (key.empty())
             {
                 if (car.empty()) { errResp(res, "The sim has not named a car yet."); return; }
-                key = m_cars.keyFor(game, car);
+                // Yours for this car: filed under the id, or under the
+                // name by an older plugin.
+                key = carKeyFor(game, car, carId);
+                if (!carId.empty() && m_cars.findKey(key).source != "user") key = m_cars.keyFor(game, car);
             }
             if (!m_cars.removeUser(key)) { errResp(res, "No entry of yours for " + key + "."); return; }
             m_cars.saveUser(m_configPath);
             {
                 std::lock_guard<std::mutex> lk(m_carMx);
-                if (!car.empty()) { m_carState.match = m_cars.find(game, car); m_carState.applied = false; }
+                if (!car.empty()) { m_carState.match = findCar(game, car, carId); m_carState.applied = false; }
             }
             okResp(res);
         });
@@ -2440,23 +2445,26 @@ void WebServer::sampleEffectStatus()
     if (!m_motion) return;
     const MotionStatus ms = m_motion->getMotionStatus();
     bool live = false;
-    std::string game, car;
+    std::string game, car, carId;
     if (m_telemetry)
     {
         const TelemetryData td = m_telemetry->getLatestData();
-        live = td.ncxFresh;
-        game = td.game;
-        car  = td.car;
+        live  = td.ncxFresh;
+        game  = td.game;
+        car   = td.car;
+        carId = td.carId;
     }
     const int64_t nowMs = static_cast<int64_t>(std::time(nullptr)) * 1000;
     m_effectStatus.observe(game, ms.ncxHave, ms.hapticsFxLevel, ms.hapticsFiredBy, live, nowMs);
 
     if (live && (!car.empty() || !game.empty()))
     {
-        const std::string ident = car + "|" + game;
+        const std::string ident = car + "|" + carId + "|" + game;
         if (ident != m_lastIdentity)
         {
             m_lastIdentity = ident;
+            LOG_INFO(strf("Haptics: the sim names car '%s'%s%s%s in game '%s'.", car.c_str(),
+                          carId.empty() ? "" : " (id '", carId.c_str(), carId.empty() ? "" : "')", game.c_str()));
             const std::string want = m_profiles.profileFor(car, game);
             if (!want.empty() && want != m_profiles.active())
             {
@@ -2472,31 +2480,65 @@ void WebServer::sampleEffectStatus()
             // word on it and wins; a game-bound profile set the rig up and
             // the car's entry goes on top of it.
             const bool carBound = !car.empty() && m_profiles.bindings().count(HapticsProfiles::carKey(car)) > 0;
-            carIdentity(game, car, !carBound && followCarEnabled());
+            carIdentity(game, car, carId, !carBound && followCarEnabled());
         }
     }
     else if (!live)
         m_lastIdentity.clear();   // a returning stream looks its profile up again
 }
 
+// The table entry for what the sim names: by the stable id when the
+// plugin sends one, else by the shown name (an older plugin, or a game
+// whose id is its name).
+CarTable::Match WebServer::findCar(const std::string& game, const std::string& car, const std::string& carId) const
+{
+    if (!carId.empty())
+    {
+        CarTable::Match m = m_cars.find(game, carId);
+        if (!m.source.empty()) return m;
+    }
+    return m_cars.find(game, car);
+}
+
+// Where an entry saved for this car is filed: under the id when there is
+// one, so it matches the shipped keys and survives a display-name change.
+std::string WebServer::carKeyFor(const std::string& game, const std::string& car, const std::string& carId) const
+{
+    return m_cars.keyFor(game, carId.empty() ? car : carId);
+}
+
 // A new car (or game) from the stream: look its entry up for the strip to
 // show, and when the strip follows the car, apply it.
-void WebServer::carIdentity(const std::string& game, const std::string& car, bool mayApply)
+void WebServer::carIdentity(const std::string& game, const std::string& car, const std::string& carId, bool mayApply)
 {
-    CarTable::Match m = m_cars.find(game, car);
+    CarTable::Match m = findCar(game, car, carId);
+    const std::string ident = game + "|" + car + "|" + carId;
     bool applied = false;
-    if (mayApply && !m.source.empty())
+    if (ident == m_carAppliedIdent)
+    {
+        // The same car, back after a dropout: the tiles already carry
+        // what they carried (the entry, or the user's edits since).
+        std::lock_guard<std::mutex> lk(m_carMx);
+        applied = m_carState.applied;
+    }
+    else if (mayApply && !m.source.empty())
     {
         std::string err;
         applied = applyCarEntry(m, err);
         if (applied)
+        {
+            m_carAppliedIdent = ident;
             LOG_INFO(strf("Haptics: car preset '%s' (%s) applied for %s.", m.key.c_str(), m.source.c_str(), car.c_str()));
+        }
         else
             LOG_WARNING(strf("Haptics: car preset '%s' could not be applied: %s", m.key.c_str(), err.c_str()));
     }
+    else
+        m_carAppliedIdent.clear();   // a car the table did not act on
     std::lock_guard<std::mutex> lk(m_carMx);
     m_carState.match   = m;
     m_carState.car     = car;
+    m_carState.carId   = carId;
     m_carState.game    = game;
     m_carState.applied = applied;
 }

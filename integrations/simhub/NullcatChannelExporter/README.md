@@ -9,7 +9,7 @@ repo):
              <brakePct>,<absActive>,<skid>,<lockup>,<roadNoise>,
              <limiter>,<tcActive>,<curbs>,<maxRpm>
     NULLCATY,boost=..,pitLimiter=..,slipAngleFL=..,...  (boost, pit limiter, the per-wheel channels you bind)
-    NULLCATY,game=..,car=..                      (once a second)
+    NULLCATY,game=..,car=..,carId=..             (once a second)
 
 All the feel and logic lives in nullCAT - this plugin never changes when
 effects do. Gear is numeric on the wire: `0` = neutral, `-1` = reverse.
