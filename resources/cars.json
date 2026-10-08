@@ -99,7 +99,7 @@
    },
    "notes": "1974 air-cooled 3.0 flat-six, about 330 hp, 8000 rpm, lumpy race idle (lope 0.4). Air-cooled flat-six has a distinctive mechanical thrash: thump 0.9 at a heavy 18 Hz carrier, rock 0.7. Bosch mechanical injection burbles on the overrun: pops 0.6. Porsche 915 five-speed with synchromesh (helical gears, quiet: whine 0.2); transaxle lash gives a clear tip-in shunt. 1974 race car: no ABS, no TC."
   },
-  "ac:ks_ferrari_f40": {
+  "ac:ferrari_f40": {
    "name": "Ferrari F40",
    "engine": {
     "ampPct": 45,
@@ -616,7 +616,7 @@
    },
    "notes": "Kunos Step 1 tune of the 500: more boost and a freer exhaust, so a bigger lift-off whoosh (1.2) and more crackle (0.4); otherwise the road car. ABS and ASR stay."
   },
-  "ac:abarth595ss": {
+  "ac:ks_abarth_595ss": {
    "name": "Abarth 595 SS",
    "engine": {
     "ampPct": 45,
@@ -663,7 +663,7 @@
    },
    "notes": "1960s Fiat 500 based 595, 690 cc air-cooled parallel twin, about 32 hp, 6000 rpm. A big-bore twin at 500 rpm idle shakes the whole car: rock 1.0, thump 1.0 at the heaviest carrier (14 Hz), lope 0.5. Four-speed crash box with no synchro on first, straight-ish cut gears that whine (0.3). Lugs at the slightest excuse (0.9 at 4 Hz). Nothing electronic: no ABS, no TC."
   },
-  "ac:abarth595ss_s1": {
+  "ac:ks_abarth_595ss_s1": {
    "name": "Abarth 595 SS Step 1",
    "engine": {
     "ampPct": 45,
@@ -710,7 +710,7 @@
    },
    "notes": "Step 1 of the 595: hotter cam and exhaust, slightly rougher idle and more pop; the twin's shake is the same. No ABS, no TC."
   },
-  "ac:abarth595ss_s2": {
+  "ac:ks_abarth_595ss_s2": {
    "name": "Abarth 595 SS Step 2",
    "engine": {
     "ampPct": 45,
@@ -2355,7 +2355,7 @@
    },
    "notes": "Supercharged Toyota 3.5 V6, 350 hp, 7000 rpm; the blower's bypass sighs on lift (1.0, turbo flag off). Six-speed synchro. Road car: ABS and TC on."
   },
-  "ac:lotus_evora_s_stage2": {
+  "ac:lotus_evora_s_s2": {
    "name": "Lotus Evora S Stage 2",
    "engine": {
     "ampPct": 44,
@@ -2449,7 +2449,7 @@
    },
    "notes": "Supercharged 2ZZ 1.8 four, 240 hp, 8000 rpm; same family as the Elise SC with a bit more edge. Six-speed synchro. ABS and TC on."
   },
-  "ac:lotus_exige_240r_stage3": {
+  "ac:lotus_exige_240_s3": {
    "name": "Lotus Exige 240R Stage 3",
    "engine": {
     "ampPct": 46,
@@ -3530,7 +3530,7 @@
    },
    "notes": "The lighter BC: 6.0 twin-turbo V12 at 790 hp with a titanium exhaust (more pop, bigger blow-off than the Huayra) and the Xtrac sequential. ABS and TC on."
   },
-  "ac:ks_nissan_370z_nismo": {
+  "ac:ks_nissan_370z": {
    "name": "Nissan 370Z Nismo",
    "engine": {
     "ampPct": 40,
@@ -3624,7 +3624,7 @@
    },
    "notes": "FA20 2.0 flat-four, 200 hp, 7400 rpm: a boxer four has its own gruffness (thump 0.6) and the famous torque dip means it lugs if you let it (0.7). Six-speed synchro. Road car: ABS and VSC on."
   },
-  "ac:ks_ferrari_f40_s3": {
+  "ac:ferrari_f40_s3": {
    "name": "Ferrari F40 Stage 3",
    "engine": {
     "ampPct": 48,
@@ -4000,7 +4000,7 @@
    },
    "notes": "The 12C GT3 updated: same M838T twin-turbo flat-plane V8 at about 500 hp and the Ricardo sequential dog box. Values match the 12C GT3. GT3: ABS and TC on."
   },
-  "ac:mclaren_f1_gtr": {
+  "ac:ks_mclaren_f1_gtr": {
    "name": "McLaren F1 GTR",
    "engine": {
     "ampPct": 50,
@@ -4329,7 +4329,7 @@
    },
    "notes": "Road Sport quattro: 2.1 turbo inline-five, 306 hp, 7000 rpm. The five-cylinder has an odd-fire warble (thump 0.8 at a 20 Hz carrier, some lope) and a big single turbo that dumps on lift (1.6). Five-speed synchro, quattro. 1984 road car: ABS fitted, no TC."
   },
-  "ac:ks_audi_sport_quattro_s1": {
+  "ac:ks_audi_sport_quattro_rally": {
    "name": "Audi Sport quattro S1 E2",
    "engine": {
     "ampPct": 50,
@@ -4375,6 +4375,53 @@
     "freqHz": 15
    },
    "notes": "1985 Group B monster: 2.1 five at 500 plus hp with a huge KKK turbo and anti-lag bangs, 8000 rpm. The five's warble, anti-lag crackle (pops 0.9) and the most violent lift in the set (2.0). Six-speed straight-cut dog box (whine 0.9), lots of driveline shunt. Group B: no ABS, no TC."
+  },
+  "ac:ks_audi_sport_quattro_s1": {
+   "name": "Audi Sport quattro Step1",
+   "engine": {
+    "ampPct": 46,
+    "cylinders": 5,
+    "litres": 2.1,
+    "layout": 0,
+    "turbo": 1,
+    "rock": 0.6,
+    "thump": 0.8,
+    "buzz": 0.7,
+    "jitter": 0.3,
+    "inertia": 0.55,
+    "liftoff": 1.8,
+    "pops": 0.6,
+    "limHit": 0.9,
+    "limHz": 12,
+    "limJit": 0.25,
+    "freqHz": 20
+   },
+   "limiter": {
+    "ampPct": 25,
+    "freqHz": 12,
+    "jitter": 0.2
+   },
+   "driveline": {
+    "ampPct": 30,
+    "gearbox": 0,
+    "whine": 0.2,
+    "shunt": 0.7,
+    "shuntHz": 35,
+    "clutch": 1.0,
+    "clutchHz": 9,
+    "lug": 0.6,
+    "lugHz": 5,
+    "jitter": 0.2
+   },
+   "abs": {
+    "ampPct": 40,
+    "freqHz": 12
+   },
+   "tc": {
+    "ampPct": 0,
+    "freqHz": 15
+   },
+   "notes": "Kunos Step 1 tune of the road Sport quattro: the same 2.1 turbo five on more boost (about 400 hp), so a bigger dump on lift (1.8) and a touch more overrun crackle; still the five-speed synchro road box and quattro. ABS on, no TC (1984)."
   },
   "ac:ks_bmw_m4": {
    "name": "BMW M4 Coupe",
@@ -5034,7 +5081,7 @@
    },
    "notes": "1989 Le Mans winner: M119 5.0 twin-turbo V8, 720 hp race trim, 7000 rpm, 400 km/h on the Mulsanne. Big V8 pulses (18 Hz) and two big KKK turbos that dump hard on lift (1.8), heavy shunt from the torque. Five-speed straight-cut dog box (whine 0.9). 1989 Group C: no ABS, no TC."
   },
-  "ac:ks_alfa_romeo_33_stradale": {
+  "ac:ks_alfa_33_stradale": {
    "name": "Alfa Romeo 33 Stradale",
    "engine": {
     "ampPct": 46,
@@ -5081,7 +5128,7 @@
    },
    "notes": "1967 road version of the Tipo 33 racer: 2.0 flat-plane V8 on mechanical injection, 230 hp, 10000 rpm, a tiny screaming V8 with a lumpy idle (lope 0.4). Six-speed Colotti transaxle, synchro but noisy (whine 0.5). 1967: nothing electronic."
   },
-  "ac:ks_mazda_mx5_na": {
+  "ac:ks_mazda_miata": {
    "name": "Mazda MX-5 NA",
    "engine": {
     "ampPct": 36,
@@ -5268,53 +5315,6 @@
     "freqHz": 15
    },
    "notes": "Single big-turbo tuned 13B at about 450 hp: lumpy bridge-port idle (lope 0.3), a huge blow-off (1.9) and rotary fireballs on the overrun (pops 0.8). Grabby clutch. Tuner car: ABS and TC removed."
-  },
-  "ac:ks_nissan_370z": {
-   "name": "Nissan 370Z",
-   "engine": {
-    "ampPct": 38,
-    "cylinders": 6,
-    "litres": 3.7,
-    "layout": 1,
-    "turbo": 0,
-    "rock": 0.5,
-    "thump": 0.6,
-    "buzz": 0.65,
-    "jitter": 0.15,
-    "inertia": 0.6,
-    "liftoff": 0.8,
-    "pops": 0.3,
-    "limHit": 0.7,
-    "limHz": 11,
-    "limJit": 0.2,
-    "freqHz": 22
-   },
-   "limiter": {
-    "ampPct": 18,
-    "freqHz": 11,
-    "jitter": 0.2
-   },
-   "driveline": {
-    "ampPct": 25,
-    "gearbox": 0,
-    "whine": 0.1,
-    "shunt": 0.5,
-    "shuntHz": 35,
-    "clutch": 1.0,
-    "clutchHz": 8,
-    "lug": 0.6,
-    "lugHz": 5,
-    "jitter": 0.2
-   },
-   "abs": {
-    "ampPct": 40,
-    "freqHz": 12
-   },
-   "tc": {
-    "ampPct": 40,
-    "freqHz": 15
-   },
-   "notes": "VQ37VHR 3.7 V6, 328 hp, 7500 rpm, stock exhaust: the Nismo with a little less of everything. Six-speed synchro. Road car: ABS and VDC on."
   },
   "ac:ks_toyota_ae86": {
    "name": "Toyota AE86 Sprinter Trueno",
@@ -6068,7 +6068,7 @@
    },
    "notes": "GT4 race GranTurismo: 4.7 V8 with a race exhaust that cracks on the overrun (0.8), six-speed sequential dog box (whine 0.7). GT4 rules: ABS and TC on."
   },
-  "ac:ks_maserati_levante_s": {
+  "ac:ks_maserati_levante": {
    "name": "Maserati Levante S",
    "engine": {
     "ampPct": 32,
@@ -6491,53 +6491,6 @@
    },
    "notes": "The GT3 RS engine with a six-speed manual and a single-mass flywheel (inertia 0.35, a touch of drivetrain rattle at idle). Road car: ABS and PSM on."
   },
-  "ac:ks_porsche_911_sc_rs": {
-   "name": "Porsche 911 SC RS",
-   "engine": {
-    "ampPct": 46,
-    "cylinders": 6,
-    "litres": 3.0,
-    "layout": 2,
-    "turbo": 0,
-    "rock": 0.75,
-    "thump": 0.9,
-    "buzz": 0.65,
-    "jitter": 0.4,
-    "inertia": 0.45,
-    "liftoff": 1.0,
-    "pops": 0.7,
-    "limHit": 1.0,
-    "limHz": 13,
-    "limJit": 0.3,
-    "freqHz": 18
-   },
-   "limiter": {
-    "ampPct": 30,
-    "freqHz": 13,
-    "jitter": 0.25
-   },
-   "driveline": {
-    "ampPct": 32,
-    "gearbox": 0,
-    "whine": 0.3,
-    "shunt": 0.65,
-    "shuntHz": 35,
-    "clutch": 0.9,
-    "clutchHz": 9,
-    "lug": 0.6,
-    "lugHz": 6,
-    "jitter": 0.2
-   },
-   "abs": {
-    "ampPct": 0,
-    "freqHz": 12
-   },
-   "tc": {
-    "ampPct": 0,
-    "freqHz": 15
-   },
-   "notes": "1984 Group B rally 911: air-cooled 3.0 flat-six on mechanical injection, 290 hp, 7500 rpm, the RSR 3.0's character with rally gearing and an uneven idle (lope 0.4). 915 synchro box with a closer, noisier set (whine 0.3). Group B: no ABS, no TC."
-  },
   "ac:ks_porsche_917_30": {
    "name": "Porsche 917/30 Spyder",
    "engine": {
@@ -6773,7 +6726,7 @@
    },
    "notes": "The 2016 evolution: same V4 hybrid layout, more power, same feel. TC on, no ABS."
   },
-  "ac:ks_porsche_935_78": {
+  "ac:ks_porsche_935_78_moby_dick": {
    "name": "Porsche 935/78 Moby Dick",
    "engine": {
     "ampPct": 50,
@@ -7008,7 +6961,7 @@
    },
    "notes": "3.8 twin-turbo flat-six, 560 hp, variable-geometry turbos so the lift is moderate (1.3), AWD, PDK. Road car: ABS and PSM on."
   },
-  "ac:ks_porsche_cayenne_turbo_s": {
+  "ac:ks_porsche_cayenne": {
    "name": "Porsche Cayenne Turbo S",
    "engine": {
     "ampPct": 32,
@@ -7149,7 +7102,7 @@
    },
    "notes": "Road Cayman GT4: 3.8 flat-six, 385 hp, 7800 rpm, six-speed manual, mid-engined so the boxer is close behind you. Road car: ABS and PSM on."
   },
-  "ac:ks_porsche_macan_turbo": {
+  "ac:ks_porsche_macan": {
    "name": "Porsche Macan Turbo",
    "engine": {
     "ampPct": 32,
@@ -8323,6 +8276,194 @@
     "freqHz": 15
    },
    "notes": "3.8 twin-turbo flat-plane V8 at 737 hp plus 179 hp electric, 8500 rpm: the electric torque fill hides some of the lag but the turbos still dump (1.4). Seven-speed DCT. Road car: ABS and TC on."
+  },
+  "ac:ks_audi_r18_etron_quattro": {
+   "name": "Audi R18 e-tron quattro 2014",
+   "engine": {
+    "ampPct": 42,
+    "cylinders": 6,
+    "litres": 4.0,
+    "layout": 1,
+    "turbo": 1,
+    "rock": 0.4,
+    "thump": 0.9,
+    "buzz": 0.5,
+    "jitter": 0.1,
+    "inertia": 0.4,
+    "liftoff": 1.0,
+    "pops": 0.3,
+    "limHit": 0.8,
+    "limHz": 12,
+    "limJit": 0.2,
+    "freqHz": 16
+   },
+   "limiter": {
+    "ampPct": 22,
+    "freqHz": 12,
+    "jitter": 0.2
+   },
+   "driveline": {
+    "ampPct": 30,
+    "gearbox": 1,
+    "whine": 0.7,
+    "shunt": 0.5,
+    "shuntHz": 42,
+    "clutch": 0.6,
+    "clutchHz": 11,
+    "lug": 0.2,
+    "lugHz": 6,
+    "jitter": 0.2
+   },
+   "abs": {
+    "ampPct": 0,
+    "freqHz": 12
+   },
+   "tc": {
+    "ampPct": 40,
+    "freqHz": 15
+   },
+   "notes": "2014 Le Mans winner: 4.0 TDI V6 single turbo at about 560 hp and only 4500 rpm, plus a flywheel-accumulator hybrid driving the fronts. A diesel: heavy low-frequency pulses (thump 0.9 at 16 Hz), hardly any top-end buzz, no overrun crackle, a muted lift (the turbo is tiny and the hybrid fills). Six-speed sequential dog box. TC yes (LMP1 ran it), no ABS."
+  },
+  "ac:ks_ferrari_488_challenge_evo": {
+   "name": "Ferrari 488 Challenge Evo",
+   "engine": {
+    "ampPct": 48,
+    "cylinders": 8,
+    "litres": 3.9,
+    "layout": 1,
+    "turbo": 1,
+    "rock": 0.45,
+    "thump": 0.65,
+    "buzz": 0.9,
+    "jitter": 0.15,
+    "inertia": 0.4,
+    "liftoff": 1.5,
+    "pops": 0.7,
+    "limHit": 1.1,
+    "limHz": 14,
+    "limJit": 0.25,
+    "freqHz": 26
+   },
+   "limiter": {
+    "ampPct": 30,
+    "freqHz": 14,
+    "jitter": 0.2
+   },
+   "driveline": {
+    "ampPct": 32,
+    "gearbox": 1,
+    "whine": 0.4,
+    "shunt": 0.6,
+    "shuntHz": 42,
+    "clutch": 0.7,
+    "clutchHz": 11,
+    "lug": 0.3,
+    "lugHz": 6,
+    "jitter": 0.2
+   },
+   "abs": {
+    "ampPct": 40,
+    "freqHz": 12
+   },
+   "tc": {
+    "ampPct": 40,
+    "freqHz": 15
+   },
+   "notes": "One-make Challenge Evo: the 488's 3.9 twin-turbo flat-plane V8 at 670 hp, 8000 rpm, F1 DCT with race shift maps (quick, hard shifts: dog shape). Flat-plane scream (buzz 0.9) with turbo flutter on lift (1.5) and a race exhaust that pops. Challenge cars keep ABS and F1-Trac TC."
+  },
+  "ac:ks_ferrari_488_gt3_2020": {
+   "name": "Ferrari 488 GT3 Evo 2020",
+   "engine": {
+    "ampPct": 48,
+    "cylinders": 8,
+    "litres": 3.9,
+    "layout": 1,
+    "turbo": 1,
+    "rock": 0.45,
+    "thump": 0.65,
+    "buzz": 0.9,
+    "jitter": 0.15,
+    "inertia": 0.4,
+    "liftoff": 1.5,
+    "pops": 0.7,
+    "limHit": 1.1,
+    "limHz": 14,
+    "limJit": 0.25,
+    "freqHz": 26
+   },
+   "limiter": {
+    "ampPct": 30,
+    "freqHz": 14,
+    "jitter": 0.2
+   },
+   "driveline": {
+    "ampPct": 34,
+    "gearbox": 1,
+    "whine": 0.8,
+    "shunt": 0.6,
+    "shuntHz": 45,
+    "clutch": 0.7,
+    "clutchHz": 11,
+    "lug": 0.3,
+    "lugHz": 6,
+    "jitter": 0.2
+   },
+   "abs": {
+    "ampPct": 40,
+    "freqHz": 12
+   },
+   "tc": {
+    "ampPct": 40,
+    "freqHz": 15
+   },
+   "notes": "488 GT3 Evo 2020: same 3.9 twin-turbo V8 BoP'd to about 550 hp, Hewland six-speed sequential (straight-cut, whine 0.8). Same values as the 488 GT3 with the Evo's firmer shift. GT3: ABS and TC on."
+  },
+  "ac:ks_porsche_911_rsr_2017": {
+   "name": "Porsche 911 RSR 2017",
+   "engine": {
+    "ampPct": 50,
+    "cylinders": 6,
+    "litres": 4.0,
+    "layout": 2,
+    "turbo": 0,
+    "rock": 0.55,
+    "thump": 0.8,
+    "buzz": 0.9,
+    "jitter": 0.3,
+    "inertia": 0.35,
+    "liftoff": 1.1,
+    "pops": 0.8,
+    "limHit": 1.2,
+    "limHz": 15,
+    "limJit": 0.3,
+    "freqHz": 22
+   },
+   "limiter": {
+    "ampPct": 35,
+    "freqHz": 15,
+    "jitter": 0.25
+   },
+   "driveline": {
+    "ampPct": 36,
+    "gearbox": 1,
+    "whine": 0.9,
+    "shunt": 0.7,
+    "shuntHz": 45,
+    "clutch": 0.8,
+    "clutchHz": 11,
+    "lug": 0.4,
+    "lugHz": 6,
+    "jitter": 0.2
+   },
+   "abs": {
+    "ampPct": 40,
+    "freqHz": 12
+   },
+   "tc": {
+    "ampPct": 40,
+    "freqHz": 15
+   },
+   "notes": "The mid-engined GTE RSR: 4.0 NA flat-six at 510 hp, 9300 rpm, six-speed sequential straight-cut dog box (whine 0.9) with the engine ahead of the axle for the first time. A wailing boxer with heavy pops on the overrun. GTE: ABS and TC on."
   },
   "ams2:Formula Classic Gen1 Model1": {
    "name": "Formula Classic Gen1 Model1",
