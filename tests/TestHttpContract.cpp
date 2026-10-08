@@ -38,6 +38,7 @@
 #include <string>
 #include <thread>
 #include <chrono>
+#include <filesystem>
 
 static int g_fail = 0, g_pass = 0;
 static void check(bool ok, const char* name)
@@ -136,9 +137,18 @@ int main()
     loop.setComponents(&master, &telemetry, &motion);
     loop.setConfig(cfg);
 
+    // A scratch config directory, as the mains give the server: the
+    // haptics Test endpoint reads the saved rig, profiles snapshot into
+    // and load from it, and the sticky status file lands beside it.
+    const std::filesystem::path cfgDir = std::filesystem::temp_directory_path() / "nullcat-http-contract";
+    std::filesystem::remove_all(cfgDir);
+    std::filesystem::create_directories(cfgDir);
+    { Config seed; seed.load((cfgDir / "config.json").string()); }   // cold start writes host.json + rig.json
+
     WebServer web;
     web.setComponents(&motion, &loop, &master, &cfg);
     web.setTelemetry(&telemetry);
+    web.setConfigPath((cfgDir / "config.json").string());
     web.setPort(PORT);
     web.setBindAddr(HOST);
     web.setOnStopRequested([&loop]() { if (loop.isRunning()) loop.stop(); });
@@ -421,6 +431,7 @@ int main()
     if (loop.isRunning()) loop.stop();
     web.stop();
     master.shutdown();
+    std::filesystem::remove_all(cfgDir);
 
     std::printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
