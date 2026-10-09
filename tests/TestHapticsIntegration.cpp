@@ -310,17 +310,19 @@ int main()
         setW(NcxValues::SlipAngleFL, 0.0, 0.0, 0.0, 0.0); settle(300);
 
         // Combined slip per wheel (protocol 1.4, Assetto Corsa's wheelSlip):
-        // the lateral source where no slip angle exists, past 60% of peak %
-        // (default 100: 60 = onset, 100 = full), with the wheel's own
-        // longitudinal severity taken out so a straight-line lockup is not a
-        // slide. Per-wheel angles win over it when both arrive.
+        // the lateral source where no slip angle exists, from a third of
+        // peak % (default 100: 33 = onset, 100 = full). A combined slip
+        // cannot be split, and a locked or spinning tyre is sliding too:
+        // it plays here as well as on the longitudinal tile. Per-wheel
+        // angles win over it when both arrive.
         for (int w = 0; w < 4; ++w) v.have[NcxValues::SlipAngleFL + w] = false;
-        setW(NcxValues::WheelSlipFL, 100.0, 80.0, 0.0, 0.0); settle(100);
-        check(lvl(FxType::Skid, WheelFL) > 0.95 && std::fabs(lvl(FxType::Skid, WheelFR) - 0.5) < 0.05 && lvl(FxType::Skid, WheelRR) < 0.01,
-              "I-8 combined slip: 100 on FL = full scrub, 80 on FR = halfway, nothing on the rears");
+        setW(NcxValues::WheelSlipFL, 100.0, 66.67, 20.0, 0.0); settle(100);
+        check(lvl(FxType::Skid, WheelFL) > 0.95 && std::fabs(lvl(FxType::Skid, WheelFR) - 0.5) < 0.05
+              && lvl(FxType::Skid, WheelRL) < 0.01 && lvl(FxType::Skid, WheelRR) < 0.01,
+              "I-8 combined slip: 100 on FL = full, 66.7 on FR = halfway, 20 (below a third) = nothing");
         setW(NcxValues::SlipRatioFL, -0.8, 0.0, 0.0, 0.0); settle(100);   // FL fully locked
-        check(lvl(FxType::Lockup, WheelFL) > 0.95 && lvl(FxType::Skid, WheelFL) < 0.05,
-              "I-8 combined slip: a fully locked FL plays as lock, not as a slide");
+        check(lvl(FxType::Lockup, WheelFL) > 0.95 && lvl(FxType::Skid, WheelFL) > 0.95,
+              "I-8 combined slip: a locked FL plays as lock AND as a slide (a sliding tyre is sliding)");
         for (int w = 0; w < 4; ++w) v.have[NcxValues::SlipRatioFL + w] = false;
         setW(NcxValues::SlipAngleFL, 0.0, 0.0, 0.0, 0.0); settle(300);
         check(lvl(FxType::Skid, WheelFL) < 0.01, "I-8 combined slip: slip angles present (and small) win over it");

@@ -75,17 +75,20 @@ struct SlipParams
 
 // The Road tile's replay settings (used when per-corner suspension
 // velocities or travel arrive; the synthesised texture from roadNoise
-// otherwise). fullMm: suspension travel that is 100% amplitude. hpHz:
-// high-pass on the travel, removing the slow body motion the cue already
-// produces. surface: the tarmac grain under a rolling car, a rough
-// texture at the tile's carrier whose level rises with road speed (full
+// otherwise). fullMm: suspension travel that is 100% amplitude (25: a real
+// race car's suspension moves tens of mm over kerbs; smaller values pinned
+// every bump at full). hpHz: high-pass on the travel, removing the slow
+// body motion the cue already produces. surface: the tarmac grain under a
+// rolling car, a rough texture on its own carrier (surfaceHz, low enough
+// for a position axis to carry) whose level rises with road speed (full
 // by surfaceKmh) on top of either path, so a moving car is never silent.
 struct RoadParams
 {
-    double fullMm     = 8.0;
+    double fullMm     = 25.0;
     double hpHz       = 2.0;
-    double surface    = 0.1;    // mix 0..1
+    double surface    = 0.2;    // mix 0..1
     double surfaceKmh = 100.0;  // full by this road speed
+    double surfaceHz  = 12.0;   // the grain's carrier
 };
 
 // The Driveline tile: clutch judder and lugging wind-up, each a mix and

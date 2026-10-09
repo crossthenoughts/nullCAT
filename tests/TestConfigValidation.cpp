@@ -320,17 +320,33 @@ private slots:
         QVERIFY2(hasErr(">= 0"), "a negative gain is refused");
     }
 
-    // peak % (the magnitude channel value that counts as full) is 1..100.
+    // peak % (the channel value that counts as full) is 1..400: past 100
+    // for the combined-slip path, where a car can read beyond the wire's
+    // "let go" convention.
     void peakPct_range()
     {
         AppConfig cfg = validConfig();
         haptics::EffectParams& p = cfg.hapticsFx[static_cast<size_t>(haptics::Effect::Kerb)];
         QCOMPARE(p.peakPct, 100.0);
-        p.peakPct = 0.0;
+        const auto refused = [&cfg]() {
+            for (const auto& e : cfg.validate()) if (e.find("peakPct") != std::string::npos) return true;
+            return false; };
+        p.peakPct = 0.0;   QVERIFY2(refused(), "peakPct 0 is refused");
+        p.peakPct = 401.0; QVERIFY2(refused(), "peakPct 401 is refused");
+        p.peakPct = 25.0;  QVERIFY(cfg.validate().empty());
+        p.peakPct = 250.0; QVERIFY2(cfg.validate().empty(), "peakPct 250 is accepted (combined slip past the convention)");
+    }
+
+    // The Road surface carrier has its own range.
+    void roadSurfaceHz_range()
+    {
+        AppConfig cfg = validConfig();
+        QCOMPARE(cfg.hapticsRoad.surfaceHz, 12.0);
+        cfg.hapticsRoad.surfaceHz = 3.0;
         bool found = false;
-        for (const auto& e : cfg.validate()) if (e.find("peakPct") != std::string::npos) found = true;
-        QVERIFY2(found, "peakPct 0 is refused");
-        p.peakPct = 25.0;
+        for (const auto& e : cfg.validate()) if (e.find("surfaceHz") != std::string::npos) found = true;
+        QVERIFY2(found, "surface hz below 4 is refused");
+        cfg.hapticsRoad.surfaceHz = 20.0;
         QVERIFY(cfg.validate().empty());
     }
 

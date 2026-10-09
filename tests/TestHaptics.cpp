@@ -1001,13 +1001,17 @@ int main()
     {
         using haptics::FxType; using haptics::Part; using haptics::RoadParams; using haptics::SinkKind;
         // A 10 Hz, 500 mm/s peak suspension velocity on FL is a travel of
-        // V/w = 500/(2 pi 10) = 7.96 mm peak; with full mm 8 the FL sample
-        // peaks near 1 and the FL route carries ~amp x gain.
+        // V/sqrt(w^2 + wc^2) = 500/(2 pi sqrt(10^2 + 2^2)) = 7.80 mm peak
+        // through the 2 Hz leaky integrator; with full mm 16 that is 0.49 of
+        // full, inside the knee (linear), and the 20 Hz smoothing passes
+        // 1/sqrt(1 + (10/20)^2) = 0.894 of it.
         EffectParams p; p.ampPct = 100.0; p.jitter = 0.0;
         p.routes[0] = { 0, 1.0, Part::FL };
         p.routes[1] = { 1, 1.0, Part::RR };
         p.routes[2] = { 2, 1.0, Part::All };
-        RoadParams rp{ 8.0, 2.0 };
+        RoadParams rp{ 16.0, 2.0 };
+        const double kTravel = 500.0 / (2.0 * 3.14159265358979 * std::sqrt(104.0));
+        const double kSmooth10 = 1.0 / std::sqrt(1.0 + 0.25);
         Layer L; L.configureFx(FxType::Road, p); L.configureRoad(rp);
         double pk[3] = {}; double t = 0.0;
         for (int i = 0; i < 4000; ++i, t += DT)
@@ -1016,7 +1020,7 @@ int main()
             L.step(DT);
             if (i >= 2000) for (int a = 0; a < 3; ++a) pk[a] = std::max(pk[a], std::fabs(L.overlayFor(a)));
         }
-        approx(pk[0], 100.0 * 7.96 / 8.0, 6.0, "road: FL corner replays FL travel (V/w, full mm scaled)");
+        approx(pk[0], 100.0 * kTravel / 16.0 * kSmooth10, 3.0, "road: FL corner replays FL travel (full mm scaled, smoothed)");
         CHECK(pk[1] < 1e-9, "road: the RR corner route carries nothing when only FL moves");
         approx(pk[2], pk[0], 1e-9, "road: the all route carries the biggest corner");
         CHECK(L.roadReplaying(), "road: replay is active while corners are driven");
@@ -1059,7 +1063,16 @@ int main()
             if (i >= 2000) pmm = std::max(pmm, std::fabs(P.overlayFor(0)) / 100.0);
         }
         const double w8 = 2.0 * 3.14159265358979 * 8.0;
-        approx(pmm, (7.96 / 8.0) * std::min(2.0, 800.0 / (w8 * w8)), 0.03, "road: position sink derates the replay at the bump rate");
+        approx(pmm, (kTravel / 16.0 * kSmooth10) * std::min(2.0, 800.0 / (w8 * w8)), 0.02, "road: position sink derates the replay at the bump rate");
+
+        // The knee: linear to 0.6 of full, then bending towards 1 with the
+        // same slope at the knee; never a clip, never past 1.
+        using haptics::RoadModel;
+        approx(RoadModel::softKnee(0.5),  0.5,   1e-12, "road knee: linear below 0.6 of full");
+        approx(RoadModel::softKnee(1.0),  0.6 + 0.4 * std::tanh(1.0), 1e-9, "road knee: a full-mm bump plays at 0.905, not clipped flat");
+        approx(RoadModel::softKnee(-1.0), -(0.6 + 0.4 * std::tanh(1.0)), 1e-9, "road knee: symmetric");
+        CHECK(RoadModel::softKnee(4.0) < 1.0 && RoadModel::softKnee(4.0) > 0.999, "road knee: a 4x bump approaches 1, never past it");
+        CHECK(std::fabs(RoadModel::softKnee(0.6001) - RoadModel::softKnee(0.5999)) < 3e-4, "road knee: continuous at the knee");
 
         // amp 0 plays nothing and clears.
         EffectParams z = p; z.ampPct = 0.0;
@@ -1125,6 +1138,107 @@ int main()
         mn.reset(0.0); mn.step(0.0, inert);
         t = {}; mn.step(0.05, inert, &t);
         CHECK(!t.detentEnter, "no detents: no trigger, ever");
+    }
+
+    // ================= bench pass 2: what a rig can actually feel =================
+    {
+        using haptics::FxType; using haptics::Part; using haptics::SinkKind;
+
+        // Axle phase lock: FL locking hard and FR half as hard, each on its
+        // own post, must move the two posts TOGETHER (same sign every cycle,
+        // FR at half), never against each other, even with a rough carrier.
+        {
+            Layer L;
+            EffectParams p; p.ampPct = 100.0; p.jitter = 0.5;
+            p.routes[0] = { 0, 1.0, Part::FL };
+            p.routes[1] = { 1, 1.0, Part::FR };
+            L.configureFx(FxType::Lockup, p); L.configureSlip(FxType::Lockup, { 1.0, 12.0, 1.0, 16.0, 0.8 });
+            int against = 0, both = 0; double ratioSum = 0.0;
+            for (int i = 0; i < 6000; ++i)
+            {
+                L.driveSlip(FxType::Lockup, WheelFL, 1.0, 0.0);
+                L.driveSlip(FxType::Lockup, WheelFR, 0.5, 0.0);
+                L.step(DT);
+                const double a = L.overlayFor(0), b = L.overlayFor(1);
+                if (i > 400 && std::fabs(a) > 5.0 && std::fabs(b) > 1.0)
+                {
+                    ++both; ratioSum += b / a;
+                    if ((a > 0.0) != (b > 0.0)) ++against;
+                }
+            }
+            CHECK(both > 1000 && against == 0, "axle lock: the two front posts never move against each other");
+            approx(both ? ratioSum / both : 0.0, 0.5, 0.02, "axle lock: the lighter corner plays the same wave at its own level");
+        }
+
+        // A transient on a position axis is one thud it can carry (about
+        // 12 hz, ~83 ms), not the 60 hz burst a belt gets; a shaker route
+        // now plays it too (fire() used to drop shaker routes).
+        {
+            Layer L;
+            L.setSinkKind(0, SinkKind::Position); L.setPositionLimits(0, 125.0, 10000.0, 3.0);
+            EffectParams g; g.ampPct = 100.0; g.freqHz = 60.0; g.durMs = 25.0;
+            g.routes[0] = { 0, 1.0 };           // position axis, 1 mm at 100 %
+            g.routes[1] = { 1, 1.0 };           // torque axis
+            haptics::Route sh; sh.axis = -1; sh.shaker = 0; sh.gain = 1.0; g.routes[2] = sh;
+            L.configure(haptics::EventType::GearShift, g);
+            L.fire(haptics::EventType::GearShift);
+            double pos = 0.0, tq = 0.0, shk = 0.0; int lastPos = -1, lastTq = -1;
+            for (int i = 0; i < 400; ++i)
+            {
+                L.step(DT);
+                if (std::fabs(L.overlayFor(0)) > 1e-6) { pos = std::max(pos, std::fabs(L.overlayFor(0)) / 100.0); lastPos = i; }
+                if (std::fabs(L.overlayFor(1)) > 1e-6) { tq = std::max(tq, std::fabs(L.overlayFor(1))); lastTq = i; }
+                shk = std::max(shk, std::fabs(L.shakerSample(0)));
+            }
+            CHECK(pos > 0.9 && pos <= 1.0001, "thud: the gear shift moves a position axis its full 1 mm (a 60 hz burst would get 0.07)");
+            approx((lastPos + 1) * DT * 1000.0, 1000.0 / 12.0, 2.0, "thud: one cycle at 12 hz on the position axis");
+            CHECK(tq > 90.0 && (lastTq + 1) * DT * 1000.0 <= 25.5, "thud: the torque axis still gets the 25 ms burst");
+            CHECK(shk > 0.5, "thud: a shaker route plays the transient");
+        }
+
+        // ABS and TC are a fast drop and a slower recovery each cycle,
+        // averaging to zero (a position axis does not drift).
+        {
+            using haptics::Layer;
+            approx(Layer::dropRecover(0.0, 0.25), 1.0, 1e-12, "abs shape: a cycle starts at the top");
+            approx(Layer::dropRecover(2.0 * 3.14159265358979 * 0.25, 0.25), -1.0, 1e-9, "abs shape: at the bottom a quarter of the way through");
+            approx(Layer::dropRecover(2.0 * 3.14159265358979 * 0.625, 0.25), 0.0, 1e-9, "abs shape: half way back up at five eighths");
+            for (FxType t : { FxType::AbsPulse, FxType::TcPulse })
+            {
+                Layer L; EffectParams p; p.ampPct = 100.0; p.freqHz = 10.0; p.routes[0] = { 0, 1.0 };
+                L.configureFx(t, p);
+                double sum = 0.0, pk = 0.0, prev = 0.0; int falling = 0, n = 0;
+                for (int i = 0; i < 8000; ++i)
+                {
+                    L.driveFx(t, 1.0, 0.0); L.step(DT);
+                    const double x = L.overlayFor(0);
+                    if (i >= 4000) { sum += x; pk = std::max(pk, std::fabs(x)); if (x < prev) ++falling; ++n; }
+                    prev = x;
+                }
+                const double share = static_cast<double>(falling) / n;
+                const bool abs = (t == FxType::AbsPulse);
+                CHECK(std::fabs(sum / n) < 0.02 * pk, abs ? "abs shape: averages to zero" : "tc shape: averages to zero");
+                approx(share, abs ? 0.25 : 0.33, 0.02, abs ? "abs shape: falls in a quarter of each cycle" : "tc shape: falls in a third of each cycle");
+            }
+        }
+
+        // Traction control cuts a share of the engine's firings, more with
+        // throttle; nothing without it.
+        {
+            auto drops = [&](bool tc, double load) {
+                Layer L; EffectParams e; e.ampPct = 100.0; e.freqHz = 30.0; e.routes[0] = { 0, 1.0 };
+                haptics::EngineParams ep; ep.cylinders = 4; ep.maxRpm = 8000;
+                L.configureFx(FxType::RpmVibe, e); L.configureEngine(ep);
+                for (int i = 0; i < 4000; ++i) { L.driveEngine(1.0, 200.0, load, false, -1.0, false, false, tc); L.step(DT); }
+                return static_cast<double>(L.engineTcDrops());
+            };
+            const double none = drops(false, 1.0), hard = drops(true, 1.0), light = drops(true, 0.1);
+            CHECK(none == 0.0, "tc: no traction control, no dropped firings");
+            // 2 s at 200 firings/s, half of each burst cycle cutting: 200 at
+            // risk; full throttle drops 85 % of those, light throttle ~35 %.
+            approx(hard, 200.0 * 0.85, 40.0, "tc: full throttle drops most of the firings inside a burst");
+            CHECK(light > 20.0 && light < hard * 0.6, "tc: light throttle cuts shallower");
+        }
     }
 
     std::printf("\nTestHaptics: %d passed, %d failed\n", g_pass, g_fail);

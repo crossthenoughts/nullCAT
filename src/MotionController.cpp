@@ -751,8 +751,22 @@ void MotionController::trackHapticPeaks()
         m_hapWheelPk[1][w] = std::max(m_hapWheelPk[1][w], m_haptics.slipWheelLevel(haptics::FxType::Lockup, w));
         m_hapWheelPk[2][w] = std::max(m_hapWheelPk[2][w], std::fabs(m_haptics.roadWheelTravelMm(w)));
     }
+    // A slip channel means nothing at a standstill (a stationary car's slip
+    // is a division by almost zero: billions on the wire), so its session
+    // peak only counts while the car is moving; the peak is the number a
+    // user sets peak % from.
+    const bool moving = m_ncxHaveSnapshot[NcxValues::SpeedKmh] && m_ncxValSnapshot[NcxValues::SpeedKmh] > 5.0;
+    const auto slipToken = [](int t)
+    {
+        return t == NcxValues::Skid || t == NcxValues::Lockup
+            || (t >= NcxValues::SlipAngleFL && t <= NcxValues::SlipRatioRR)
+            || (t >= NcxValues::WheelSlipFL && t <= NcxValues::WheelSlipRR);
+    };
     for (int i = 0; i < NcxValues::TokenCount; ++i)
-        if (m_ncxHaveSnapshot[i]) m_ncxPk[i] = std::max(m_ncxPk[i], std::fabs(m_ncxValSnapshot[i]));
+    {
+        if (!m_ncxHaveSnapshot[i] || (!moving && slipToken(i))) continue;
+        m_ncxPk[i] = std::max(m_ncxPk[i], std::fabs(m_ncxValSnapshot[i]));
+    }
 }
 
 void MotionController::startUnpark(A6Drive** drives, int numHwDrives)

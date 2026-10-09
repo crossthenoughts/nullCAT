@@ -17,13 +17,13 @@ Development branch. Nothing here is in a release yet.
   input out of the box. Every channel now travels by name, so the Sim
   channels map in Setup no longer touches a SimHub setup (it is for
   senders on the numbered line). Protocol 1.4 adds `wheelSlip*` (the
-  lateral source where a sim has no slip angle, with the longitudinal
-  share taken out) and `suspTravel*` (the road from a sim that gives
-  position rather than velocity).
+  lateral source where a sim has no slip angle) and `suspTravel*` (the
+  road from a sim that gives position rather than velocity).
 - Road **surface**: the grain of the tarmac under a rolling car, a
-  texture that rises with road speed on top of the replayed bumps, at
-  its own mix (`surface x`, 0.1 by default) with `surface km/h` setting
-  where it is full. A moving car is no longer silent on a smooth road.
+  texture on its own carrier (`surface hz`, 12 by default) that rises
+  with road speed on top of the replayed bumps, at its own mix (`surface
+  x`, 0.2 by default) with `surface km/h` setting where it is full. A
+  moving car is no longer silent on a smooth road.
 - The car table: an entry for every car in Assetto Corsa (Kunos content
   and DLC) and Automobilista 2 carrying what belongs to the car (the
   engine's description and character, the limiter, the driveline, ABS and
@@ -163,11 +163,39 @@ Development branch. Nothing here is in a release yet.
   wave and the `in now/pk` readout were not.
 - The per-wheel readout line ran off the slip and Road tiles; it is a
   2 x 2 grid now.
+- A transient (gear shift, detent click) routed to a shaker never played:
+  the shaker routes were dropped when the event fired.
 
 ### Changed
 - The Sim channels map in Setup is labelled for what it is: the slot map
   for senders on the numbered line. The SimHub plugin names everything
   it sends and is not affected by it.
+- Tyre slip, the two wheels of an axle move together: one carrier phase
+  and roughness per axle, each corner at its own level. With a carrier
+  per wheel the two front posts of a rig drifted apart and rocked it side
+  to side.
+- Combined slip (Assetto Corsa, Automobilista 2) plays on the Lateral
+  tile for any sliding tyre, spinning and locking included, from a third
+  of `peak %` up to full. The plugin scales Assetto Corsa's value so a
+  clear slide (about 6 on the game's own scale) reads 100, `peak %` goes
+  to 400, and the tile's chip shows the value arriving and its peak (slip
+  peaks only count while the car is moving).
+- Defaults chosen for what a seat actuator can carry (it gives little
+  above about 20 Hz): scrub 20 Hz, spin 16 Hz (tread skipping rather
+  than a live axle's 10 Hz tramp), road texture and kerb 16 Hz. Saved
+  settings are not changed.
+- Road replay: `full mm` defaults to 25, bigger bumps bend over a soft
+  knee instead of clipping, and the replay is lightly smoothed, so a kerb
+  is a thump rather than a pop.
+- Gear shift on a position axis: one jolt at about 12 Hz (longer for a
+  synchro, shorter for a dog box) instead of a 60 Hz burst the actuator
+  could not move. Belts and shakers keep the burst.
+- ABS is a fast pressure dump and a slower rebuild each cycle rather than
+  a sine; the TC pulse is a sharp loss of drive and a slower recovery,
+  and while TC cuts the Engine tile itself stutters (a share of the
+  firings dropped in irregular bursts, deeper with throttle).
+- The Master tile is in sections: rig, profiles (the whole strip), car
+  table (the five car tiles) and sim dots (display only).
 - Route gains are validated per destination: a position axis takes mm
   up to its own Haptic max, a torque axis or shaker a 0 to 2 multiplier.
   The validator used to stop every route at 2 while the route editor

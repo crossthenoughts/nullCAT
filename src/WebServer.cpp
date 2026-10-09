@@ -1542,7 +1542,7 @@ bool WebServer::start()
                 {
                     const haptics::RoadParams rd;
                     d["fullMm"] = rd.fullMm; d["hpHz"] = rd.hpHz;
-                    d["surface"] = rd.surface; d["surfaceKmh"] = rd.surfaceKmh;
+                    d["surface"] = rd.surface; d["surfaceKmh"] = rd.surfaceKmh; d["surfaceHz"] = rd.surfaceHz;
                 }
                 else if (info.kind == haptics::Kind::Driveline)
                 {

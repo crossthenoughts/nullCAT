@@ -259,6 +259,7 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
             {
                 o["fullMm"] = c.hapticsRoad.fullMm; o["hpHz"] = c.hapticsRoad.hpHz;
                 o["surface"] = c.hapticsRoad.surface; o["surfaceKmh"] = c.hapticsRoad.surfaceKmh;
+                o["surfaceHz"] = c.hapticsRoad.surfaceHz;
             }
             else if (info.kind == haptics::Kind::Driveline)
             {
@@ -363,6 +364,7 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                 c.hapticsRoad.hpHz       = o.value("hpHz").toDouble(c.hapticsRoad.hpHz);
                 c.hapticsRoad.surface    = o.value("surface").toDouble(c.hapticsRoad.surface);
                 c.hapticsRoad.surfaceKmh = o.value("surfaceKmh").toDouble(c.hapticsRoad.surfaceKmh);
+                c.hapticsRoad.surfaceHz  = o.value("surfaceHz").toDouble(c.hapticsRoad.surfaceHz);
             }
             if (info.kind == haptics::Kind::Driveline)
             {
@@ -1242,8 +1244,10 @@ std::vector<std::string> AppConfig::validate() const
                 errors.push_back(pfx + "durMs out of range [5, 100]");
             if (p.jitter < 0.0 || p.jitter > 1.0)
                 errors.push_back(pfx + "jitter out of range [0, 1]");
-            if (p.peakPct < 1.0 || p.peakPct > 100.0)
-                errors.push_back(pfx + "peakPct out of range [1, 100]");
+            // Up to 400: on the combined-slip path 100 is only the wire's
+            // convention for "let go", and a car can read well past it.
+            if (p.peakPct < 1.0 || p.peakPct > 400.0)
+                errors.push_back(pfx + "peakPct out of range [1, 400]");
             for (const haptics::Route& r : p.routes)
             {
                 if (r.axis == -1 && r.shaker == -1 && r.gain <= 0.0) continue;   // unused slot
@@ -1302,6 +1306,8 @@ std::vector<std::string> AppConfig::validate() const
                     errors.push_back(pfx + "surface out of range [0, 1]");
                 if (hapticsRoad.surfaceKmh < 20.0 || hapticsRoad.surfaceKmh > 300.0)
                     errors.push_back(pfx + "surfaceKmh out of range [20, 300]");
+                if (hapticsRoad.surfaceHz < 4.0 || hapticsRoad.surfaceHz > 40.0)
+                    errors.push_back(pfx + "surfaceHz out of range [4, 40]");
             }
             if (info.kind == haptics::Kind::Slip)
             {

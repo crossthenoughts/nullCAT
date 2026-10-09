@@ -1101,16 +1101,23 @@ function hapChanSpec(entry){
     // The alternative actually feeding the law: the first one present
     // (the laws prefer per-wheel data over a magnitude in the same order).
     live:(have)=>alts.find(a=>altOk(a,have))||null,
-    // Chip text with the live value and its session peak beside a plain
-    // token (flags and gear show no number; a wheel group's numbers are on
-    // the tile's per-wheel line instead).
+    // Chip text: the alternative actually feeding the tile (not the whole
+    // list), with its value and session peak; a wheel group shows its
+    // largest wheel now and its largest peak (slip peaks only count while
+    // moving), the number to set peak % from. Flags and gear show no peak.
     text:(have,vals,pks)=>{
       const a=alts.find(x=>altOk(x,have));
-      if(!a||a.endsWith('*')) return body;
+      if(!a) return body;
+      if(a.endsWith('*')){
+        let v=0, pk=0;
+        for(const t of expand(a)){ const i=NCX_TOKENS.indexOf(t); if(i<0) continue;
+          v=Math.max(v,Math.abs(+vals[i]||0)); pk=Math.max(pk,Math.abs(+pks[i]||0)); }
+        return a+' '+hapNum(v)+'/'+hapNum(pk);
+      }
       const i=NCX_TOKENS.indexOf(a); if(i<0) return body;
-      if(HAP_FLAG_TOKENS.includes(a)) return body;
+      if(HAP_FLAG_TOKENS.includes(a)) return a;
       const v=+vals[i]||0, pk=+pks[i]||0;
-      return body+' '+hapNum(v)+(a==='gear'?'':'/'+hapNum(pk)); }};
+      return a+' '+hapNum(v)+(a==='gear'?'':'/'+hapNum(pk)); }};
 }
 const HAP_FLAG_TOKENS=['absActive','limiter','tcActive','pitLimiter'];
 // Which status hapWheels set a tile's per-wheel line reads (-1 = none):
@@ -1586,15 +1593,14 @@ function hapInit(){
     mc.innerHTML='<div class="dh"><span class="dot"></span><span class="nm">Master</span></div>'
       +'<div class="hk hchan"></div>'
       +'<svg class="hap-wave"></svg><div class="hrows">'
+      +'<div class="hsec" title="The rig: these apply to every effect and every car.">rig</div>'
       +'<div class="hr"><span class="hk">gain x</span>'
       +'<input type="number" min="0" max="2" step="0.05" id="hapMasterGain" value="'+cfgObj.haptics.masterGain+'"></div>'
       +'<div class="hr" title="Share of each position axis\'s velocity and acceleration limits that haptics may use (0 to 1). The motion cue always keeps priority."><span class="hk">pos budget</span>'
       +'<input type="number" min="0" max="1" step="0.05" id="hapPosBudget" value="'+(isFinite(+cfgObj.haptics.positionBudget)?+cfgObj.haptics.positionBudget:0.4)+'"></div>'
       +'<div class="hr" title="Hold the axis effects back by this many ms so they land together with the shakers (a sound card is 15 to 25 ms behind a belt). 0 = off."><span class="hk">axis delay ms</span>'
       +'<input type="number" min="0" max="60" step="1" id="hapAxisDelay" value="'+(isFinite(+cfgObj.haptics.axisDelayMs)?+cfgObj.haptics.axisDelayMs:0)+'"></div>'
-      +'<div class="hr hap-game" title="The sim dots on each tile: grey = that game has never sent the channels, amber = channels arrive but the effect has never played, green = has played. Remembered per game across restarts."><span class="hk">sim</span>'
-      +'<span class="hk" id="hapGameNow">(none)</span><select id="hapGameSel"><option value="">current</option></select>'
-      +'<button class="btn btn-sm" type="button" id="hapGameForget" title="Forget the remembered dots for the game shown">forget</button></div>'
+      +'<div class="hsec" title="A profile is a named copy of EVERYTHING on this strip: every tile, every route, master gain, pos budget. Save as keeps the saved strip under any name; load puts one back; use for this car loads it by itself whenever that car runs (it wins over the car table).">profiles: the whole strip</div>'
       +'<div class="hr hap-game" title="Profiles: named copies of everything on this strip (settings, routes, the engine). Load copies one over the live set and applies it; Save as snapshots the SAVED set under a name; Use for this car binds the car the sim names now to the shown profile, and nullCAT then loads it by itself whenever that car runs."><span class="hk">profile</span>'
       +'<select id="hapProfSel"><option value="">(none)</option></select>'
       +'<button class="btn btn-sm" type="button" id="hapProfLoad" title="Copy the chosen profile over the live settings and apply it">load</button>'
@@ -1602,6 +1608,7 @@ function hapInit(){
       +'<button class="btn btn-sm" type="button" id="hapProfBind" title="Load this profile automatically whenever the sim names the current car (or game)">use for this car</button>'
       +'<button class="btn btn-sm" type="button" id="hapProfDel" title="Forget the chosen profile and its bindings">delete</button>'
       +'<span class="hk" id="hapProfMsg"></span></div>'
+      +'<div class="hsec" title="The car table: only the engine, limiter, driveline, ABS and TC tiles, per car. Routes, master gain, pos budget and the other tiles stay as you saved them.">car table: engine, limiter, driveline, ABS, TC</div>'
       +'<div class="hr hap-game" title="The car table: how each car\'s engine, limiter, driveline, ABS and TC feel, shipped for the Assetto Corsa and Automobilista 2 rosters plus your own entries. Applying an entry moves those five tiles only; routes, master gain and every other tile stay yours."><span class="hk">car</span>'
       +'<span class="hk" id="hapCarNow">(none)</span>'
       +'<button class="btn btn-sm" type="button" id="hapCarPull" title="Apply this car\'s entry to the engine, limiter, driveline, ABS and TC tiles">pull car preset</button>'
@@ -1613,6 +1620,10 @@ function hapInit(){
       +'<div class="hr hap-game" title="Any entry in the table as a starting point: the nearest car when yours has none. Apply it, tune to taste, then save for this car."><span class="hk">preset</span>'
       +'<input type="text" id="hapCarPick" list="hapCarList" placeholder="search cars" autocomplete="off"><datalist id="hapCarList"></datalist>'
       +'<button class="btn btn-sm" type="button" id="hapCarApply" title="Apply the picked entry to the engine, limiter, driveline, ABS and TC tiles">apply</button></div>'
+      +'<div class="hsec" title="The coloured dot on each tile: grey = that game has never sent the channels, amber = channels arrive but the effect has never played, green = has played. Only a display; nothing here is saved or changes a setting.">sim dots</div>'
+      +'<div class="hr hap-game" title="Which game\'s record the tile dots show: the one running now, or a remembered one. Forget clears the record for the game shown."><span class="hk">game</span>'
+      +'<span class="hk" id="hapGameNow">(none)</span><select id="hapGameSel"><option value="">current</option></select>'
+      +'<button class="btn btn-sm" type="button" id="hapGameForget" title="Forget the remembered dots for the game shown">forget</button></div>'
       +'</div><div class="hb"><span class="hk" id="hapMuteState"></span>'
       +'<button class="btn btn-sm btn-action" type="button" id="hapMuteBtn">MUTE</button></div>';
     mc.querySelector('#hapGameSel').onchange=(ev)=>hapGameShow(ev.target.value);

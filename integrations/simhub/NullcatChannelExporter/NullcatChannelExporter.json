@@ -69,7 +69,7 @@
   "suspTravelRRProp": "",
   "suspTravelScale": 1,
 
-  "_help_wheelSlip": "Combined tyre slip per wheel (the game's own slip magnitude), 0..100 with 100 = the tyre has let go: the Lateral slip effect's source where the game has no slip angle. Set wheelSlipScale so that a clear slide reads about 100 (Assetto Corsa's wheelSlip: 100; a slip speed in m/s: 20).",
+  "_help_wheelSlip": "Combined tyre slip per wheel (the game's own slip magnitude), 0..100 with 100 = the tyre has let go: the Lateral slip effect's source where the game has no slip angle. Set wheelSlipScale so that a clear slide reads about 100 (Assetto Corsa's wheelSlip, which reads about 6 at a clear slide: 16.7; a slip speed in m/s: 20).",
   "wheelSlipFLProp": "",
   "wheelSlipFRProp": "",
   "wheelSlipRLProp": "",

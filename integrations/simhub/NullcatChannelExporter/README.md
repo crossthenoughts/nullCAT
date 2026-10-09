@@ -55,6 +55,17 @@ below it and is ignored by the plugin. The two settings everyone needs:
 telemetry (nullCAT tells the streams apart by their headers). Without
 the file the plugin sends to `127.0.0.1:4444`.
 
+Editing the file where it sits: SimHub lives under `Program Files`, and
+Windows quietly saves a file you edit there with an ordinary editor into
+a private copy (`%LOCALAPPDATA%\VirtualStore\Program Files (x86)\SimHub`)
+that SimHub never reads, so your change seems to vanish. Edit the file
+somewhere else and copy it into the SimHub folder, or run the editor as
+administrator. To check what the plugin actually read, look in SimHub's
+log (`Logs\SimHub.txt` in the SimHub folder) for the line
+`nullCAT Channel Exporter: sending to ...`, which names the address and
+the settings file, or find `NullcatChannelExporter.Target` under
+Settings, Properties.
+
 ## What is sent without any setup
 
 Twelve channels come from SimHub's standard data and need nothing from
@@ -74,10 +85,13 @@ by itself.
 | Automobilista 2 | wheel speeds, suspension velocities, tyre slip speed | Longitudinal slip, Lateral slip, Road |
 
 Plain Assetto Corsa has no slip angle per wheel (only the combined slip
-magnitude), so its Lateral slip comes from that magnitude with the
-longitudinal part taken out; Competizione, EVO and Rally do expose a
-slip angle (`Physics.slipAngle01..04`) and you can bind it below if you
-prefer it to the combined slip.
+magnitude), so its Lateral slip comes from that magnitude: any sliding
+tyre, spinning and locking included. The plugin scales it so that about
+6 on the game's own scale (a clear slide) is 100; the Lateral slip
+tile's chip shows the value arriving and its peak, and the tile's
+`peak %` sets where full severity is. Competizione, EVO and Rally do
+expose a slip angle (`Physics.slipAngle01..04`) and you can bind it
+below if you prefer it to the combined slip.
 
 ## Optional: binding per-wheel channels yourself
 
@@ -99,7 +113,7 @@ built-in one for that group only:
 | Group | What to bind | Unit on the wire | Used by |
 |---|---|---|---|
 | `slipAngle*` | tyre slip angle per wheel | degrees (`slipAngleScale: 57.2958` for radians) | Lateral slip |
-| `wheelSlip*` | the game's combined slip magnitude per wheel | 0..100, 100 = the tyre let go (set the scale so a clear slide reads about 100) | Lateral slip, when the game has no slip angle |
+| `wheelSlip*` | the game's combined slip magnitude per wheel | 100 = the tyre let go (set the scale so a clear slide reads about 100) | Lateral slip, when the game has no slip angle |
 | `slipRatio*` | longitudinal slip ratio per wheel | signed ratio, -1 = locked | Longitudinal slip |
 | `wheelSpeed*` | wheel rotational speed per wheel | any unit; nullCAT learns the rolling factor | Longitudinal slip, when the game has no slip ratio |
 | `load*` | vertical tyre load per wheel | any unit (ratios only) | weights the loaded tyre up (optional) |

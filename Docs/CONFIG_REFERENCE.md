@@ -134,7 +134,7 @@ One object per effect: `detentClick`, `gearShift`, `rpmVibe` (the engine), `abs`
 | `freqHz` | double | per effect | Carrier frequency (4 to 500 Hz). For the engine this is the weight of each firing thump (default 30). |
 | `durMs` | double | per effect | Length of a one-shot effect (detent click, gear shift), 5 to 100 ms. |
 | `jitter` | double | per effect | 0 to 1. Roughens the carrier so skid, road and kerb feel like texture rather than a tone. For the engine it is the idle lope (per-revolution unevenness). |
-| `peakPct` | double | `100` | For effects fed by a 0 to 100 magnitude channel (`kerb` from `curbs`, `road` from `roadNoise`, the two slip tiles from `skid` / `lockup`): the channel value that counts as full severity, 1 to 100. A property that peaks at 25 gets 25. Present on every effect object; ignored by the others and by the per-wheel paths (those use `peakDeg`, `peakRatio`, `fullMm`). |
+| `peakPct` | double | `100` | For effects fed by a magnitude channel (`kerb` from `curbs`, `road` from `roadNoise`, the two slip tiles from `skid` / `lockup`, and `slipLat` from the per-wheel combined slip `wheelSlip*`): the channel value that counts as full severity, 1 to 400. A property that peaks at 25 gets 25; on the combined-slip path, where 100 is only the wire's convention for a let-go tyre, a car that reads 140 in a slide gets 140. Present on every effect object; ignored by the others and by the other per-wheel paths (those use `peakDeg`, `peakRatio`, `fullMm`). |
 | `routes` | array | `[]` | Where the effect goes: `[{"axis": <index>, "gain": <number>, "part": <string>}]` or `[{"shaker": <index>, "gain": <number>, "harm": <int>}]`, up to 14 entries, any axis or shaker channel. A shaker route's `gain` is full scale at 100 % amplitude (1 = full, soft-clipped above), `harm` (1 to 8, default 1) the harmonic of the effect's carrier it plays, phase-locked. On a torque axis (belt, device) `gain` is a multiplier, 0 to 2. On a position (CSP) axis `gain` is the offset in mm at 100 % amplitude, 0 to that axis's `hapticsMaxMm`. `part` (the two slip effects and road only, default `"all"`): which wheels this axis carries, `all`, `front`, `rear`, `fl`, `fr`, `rl`, `rr`; the strongest of them plays. No routes = the effect reaches nothing. |
 
 Slip-only fields. Both tiles are per-wheel models with two components, each with a mix (0 to 1) and a carrier; the route's `part` picks the wheels. `freqHz` is kept in the object but unused by these two.
@@ -152,9 +152,10 @@ Road-only fields, used when the sim sends `suspVelFL..RR` (the tile then replays
 
 | Field | Default | Notes |
 |---|---|---|
-| `fullMm` | `8` | Suspension travel (mm) that is 100 % amplitude, 0.5 to 50. |
+| `fullMm` | `25` | Suspension travel (mm) that is 100 % amplitude, 0.5 to 50. Travel past 60 % of it bends over a soft knee towards 100 % rather than clipping. |
 | `hpHz` | `2` | High-pass on the travel (Hz), 0.5 to 10: removes the slow body motion the motion cue already produces, leaving the bumps. |
-| `surface` | `0.1` | The tarmac grain under a rolling car: a rough texture at the tile's carrier whose level rises with road speed, mixed in at this level (0 to 1, 0 = off) on top of the replay or the `roadNoise` texture. |
+| `surface` | `0.2` | The tarmac grain under a rolling car: a rough texture at `surfaceHz` whose level rises with road speed, mixed in at this level (0 to 1, 0 = off) on top of the replay or the `roadNoise` texture. |
+| `surfaceHz` | `12` | The surface texture's carrier (Hz, 4 to 40): its own, so it can sit low enough for a position axis to carry while the `roadNoise` texture keeps `freqHz`. |
 | `surfaceKmh` | `100` | Road speed (km/h, 20 to 300) by which the surface texture is at its full mix; it rises from nothing at a standstill. |
 
 Driveline-only fields (`driveline`):

@@ -79,12 +79,16 @@ namespace NullcatChannelExporter
         // wheels. Keyed by SimHub's GameName, compared without case or
         // punctuation.
         private struct PresetGroup { public string Group, Prefix; public double Scale; public PresetGroup(string g, string p, double s) { Group = g; Prefix = p; Scale = s; } }
+        // Assetto Corsa's combined slip reads about 1 to 2 as the tyre starts to
+        // slide and 10 and up in a spin (SimHub's own slip LEDs map 1..10):
+        // 6 = let go = 100 on the wire, a starting point the rig's peak % trims.
+        private const double AcSlipScale = 100.0 / 6.0;
         private static readonly PresetGroup[] PresetAC = {
             // Assetto Corsa: angular speed (rad/s) for lock/spin, load, the
-            // combined slip (1.0 = let go -> 100) for lateral, travel (m -> mm).
+            // combined slip for lateral, travel (m -> mm).
             new PresetGroup("wheelSpeed", "DataCorePlugin.GameRawData.Physics.WheelAngularSpeed", 1),
             new PresetGroup("load",       "DataCorePlugin.GameRawData.Physics.WheelLoad",         1),
-            new PresetGroup("wheelSlip",  "DataCorePlugin.GameRawData.Physics.WheelSlip",         100),
+            new PresetGroup("wheelSlip",  "DataCorePlugin.GameRawData.Physics.WheelSlip",         AcSlipScale),
             new PresetGroup("suspTravel", "DataCorePlugin.GameRawData.Physics.SuspensionTravel",  1000),
         };
         private static readonly PresetGroup[] PresetACC = {
@@ -92,7 +96,7 @@ namespace NullcatChannelExporter
             new PresetGroup("slipRatio",  "DataCorePlugin.GameRawData.Physics.slipRatio",         1),
             new PresetGroup("wheelSpeed", "DataCorePlugin.GameRawData.Physics.WheelAngularSpeed", 1),
             new PresetGroup("load",       "DataCorePlugin.GameRawData.Physics.WheelLoad",         1),
-            new PresetGroup("wheelSlip",  "DataCorePlugin.GameRawData.Physics.WheelSlip",         100),
+            new PresetGroup("wheelSlip",  "DataCorePlugin.GameRawData.Physics.WheelSlip",         AcSlipScale),
             new PresetGroup("suspTravel", "DataCorePlugin.GameRawData.Physics.SuspensionTravel",  1000),
         };
         private static readonly PresetGroup[] PresetAMS2 = {

@@ -94,6 +94,15 @@ namespace engine_k {
     constexpr double kCutDuty             = 0.5;    // fraction of each cut cycle that is silent
     constexpr double kCutJitSpan          = 0.8;    // +-40% at limJit 1
     constexpr double kCutHzMin            = 4.0, kCutHzMax = 30.0;
+    // Traction control: the ECU cutting a SHARE of the firings in bursts
+    // (spark or fuel to some cylinders), not all of them like the limiter:
+    // a stutter whose depth rises with how hard the driver pushes.
+    constexpr double kTcCutHz             = 15.0;   // burst rate
+    constexpr double kTcCutJit            = 0.8;    // +-40% per burst: irregular
+    constexpr double kTcDuty              = 0.5;    // share of each burst cycle that cuts
+    constexpr double kTcDepthMin          = 0.3;    // share of firings dropped at light throttle...
+    constexpr double kTcDepthMax          = 0.85;   // ...and at full throttle
+    constexpr double kTcReturnHit         = 0.6;    // the drive coming back after a burst, x limHit x depth
     constexpr double kBeatHz              = 2.5;    // rotary idle beat
     constexpr double kBeatDepth           = 0.5;    // ...at idle, fading with the rock
     constexpr int    kPulses              = 4;      // thump pool
@@ -170,8 +179,10 @@ public:
     // pitLimiter: cuts like the rev limiter but never teaches the redline.
     // inGearOverrun: throttle shut while the wheels drive the engine (in
     // gear, rolling): heavier, rougher overrun than a neutral coast-down.
+    // tcCut: traction control is cutting this cycle (a share of the firings
+    // drops in irregular bursts, deeper with throttle).
     void drive(double fireHz, double load01, bool limiterOn, double boostBar = -1.0,
-               bool pitLimiter = false, bool inGearOverrun = false)
+               bool pitLimiter = false, bool inGearOverrun = false, bool tcCut = false)
     {
         m_fireHz     = (fireHz > 0.0) ? fireHz : 0.0;
         m_load       = std::max(0.0, std::min(1.0, load01));
@@ -179,6 +190,7 @@ public:
         m_revLimiter = limiterOn;
         m_boost      = (boostBar >= 0.0) ? boostBar : -1.0;
         m_inGearOverrun = inGearOverrun;
+        m_tc         = tcCut;
     }
 
     void clear()
@@ -186,12 +198,14 @@ public:
         for (double& t : m_pulseT) t = 1e9;
         m_firePhase = m_crankPhase = m_rockPhase = m_cutPhase = m_buzzPhase = m_beatPhase = 0.0;
         m_wasCut = false; m_revScale = 1.0;
+        m_tcPhase = 0.0; m_tcRate = engine_k::kTcCutHz; m_tcWasCut = false;
         m_hiLoadAgo = 1e9; m_liftHoldoff = 0.0; m_flutterLeft = 0; m_flutterT = 0.0; m_popWait = 0.0;
         m_running = false; m_sawCranking = false; m_catchFlare = 0.0;
     }
 
     // Lift-off events seen (tests, status).
     uint64_t liftOffCount() const { return m_liftOffs; }
+    uint64_t tcDropCount() const  { return m_tcDrops; }    // firings traction control dropped
     bool     running() const      { return m_running; }   // combustion has taken hold
     uint64_t catchCount() const   { return m_catches; }
     uint64_t stallCount() const   { return m_stalls; }
@@ -293,6 +307,25 @@ public:
         m_wasCut = cut;
         const double limHit = std::max(0.0, std::min(2.0, e.limHit));
 
+        // Traction control: bursts at an irregular rate, and within a burst
+        // each firing dropped with a probability that rises with throttle.
+        // The limiter, when it is in, already cuts everything.
+        bool tcInCut = false;
+        const double tcDepth = kTcDepthMin + (kTcDepthMax - kTcDepthMin) * m_load;
+        if (m_tc && !m_limiter && m_fireHz >= 0.5 && !electric)
+        {
+            m_tcPhase += m_tcRate * dtSec;
+            if (m_tcPhase >= 1.0)
+            {
+                m_tcPhase = wrap(m_tcPhase);
+                m_tcRate  = kTcCutHz * (1.0 + kTcCutJit * (rand01(rng) - 0.5));
+            }
+            tcInCut = (m_tcPhase < kTcDuty);
+        }
+        else { m_tcPhase = 0.0; m_tcRate = kTcCutHz; }
+        const bool tcReturn = m_tcWasCut && !tcInCut && m_tc;
+        m_tcWasCut = tcInCut;
+
         if (m_fireHz >= 0.5 && !electric)
         {
             m_crankPhase += crankHz * dtSec;
@@ -307,12 +340,14 @@ public:
             if (m_firePhase >= 1.0)
             {
                 m_firePhase = wrap(m_firePhase);
+                const bool tcDrop = tcInCut && !cranking && rand01(rng) < tcDepth;
+                if (tcDrop) ++m_tcDrops;
                 if (cranking)
                 {
                     // No combustion yet: each compression stroke is a slow lump.
                     firePulse(p.ampPct * level * kThumpMix * e.thump * heavy * kCrankHit * m_revScale);
                 }
-                else if (!cut)
+                else if (!cut && !tcDrop)
                 {
                     // Boost: more air per firing = a heavier hit, on top of load.
                     const double boostUp = (m_boost > 0.0) ? std::min(kBoostHitMax, 1.0 + kBoostGain * m_boost / kBoostRefBar) : 1.0;
@@ -333,6 +368,10 @@ public:
         // with a lurch, at any rpm, scaled by limHit.
         if (returnHit && e.thump > 0.0)
             firePulse(p.ampPct * level * kThumpMix * e.thump * heavy * limHit);
+        // ...and so is the drive coming back after a traction-control burst,
+        // lighter, as deep as the cut was.
+        if (tcReturn && e.thump > 0.0)
+            firePulse(p.ampPct * level * kThumpMix * e.thump * heavy * limHit * tcDepth * kTcReturnHit);
         // The catch (first firings taking hold) and the stall kick are
         // single heavy events in the thump pool.
         if (catchNow && e.thump > 0.0) firePulse(p.ampPct * level * kThumpMix * e.thump * heavy * kCatchHit, 1.5);
@@ -494,6 +533,9 @@ private:
     double m_revScale = 1.0;
     double m_cutPhase = 0.0, m_cutRate = 12.0;
     bool   m_wasCut = false;
+    bool   m_tc = false, m_tcWasCut = false;
+    double m_tcPhase = 0.0, m_tcRate = engine_k::kTcCutHz;
+    uint64_t m_tcDrops = 0;
     double m_buzzPhase = 0.0, m_beatPhase = 0.0;
     double m_learnedMax = engine_k::kLearnSeedRpm;
     double m_pulseDur = 0.033;

@@ -84,7 +84,7 @@ constexpr ParamSpec kSlipLatParams[] = {        // lateral slip: scrub (fronts) 
     { "slideHz", "slide hz",   4,   30,  1,    nullptr },
     { "peakDeg", "peak deg",   2,   20,  0.5,  nullptr },
     { "jitter",  "jitter",     0,   1,   0.05, nullptr },
-    { "peakPct", "peak %",     1,   100, 1,    nullptr },   // skid channel fallback only
+    { "peakPct", "peak %",     1,   400, 1,    nullptr },   // combined-slip and skid-channel paths
 };
 constexpr ParamSpec kSlipLonParams[] = {        // longitudinal slip: lock judder + spin tramp
     { "ampPct",    "amp %",      0,   100, 1,    nullptr },
@@ -94,7 +94,7 @@ constexpr ParamSpec kSlipLonParams[] = {        // longitudinal slip: lock judde
     { "spinHz",    "spin hz",    4,   30,  1,    nullptr },
     { "peakRatio", "peak ratio", 0.2, 2,   0.05, nullptr },
     { "jitter",    "jitter",     0,   1,   0.05, nullptr },
-    { "peakPct",   "peak %",     1,   100, 1,    nullptr },   // lockup channel fallback only
+    { "peakPct",   "peak %",     1,   400, 1,    nullptr },   // lockup channel fallback only
 };
 constexpr const char* kSlipLatKeys[5] = { "scrub", "scrubHz", "slide", "slideHz", "peakDeg" };
 constexpr const char* kSlipLonKeys[5] = { "lock", "lockHz", "spin", "spinHz", "peakRatio" };
@@ -106,6 +106,7 @@ constexpr ParamSpec kRoadParams[] = {           // road: texture carrier + per-c
     { "hpHz",       "cut hz",      0.5, 10,  0.5,  nullptr },
     { "peakPct",    "peak %",      1,   100, 1,    nullptr },   // roadNoise texture fallback only
     { "surface",    "surface x",   0,   1,   0.05, nullptr },   // tarmac grain rising with road speed
+    { "surfaceHz",  "surface hz",  4,   40,  1,    nullptr },   // ...on its own carrier
     { "surfaceKmh", "surface km/h", 20, 300, 5,    nullptr },   // ...full by this speed
 };
 constexpr ParamSpec kDrivelineParams[] = {      // driveline: clutch judder + lugging wind-up
@@ -159,7 +160,9 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "One short click as the lever settles into a gate, scaled by entry speed.", nullptr, {} },
     { Effect::GearShift,   "gearShift",   "Gear shift",   Kind::Transient, EventType::GearShift, FxType::COUNT,
       { "gear", nullptr }, { 0.0, 60.0, 25.0, 0.0 }, kTransientParams, 3,
-      "A thunk on every gear change, ringing through the chassis. Needs the gear channel.", nullptr, {} },
+      "A thunk on every gear change, ringing through the chassis: a short burst at freq hz on a belt or a shaker, "
+      "one jolt (about 12 hz, longer for a synchro clunk, shorter for a dog knock) on a position axis, which cannot "
+      "carry a buzz. Needs the gear channel.", nullptr, {} },
     { Effect::Engine,      "rpmVibe",     "Engine",       Kind::Engine, EventType::COUNT, FxType::RpmVibe,
       { "rpm", "~throttlePct", "~limiter", "~boost" }, { 0.0, 30.0, 0.0, 0.15 }, kEngineParams, 18,
       "Engine: the block rocking at crank rate at idle (lumpy, fades out by ~2500 rpm) with each firing as a "
@@ -174,34 +177,40 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       nullptr, {} },
     { Effect::Abs,         "abs",         "ABS",          Kind::Continuous, EventType::COUNT, FxType::AbsPulse,
       { "brakePct", "absActive", nullptr }, { 0.0, 12.0, 0.0, 0.0 }, kPulseParams, 2,
-      "Pulses while ABS cycles under braking. Needs the absActive and brakePct channels.", nullptr, {} },
+      "ABS cycling under braking: each cycle the pressure is dumped fast and rebuilt more slowly, so the car's "
+      "deceleration saw-tooths at freq hz (8 to 15 in a real car). Needs the absActive and brakePct channels.",
+      nullptr, {} },
     { Effect::Lockup,      "slipLon",     "Longitudinal slip", Kind::Slip, EventType::COUNT, FxType::Lockup,
       { "slipRatio*|wheelSpeed*|lockup", "speedKmh", "~load*", nullptr }, { 0.0, 9.0, 0.0, 0.2 }, kSlipLonParams, 8,
       "Each wheel's tread slipping along the road, per wheel. Lock: a wheel turning slower than the car under "
       "braking, a heavy judder whose beat falls with road speed. Spin: a driven wheel turning faster than the car, "
-      "the axle tramping at its own resonance. Severity rises from the slip ratio past the tyre's limit up to peak "
-      "ratio; the loaded tyre is weighted up when wheel loads arrive. Route with a part (a corner, an axle, all) so "
-      "the inside front locking judders that corner. Needs per-wheel slip ratios, or wheel speeds (the rolling "
-      "factor is learned while cruising), or the single lockup channel as a fallback (peak % is the channel "
-      "value that counts as a full slide on that path).",
-      kSlipLonKeys, { 1.0, 9.0, 1.0, 10.0, 0.8 } },
+      "the tread chattering at the contact patch (16 hz; a live axle tramps lower, around 10). Severity rises from "
+      "the slip ratio past the tyre's limit up to peak ratio; the loaded tyre is weighted up when wheel loads "
+      "arrive. The two wheels of an axle move together, the corner told by how hard. Route with a part (a corner, "
+      "an axle, all). Needs per-wheel slip ratios, or wheel speeds (the rolling factor is learned while "
+      "cruising), or the single lockup channel as a fallback (peak % is the channel value that counts as a full "
+      "slide on that path).",
+      kSlipLonKeys, { 1.0, 9.0, 1.0, 16.0, 0.8 } },
     { Effect::Skid,        "slipLat",     "Lateral slip", Kind::Slip, EventType::COUNT, FxType::Skid,
-      { "slipAngle*|wheelSlip*|skid", "speedKmh", "~load*", nullptr }, { 0.0, 25.0, 0.0, 0.5 }, kSlipLatParams, 8,
-      "The tyres sliding sideways, per wheel. Scrub: the fronts pushing wide, a fine fast texture. Slide: the "
-      "rears stepping out, an irregular slower chatter. Severity rises from the slip angle past the tyre's limit "
-      "up to peak deg; the carrier slows and roughens as it goes (squeal, moan, shudder) and the onset is abrupt. "
-      "The loaded tyre is weighted up when wheel loads arrive. Route with a part (a corner, an axle, all). Needs "
-      "per-wheel slip angles; else the per-wheel combined slip (Assetto Corsa, Automobilista 2) with the "
-      "longitudinal share taken out, full at peak %; else the single skid channel. Nothing at a standstill.",
-      kSlipLatKeys, { 1.0, 25.0, 1.0, 11.0, 7.0 } },
+      { "slipAngle*|wheelSlip*|skid", "speedKmh", "~load*", nullptr }, { 0.0, 20.0, 0.0, 0.5 }, kSlipLatParams, 8,
+      "The tyres sliding, per wheel. Scrub: the fronts pushing wide, a fine texture. Slide: the rears stepping "
+      "out, an irregular slower chatter. Severity rises from the slip angle past the tyre's limit up to peak "
+      "deg; the carrier slows and roughens as it goes (squeal, moan, shudder) and the onset is abrupt. The loaded "
+      "tyre is weighted up when wheel loads arrive; the two wheels of an axle move together. Route with a part "
+      "(a corner, an axle, all). Needs per-wheel slip angles; else the per-wheel combined slip (Assetto Corsa, "
+      "Automobilista 2: any sliding tyre, spinning and locking included), from a third of peak % up to full at "
+      "peak % (the chip shows the value arriving and its peak); else the single skid channel. Nothing at a "
+      "standstill.",
+      kSlipLatKeys, { 1.0, 20.0, 1.0, 11.0, 7.0 } },
     { Effect::Road,        "road",        "Road",         Kind::Road, EventType::COUNT, FxType::Road,
-      { "suspVel*|suspTravel*|roadNoise", "~speedKmh", nullptr }, { 0.0, 28.0, 0.0, 0.6 }, kRoadParams, 8,
+      { "suspVel*|suspTravel*|roadNoise", "~speedKmh", nullptr }, { 0.0, 16.0, 0.0, 0.6 }, kRoadParams, 9,
       "The road surface. With per-corner suspension velocities (or travel) from the sim it REPLAYS the road: each "
       "corner's travel, with the slow body motion cut away (cut hz) so only the bumps remain, at their real timing; "
-      "full mm is the bump that counts as 100%. Route with a part so each actuator plays its own corner. Without "
-      "them, a texture at freq hz scaled by the roadNoise channel, full at peak %. Surface x adds the tarmac grain "
-      "under a rolling car on top of either: a rough texture at freq hz that rises with road speed, full by "
-      "surface km/h, so a moving car is never dead silent.", nullptr, {} },
+      "full mm is the bump that counts as 100% (bigger hits bend over a soft knee rather than clip). Route with a "
+      "part so each actuator plays its own corner. Without them, a texture at freq hz scaled by the roadNoise "
+      "channel, full at peak %. Surface x adds the tarmac grain under a rolling car on top of either: a rough "
+      "texture at surface hz that rises with road speed, full by surface km/h, so a moving car is never silent.",
+      nullptr, {} },
     { Effect::Limiter,     "limiter",     "Limiter",      Kind::Continuous, EventType::COUNT, FxType::Limiter,
       { "limiter", nullptr }, { 0.0, 12.0, 0.0, 0.15 }, kTextureParams, 3,
       "Extra hammer on top of the engine effect while the limiter is in (the engine effect already cuts "
@@ -209,10 +218,14 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       nullptr, {} },
     { Effect::Tc,          "tc",          "TC pulse",     Kind::Continuous, EventType::COUNT, FxType::TcPulse,
       { "tcActive", nullptr }, { 0.0, 15.0, 0.0, 0.0 }, kPulseParams, 2,
-      "Traction control cutting. Needs the tcActive channel.", nullptr, {} },
+      "Traction control cutting: the engine effect already stutters (TC drops a share of the firings in irregular "
+      "bursts, more with more throttle); this adds the body surge of each cut, a sharp loss of drive and a slower "
+      "recovery at freq hz. Route it to surge and the belt. Needs the tcActive channel.", nullptr, {} },
     { Effect::Kerb,        "kerb",        "Kerb",         Kind::Continuous, EventType::COUNT, FxType::Kerb,
-      { "curbs", nullptr }, { 0.0, 40.0, 0.0, 0.4 }, kKerbParams, 4,
-      "Kerb-strip rumble, scaled by the curbs channel: full at peak %. Bind curbsProp in the plugin.", nullptr, {} },
+      { "curbs", nullptr }, { 0.0, 16.0, 0.0, 0.4 }, kKerbParams, 4,
+      "Kerb-strip rumble, scaled by the curbs channel: full at peak %. Bind curbsProp in the plugin. Sims that "
+      "send suspension data (Assetto Corsa, Automobilista 2) already put every kerb through the Road replay.",
+      nullptr, {} },
     { Effect::Driveline,   "driveline",   "Driveline",    Kind::Driveline, EventType::COUNT, FxType::Driveline,
       { "clutchPct", "rpm", "gear", "~speedKmh", "~throttlePct" }, { 0.0, 10.0, 0.0, 0.2 }, kDrivelineParams, 10,
       "The transmission when the engine and the wheels disagree. Clutch: a slipping clutch grabbing and releasing "

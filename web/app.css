@@ -356,6 +356,10 @@ body[data-view="setup"] .vw-op{ display:none !important; }
 .hap-tile .dh .sdot.d1{ background:var(--warn); opacity:1; }
 .hap-tile .dh .sdot.d2{ background:var(--ok); opacity:1; }
 .hap-game{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+/* Section headings on the Master tile: rig, profiles, car table, sim dots. */
+.hsec{ font-family:var(--mono); font-size:.55rem; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--ink-soft); border-top:1px solid var(--hair); padding-top:4px; margin-top:4px; }
+.hsec:first-child{ border-top:none; margin-top:0; padding-top:0; }
 .hap-game select{ max-width:160px; }
 .hap-game label{ display:flex; align-items:center; gap:4px; cursor:pointer; }
 .hap-game input[type=text]{ width:150px; text-align:left; font-size:.72rem; }

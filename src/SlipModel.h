@@ -7,11 +7,16 @@
 //
 // Four wheels, two components. Each wheel carries its own severity for
 // component A and component B (lateral: A = front scrub, B = rear slide;
-// longitudinal: A = lock judder, B = spin tramp), its own attack/release
-// ramp and its own oscillator, so the inside front locking alone judders
-// ALONE. A route then asks for a Part (all, an axle, a corner) and gets
-// the strongest wheel of that part per component: selecting, never
-// summing, so two sines at nearly the same carrier can never comb.
+// longitudinal: A = lock judder, B = spin tramp) and its own attack/
+// release ramp, so the inside front locking alone judders ALONE. The
+// oscillators are per AXLE, not per wheel: a car's body is one stiff
+// structure, and a locking front corner shakes the whole front with a bias
+// to that side, never the two front corners against each other. With an
+// oscillator per wheel the two front posts of a rig drifted out of phase
+// and rocked it side to side (found on the bench); now the two wheels of
+// an axle share one carrier phase and roughness and differ only in level.
+// A route asks for a Part (all, an axle, a corner) and gets the strongest
+// wheel of that part per component: selecting, never summing.
 //
 // Severity staging, from the real thing: as slip grows past the limit the
 // stick-slip chatter slows and roughens (squeal, moan, shudder). The
@@ -69,14 +74,31 @@ public:
 
     void step(double dtSec, const EffectParams& p, const SlipParams& s)
     {
-        using namespace slip_k;
         for (W& w : m_w)
         {
             ramp(w.lA, w.tA, dtSec);
             ramp(w.lB, w.tB, dtSec);
             w.tA = w.tB = 0.0;    // a law that stops driving = release
-            w.sA = component(w.lA, s.aHz * m_aScale, s.aMix, p.jitter, w.oscA, w.rng, dtSec, w.hzA);
-            w.sB = component(w.lB, s.bHz * m_bScale, s.bMix, p.jitter, w.oscB, w.rng, dtSec, w.hzB);
+        }
+        // One oscillator per axle and component, staged by the axle's
+        // stronger wheel; each wheel scales the shared waveform by its own
+        // level, so the two wheels of an axle always move together.
+        for (int a = 0; a < kAxles; ++a)
+        {
+            Axle& x = m_axle[a];
+            const W& w0 = m_w[2 * a];
+            const W& w1 = m_w[2 * a + 1];
+            x.uA = unit(std::max(w0.lA, w1.lA), s.aHz * m_aScale, s.aMix, p.jitter, x.oscA, x.rng, dtSec, x.hzA);
+            x.uB = unit(std::max(w0.lB, w1.lB), s.bHz * m_bScale, s.bMix, p.jitter, x.oscB, x.rng, dtSec, x.hzB);
+        }
+        for (int i = 0; i < WHEEL_COUNT; ++i)
+        {
+            W& w = m_w[i];
+            const Axle& x = m_axle[axleOf(i)];
+            w.hzA = (w.lA >= 1e-4) ? x.hzA : 0.0;
+            w.hzB = (w.lB >= 1e-4) ? x.hzB : 0.0;
+            w.sA  = (w.hzA > 0.0) ? x.uA * w.lA * s.aMix : 0.0;
+            w.sB  = (w.hzB > 0.0) ? x.uB * w.lB * s.bMix : 0.0;
             w.envA = (w.hzA > 0.0) ? w.lA * s.aMix : 0.0;
             w.envB = (w.hzB > 0.0) ? w.lB * s.bMix : 0.0;
         }
@@ -101,11 +123,17 @@ public:
         for (int i = first; i <= last; ++i)
         {
             const W& w = m_w[i];
-            if (w.lA > bestA) { bestA = w.lA; o.a = w.sA; o.aHz = w.hzA; o.aEnv = w.envA; o.aPhase = w.oscA.phase; }
-            if (w.lB > bestB) { bestB = w.lB; o.b = w.sB; o.bHz = w.hzB; o.bEnv = w.envB; o.bPhase = w.oscB.phase; }
+            const Axle& x = m_axle[axleOf(i)];
+            if (w.lA > bestA) { bestA = w.lA; o.a = w.sA; o.aHz = w.hzA; o.aEnv = w.envA; o.aPhase = x.oscA.phase; }
+            if (w.lB > bestB) { bestB = w.lB; o.b = w.sB; o.bHz = w.hzB; o.bEnv = w.envB; o.bPhase = x.oscB.phase; }
         }
         return o;
     }
+
+    // One wheel's sample this cycle (tests: the two wheels of an axle are
+    // in phase).
+    double wheelSampleA(int wheel) const { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_w[wheel].sA : 0.0; }
+    double wheelSampleB(int wheel) const { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_w[wheel].sB : 0.0; }
 
     // Highest smoothed severity anywhere (status / wave).
     double level() const
@@ -124,6 +152,7 @@ public:
     void clear()
     {
         for (W& w : m_w) { w = W{}; }
+        for (int a = 0; a < kAxles; ++a) { m_axle[a] = Axle{}; m_axle[a].rng = kSeeds[a]; }
     }
 
 private:
@@ -134,9 +163,19 @@ private:
         double sA = 0.0, sB = 0.0;    // this cycle's samples
         double hzA = 0.0, hzB = 0.0;  // this cycle's carriers
         double envA = 0.0, envB = 0.0;// this cycle's envelopes (level x mix)
+    };
+    // Front axle (FL, FR) and rear axle (RL, RR): one oscillator per
+    // component, its unit sample and carrier this cycle.
+    static constexpr int kAxles = 2;
+    static constexpr uint64_t kSeeds[kAxles] = { 0x9E3779B97F4A7C15ull, 0xD1B54A32D192ED03ull };
+    struct Axle
+    {
         wavesynth::Oscillator oscA, oscB;
+        double uA = 0.0, uB = 0.0;
+        double hzA = 0.0, hzB = 0.0;
         uint64_t rng = 0x9E3779B97F4A7C15ull;
     };
+    static int axleOf(int wheel) { return (wheel == WheelFL || wheel == WheelFR) ? 0 : 1; }
 
     static void ramp(double& level, double target, double dtSec)
     {
@@ -145,8 +184,9 @@ private:
         level += std::max(-rate, std::min(rate, target - level));
     }
 
-    static double component(double level, double setHz, double mix, double jitter,
-                            wavesynth::Oscillator& osc, uint64_t& rng, double dtSec, double& hzOut)
+    // The axle's waveform at unit amplitude, staged by its stronger wheel.
+    static double unit(double level, double setHz, double mix, double jitter,
+                       wavesynth::Oscillator& osc, uint64_t& rng, double dtSec, double& hzOut)
     {
         using namespace slip_k;
         hzOut = 0.0;
@@ -161,10 +201,11 @@ private:
             const double r = static_cast<double>(rng & 0xFFFF) / 65535.0;
             f *= 1.0 + jit * (r - 0.5);
         }
-        return osc.step(f, dtSec) * level * mix;
+        return osc.step(f, dtSec);
     }
 
     W      m_w[WHEEL_COUNT];
+    Axle   m_axle[kAxles] = { Axle{ {}, {}, 0.0, 0.0, 0.0, 0.0, kSeeds[0] }, Axle{ {}, {}, 0.0, 0.0, 0.0, 0.0, kSeeds[1] } };
     double m_aScale = 1.0, m_bScale = 1.0;
 };
 

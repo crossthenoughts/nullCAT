@@ -69,18 +69,29 @@ public:
         if (!e) return;                         // pool full: drop, never block
 
         // Snapshot params + routes at fire time.
+        const double durK = std::max(0.25, std::min(4.0, durScale));
         e->ampPct = p.ampPct * scale;
         e->freqHz = ((p.freqHz > 0.0) ? p.freqHz : 90.0) * std::max(0.25, std::min(4.0, freqScale));
-        e->durSec = p.durMs / 1000.0 * std::max(0.25, std::min(4.0, durScale));
+        e->durSec = p.durMs / 1000.0 * durK;
         e->tSec   = 0.0;
+        // A position axis cannot carry a 60 Hz burst (a few hundredths of a
+        // mm): it gets the same event as one thud at a rate it can follow,
+        // stretched with the burst (a synchro's clunk is softer and longer
+        // than a dog's knock).
+        e->thudHz  = std::max(kThudMinHz, std::min(kThudMaxHz, kThudHz / durK));
+        e->thudSec = 1.0 / e->thudHz;
+        e->lifeSec = e->durSec;
         bool anyRoute = false;
         for (int i = 0; i < MAX_ROUTES; ++i)
         {
-            const bool ok = p.routes[i].axis >= 0 && p.routes[i].axis < MAX_HAPTIC_AXES
-                            && p.routes[i].gain > 0.0;
-            e->routes[i].axis = ok ? p.routes[i].axis : -1;
-            e->routes[i].gain = ok ? p.routes[i].gain : 0.0;
-            anyRoute |= ok;
+            const Route& r = p.routes[i];
+            const bool toAxis   = r.axis >= 0 && r.axis < MAX_HAPTIC_AXES && r.gain > 0.0;
+            const bool toShaker = !toAxis && r.shaker >= 0 && r.shaker < MAX_SHAKER_OUT && r.gain > 0.0;
+            e->routes[i] = Route{};
+            if (toAxis)   { e->routes[i].axis = r.axis; e->routes[i].gain = r.gain;
+                            if (m_sinkKind[r.axis] == SinkKind::Position) e->lifeSec = std::max(e->lifeSec, e->thudSec); }
+            if (toShaker) { e->routes[i].shaker = r.shaker; e->routes[i].harm = r.harm; e->routes[i].gain = r.gain; }
+            anyRoute |= toAxis || toShaker;
         }
         if (!anyRoute) return;                  // fully unrouted: never activate
         e->active = true;
@@ -102,15 +113,22 @@ public:
         {
             if (!e.active) continue;
             e.tSec += dtSec;
-            if (e.tSec >= e.durSec) { e.active = false; continue; }
+            if (e.tSec >= e.lifeSec) { e.active = false; continue; }
             // Raised-cosine envelope (zero at both ends) on a sine carrier.
             const double env = wavesynth::envelope(e.tSec, e.durSec, e.durSec * 0.25);
             const double v   = e.ampPct * env
                              * std::sin(2.0 * wavesynth::kPi * e.freqHz * e.tSec);
+            // The position-sink rendering: one enveloped cycle at the thud rate.
+            const double thud = e.ampPct * wavesynth::envelope(e.tSec, e.thudSec, e.thudSec * 0.25)
+                              * std::sin(2.0 * wavesynth::kPi * e.thudHz * e.tSec);
             for (const Route& r : e.routes)
             {
                 if (r.shaker >= 0) { toShaker(r, e.ampPct * env * std::sin(2.0 * wavesynth::kPi * e.freqHz * r.harm * e.tSec)); continue; }
-                if (r.axis >= 0) m_overlay[r.axis] += v * r.gain * sinkScale(r.axis, e.ampPct * r.gain, e.freqHz);
+                if (r.axis < 0) continue;
+                if (m_sinkKind[r.axis] == SinkKind::Position)
+                    m_overlay[r.axis] += thud * r.gain * sinkScale(r.axis, e.ampPct * r.gain, e.thudHz);
+                else
+                    m_overlay[r.axis] += v * r.gain;
             }
         }
 
@@ -151,6 +169,29 @@ public:
                                 // holds the axis limits regardless.
                                 m_overlay[r.axis] += p.ampPct * s * r.gain * sinkScale(r.axis, p.ampPct * r.gain, road_k::kDerateHz);
                             }
+                    }
+                }
+                // The surface grain: its own rough oscillator at surface hz
+                // (low enough for a position axis to carry), whole-car.
+                {
+                    const double rate = (m_surfTarget > m_surfLevel) ? dtSec / 0.050 : dtSec / 0.120;
+                    m_surfLevel += std::max(-rate, std::min(rate, m_surfTarget - m_surfLevel));
+                    m_surfTarget = 0.0;   // the law drives it every cycle
+                    const double sHz = std::max(2.0, m_roadParams.surfaceHz);
+                    if (p.ampPct > 0.0 && m_surfLevel >= 1e-4)
+                    {
+                        double f = sHz;
+                        const double jit = std::max(p.jitter, kSurfaceMinJitter);
+                        m_surfRng ^= m_surfRng << 13; m_surfRng ^= m_surfRng >> 7; m_surfRng ^= m_surfRng << 17;
+                        f *= 1.0 + jit * (static_cast<double>(m_surfRng & 0xFFFF) / 65535.0 - 0.5);
+                        const double v = p.ampPct * m_surfLevel * m_surfOsc.step(f, dtSec);
+                        for (const Route& r : p.routes)
+                        {
+                            if (r.gain <= 0.0) continue;
+                            if (r.shaker >= 0) { toShaker(r, p.ampPct * m_surfLevel * std::sin(r.harm * m_surfOsc.phase)); continue; }
+                            if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
+                            m_overlay[r.axis] += v * r.gain * sinkScale(r.axis, p.ampPct * r.gain, sHz);
+                        }
                     }
                 }
                 // ...and on to the texture path with the law's level.
@@ -268,11 +309,22 @@ public:
                 const double r = static_cast<double>(f.rng & 0xFFFF) / 65535.0; // 0..1
                 freq *= 1.0 + p.jitter * (r - 0.5);
             }
-            const double v = p.ampPct * f.level * f.osc.step(freq, dtSec);
+            // ABS and TC are not sines: each cycle is a fast drop and a slower
+            // recovery (brake pressure dumped then rebuilt; drive cut then
+            // restored), so the car's deceleration or push saw-tooths.
+            const double drop = (i == static_cast<int>(FxType::AbsPulse)) ? kAbsDropShare
+                              : (i == static_cast<int>(FxType::TcPulse))  ? kTcDropShare : 0.0;
+            const double s0 = f.osc.step(freq, dtSec);
+            const double v = p.ampPct * f.level * (drop > 0.0 ? dropRecover(f.osc.phase, drop) : s0);
             for (const Route& r : p.routes)
             {
                 if (r.gain <= 0.0) continue;
-                if (r.shaker >= 0) { toShaker(r, p.ampPct * f.level * std::sin(r.harm * f.osc.phase)); continue; }
+                if (r.shaker >= 0)
+                {
+                    const double ph = r.harm * f.osc.phase;
+                    toShaker(r, p.ampPct * f.level * (drop > 0.0 ? dropRecover(ph, drop) : std::sin(ph)));
+                    continue;
+                }
                 if (r.axis >= 0 && r.axis < MAX_HAPTIC_AXES)
                     m_overlay[r.axis] += v * r.gain * sinkScale(r.axis, p.ampPct * r.gain, f.freqHz);
             }
@@ -432,6 +484,10 @@ public:
     double roadWheelTravelMm(int wheel) const { return m_road.wheelTravelMm(wheel); }
     double roadReplayLevel() const            { return m_roadLevel; }
     bool   roadReplaying() const              { return m_road.active(); }
+    // The surface grain's level 0..1 for THIS cycle (the law: the surface
+    // mix x how far up to surface km/h the car is). Not driven = releasing.
+    void   driveRoadSurface(double level)     { m_surfTarget = std::max(0.0, std::min(1.0, level)); }
+    double roadSurfaceLevel() const           { return m_surfLevel; }
 
     // ---- driveline (clutch judder + lugging wind-up). Config apply for
     // the params; the law drives the two severities per cycle.
@@ -470,7 +526,8 @@ public:
     double fxLevel(int i) const
     {
         if (i < 0 || i >= FX_TYPE_COUNT) return 0.0;
-        return (i == static_cast<int>(FxType::Road)) ? std::max(m_fx[i].level, m_roadLevel) : m_fx[i].level;
+        return (i == static_cast<int>(FxType::Road)) ? std::max(m_fx[i].level, std::max(m_roadLevel, m_surfLevel))
+                                                     : m_fx[i].level;
     }
 
     // What the effect is actually PUTTING OUT, not what it is being driven
@@ -501,13 +558,16 @@ public:
     // coasting), the lope amount (EffectParams.jitter) roughens idle
     // per-pulse, and the limiter flag DROPS pulses in bursts - a limiter
     // cuts firings, so the stumble is missing events, exactly as felt. ----
+    // tcCut: traction control is cutting: the engine drops a share of its
+    // firings in bursts, like a shallower, irregular limiter.
     void driveEngine(double level, double fireHz, double load01, bool limiterOn, double boostBar = -1.0,
-                     bool pitLimiter = false, bool inGearOverrun = false)
+                     bool pitLimiter = false, bool inGearOverrun = false, bool tcCut = false)
     {
         Fx& f = m_fx[static_cast<int>(FxType::RpmVibe)];
         f.targetLevel = (level < 0.0) ? 0.0 : (level > 1.0 ? 1.0 : level);
-        m_engine.drive(fireHz, load01, limiterOn, boostBar, pitLimiter, inGearOverrun);
+        m_engine.drive(fireHz, load01, limiterOn, boostBar, pitLimiter, inGearOverrun, tcCut);
     }
+    uint64_t engineTcDrops() const  { return m_engine.tcDropCount(); }
     uint64_t engineLiftOffs() const { return m_engine.liftOffCount(); }
     bool     engineRunning() const  { return m_engine.running(); }
 
@@ -521,6 +581,7 @@ public:
         m_slipLon.clear();
         m_road.clear();
         m_roadDriven = false;
+        m_surfLevel = m_surfTarget = 0.0; m_surfOsc.reset();
         m_driveline.clear();
         for (double& o : m_overlay) o = 0.0;
         for (double& o : m_shaker)  o = 0.0;
@@ -537,13 +598,37 @@ public:
     uint64_t fireCount() const { return m_fired; }
     uint64_t fireCount(EventType t) const { return m_firedBy[static_cast<int>(t)]; }
 
+    // One cycle of the ABS / TC waveform at phase ph (radians): from +1 down
+    // to -1 over the first `drop` share of the cycle, back up to +1 over the
+    // rest, both halves cosine-shaped so the wave is smooth and averages to
+    // zero (a position axis does not drift).
+    static double dropRecover(double ph, double drop)
+    {
+        double u = ph / (2.0 * wavesynth::kPi);
+        u -= std::floor(u);
+        drop = std::max(0.05, std::min(0.95, drop));
+        return (u < drop) ? std::cos(wavesynth::kPi * u / drop)
+                          : -std::cos(wavesynth::kPi * (u - drop) / (1.0 - drop));
+    }
+
 private:
     struct Event
     {
         bool   active = false;
         double ampPct = 0.0, freqHz = 0.0, durSec = 0.0, tSec = 0.0;
+        double thudHz = 12.0, thudSec = 1.0 / 12.0, lifeSec = 0.0;   // position-sink rendering
         Route  routes[MAX_ROUTES];
     };
+
+    // A transient on a position axis: one cycle at this rate (a gear change
+    // through a seat is a jolt, not a buzz), stretched or shortened with
+    // the burst's length scale within these bounds.
+    static constexpr double kThudHz = 12.0, kThudMinHz = 6.0, kThudMaxHz = 20.0;
+    // ABS: pressure dumped in a quarter of the cycle, rebuilt over the rest.
+    // TC: drive cut in a third, restored over the rest.
+    static constexpr double kAbsDropShare = 0.25, kTcDropShare = 0.33;
+    // The surface grain is always rough: tarmac is not a tone.
+    static constexpr double kSurfaceMinJitter = 0.5;
 
     struct Fx
     {
@@ -596,14 +681,17 @@ private:
     EngineModel  m_engine;
     EngineParams m_engineParams;
     SlipModel    m_slipLat, m_slipLon;
-    SlipParams   m_slipLatParams{ 1.0, 25.0, 1.0, 11.0, 7.0 };
-    SlipParams   m_slipLonParams{ 1.0,  9.0, 1.0, 10.0, 0.8 };
+    SlipParams   m_slipLatParams{ 1.0, 20.0, 1.0, 11.0, 7.0 };
+    SlipParams   m_slipLonParams{ 1.0,  9.0, 1.0, 16.0, 0.8 };
     RoadModel    m_road;
     RoadParams   m_roadParams;
     DrivelineModel  m_driveline;
     DrivelineParams m_drivelineParams;
     bool         m_roadDriven = false;   // a law drove corners this cycle
     double       m_roadLevel  = 0.0;     // the replay's level this cycle (the texture has its own)
+    double       m_surfTarget = 0.0, m_surfLevel = 0.0;   // the surface grain (Road slot)
+    wavesynth::Oscillator m_surfOsc;
+    uint64_t     m_surfRng = 0xA0761D6478BD642Full;
     EffectParams m_params[EVENT_TYPE_COUNT];
     EffectParams m_fxParams[FX_TYPE_COUNT];
     Event        m_events[MAX_EVENTS];

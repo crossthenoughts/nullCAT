@@ -250,6 +250,20 @@ is a fraction of a millimetre and is better sent to a belt. Routed
 effects are only felt while the axis is online and tracking; PP-mode
 axes take no haptics.
 
+As a rule of thumb for a seat on linear actuators: what you feel through
+the cushion lives below about 20 Hz. With pos budget 0.5 and an axis
+limited to 20 m/s^2, an effect gets about 2.5 mm at 10 Hz, 1.8 at 12,
+0.9 at 17, 0.6 at 20 and 0.3 at 28 Hz, and below about 0.3 mm a body
+stops noticing. The tile defaults meant for position axes sit at or
+below 20 Hz for that reason; the finer carriers (a 32 Hz scrub, a 40 Hz
+kerb) belong on a belt or a shaker. A route gain above what the axis can
+give at the carrier buys nothing: 1 mm at 17 Hz is already the limit
+there, 2 to 3 mm only counts below about 10 Hz. A transient such as the
+gear shift is a short 60 Hz burst on a belt, which a position axis
+cannot carry at all, so there it plays as one jolt instead: a single
+cycle at about 12 Hz (longer for a synchro clunk, shorter for a dog
+knock) at the route's full amplitude.
+
 ### The effects
 
 Each tile lists the sim channels it needs, with a tick when the channel
@@ -259,15 +273,15 @@ effect silent.
 | Effect | What you feel | Channels |
 |---|---|---|
 | Detent click | the lever dropping into a gate | none (from the shifter itself) |
-| Gear shift | a thunk on every gear change | gear |
-| Engine | the engine running, from idle to the limiter (below) | rpm, throttle, limiter |
-| ABS | a regular pulse while ABS works and the brake is on | brake, ABS active |
+| Gear shift | a thunk on every gear change (one jolt on a position axis) | gear |
+| Engine | the engine running, from idle to the limiter, stuttering when traction control cuts (below) | rpm, throttle, limiter (TC active) |
+| ABS | the brake pressure dumped and rebuilt while ABS works: the deceleration saw-tooths, 8 to 15 times a second | brake, ABS active |
 | Longitudinal slip | a wheel locking under braking, or spinning under power, per wheel (below) | per-wheel slip ratio or wheel speeds, road speed; or the single lockup channel |
 | Lateral slip | the tyres sliding sideways: the fronts scrubbing wide, the rears stepping out, per wheel (below) | per-wheel slip angles, or the sim's per-wheel combined slip; or the single skid channel |
 | Road | the road surface: each corner's bumps replayed from the suspension, per wheel (below), the tarmac grain under a rolling car; or a texture | per-corner suspension velocity or travel, road speed; or the single road channel |
 | Limiter | an extra hammer while on the rev limiter | limiter |
-| TC pulse | a pulse while traction control cuts | TC active |
-| Kerb | kerb strip rumble | kerbs |
+| TC pulse | the body surge of each traction-control cut: a sharp loss of drive and a slower recovery (the Engine tile stutters as well) | TC active |
+| Kerb | kerb strip rumble (where the sim sends suspension data the Road replay already carries every kerb) | kerbs |
 | Driveline | a slipping clutch juddering at a launch, the engine lugging at low revs (below) | clutch, rpm, gear (speed, throttle) |
 
 With the SimHub plugin, rpm, speed, gear, clutch, throttle, brake, ABS,
@@ -295,8 +309,16 @@ each vertical actuator to its own corner and the inside front locking up
 judders that corner and nothing else. On a three-actuator rig route the
 rear actuator to `REAR`; a belt or shaker takes `ALL`.
 
-**Lateral slip** is the tyres sliding sideways. The fronts give
-**scrub**: a fine, fast texture as they push wide. The rears give
+The two wheels of an axle always move together: a car's body is one
+stiff structure, and a locking front corner shakes the whole front with
+a bias to that side, never the two front corners against each other. So
+both front posts play the same wave, the harder-slipping corner bigger,
+and a front-left lock reads as a judder leaning left rather than the rig
+rocking side to side.
+
+**Lateral slip** is the tyres sliding. The fronts give **scrub**: a fine
+texture as they push wide (20 Hz by default, which a seat actuator can
+still carry; a belt or shaker takes a finer one). The rears give
 **slide**: an irregular, slower chatter as the back steps out. Each has
 its own mix and carrier. **peak deg** is the slip angle at which a tyre is
 fully gone (7 for most cars; lower for slicks, higher for road tyres);
@@ -308,7 +330,9 @@ like.
 **Longitudinal slip** is the tread slipping along the road. **lock** is a
 wheel turning slower than the car under braking: a heavy judder whose
 beat falls with road speed. **spin** is a driven wheel turning faster
-than the car: the axle tramping at its own resonance. **peak ratio** is
+than the car: the tread chattering and skipping at the contact patch (16
+Hz by default; a car with a live rear axle tramps lower, set spin hz
+around 10 for one). **peak ratio** is
 the slip ratio at full severity (0.8 by default; a locked wheel is -1);
 nothing plays inside the first 0.15, where the tyre is still gripping.
 
@@ -317,9 +341,15 @@ the unloaded one's down, so the outside tyre in a corner shakes harder.
 
 Where the sim has no slip angle but a combined slip per wheel (Assetto
 Corsa's wheel slip, Automobilista 2's tyre slip speed), Lateral slip
-takes that instead, with the part of it the Longitudinal tile is
-already playing taken out, so a straight-line lockup does not read as a
-slide; `peak %` is its scale (100 = the tyre has let go). Where the sim
+takes that instead. A combined slip cannot be split into sideways and
+along, and a spinning or locked tyre is sliding too, so on that path the
+Lateral tile plays for any sliding tyre (power oversteer, a lock-up) and
+the Longitudinal tile adds its judder or tramp on top. It starts at a
+third of `peak %` and is full at `peak %`; the plugin scales Assetto
+Corsa's value so that a clear slide (about 6 on the game's own scale)
+reads 100. Cars differ, so drive a few hard laps, read the peak on the
+tile's chip (`wheelSlip* 12/140`), and set `peak %` near that peak (up to
+400). Where the sim
 only gives one overall slip value, the single `skid` and `lockup`
 channels still work and feed all four wheels at once; the parts then
 simply select the same thing. **peak %** there is the channel value that
@@ -338,8 +368,11 @@ The Test button plays an effect at **full** severity (1.00 on every
 wheel), which is the reference, not what a lap gives. To see what a lap
 actually gives, each tile reads out its input:
 
-- the channel chip shows every bound channel with its live value and its
-  session peak (`skid 23/41 ✓`);
+- the channel chip shows the channel actually feeding the tile with its
+  live value and its session peak (`skid 23/41 ✓`); for a per-wheel
+  group the largest wheel now and the largest peak (`wheelSlip* 12/140
+  ✓`). Slip peaks only count while the car is moving, since a car at a
+  standstill reports nonsense slip;
 - the two slip tiles and Road show a per-wheel line, `FL 0.00/0.82 FR
   ... ` (now/peak, severity for slip, mm for Road);
 - the other continuous tiles show `in 0.12/0.60`, the level they are
@@ -365,18 +398,26 @@ cut away so only the bumps remain, at their real timing and shape. Route
 it with a part like the slip tiles: on a four-post rig each actuator
 plays its own corner, so a kerb under the right-front arrives at the
 right-front. Two settings: **full mm** is the bump that counts as 100 %
-amplitude (8 by default; lower for a stiff race car, higher for a rally
-car), and **cut hz** is where the slow motion is cut (2 by default;
-raise it if the seat follows body roll the cue is already doing, lower
-it to let longer undulations through).
+amplitude (25 by default: a race car's suspension moves tens of
+millimetres over a kerb; with a small value every bump pins at full and
+the replay feels like broken suspension), and **cut hz** is where the
+slow motion is cut (2 by default; raise it if the seat follows body roll
+the cue is already doing, lower it to let longer undulations through).
+Bumps past about 60 % of full mm bend over a soft knee towards 100 %
+instead of clipping, and the replay is lightly smoothed, so a big hit
+lands as a thump rather than a snap. The per-wheel line shows each
+corner's replayed travel and its peak in mm: set full mm near the peaks
+of an ordinary lap, so only the real hits reach the top.
 
 On top of the replay (or of the single `road` channel's texture where a
 sim has no per-corner data) the tile plays the **surface**: the grain of
-the tarmac under a rolling car, a rough texture at `freq hz` whose level
-rises with road speed and is full by **surface km/h** (100 by default),
-at the **surface x** mix (0.1 by default; 0 turns it off). It is what
-tells you the car is moving on a smooth straight, where the replay alone
-would be silent; keep it low, it is a background, not a cue.
+the tarmac under a rolling car, a rough texture on its own carrier,
+**surface hz** (12 by default, low enough for a seat actuator to carry),
+whose level rises with road speed and is full by **surface km/h** (100
+by default), at the **surface x** mix (0.2 by default; 0 turns it off).
+It is what tells you the car is moving on a smooth straight, where the
+replay alone would be silent; keep it low, it is a background, not a
+cue.
 
 ### Driveline
 
@@ -444,6 +485,13 @@ The separate **Limiter** tile adds an extra hammer on top; keep it at
 around 12 Hz so it lands in time with the cuts. The pit limiter cuts
 the same way when the sim sends its flag, without touching the learned
 redline.
+
+**Traction control** is the same mechanism, shallower: while the sim
+says TC is cutting, the engine drops a share of its firings in
+irregular bursts (about 15 a second), more of them the harder you are
+on the throttle, and catches each time a burst ends. That stutter is
+what a race car's TC feels like; the **TC pulse** tile adds the body
+surge of each cut on top (route it to surge and the belt).
 
 **Lifting off.** When the throttle snaps shut up the band the combustion
 stops but the engine keeps shaking: that is **inertia x**, the pistons

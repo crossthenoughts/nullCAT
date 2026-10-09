@@ -12,8 +12,12 @@
 // only the bumps remain, with their real timing and shape. Routed with a
 // Part, a four-post rig's FL actuator replays the FL corner.
 //
-// Output per wheel is travel / fullMm, clamped to +-1: a route gain then
-// means "this much at a fullMm bump", exactly like every other effect.
+// Output per wheel is travel / fullMm: a route gain then means "this much
+// at a fullMm bump", exactly like every other effect. Past 60% of full the
+// output bends over a soft knee towards 1 instead of clipping there (a
+// hard clip turned every kerb into a square pop that felt like broken
+// suspension on the bench), and a light low-pass (kSmoothHz) rounds the
+// edge of a hit into a thump the actuator can follow.
 //
 // RT-safe: fixed arrays, pure arithmetic.
 // ============================================================
@@ -31,6 +35,8 @@ namespace road_k {
     constexpr double kMinFullMm  = 0.5;
     constexpr double kReleaseSec = 0.120;   // fade when the stream stops driving
     constexpr double kDerateHz   = 8.0;     // representative bump rate for position-sink derating
+    constexpr double kKnee       = 0.6;     // linear up to this share of full, then a soft knee
+    constexpr double kSmoothHz   = 20.0;    // one-pole low-pass on the output
 }
 
 class RoadModel
@@ -60,12 +66,23 @@ public:
         w.driven = true;
     }
 
+    // Linear to kKnee, then bending smoothly (matching slope) towards 1.
+    static double softKnee(double x)
+    {
+        using namespace road_k;
+        const double a = std::fabs(x);
+        if (a <= kKnee) return x;
+        const double y = kKnee + (1.0 - kKnee) * std::tanh((a - kKnee) / (1.0 - kKnee));
+        return (x < 0.0) ? -y : y;
+    }
+
     void step(double dtSec, const RoadParams& p)
     {
         using namespace road_k;
         const double hp   = std::max(kMinHpHz, p.hpHz);
         const double leak = std::exp(-2.0 * wavesynth::kPi * hp * dtSec);
         const double full = std::max(kMinFullMm, p.fullMm);
+        const double smooth = 1.0 - std::exp(-2.0 * wavesynth::kPi * kSmoothHz * dtSec);
         for (W& w : m_w)
         {
             if (w.driven)
@@ -82,7 +99,8 @@ public:
                 w.haveTravel = false;
             }
             w.driven = false; w.dx = 0.0;
-            w.s = std::max(-1.0, std::min(1.0, w.x / full)) * w.gate;
+            w.y += (softKnee(w.x / full) - w.y) * smooth;
+            w.s = w.y * w.gate;
         }
     }
 
@@ -132,6 +150,7 @@ private:
         double v = 0.0;       // driven velocity this cycle
         double dx = 0.0;      // driven travel change this cycle (travel path)
         double x = 0.0;       // high-passed travel, mm
+        double y = 0.0;       // kneed and smoothed travel / full
         double s = 0.0;       // this cycle's sample, -1..1
         double gate = 0.0;    // 1 while driven, fades when not
         double lastTravel = 0.0;
