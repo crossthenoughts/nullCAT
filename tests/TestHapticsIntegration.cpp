@@ -537,8 +537,14 @@ int main()
         // Road: per-corner suspension velocities replay the corners and the
         // roadNoise magnitude is ignored; without them roadNoise drives the
         // texture; a stale stream releases the replay.
+        // (Model 0, the suspension replay; the tyre and chassis models below.)
+        const auto susp = [](double full, double hp, double surface = 0.2, double kmh = 100.0)
+        {
+            haptics::RoadParams r; r.fullMm = full; r.hpHz = hp; r.surface = surface; r.surfaceKmh = kmh; r.model = 0;
+            return r;
+        };
         haptics::EffectParams rp; rp.ampPct = 100.0; rp.freqHz = 28.0; rp.routes[0] = { 0, 1.0 };
-        L.configureFx(FxType::Road, rp); L.configureRoad({ 8.0, 2.0 });
+        L.configureFx(FxType::Road, rp); L.configureRoad(susp(8.0, 2.0));
         v.have[NcxValues::RoadNoise] = true; v.val[NcxValues::RoadNoise] = 100.0;
         setW(NcxValues::SuspVelFL, 400.0, 0.0, 0.0, 0.0); settle(50);
         check(L.roadReplaying() && L.roadWheelTravelMm(WheelFL) > 1.0 && L.roadWheelTravelMm(WheelRR) == 0.0,
@@ -571,10 +577,10 @@ int main()
         // with road speed (surface x at surface km/h and above), on top of
         // either path; nothing at a standstill.
         v.have[NcxValues::SpeedKmh] = true; v.val[NcxValues::SpeedKmh] = 80.0;
-        L.configureRoad({ 8.0, 2.0, 0.1, 100.0 }); settle(300);
+        L.configureRoad(susp(8.0, 2.0, 0.1, 100.0)); settle(300);
         check(std::fabs(L.fxLevel(static_cast<int>(FxType::Road)) - 0.08) < 0.02,
               "I-8 surface: 0.1 x at 80 of 100 km/h = level 0.08 with nothing else driving the tile");
-        L.configureRoad({ 8.0, 2.0, 0.5, 50.0 }); settle(300);
+        L.configureRoad(susp(8.0, 2.0, 0.5, 50.0)); settle(300);
         check(std::fabs(L.fxLevel(static_cast<int>(FxType::Road)) - 0.5) < 0.03,
               "I-8 surface: 0.5 x, full from 50 km/h = level 0.5 at 80");
         setW(NcxValues::SuspVelFL, 400.0, 0.0, 0.0, 0.0); settle(50);
@@ -583,8 +589,115 @@ int main()
         for (int w = 0; w < 4; ++w) v.have[NcxValues::SuspVelFL + w] = false;
         v.val[NcxValues::SpeedKmh] = 0.0; settle(400);
         check(L.fxLevel(static_cast<int>(FxType::Road)) < 0.01, "I-8 surface: nothing at a standstill");
-        L.configureRoad({ 8.0, 2.0, 0.0, 100.0 }); v.val[NcxValues::SpeedKmh] = 100.0; settle(300);
+        L.configureRoad(susp(8.0, 2.0, 0.0, 100.0)); v.val[NcxValues::SpeedKmh] = 100.0; settle(300);
         check(L.fxLevel(static_cast<int>(FxType::Road)) < 0.01, "I-8 surface: surface x 0 = off");
+    }
+
+    // ---- I-9: the road's tyre and chassis models and the kerb, through the laws ----
+    {
+        using haptics::FxType; using haptics::Part;
+        const double dt = 0.002, PI = 3.14159265358979;
+        haptics::Layer L; haptics::LawsState st;
+        NcxValues v{}; v.fresh = true;
+        auto settle = [&](int n) { for (int i = 0; i < n; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); } };
+        auto peakOn = [&](haptics::Layer& X, haptics::LawsState& s, NcxValues& in, int axis, int n)
+        { double pk = 0.0; for (int i = 0; i < n; ++i) { haptics::driveLaws(X, s, in, dt); X.step(dt); pk = std::max(pk, std::fabs(X.overlayFor(axis))); } return pk; };
+
+        haptics::EffectParams rp; rp.ampPct = 100.0; rp.freqHz = 28.0; rp.jitter = 0.0; rp.routes[0] = { 0, 1.0 };
+        L.configureFx(FxType::Road, rp);
+        haptics::RoadParams tyre; tyre.model = 1; tyre.rough = 2.0; tyre.bodyMm = 1.0;
+        L.configureRoad(tyre);
+
+        // Tyre: speed alone runs the model on its own road; a car standing
+        // still feels nothing (and the roadNoise texture stands down: the
+        // model has what it needs).
+        v.have[NcxValues::SpeedKmh] = true; v.val[NcxValues::SpeedKmh] = 100.0;
+        v.have[NcxValues::RoadNoise] = true; v.val[NcxValues::RoadNoise] = 100.0;
+        check(peakOn(L, st, v, 0, 1500) > 1.0, "I-9 road tyre: speed alone runs the model on its own road");
+        v.val[NcxValues::SpeedKmh] = 0.0; settle(1500);
+        check(peakOn(L, st, v, 0, 500) < 0.5, "I-9 road tyre: nothing under a car standing still, no texture either");
+
+        // Chassis: without the body the texture plays; with it, the body's heave.
+        haptics::RoadParams chassis; chassis.model = 2; L.configureRoad(chassis);
+        v.val[NcxValues::SpeedKmh] = 80.0; settle(300);
+        check(L.fxLevel(static_cast<int>(FxType::Road)) > 0.9, "I-9 road chassis: no body data, the roadNoise texture plays");
+        v.have[NcxValues::AccHeave] = true; v.val[NcxValues::AccHeave] = 0.0; settle(400);
+        check(L.fxLevel(static_cast<int>(FxType::Road)) < 0.05, "I-9 road chassis: with the body arriving, the texture stands down");
+        double pk = 0.0;
+        for (int i = 0; i < 1500; ++i)
+        {
+            v.val[NcxValues::AccHeave] = 3.0 * std::sin(2.0 * PI * 6.0 * i * dt);
+            haptics::driveLaws(L, st, v, dt); L.step(dt); pk = std::max(pk, std::fabs(L.overlayFor(0)));
+        }
+        check(pk > 5.0, "I-9 road chassis: the body's heave plays");
+
+        // Preview with no sim: the tyre model at 80 km/h on its own road.
+        {
+            haptics::Layer P; haptics::LawsState ps; NcxValues none{};
+            P.configureFx(FxType::Road, rp); P.configureRoad(tyre);
+            haptics::startPreview(ps, FxType::Road);
+            check(peakOn(P, ps, none, 0, 900) > 1.0, "I-9 road preview: the tyre model runs at 80 km/h on its own road");
+        }
+
+        // Kerb from the surface under each tyre: FL on a kerb rumbles the FL
+        // route, at speed / pitch, and not the RR route; it lets go as it leaves.
+        haptics::Layer K; haptics::LawsState ks;
+        haptics::EffectParams kp; kp.ampPct = 100.0; kp.jitter = 0.0;
+        kp.routes[0] = { 0, 1.0, Part::FL }; kp.routes[1] = { 1, 1.0, Part::RR };
+        K.configureFx(FxType::Kerb, kp); K.configureKerb(haptics::KerbParams{});
+        NcxValues kv{}; kv.fresh = true;
+        kv.have[NcxValues::SpeedKmh] = true; kv.val[NcxValues::SpeedKmh] = 72.0;   // 20 m/s: ribs at 80 Hz
+        auto surf = [&](int fl, int fr, int rl, int rr)
+        { const int s[4] = { fl, fr, rl, rr }; for (int w = 0; w < 4; ++w) { kv.have[NcxValues::SurfaceFL + w] = true; kv.val[NcxValues::SurfaceFL + w] = s[w]; } };
+        surf(SurfKerb, SurfTarmac, SurfTarmac, SurfTarmac);
+        std::vector<double> o; double pkRR = 0.0;
+        for (int i = 0; i < 600; ++i)
+        {
+            haptics::driveLaws(K, ks, kv, dt); K.step(dt);
+            if (i >= 100) o.push_back(K.overlayFor(0));
+            pkRR = std::max(pkRR, std::fabs(K.overlayFor(1)));
+        }
+        int xr = 0; for (size_t i = 1; i < o.size(); ++i) if ((o[i] >= 0.0) != (o[i - 1] >= 0.0)) ++xr;
+        check(K.kerbWheelLevel(WheelFL) > 0.99 && K.kerbWheelLevel(WheelRR) == 0.0, "I-9 kerb: the surface class puts FL on the kerb, not RR");
+        check(std::fabs(xr / 2.0 / (o.size() * dt) - 80.0) < 5.0, "I-9 kerb: the FL route hums at speed / pitch");
+        check(pkRR < 1e-9, "I-9 kerb: the RR route is silent");
+        check(K.fxLevel(static_cast<int>(FxType::Kerb)) > 0.99, "I-9 kerb: the tile level shows the tyre on the kerb");
+        surf(SurfTarmac, SurfTarmac, SurfTarmac, SurfTarmac);
+        for (int i = 0; i < 50; ++i) { haptics::driveLaws(K, ks, kv, dt); K.step(dt); }
+        check(K.kerbWheelLevel(WheelFL) == 0.0, "I-9 kerb: off the kerb, it lets go");
+
+        // Kerb from the road heights (detect mm): the axle's usual
+        // left-right (banking) is not a kerb; a tyre stepping up past it is.
+        haptics::KerbParams kd; kd.detectMm = 20.0; K.configureKerb(kd);
+        for (int w = 0; w < 4; ++w) kv.have[NcxValues::SurfaceFL + w] = false;
+        auto heights = [&](double fl, double fr, double rl, double rr)
+        { const double h[4] = { fl, fr, rl, rr }; for (int w = 0; w < 4; ++w) { kv.have[NcxValues::RoadHeightFL + w] = true; kv.val[NcxValues::RoadHeightFL + w] = h[w]; } };
+        heights(30.0, 0.0, 30.0, 0.0);
+        for (int i = 0; i < 500; ++i) { haptics::driveLaws(K, ks, kv, dt); K.step(dt); }
+        check(K.kerbWheelLevel(WheelFL) == 0.0 && K.kerbWheelLevel(WheelFR) == 0.0, "I-9 kerb detect: banking alone is not a kerb");
+        heights(60.0, 0.0, 30.0, 0.0);
+        for (int i = 0; i < 50; ++i) { haptics::driveLaws(K, ks, kv, dt); K.step(dt); }
+        check(K.kerbWheelLevel(WheelFL) > 0.99 && K.kerbWheelLevel(WheelFR) == 0.0 && K.kerbWheelLevel(WheelRL) == 0.0,
+              "I-9 kerb detect: FL 30 mm above its usual is on a kerb");
+        heights(30.0, 0.0, 30.0, 0.0);
+        for (int i = 0; i < 50; ++i) { haptics::driveLaws(K, ks, kv, dt); K.step(dt); }
+        heights(30.0, 0.0, 30.0, 25.0);
+        for (int i = 0; i < 50; ++i) { haptics::driveLaws(K, ks, kv, dt); K.step(dt); }
+        check(K.kerbWheelLevel(WheelRR) > 0.99 && K.kerbWheelLevel(WheelFL) == 0.0, "I-9 kerb detect: RR stepping up 25 mm is on a kerb");
+
+        // Preview with no sim: the strip at 80 km/h, on 0.6 s in every 1 s.
+        {
+            haptics::Layer P; haptics::LawsState ps; NcxValues none{};
+            P.configureFx(FxType::Kerb, kp); P.configureKerb(haptics::KerbParams{});
+            haptics::startPreview(ps, FxType::Kerb);
+            double fl = 0.0;
+            for (int i = 0; i < 150; ++i) { haptics::driveLaws(P, ps, none, dt); P.step(dt); fl = std::max(fl, std::fabs(P.overlayFor(0))); }
+            check(P.kerbWheelLevel(WheelFL) > 0.99 && fl > 5.0, "I-9 kerb preview: on a kerb at first, the FL route rumbling");
+            for (int i = 0; i < 250; ++i) { haptics::driveLaws(P, ps, none, dt); P.step(dt); }
+            check(P.kerbWheelLevel(WheelFL) == 0.0, "I-9 kerb preview: off it at 0.8 s");
+            for (int i = 0; i < 200; ++i) { haptics::driveLaws(P, ps, none, dt); P.step(dt); }
+            check(P.kerbWheelLevel(WheelFL) > 0.99, "I-9 kerb preview: back on at 1.2 s");
+        }
     }
 
     // ---- P-1..P-4: a POSITION (CSP) axis as a routing destination ----

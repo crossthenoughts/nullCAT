@@ -219,14 +219,14 @@ private slots:
             if (e.find("unknown token") != std::string::npos) found = true;
         QVERIFY2(found, "unknown token rejected");
 
-        // Protocol 1.3 widened the wire to 48 slots: 47 is the last valid one.
-        cfg.ncxBindings = { { "rpm", 47, 1.0, 0.0 } };
-        QVERIFY2(cfg.validate().empty(), "slot 47 accepted (wire carries 0..47)");
-        cfg.ncxBindings = { { "rpm", 48, 1.0, 0.0 } };
+        // Protocol 1.5 widened the wire to 64 slots: 63 is the last valid one.
+        cfg.ncxBindings = { { "rpm", 63, 1.0, 0.0 } };
+        QVERIFY2(cfg.validate().empty(), "slot 63 accepted (wire carries 0..63)");
+        cfg.ncxBindings = { { "rpm", 64, 1.0, 0.0 } };
         found = false;
         for (const auto& e : cfg.validate())
             if (e.find("slot out of range") != std::string::npos) found = true;
-        QVERIFY2(found, "slot 48 rejected (wire carries 0..47)");
+        QVERIFY2(found, "slot 64 rejected (wire carries 0..63)");
 
         // Every 1.3 token is a known name (the registry drives validation).
         cfg.ncxBindings = { { "slipAngleFL", 14, 1.0, 0.0 }, { "suspVelRR", 33, 1.0, 0.0 },
@@ -348,6 +348,26 @@ private slots:
         QVERIFY2(found, "surface hz below 4 is refused");
         cfg.hapticsRoad.surfaceHz = 20.0;
         QVERIFY(cfg.validate().empty());
+    }
+
+    // The Road model is one of three; the tyre model's settings and the
+    // Kerb's have their ranges.
+    void roadModelAndKerb_ranges()
+    {
+        AppConfig cfg = validConfig();
+        QCOMPARE(cfg.hapticsRoad.model, 1.0);   // tyre by default
+        const auto refused = [&cfg](const char* key) {
+            for (const auto& e : cfg.validate()) if (e.find(key) != std::string::npos) return true;
+            return false; };
+        cfg.hapticsRoad.model = 3.0;  QVERIFY2(refused("model"), "road model 3 is refused");
+        cfg.hapticsRoad.model = 1.5;  QVERIFY2(refused("model"), "road model 1.5 is refused");
+        cfg.hapticsRoad.model = 2.0;  QVERIFY(cfg.validate().empty());
+        cfg.hapticsRoad.hopHz = 40.0; QVERIFY2(refused("hopHz"), "hop hz 40 is refused");
+        cfg.hapticsRoad.hopHz = 18.0; cfg.hapticsRoad.rough = -1.0; QVERIFY2(refused("rough"), "negative roughness is refused");
+        cfg.hapticsRoad.rough = 3.0;  QVERIFY(cfg.validate().empty());
+        cfg.hapticsKerb.pitchCm = 2.0;  QVERIFY2(refused("pitchCm"), "a 2 cm rib pitch is refused");
+        cfg.hapticsKerb.pitchCm = 30.0; cfg.hapticsKerb.detectMm = 150.0; QVERIFY2(refused("detectMm"), "detect mm 150 is refused");
+        cfg.hapticsKerb.detectMm = 15.0; QVERIFY(cfg.validate().empty());
     }
 
     // The frozen-stream guard is off by default and only takes a usable window.

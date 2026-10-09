@@ -270,7 +270,8 @@ struct AppConfig
     // The two per-wheel slip tiles' own tunables (registry slipDefaults).
     haptics::SlipParams   hapticsSlipLat = haptics::effectInfo(haptics::Effect::Skid).slipDefaults;
     haptics::SlipParams   hapticsSlipLon = haptics::effectInfo(haptics::Effect::Lockup).slipDefaults;
-    haptics::RoadParams   hapticsRoad;   // per-corner replay settings of the Road tile
+    haptics::RoadParams   hapticsRoad;   // the Road tile's model and its settings
+    haptics::KerbParams   hapticsKerb;   // the Kerb tile's rumble strip
     haptics::DrivelineParams hapticsDriveline;   // clutch judder + lug of the Driveline tile
     double                hapticsMasterGain  = 1.0;   // 0..2, scales every overlay
     // Share of each POSITION axis's maxVelocity / maxAcceleration that haptics

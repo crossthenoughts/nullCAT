@@ -43,6 +43,10 @@ struct LawsState
     bool   throttleSeen = false;
     double lowThrottleAgo = 1e9, highThrottleAgo = 1e9;
     double dogKnockIn = 0.0;   // seconds until the dog engagement knock (0 = none pending)
+    // Kerb detection from road heights: each axle's usual left-minus-right
+    // (camber, banking), learned off the kerbs, so a tyre stepping up shows.
+    double kerbBias[2] = {};
+    bool   kerbBiasSeen = false;
 };
 
 namespace laws_k {
@@ -96,6 +100,12 @@ namespace laws_k {
     constexpr double kDogPowerThrottle = 60.0;     // % throttle: a shift above this gets the engagement knock
     constexpr double kDogKnockDelaySec = 0.06;
     constexpr double kDogKnockScale    = 0.7;
+    // Road and kerb laws
+    constexpr double kPreviewKmh       = 80.0;     // the road speed a road or kerb Test preview runs at
+    constexpr double kPreviewKerbOnSec = 0.6;      // kerb preview: on this long...
+    constexpr double kPreviewKerbCycle = 1.0;      // ...in every this long
+    constexpr double kKerbMinKmh       = 10.0;     // height detection: rolling
+    constexpr double kKerbBiasSec      = 2.0;      // how fast the axle's usual left-right learns
 }
 
 // Start a Test preview on a continuous/engine slot.
@@ -306,33 +316,118 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
         }
     }
 
-    // Road: replay the corners when the sim sends suspension velocities
-    // (mm/s) or travel (mm), all four; the roadNoise texture otherwise.
-    // The surface grain rides on either: the texture at the tile's
-    // carrier, rising with road speed, full by surface km/h, at the
-    // surface mix. A preview runs the texture so Test shows something
-    // without a sim.
+    // Road: everything the models can use goes in and the tile's model
+    // picks what it plays. Per corner: suspension velocity (mm/s) or travel
+    // (mm), the road height under the tyre (mm), the surface class there;
+    // the car: speed, body heave, pitch and roll, wheelbase and track. When
+    // the chosen model has nothing to run on, the roadNoise texture. The
+    // surface grain (suspension model) rides on top, rising with road speed,
+    // full by surface km/h, at the surface mix. A Test preview runs the tyre
+    // model at 80 km/h on its own road, the other models the texture.
     {
-        const bool previewing = st.previewSec[static_cast<int>(FxType::Road)] > 0.0;
-        bool vel = live && !previewing, travel = live && !previewing;
-        for (int w = 0; w < WHEEL_COUNT; ++w)
+        double& previewLeft = st.previewSec[static_cast<int>(FxType::Road)];
+        const bool previewing = previewLeft > 0.0;
+        const RoadParams& rp = L.roadParams();
+        const int model = static_cast<int>(rp.model + 0.5);
+        const bool feed = live && !previewing;
+        const auto haveW = [&](int group) -> bool
         {
-            vel    = vel    && v.have[NcxValues::SuspVelFL + w];
-            travel = travel && v.have[NcxValues::SuspTravelFL + w];
-        }
+            if (!feed) return false;
+            for (int w = 0; w < WHEEL_COUNT; ++w) if (!v.have[group + w]) return false;
+            return true;
+        };
+        const bool vel    = haveW(NcxValues::SuspVelFL);
+        const bool travel = !vel && haveW(NcxValues::SuspTravelFL);
+        const bool height = haveW(NcxValues::RoadHeightFL);
+        const bool surf   = haveW(NcxValues::SurfaceFL);
+        const bool body   = feed && v.have[NcxValues::AccHeave];
+        const bool speed  = feed && v.have[NcxValues::SpeedKmh];
         if (vel)         for (int w = 0; w < WHEEL_COUNT; ++w) L.driveRoad(w, v.val[NcxValues::SuspVelFL + w]);
         else if (travel) for (int w = 0; w < WHEEL_COUNT; ++w) L.driveRoadTravel(w, v.val[NcxValues::SuspTravelFL + w]);
-        const RoadParams& rp = L.roadParams();
-        const double texture = (vel || travel) ? 0.0 : mag(NcxValues::RoadNoise, FxType::Road);
-        L.driveFx(FxType::Road, previewOr(FxType::Road, texture), 0.0);
-        double surface = 0.0;
-        if (live && rp.surface > 0.0 && v.have[NcxValues::SpeedKmh])
+        if (height)      for (int w = 0; w < WHEEL_COUNT; ++w) L.driveRoadHeight(w, v.val[NcxValues::RoadHeightFL + w]);
+        for (int w = 0; w < WHEEL_COUNT; ++w)
+            L.driveRoadSurface(w, surf ? static_cast<int>(v.val[NcxValues::SurfaceFL + w] + 0.5) : SurfTarmac);
+        if (body)
+            L.driveChassis(v.val[NcxValues::AccHeave],
+                           v.have[NcxValues::PitchDeg] ? v.val[NcxValues::PitchDeg] : 0.0,
+                           v.have[NcxValues::RollDeg]  ? v.val[NcxValues::RollDeg]  : 0.0);
+        if (live && (v.have[NcxValues::Wheelbase] || v.have[NcxValues::TrackWidth]))
+            L.driveGeometry(v.have[NcxValues::Wheelbase]  ? v.val[NcxValues::Wheelbase]  : 0.0,
+                            v.have[NcxValues::TrackWidth] ? v.val[NcxValues::TrackWidth] : 0.0);
+        if (speed)                         L.driveRoadSpeed(std::max(0.0, v.val[NcxValues::SpeedKmh]) / 3.6);
+        else if (previewing && model == 1) L.driveRoadSpeed(kPreviewKmh / 3.6);
+        // The tyre model runs on speed alone (its own road); the chassis
+        // model needs the body; the suspension model the corners.
+        const bool fed = (model == 1) ? (speed || height || vel || travel || previewing)
+                       : (model == 2) ? body
+                       : (vel || travel);
+        double texture = fed ? 0.0 : mag(NcxValues::RoadNoise, FxType::Road);
+        if (previewing) { previewLeft -= dtSec; if (model != 1) texture = 1.0; }
+        L.driveFx(FxType::Road, texture, 0.0);
+        double grain = 0.0;
+        if (speed && rp.surface > 0.0)
         {
             const double spd = std::max(0.0, v.val[NcxValues::SpeedKmh]);
             const double full = std::max(1.0, rp.surfaceKmh);
-            surface = rp.surface * std::min(1.0, spd / full);
+            grain = rp.surface * std::min(1.0, spd / full);
         }
-        L.driveRoadSurface(surface);
+        L.driveRoadGrain(grain);
+    }
+
+    // Kerb: how much of each tyre is on a kerb. The sim's surface class
+    // under each tyre where it sends one; else its curbs channel (all
+    // wheels, full at peak %); else, with detect mm set and the road height
+    // under each tyre, a tyre stepped up above its axle mate by detect mm
+    // more than usual for that axle (camber and banking learned off the
+    // kerbs). A Test preview runs the strip at 80 km/h, on and off.
+    {
+        double& previewLeft = st.previewSec[static_cast<int>(FxType::Kerb)];
+        const KerbParams& kp = L.kerbParams();
+        const auto haveW = [&](int group) -> bool
+        {
+            if (!live) return false;
+            for (int w = 0; w < WHEEL_COUNT; ++w) if (!v.have[group + w]) return false;
+            return true;
+        };
+        const double kmh = (live && v.have[NcxValues::SpeedKmh]) ? std::max(0.0, v.val[NcxValues::SpeedKmh]) : 0.0;
+        double lvl[WHEEL_COUNT] = {};
+        bool heights = false;
+        if (previewLeft > 0.0)
+        {
+            const bool on = std::fmod(kPreviewSec - previewLeft, kPreviewKerbCycle) < kPreviewKerbOnSec;
+            for (double& l : lvl) l = on ? 1.0 : 0.0;
+            previewLeft -= dtSec;
+            L.driveKerbSpeed(kPreviewKmh / 3.6);   // after the road law's speed, so it wins
+        }
+        else if (haveW(NcxValues::SurfaceFL))
+        {
+            for (int w = 0; w < WHEEL_COUNT; ++w)
+                lvl[w] = (static_cast<int>(v.val[NcxValues::SurfaceFL + w] + 0.5) == SurfKerb) ? 1.0 : 0.0;
+        }
+        else if (live && v.have[NcxValues::Curbs])
+        {
+            const double c = mag(NcxValues::Curbs, FxType::Kerb);
+            for (double& l : lvl) l = c;
+        }
+        else if (kp.detectMm > 0.0 && haveW(NcxValues::RoadHeightFL) && kmh > kKerbMinKmh)
+        {
+            heights = true;
+            const double half = 0.5 * kp.detectMm;
+            const double a = std::min(1.0, dtSec / kKerbBiasSec);
+            for (int ax = 0; ax < 2; ++ax)
+            {
+                const int l = ax ? WheelRL : WheelFL, r = ax ? WheelRR : WheelFR;
+                const double d = v.val[NcxValues::RoadHeightFL + l] - v.val[NcxValues::RoadHeightFL + r];
+                if (!st.kerbBiasSeen) st.kerbBias[ax] = d;
+                const double ex = d - st.kerbBias[ax];
+                // Learns off the kerbs; on one, a tenth as fast (a bias seeded
+                // on a kerb still finds its way back).
+                st.kerbBias[ax] += ((std::fabs(ex) < half) ? a : 0.1 * a) * (d - st.kerbBias[ax]);
+                lvl[ex > 0.0 ? l : r] = std::max(0.0, std::min(1.0, (std::fabs(ex) - half) / half));
+            }
+        }
+        st.kerbBiasSeen = heights;
+        for (int w = 0; w < WHEEL_COUNT; ++w) L.driveKerb(w, lvl[w]);
     }
 
     // Driveline: clutch judder while the pedal is in the slipping band with
@@ -434,9 +529,6 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
                 L.drivelineShunt(1.0);   // one knock at the start of a preview
         }
     }
-
-    // Magnitude-driven textures (0-100 on the wire).
-    L.driveFx(FxType::Kerb,   previewOr(FxType::Kerb,   mag(NcxValues::Curbs, FxType::Kerb)), 0.0);
 
     // Flag-driven pulses (0/1 on the wire).
     L.driveFx(FxType::Limiter, previewOr(FxType::Limiter, flag(NcxValues::Limiter)),  0.0);

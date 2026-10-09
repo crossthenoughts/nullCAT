@@ -121,7 +121,7 @@ Top level: `configVersion`, `numDrives` (1 to 10, must match `axes[]`),
 | `blendTimeSec` | double | `2.0` | Smoothing time constant for cross-axis blended motion. |
 | `blendMaxVelocityMmS` | double | `20.0` | Cap on the blended-axis velocity contribution. |
 | `requireUserFaultReset` | bool | `false` | If true, faulted drives need a manual reset from the UI before motion resumes. Safety policy, so it travels with the rig. |
-| `ncxBindings` | array | all 36 tokens, slots 0 to 35 | NULLCATX channel bindings for the device and haptic effects. Each entry is `{"token", "slot", "scale", "offset"}`: the wire's numbered channel `slot` (0 to 47) maps onto the semantic `token`, with `value = raw * scale + offset`. Tokens: `rpm`, `speedKmh`, `gear`, `clutchPct` (0 = pedal up, 100 = floored), `throttlePct`, `brakePct`, `absActive`, `skid`, `lockup`, `roadNoise`, `limiter`, `tcActive`, `curbs`, `maxRpm`, and the per-wheel groups `slipAngleFL..RR`, `slipRatioFL..RR`, `wheelSpeedFL..RR`, `loadFL..RR`, `suspVelFL..RR`, `boost` and `pitLimiter` (see Docs/PROTOCOL.md for units). Each token binds at most once. The default matches the SimHub plugin's channel order, so it needs no editing; the Sim channels section of the web Setup view edits it and can reset it. An unbound token leaves the effects that use it silent. Bindings only apply to NULLCATX; a NULLCATY line names its tokens directly in canonical units. |
+| `ncxBindings` | array | all 57 tokens, slots 0 to 56 | NULLCATX channel bindings for the device and haptic effects. Each entry is `{"token", "slot", "scale", "offset"}`: the wire's numbered channel `slot` (0 to 63) maps onto the semantic `token`, with `value = raw * scale + offset`. Tokens: `rpm`, `speedKmh`, `gear`, `clutchPct` (0 = pedal up, 100 = floored), `throttlePct`, `brakePct`, `absActive`, `skid`, `lockup`, `roadNoise`, `limiter`, `tcActive`, `curbs`, `maxRpm`, and the per-wheel groups `slipAngleFL..RR`, `slipRatioFL..RR`, `wheelSpeedFL..RR`, `loadFL..RR`, `suspVelFL..RR`, `boost`, `pitLimiter`, `wheelSlipFL..RR`, `suspTravelFL..RR`, `roadHeightFL..RR`, `surfaceFL..RR`, `accHeave`, `pitchDeg`, `rollDeg`, `wheelbase` and `trackWidth` (see Docs/PROTOCOL.md for units). Each token binds at most once. The default matches the SimHub plugin's channel order, so it needs no editing; the Sim channels section of the web Setup view edits it and can reset it. An unbound token leaves the effects that use it silent. Bindings only apply to NULLCATX; a NULLCATY line names its tokens directly in canonical units. |
 | `haptics` | object | all effects off | Haptic effect layer tuning, one entry per effect plus `masterGain` and `positionBudget`. See below; normally edited on the web Haptics strip. |
 
 ### global.haptics
@@ -135,7 +135,7 @@ One object per effect: `detentClick`, `gearShift`, `rpmVibe` (the engine), `abs`
 | `durMs` | double | per effect | Length of a one-shot effect (detent click, gear shift), 5 to 100 ms. |
 | `jitter` | double | per effect | 0 to 1. Roughens the carrier so skid, road and kerb feel like texture rather than a tone. For the engine it is the idle lope (per-revolution unevenness). |
 | `peakPct` | double | `100` | For effects fed by a magnitude channel (`kerb` from `curbs`, `road` from `roadNoise`, the two slip tiles from `skid` / `lockup`, and `slipLat` from the per-wheel combined slip `wheelSlip*`): the channel value that counts as full severity, 1 to 400. A property that peaks at 25 gets 25; on the combined-slip path, where 100 is only the wire's convention for a let-go tyre, a car that reads 140 in a slide gets 140. Present on every effect object; ignored by the others and by the other per-wheel paths (those use `peakDeg`, `peakRatio`, `fullMm`). |
-| `routes` | array | `[]` | Where the effect goes: `[{"axis": <index>, "gain": <number>, "part": <string>}]` or `[{"shaker": <index>, "gain": <number>, "harm": <int>}]`, up to 14 entries, any axis or shaker channel. A shaker route's `gain` is full scale at 100 % amplitude (1 = full, soft-clipped above), `harm` (1 to 8, default 1) the harmonic of the effect's carrier it plays, phase-locked. On a torque axis (belt, device) `gain` is a multiplier, 0 to 2. On a position (CSP) axis `gain` is the offset in mm at 100 % amplitude, 0 to that axis's `hapticsMaxMm`. `part` (the two slip effects and road only, default `"all"`): which wheels this axis carries, `all`, `front`, `rear`, `fl`, `fr`, `rl`, `rr`; the strongest of them plays. No routes = the effect reaches nothing. |
+| `routes` | array | `[]` | Where the effect goes: `[{"axis": <index>, "gain": <number>, "part": <string>}]` or `[{"shaker": <index>, "gain": <number>, "harm": <int>}]`, up to 14 entries, any axis or shaker channel. A shaker route's `gain` is full scale at 100 % amplitude (1 = full, soft-clipped above), `harm` (1 to 8, default 1) the harmonic of the effect's carrier it plays, phase-locked. On a torque axis (belt, device) `gain` is a multiplier, 0 to 2. On a position (CSP) axis `gain` is the offset in mm at 100 % amplitude, 0 to that axis's `hapticsMaxMm`. `part` (the two slip effects, road and kerb only, default `"all"`): which wheels this axis carries, `all`, `front`, `rear`, `fl`, `fr`, `rl`, `rr`; the strongest of them plays. No routes = the effect reaches nothing. |
 
 Slip-only fields. Both tiles are per-wheel models with two components, each with a mix (0 to 1) and a carrier; the route's `part` picks the wheels. `freqHz` is kept in the object but unused by these two.
 
@@ -148,15 +148,31 @@ Slip-only fields. Both tiles are per-wheel models with two components, each with
 | `slipLon` | `spin`, `spinHz` | `1`, `10` | A driven wheel spinning: mix and carrier (4 to 30 Hz), fixed. |
 | `slipLon` | `peakRatio` | `0.8` | Slip ratio at full severity, 0.2 to 2. Nothing plays inside 0.15. |
 
-Road-only fields, used when the sim sends `suspVelFL..RR` (the tile then replays each corner's suspension travel instead of a texture; `freqHz` and `jitter` apply to the texture fallback only):
+Road-only fields. `model` picks how the body's movement is made; when the sim sends nothing that model can use, the tile plays the `roadNoise` texture (`freqHz`, `jitter`, `peakPct`) instead.
 
 | Field | Default | Notes |
 |---|---|---|
-| `fullMm` | `25` | Suspension travel (mm) that is 100 % amplitude, 0.5 to 50. Travel past 60 % of it bends over a soft knee towards 100 % rather than clipping. |
-| `hpHz` | `2` | High-pass on the travel (Hz), 0.5 to 10: removes the slow body motion the motion cue already produces, leaving the bumps. |
-| `surface` | `0.2` | The tarmac grain under a rolling car: a rough texture at `surfaceHz` whose level rises with road speed, mixed in at this level (0 to 1, 0 = off) on top of the replay or the `roadNoise` texture. |
+| `model` | `1` | 0 suspension (each corner's suspension travel replayed), 1 tyre (a quarter car per corner over the road under that tyre: `roadHeight*` where sent, else the suspension, plus roughness laid out by distance), 2 chassis (the sim's `accHeave`, `pitchDeg`, `rollDeg`, spread to the corners). |
+| `hpHz` | `2` | Cut (Hz), 0.5 to 10: the slow body motion below it is left to the motion cue. All models. |
+| `bodyMm` | `1` | Tyre and chassis: the body movement (mm) that is 100 % amplitude, 0.1 to 20. A belt or shaker gets the matching acceleration (that movement at 8 Hz is 100 %). |
+| `rough` | `2` | Tyre: road roughness, 0 to 20; 1 is a smooth public road (ISO 8608 class A), 0 leaves only the sim's own road. Scaled by the surface under the tyre (`surface*`): bumpy 3 x, gravel 6 x, grass 3 x, dirt 5 x, cobbles 4 x. |
+| `bodyHz` | `3` | Tyre: the body's bounce on its springs (Hz), 0.8 to 8. |
+| `hopHz` | `16` | Tyre: the wheel's hop on its tyre (Hz), 6 to 30; lifted to the lowest a real spring and tyre allow for that body hz. |
+| `damping` | `0.3` | Tyre: suspension damping ratio, 0.05 to 1.5. |
+| `fullMm` | `25` | Suspension: travel (mm) that is 100 % amplitude, 0.5 to 50. Past 60 % of full, every model bends over a soft knee towards 100 % rather than clipping. |
+| `surface` | `0.2` | Suspension: the tarmac grain under a rolling car, a rough texture at `surfaceHz` whose level rises with road speed, mixed in at this level (0 to 1, 0 = off) on top of the replay or the `roadNoise` texture. |
 | `surfaceHz` | `12` | The surface texture's carrier (Hz, 4 to 40): its own, so it can sit low enough for a position axis to carry while the `roadNoise` texture keeps `freqHz`. |
 | `surfaceKmh` | `100` | Road speed (km/h, 20 to 300) by which the surface texture is at its full mix; it rises from nothing at a standstill. |
+
+Kerb-only fields (`kerb`). Which tyre is on a kerb: `surface*` = 2, else the `curbs` channel (all wheels, full at `peakPct`), else with `detectMm` set the road heights. `freqHz` is kept in the object but unused.
+
+| Field | Default | Notes |
+|---|---|---|
+| `pitchCm` | `25` | Rib spacing (cm), 5 to 100: the ribs hum at road speed / pitch. |
+| `riseMm` | `8` | The step up onto the kerb (mm), 0 to 50. |
+| `ribMm` | `3` | Rib height (mm), 0 to 20. |
+| `fullMm` | `10` | Kerb movement (mm) that is 100 % on a position axis, 0.5 to 50. A position axis gets the step as a thud on and off (above 3 Hz); a belt or shaker gets the ribs and the step's edges, scaled with speed (full at 80 km/h). |
+| `detectMm` | `0` | 0 to 100, 0 = off. Without a surface type or `curbs` channel, a tyre this far above its axle partner on `roadHeight*`, beyond the axle's usual camber and banking, is on a kerb. |
 
 Driveline-only fields (`driveline`):
 

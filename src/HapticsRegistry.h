@@ -29,8 +29,8 @@ static constexpr int EFFECT_COUNT = static_cast<int>(Effect::COUNT);
 // Slip: a per-wheel model (SlipModel.h) whose routes carry a Part. Road:
 // the texture oscillator with a per-corner replay (RoadModel.h) when the
 // sim sends suspension velocities; routes carry a Part too.
-enum class Kind { Transient, Continuous, Engine, Slip, Road, Driveline };
-inline bool kindHasParts(Kind k) { return k == Kind::Slip || k == Kind::Road; }
+enum class Kind { Transient, Continuous, Engine, Slip, Road, Driveline, Kerb };
+inline bool kindHasParts(Kind k) { return k == Kind::Slip || k == Kind::Road || k == Kind::Kerb; }
 
 // One tunable the UI shows for an effect: config key, label, range, step,
 // and for a choice an options list ("a|b|c", value = index) instead.
@@ -98,16 +98,22 @@ constexpr ParamSpec kSlipLonParams[] = {        // longitudinal slip: lock judde
 };
 constexpr const char* kSlipLatKeys[5] = { "scrub", "scrubHz", "slide", "slideHz", "peakDeg" };
 constexpr const char* kSlipLonKeys[5] = { "lock", "lockHz", "spin", "spinHz", "peakRatio" };
-constexpr ParamSpec kRoadParams[] = {           // road: texture carrier + per-corner replay settings
+constexpr ParamSpec kRoadParams[] = {           // road: the model, its settings, the texture fallback
     { "ampPct",     "amp %",       0,   100, 1,    nullptr },
-    { "freqHz",     "freq hz",     10,  120, 1,    nullptr },
-    { "jitter",     "jitter",      0,   1,   0.05, nullptr },
-    { "fullMm",     "full mm",     0.5, 50,  0.5,  nullptr },
+    { "model",      "model",       0,   2,   1,    "suspension|tyre|chassis" },
+    { "bodyMm",     "body mm",     0.1, 20,  0.1,  nullptr },   // tyre, chassis: body movement = 100%
     { "hpHz",       "cut hz",      0.5, 10,  0.5,  nullptr },
-    { "peakPct",    "peak %",      1,   100, 1,    nullptr },   // roadNoise texture fallback only
-    { "surface",    "surface x",   0,   1,   0.05, nullptr },   // tarmac grain rising with road speed
+    { "rough",      "rough x",     0,   20,  0.1,  nullptr },   // tyre: road roughness
+    { "bodyHz",     "body hz",     0.8, 8,   0.1,  nullptr },   // tyre: the car's body bounce
+    { "hopHz",      "hop hz",      6,   30,  0.5,  nullptr },   // tyre: wheel hop
+    { "damping",    "damping",     0.05, 1.5, 0.05, nullptr },  // tyre: damping ratio
+    { "fullMm",     "full mm",     0.5, 50,  0.5,  nullptr },   // suspension: travel = 100%
+    { "surface",    "surface x",   0,   1,   0.05, nullptr },   // suspension: tarmac grain rising with road speed
     { "surfaceHz",  "surface hz",  4,   40,  1,    nullptr },   // ...on its own carrier
     { "surfaceKmh", "surface km/h", 20, 300, 5,    nullptr },   // ...full by this speed
+    { "freqHz",     "freq hz",     10,  120, 1,    nullptr },   // the roadNoise texture fallback
+    { "jitter",     "jitter",      0,   1,   0.05, nullptr },
+    { "peakPct",    "peak %",      1,   100, 1,    nullptr },   // roadNoise texture fallback only
 };
 constexpr ParamSpec kDrivelineParams[] = {      // driveline: clutch judder + lugging wind-up
     { "ampPct",   "amp %",      0,   100, 1,    nullptr },
@@ -126,11 +132,15 @@ constexpr ParamSpec kTextureParams[] = {        // limiter (flag-driven: nothing
     { "freqHz", "freq hz",   10,  120, 1,    nullptr },
     { "jitter", "jitter",    0,   1,   0.05, nullptr },
 };
-constexpr ParamSpec kKerbParams[] = {           // kerb: magnitude-driven, so it has peak %
-    { "ampPct",  "amp %",     0,   100, 1,    nullptr },
-    { "freqHz",  "freq hz",   10,  120, 1,    nullptr },
-    { "jitter",  "jitter",    0,   1,   0.05, nullptr },
-    { "peakPct", "peak %",    1,   100, 1,    nullptr },
+constexpr ParamSpec kKerbParams[] = {           // kerb: the rumble strip under the tyre
+    { "ampPct",   "amp %",     0,   100, 1,    nullptr },
+    { "pitchCm",  "pitch cm",  5,   100, 1,    nullptr },   // rib spacing: hums at speed / pitch
+    { "riseMm",   "rise mm",   0,   50,  0.5,  nullptr },   // the step up onto the kerb
+    { "ribMm",    "rib mm",    0,   20,  0.5,  nullptr },   // rib height
+    { "fullMm",   "full mm",   0.5, 50,  0.5,  nullptr },   // kerb movement = 100% on a post
+    { "jitter",   "jitter",    0,   1,   0.05, nullptr },   // rib to rib unevenness
+    { "peakPct",  "peak %",    1,   100, 1,    nullptr },   // the single curbs channel
+    { "detectMm", "detect mm", 0,   100, 1,    nullptr },   // no surface type: a tyre this far above its mate is on a kerb (0 off)
 };
 constexpr ParamSpec kEngineParams[] = {
     { "ampPct",    "amp %",                 0,   100,   1,    nullptr },
@@ -203,13 +213,18 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "standstill.",
       kSlipLatKeys, { 1.0, 20.0, 1.0, 11.0, 7.0 } },
     { Effect::Road,        "road",        "Road",         Kind::Road, EventType::COUNT, FxType::Road,
-      { "suspVel*|suspTravel*|roadNoise", "~speedKmh", nullptr }, { 0.0, 16.0, 0.0, 0.6 }, kRoadParams, 9,
-      "The road surface. With per-corner suspension velocities (or travel) from the sim it REPLAYS the road: each "
-      "corner's travel, with the slow body motion cut away (cut hz) so only the bumps remain, at their real timing; "
-      "full mm is the bump that counts as 100% (bigger hits bend over a soft knee rather than clip). Route with a "
-      "part so each actuator plays its own corner. Without them, a texture at freq hz scaled by the roadNoise "
-      "channel, full at peak %. Surface x adds the tarmac grain under a rolling car on top of either: a rough "
-      "texture at surface hz that rises with road speed, full by surface km/h, so a moving car is never silent.",
+      { "roadHeight*|suspVel*|suspTravel*|roadNoise", "speedKmh", "~surface*", "~accHeave", nullptr },
+      { 0.0, 16.0, 0.0, 0.6 }, kRoadParams, 15,
+      "The road as the car's body feels it, above the band the motion cue covers (cut hz), per corner: route with "
+      "a part so each post plays its own corner. A post moves the body's movement, a belt or shaker pushes with "
+      "its acceleration. Model TYRE: a quarter car at each corner (body hz, hop hz, damping) running over the "
+      "road under that tyre: the sim's real road where it sends one, else its suspension, plus roughness laid "
+      "out by distance (rough x, more on bumpy roads, gravel, grass), so it rises in pitch with speed and the "
+      "rears meet each bump a wheelbase after the fronts. Model CHASSIS: the sim's own body heave, pitch and roll "
+      "in that band, spread to the corners. body mm is the body movement that counts as 100% (set it to your "
+      "route gain to play the body 1:1). Model SUSPENSION: the first cut, the suspension travel itself, full at "
+      "full mm, with the surface grain (surface x, hz, km/h). Without per-corner data, a texture at freq hz from "
+      "the roadNoise channel, full at peak %.",
       nullptr, {} },
     { Effect::Limiter,     "limiter",     "Limiter",      Kind::Continuous, EventType::COUNT, FxType::Limiter,
       { "limiter", nullptr }, { 0.0, 12.0, 0.0, 0.15 }, kTextureParams, 3,
@@ -221,10 +236,15 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "Traction control cutting: the engine effect already stutters (TC drops a share of the firings in irregular "
       "bursts, more with more throttle); this adds the body surge of each cut, a sharp loss of drive and a slower "
       "recovery at freq hz. Route it to surge and the belt. Needs the tcActive channel.", nullptr, {} },
-    { Effect::Kerb,        "kerb",        "Kerb",         Kind::Continuous, EventType::COUNT, FxType::Kerb,
-      { "curbs", nullptr }, { 0.0, 16.0, 0.0, 0.4 }, kKerbParams, 4,
-      "Kerb-strip rumble, scaled by the curbs channel: full at peak %. Bind curbsProp in the plugin. Sims that "
-      "send suspension data (Assetto Corsa, Automobilista 2) already put every kerb through the Road replay.",
+    { Effect::Kerb,        "kerb",        "Kerb",         Kind::Kerb, EventType::COUNT, FxType::Kerb,
+      { "surface*|curbs|roadHeight*", "speedKmh", nullptr }, { 0.0, 16.0, 0.0, 0.4 }, kKerbParams, 8,
+      "A rumble strip under the tyre that is on one: ribs every pitch cm, so they hum at speed / pitch and the hum "
+      "follows speed, each rib a little different (jitter), and the step up onto the kerb (rise mm). A post gets "
+      "the kerb's height (a thud on and off; it cannot carry the hum), a belt or shaker the ribs and a kick on and "
+      "off, stronger with speed. Route with a part so the corner on the kerb rumbles. Which tyre is on a kerb comes "
+      "from the sim's surface type (Automobilista 2), else the curbs channel (Competizione, EVO: the game's own; "
+      "full at peak %, all wheels), else, with detect mm set, a tyre riding that far above its axle mate on a "
+      "real road profile (Assetto Corsa).",
       nullptr, {} },
     { Effect::Driveline,   "driveline",   "Driveline",    Kind::Driveline, EventType::COUNT, FxType::Driveline,
       { "clutchPct", "rpm", "gear", "~speedKmh", "~throttlePct" }, { 0.0, 10.0, 0.0, 0.2 }, kDrivelineParams, 10,

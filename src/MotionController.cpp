@@ -721,6 +721,7 @@ void MotionController::publishHapticsStatusLocked()
         m_statusSnapshot.hapticsWheel[0][w] = m_haptics.slipWheelLevel(haptics::FxType::Skid, w);
         m_statusSnapshot.hapticsWheel[1][w] = m_haptics.slipWheelLevel(haptics::FxType::Lockup, w);
         m_statusSnapshot.hapticsWheel[2][w] = m_haptics.roadWheelTravelMm(w);
+        m_statusSnapshot.hapticsWheel[3][w] = m_haptics.kerbWheelLevel(w);
         for (int s = 0; s < MotionStatus::HAP_WHEEL_SETS; ++s)
             m_statusSnapshot.hapticsWheelPk[s][w] = m_hapWheelPk[s][w];
     }
@@ -750,6 +751,7 @@ void MotionController::trackHapticPeaks()
         m_hapWheelPk[0][w] = std::max(m_hapWheelPk[0][w], m_haptics.slipWheelLevel(haptics::FxType::Skid, w));
         m_hapWheelPk[1][w] = std::max(m_hapWheelPk[1][w], m_haptics.slipWheelLevel(haptics::FxType::Lockup, w));
         m_hapWheelPk[2][w] = std::max(m_hapWheelPk[2][w], std::fabs(m_haptics.roadWheelTravelMm(w)));
+        m_hapWheelPk[3][w] = std::max(m_hapWheelPk[3][w], m_haptics.kerbWheelLevel(w));
     }
     // A slip channel means nothing at a standstill (a stationary car's slip
     // is a division by almost zero: billions on the wire), so its session
@@ -1791,7 +1793,7 @@ void MotionController::fireHaptics(const HapticTriggers& t)
 static void applyHapticsTo(haptics::Layer& L, const std::array<haptics::EffectParams, haptics::EFFECT_COUNT>& fx,
                            const haptics::EngineParams& engine, const haptics::SlipParams& slipLat,
                            const haptics::SlipParams& slipLon, const haptics::RoadParams& road,
-                           const haptics::DrivelineParams& driveline, double masterGain)
+                           const haptics::KerbParams& kerb, const haptics::DrivelineParams& driveline, double masterGain)
 {
     for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
     {
@@ -1804,6 +1806,7 @@ static void applyHapticsTo(haptics::Layer& L, const std::array<haptics::EffectPa
             case haptics::Kind::Engine:
             case haptics::Kind::Slip:
             case haptics::Kind::Road:
+            case haptics::Kind::Kerb:
             case haptics::Kind::Driveline:  L.configureFx(info.fx, p);   break;
         }
     }
@@ -1811,13 +1814,15 @@ static void applyHapticsTo(haptics::Layer& L, const std::array<haptics::EffectPa
     L.configureSlip(haptics::FxType::Skid,   slipLat);
     L.configureSlip(haptics::FxType::Lockup, slipLon);
     L.configureRoad(road);
+    L.configureKerb(kerb);
     L.configureDriveline(driveline);
     L.setMasterGain(masterGain);
 }
 
 void MotionController::applyHaptics(const AppConfig& c)
 {
-    applyHapticsTo(m_haptics, c.hapticsFx, c.hapticsEngine, c.hapticsSlipLat, c.hapticsSlipLon, c.hapticsRoad, c.hapticsDriveline, c.hapticsMasterGain);
+    applyHapticsTo(m_haptics, c.hapticsFx, c.hapticsEngine, c.hapticsSlipLat, c.hapticsSlipLon, c.hapticsRoad, c.hapticsKerb,
+                   c.hapticsDriveline, c.hapticsMasterGain);
 }
 
 // What each axis is as a haptic destination, and for position axes the
@@ -1857,6 +1862,7 @@ void MotionController::stageHaptics(const AppConfig& c)
     m_hapStage.slipLat    = c.hapticsSlipLat;
     m_hapStage.slipLon    = c.hapticsSlipLon;
     m_hapStage.road       = c.hapticsRoad;
+    m_hapStage.kerb       = c.hapticsKerb;
     m_hapStage.driveline  = c.hapticsDriveline;
     m_hapStage.masterGain = c.hapticsMasterGain;
     m_hapStage.positionBudget = c.hapticsPositionBudget;
@@ -1872,7 +1878,7 @@ void MotionController::applyStagedHaptics()
     HapticsStage s;   // trivially copyable, no allocation on this thread
     { std::lock_guard<std::mutex> lk(m_hapStageLock); s = m_hapStage; }
     m_hapStagePending.store(false, std::memory_order_release);
-    applyHapticsTo(m_haptics, s.fx, s.engine, s.slipLat, s.slipLon, s.road, s.driveline, s.masterGain);
+    applyHapticsTo(m_haptics, s.fx, s.engine, s.slipLat, s.slipLon, s.road, s.kerb, s.driveline, s.masterGain);
     m_hapPositionBudget = std::max(0.0, std::min(1.0, s.positionBudget));
     m_haptics.setAxisDelayCycles(static_cast<int>(s.axisDelayMs / 1000.0 / std::max(1e-6, m_cycleTimeSec) + 0.5));
     applyHapticSinks();

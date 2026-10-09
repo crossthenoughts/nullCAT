@@ -32,9 +32,20 @@ struct NcxTok
         // protocol 1.4
         WheelSlipFL, WheelSlipFR, WheelSlipRL, WheelSlipRR,     // combined slip per wheel, 0..100 (100 = let go); lateral source where no slip angle exists
         SuspTravelFL, SuspTravelFR, SuspTravelRL, SuspTravelRR, // suspension travel, mm, signed (the road from sims that give position, not velocity)
+        // protocol 1.5
+        RoadHeightFL, RoadHeightFR, RoadHeightRL, RoadHeightRR, // height of the road under each tyre, mm, world (hills included; nullCAT filters them)
+        SurfaceFL, SurfaceFR, SurfaceRL, SurfaceRR,             // surface class under each tyre (SurfaceClass below)
+        AccHeave,                                               // body vertical acceleration, m/s^2, up positive
+        PitchDeg, RollDeg,                                      // body pitch and roll, degrees
+        Wheelbase, TrackWidth,                                  // car geometry, m (contact patch to contact patch)
         TokenCount
     };
 };
+
+// What the ground under a tyre is, as a sender reports it (protocol 1.5).
+// Senders map their sim's own surface names onto these.
+enum SurfaceClass { SurfTarmac = 0, SurfBumpy = 1, SurfKerb = 2, SurfGravel = 3, SurfGrass = 4,
+                    SurfDirt = 5, SurfCobbles = 6, SURFACE_CLASS_COUNT = 7 };
 
 // Wheel order used by every per-wheel token group.
 enum Wheel { WheelFL = 0, WheelFR = 1, WheelRL = 2, WheelRR = 3, WHEEL_COUNT = 4 };
@@ -54,6 +65,9 @@ inline const char* ncxTokenName(int t)
         "boost", "pitLimiter",
         "wheelSlipFL", "wheelSlipFR", "wheelSlipRL", "wheelSlipRR",
         "suspTravelFL", "suspTravelFR", "suspTravelRL", "suspTravelRR",
+        "roadHeightFL", "roadHeightFR", "roadHeightRL", "roadHeightRR",
+        "surfaceFL", "surfaceFR", "surfaceRL", "surfaceRR",
+        "accHeave", "pitchDeg", "rollDeg", "wheelbase", "trackWidth",
     };
     return (t >= 0 && t < NcxTok::TokenCount) ? kNames[t] : "";
 }

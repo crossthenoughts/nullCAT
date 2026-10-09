@@ -46,6 +46,7 @@ using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Text;
 using GameReaderCommon;
 using SimHub.Plugins;
@@ -323,6 +324,12 @@ namespace NullcatChannelExporter
                     y.Append(',').Append(Groups[g]).Append(Wheels[w]).Append('=')
                      .Append((vals[w] * _groupScale[g]).ToString("0.####", CultureInfo.InvariantCulture));
             }
+            AppendChassis(y, d);
+            var family = Norm(data.GameName);
+            if (family == "assettocorsa" || family == "assettocorsacompetizione" || family == "assettocorsaevo" || family == "assettocorsarally")
+                AppendAcContact(y, d);
+            else if (family == "automobilista2")
+                AppendAms2Surface(y, pluginManager);
             Send(y.ToString());
 
             // Identity once a second: which game and car the channels
@@ -346,6 +353,185 @@ namespace NullcatChannelExporter
         {
             _udp?.Close();
             _udp = null;
+        }
+
+        // ---- protocol 1.5: the body and the ground --------------------------
+
+        // The body's vertical acceleration, pitch and roll, from SimHub's own
+        // normalized motion data (the same values its motion output uses, so
+        // they mean the same thing in every game). Heave is in G there.
+        private static void AppendChassis(StringBuilder y, StatusDataBase d)
+        {
+            double? heave = null;
+            try { heave = d.AccelerationHeave; } catch { heave = null; }
+            if (!heave.HasValue || double.IsNaN(heave.Value) || double.IsInfinity(heave.Value)) return;
+            double pitch, roll;
+            try { pitch = d.OrientationPitch; roll = d.OrientationRoll; } catch { return; }
+            if (double.IsNaN(pitch) || double.IsNaN(roll)) return;
+            y.Append(",accHeave=").Append((heave.Value * 9.80665).ToString("0.###", CultureInfo.InvariantCulture))
+             .Append(",pitchDeg=").Append(pitch.ToString("0.####", CultureInfo.InvariantCulture))
+             .Append(",rollDeg=").Append(roll.ToString("0.####", CultureInfo.InvariantCulture));
+        }
+
+        // Assetto Corsa family: each tyre's contact patch (world position)
+        // and the direction it points. From those: the height of the road
+        // under each tyre, the car's wheelbase and track, and a TRUE slip
+        // angle per wheel (the angle between where the tyre points and where
+        // its patch actually moved since the last tick; plain AC has no slip
+        // angle field). Competizione and EVO also give the game's own kerb
+        // vibration. Read by reflection, so a SimHub update that renames its
+        // reader types disables these channels instead of the plugin.
+        private void AppendAcContact(StringBuilder y, StatusDataBase d)
+        {
+            object raw;
+            try { raw = d.GetRawDataObject(); } catch { return; }
+            var phys = AcPhysics(raw);
+            if (phys == null || _acContactPoint == null) return;
+            var cp = _acContactPoint.GetValue(phys) as Array;
+            var ch = _acContactHeading != null ? _acContactHeading.GetValue(phys) as Array : null;
+            var px = new double[4]; var py = new double[4]; var pz = new double[4];
+            for (var w = 0; w < 4; w++)
+                if (!AcVec(cp, w, out px[w], out py[w], out pz[w])) return;
+
+            // Road height under each tyre, mm (hills and all: nullCAT filters).
+            for (var w = 0; w < 4; w++)
+                y.Append(",roadHeight").Append(Wheels[w]).Append('=')
+                 .Append((py[w] * 1000.0).ToString("0.##", CultureInfo.InvariantCulture));
+
+            // Geometry from the patches: front pair midpoint to rear pair
+            // midpoint, and the mean distance across each axle (horizontal).
+            var wb = Math.Sqrt(Sq((px[0] + px[1] - px[2] - px[3]) / 2) + Sq((pz[0] + pz[1] - pz[2] - pz[3]) / 2));
+            var tw = (Math.Sqrt(Sq(px[0] - px[1]) + Sq(pz[0] - pz[1])) + Math.Sqrt(Sq(px[2] - px[3]) + Sq(pz[2] - pz[3]))) / 2;
+            if (wb > 1.0 && wb < 6.0 && tw > 0.8 && tw < 3.0)
+                y.Append(",wheelbase=").Append(wb.ToString("0.###", CultureInfo.InvariantCulture))
+                 .Append(",trackWidth=").Append(tw.ToString("0.###", CultureInfo.InvariantCulture));
+
+            // Slip angle per wheel, unless the settings file binds its own.
+            var fileSlip = !string.IsNullOrWhiteSpace(_fileProps[0][0]);
+            if (!fileSlip && ch != null && _hadContact && d.SpeedKmh > 5.0)
+            {
+                var ang = new double[4];
+                var all = true;
+                for (var w = 0; w < 4 && all; w++)
+                {
+                    double hx, hy, hz;
+                    if (!AcVec(ch, w, out hx, out hy, out hz)) { all = false; break; }
+                    var dx = px[w] - _prevPx[w];
+                    var dz = pz[w] - _prevPz[w];
+                    var dist = Math.Sqrt(dx * dx + dz * dz);
+                    if (dist < 0.005 || dist > 5.0 || (hx == 0 && hz == 0)) { all = false; break; }
+                    var a = Math.Atan2(Math.Abs(hx * dz - hz * dx), hx * dx + hz * dz) * 180.0 / Math.PI;
+                    ang[w] = a > 90.0 ? 180.0 - a : a;   // rolling backwards: the same slip, mirrored
+                }
+                if (all)
+                    for (var w = 0; w < 4; w++)
+                        y.Append(",slipAngle").Append(Wheels[w]).Append('=')
+                         .Append(ang[w].ToString("0.###", CultureInfo.InvariantCulture));
+            }
+            for (var w = 0; w < 4; w++) { _prevPx[w] = px[w]; _prevPz[w] = pz[w]; }
+            _hadContact = true;
+
+            // The game's own kerb vibration (Competizione, EVO), unless the
+            // settings file binds a curbs property.
+            if (_acKerb != null && string.IsNullOrWhiteSpace(_curbsProp))
+            {
+                try
+                {
+                    var k = Convert.ToDouble(_acKerb.GetValue(phys), CultureInfo.InvariantCulture) * 100.0;
+                    if (!double.IsNaN(k)) y.Append(",curbs=").Append(Math.Max(0, Math.Min(100, k)).ToString("0.#", CultureInfo.InvariantCulture));
+                }
+                catch { }
+            }
+        }
+
+        // Automobilista 2: the surface under each tyre (the game's terrain
+        // material), mapped onto protocol 1.5's plain classes.
+        private static void AppendAms2Surface(StringBuilder y, PluginManager pm)
+        {
+            var cls = new int[4];
+            for (var w = 0; w < 4; w++)
+            {
+                double t;
+                if (!ReadRaw(pm, "DataCorePlugin.GameRawData.mTerrain0" + (w + 1), out t)) return;
+                cls[w] = Ams2SurfaceClass((int)t);
+            }
+            for (var w = 0; w < 4; w++)
+                y.Append(",surface").Append(Wheels[w]).Append('=').Append(cls[w].ToString(CultureInfo.InvariantCulture));
+        }
+
+        // Project CARS 2 / AMS2 terrain materials -> 0 tarmac, 1 bumpy tarmac,
+        // 2 kerb (rumble strip), 3 gravel and sand, 4 grass, 5 dirt and snow,
+        // 6 cobbles.
+        private static int Ams2SurfaceClass(int t)
+        {
+            switch (t)
+            {
+                case 2: case 3: case 4: case 11: case 35: case 36: return 1;          // bumpy roads, drains, damaged, train track
+                case 10: case 25: case 40: case 41: return 2;                         // rumble strips, exit rumble strips, B1/B2 rumbles
+                case 8: case 9: case 15: case 16: case 42: case 43: return 3;         // gravel, sand
+                case 6: case 7: case 24: case 26: case 27: case 28: case 32: return 4; // grass, verges, grasscrete, astroturf
+                case 17: case 18: case 19: case 20: case 22: case 30: case 31: case 33: case 34: return 5; // dirt, clay, snow
+                case 23: case 29: case 37: return 6;                                  // wood, cobbles
+                default: return 0;
+            }
+        }
+
+        private static double Sq(double v) { return v * v; }
+
+        // Reflection over SimHub's Assetto Corsa reader types, cached by type.
+        private Type _acRawType, _acPhysType, _acCoordType;
+        private FieldInfo _acPhysField, _acContactPoint, _acContactHeading, _acKerb, _acCx, _acCy, _acCz;
+        private PropertyInfo _acPhysProp;
+        private readonly double[] _prevPx = new double[4], _prevPz = new double[4];
+        private bool _hadContact;
+
+        private object AcPhysics(object raw)
+        {
+            if (raw == null) return null;
+            var t = raw.GetType();
+            if (t != _acRawType)
+            {
+                _acRawType   = t;
+                _acPhysField = t.GetField("Physics", BindingFlags.Public | BindingFlags.Instance);
+                _acPhysProp  = _acPhysField == null ? t.GetProperty("Physics", BindingFlags.Public | BindingFlags.Instance) : null;
+                _hadContact  = false;
+            }
+            object ph = null;
+            try { ph = _acPhysField != null ? _acPhysField.GetValue(raw) : (_acPhysProp != null ? _acPhysProp.GetValue(raw, null) : null); }
+            catch { ph = null; }
+            if (ph == null) return null;
+            var pt = ph.GetType();
+            if (pt != _acPhysType)
+            {
+                _acPhysType       = pt;
+                _acContactPoint   = pt.GetField("TyreContactPoint");
+                _acContactHeading = pt.GetField("TyreContactHeading");
+                _acKerb           = pt.GetField("kerbVibration") ?? pt.GetField("KerbVibration");
+            }
+            return ph;
+        }
+
+        private bool AcVec(Array arr, int i, out double x, out double y, out double z)
+        {
+            x = y = z = 0;
+            if (arr == null || i >= arr.Length) return false;
+            var e = arr.GetValue(i);
+            if (e == null) return false;
+            var et = e.GetType();
+            if (et != _acCoordType)
+            {
+                _acCoordType = et;
+                _acCx = et.GetField("X"); _acCy = et.GetField("Y"); _acCz = et.GetField("Z");
+            }
+            if (_acCx == null || _acCy == null || _acCz == null) return false;
+            try
+            {
+                x = Convert.ToDouble(_acCx.GetValue(e), CultureInfo.InvariantCulture);
+                y = Convert.ToDouble(_acCy.GetValue(e), CultureInfo.InvariantCulture);
+                z = Convert.ToDouble(_acCz.GetValue(e), CultureInfo.InvariantCulture);
+            }
+            catch { return false; }
+            return !(double.IsNaN(x) || double.IsNaN(y) || double.IsNaN(z) || double.IsInfinity(x) || double.IsInfinity(y) || double.IsInfinity(z));
         }
 
         private void Send(string line)

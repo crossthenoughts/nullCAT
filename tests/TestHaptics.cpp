@@ -186,13 +186,13 @@ int main()
         for (int i = 0; i < 200; ++i) { L5.driveFx(FxType::Road, 1.0, 0.0); L5.step(DT); }
         CHECK(L5.overlayFor(4) == 0.0, "fx with no carrier is silent, never DC");
 
-        // Driven frequency is honored (Lockup slot; the RpmVibe slot is
+        // Driven frequency is honored (Limiter slot; the RpmVibe slot is
         // the pulse-train engine and ignores a driven carrier by design).
         EffectParams pr; pr.ampPct = 10.0; pr.freqHz = 0.0; pr.routes[0] = { 2, 1.0 };
-        Layer L6; L6.configureFx(FxType::Kerb, pr);
+        Layer L6; L6.configureFx(FxType::Limiter, pr);
         double vibe = 0.0;
         for (int i = 0; i < 400; ++i)
-        { L6.driveFx(FxType::Kerb, 1.0, 120.0); L6.step(DT); vibe = std::max(vibe, std::fabs(L6.overlayFor(2))); }
+        { L6.driveFx(FxType::Limiter, 1.0, 120.0); L6.step(DT); vibe = std::max(vibe, std::fabs(L6.overlayFor(2))); }
         CHECK(vibe > 8.0, "driven carrier frequency is honored");
         L6.clearAll(); L6.step(DT);
         CHECK(L6.overlayFor(2) == 0.0, "clearAll silences continuous effects instantly");
@@ -907,11 +907,11 @@ int main()
         p.routes[0] = { 0, 1.0 };
         Route s0; s0.shaker = 0; s0.gain = 1.0; s0.harm = 1; p.routes[1] = s0;
         Route s1; s1.shaker = 1; s1.gain = 0.5; s1.harm = 2; p.routes[2] = s1;
-        Layer L; L.configureFx(FxType::Kerb, p);
+        Layer L; L.configureFx(FxType::Limiter, p);
         std::vector<double> belt, sh0, sh1;
         for (int i = 0; i < 4000; ++i)
         {
-            L.driveFx(FxType::Kerb, 1.0, 0.0); L.step(DT);
+            L.driveFx(FxType::Limiter, 1.0, 0.0); L.step(DT);
             if (i >= 400) { belt.push_back(L.overlayFor(0)); sh0.push_back(L.shakerSample(0)); sh1.push_back(L.shakerSample(1)); }
         }
         approx(pk(belt), 100.0, 1.0, "shaker: the belt route is unchanged (amp x gain, % of rated)");
@@ -964,14 +964,14 @@ int main()
         {
             EffectParams d; d.ampPct = 100.0; d.freqHz = 20.0; d.jitter = 0.0;
             d.routes[0] = { 0, 1.0 }; Route sr; sr.shaker = 0; sr.gain = 1.0; d.routes[1] = sr;
-            Layer A; A.configureFx(FxType::Kerb, d); A.setAxisDelayCycles(10);
+            Layer A; A.configureFx(FxType::Limiter, d); A.setAxisDelayCycles(10);
             std::vector<double> ax, sh;
-            for (int i = 0; i < 2000; ++i) { A.driveFx(FxType::Kerb, 1.0, 0.0); A.step(DT); ax.push_back(A.overlayFor(0) / 100.0); sh.push_back(A.shakerSample(0)); }
+            for (int i = 0; i < 2000; ++i) { A.driveFx(FxType::Limiter, 1.0, 0.0); A.step(DT); ax.push_back(A.overlayFor(0) / 100.0); sh.push_back(A.shakerSample(0)); }
             double best = 1e9; int bestLag = -1;
             for (int lag = 0; lag < 40; ++lag) { double err = 0; for (size_t i = 500; i < 1900; ++i) err += std::fabs(ax[i] - sh[i - lag]); if (err < best) { best = err; bestLag = lag; } }
             CHECK(bestLag == 10, "shaker: the axis alignment delay holds the axis overlay back by the set cycles");
             A.setAxisDelayCycles(0);
-            A.driveFx(FxType::Kerb, 1.0, 0.0); A.step(DT);
+            A.driveFx(FxType::Limiter, 1.0, 0.0); A.step(DT);
             approx(A.overlayFor(0) / 100.0, A.shakerSample(0), 1e-9, "shaker: delay 0 = the axis and the shaker see the same sample");
         }
     }
@@ -1009,7 +1009,7 @@ int main()
         p.routes[0] = { 0, 1.0, Part::FL };
         p.routes[1] = { 1, 1.0, Part::RR };
         p.routes[2] = { 2, 1.0, Part::All };
-        RoadParams rp{ 16.0, 2.0 };
+        RoadParams rp{ 16.0, 2.0 }; rp.model = 0;   // the suspension replay
         const double kTravel = 500.0 / (2.0 * 3.14159265358979 * std::sqrt(104.0));
         const double kSmooth10 = 1.0 / std::sqrt(1.0 + 0.25);
         Layer L; L.configureFx(FxType::Road, p); L.configureRoad(rp);
@@ -1080,6 +1080,185 @@ int main()
         double zk = 0.0;
         for (int i = 0; i < 200; ++i) { for (int w = 0; w < 4; ++w) Z.driveRoad(w, 400.0); Z.step(DT); zk = std::max(zk, std::fabs(Z.overlayFor(0))); }
         CHECK(zk < 1e-9 && Z.fxLevel(static_cast<int>(FxType::Road)) == 0.0, "road: amp 0 plays nothing");
+    }
+
+    // ================= road: the tyre and chassis models; the kerb =================
+    {
+        using haptics::Part; using haptics::RoadParams; using haptics::KerbParams; using haptics::RoadOut;
+        using haptics::RoadModel; using haptics::KerbModel; using haptics::QuarterCar;
+        const double PI = 3.14159265358979;
+        auto rms = [](const std::vector<double>& v, size_t from)
+        { double s = 0.0; size_t n = 0; for (size_t i = from; i < v.size(); ++i) { s += v[i] * v[i]; ++n; } return n ? std::sqrt(s / n) : 0.0; };
+
+        // Quarter car: the body resonates at body hz and is isolated from a
+        // fast bump; the wheel follows a slow road and not a fast one.
+        {
+            const QuarterCar::K k = QuarterCar::params(3.0, 16.0, 0.3);
+            auto gain = [&](double f, bool body) {
+                QuarterCar q; double pk = 0.0; const double dt = 0.0005; const int n = static_cast<int>(6.0 / dt);
+                for (int i = 0; i < n; ++i) { q.step(dt, std::sin(2.0 * PI * f * i * dt), k); if (i > n / 2) pk = std::max(pk, std::fabs(body ? q.zs : q.zu)); }
+                return pk; };
+            double bestF = 0.0, best = 0.0;
+            for (double f = 1.0; f <= 8.0; f += 0.25) { const double g = gain(f, true); if (g > best) { best = g; bestF = f; } }
+            approx(bestF, 3.0, 0.5, "road tyre: the body resonates at body hz");
+            CHECK(best > 1.3, "road tyre: ...lifting more than the road does there (damping 0.3)");
+            CHECK(best < 3.0, "road tyre: ...and settling: damping 0.3 is the bounce's own, not floaty");
+            CHECK(gain(30.0, true) < 0.2, "road tyre: the body is isolated from a fast bump");
+            CHECK(std::fabs(gain(1.0, false) - 1.0) < 0.15 && gain(60.0, false) < 0.5, "road tyre: the wheel follows a slow road, not a fast one");
+        }
+
+        // Tyre model, its own road: laid out by distance, so the rears meet
+        // the fronts' road a wheelbase / speed later; rough x scales it, so
+        // does the surface class under the tyre; it stands still with the car.
+        {
+            RoadParams rp; rp.model = 1; rp.rough = 2.0; rp.bodyMm = 50.0;   // a big full scale: the raw mm are linear
+            const double dt = 0.0005, v = 25.0;
+            auto run = [&](RoadModel& m, double speed, int n, std::vector<double>* fl, std::vector<double>* rl) {
+                for (int i = 0; i < n; ++i)
+                {
+                    m.driveSpeed(speed); m.step(dt, rp);
+                    if (fl) fl->push_back(m.wheelTravelMm(WheelFL));
+                    if (rl) rl->push_back(m.wheelTravelMm(WheelRL));
+                } };
+            RoadModel m; m.driveGeometry(2.5, 1.6);
+            std::vector<double> fl, rl; run(m, v, 8000, &fl, &rl);
+            int bestLag = -1; double bestErr = 1e18;
+            for (int lag = 150; lag < 250; ++lag)
+            { double e = 0.0; for (size_t i = 4000; i < 7900; ++i) e += std::fabs(rl[i] - fl[i - lag]); if (e < bestErr) { bestErr = e; bestLag = lag; } }
+            approx(bestLag * dt, 2.5 / v, 0.002, "road tyre: the rears meet the fronts' road a wheelbase / speed later");
+            CHECK(rms(fl, 4000) > 0.01, "road tyre: its own road moves the body");
+            CHECK(m.distance() > 99.0 && m.distance() < 101.0, "road tyre: the road moves by the distance the car covers");
+
+            RoadParams r4 = rp; r4.rough = 4.0;
+            RoadModel a, b; a.driveGeometry(2.5, 1.6); b.driveGeometry(2.5, 1.6);
+            std::vector<double> fa, fb;
+            for (int i = 0; i < 6000; ++i)
+            { a.driveSpeed(v); a.step(dt, rp); b.driveSpeed(v); b.step(dt, r4); fa.push_back(a.wheelTravelMm(WheelFL)); fb.push_back(b.wheelTravelMm(WheelFL)); }
+            approx(rms(fb, 2000) / rms(fa, 2000), 2.0, 0.01, "road tyre: rough x 2 is twice the road");
+
+            RoadModel g; g.driveGeometry(2.5, 1.6); std::vector<double> fg;
+            for (int i = 0; i < 6000; ++i) { g.driveSurface(WheelFL, SurfGravel); g.driveSpeed(v); g.step(dt, rp); fg.push_back(g.wheelTravelMm(WheelFL)); }
+            approx(rms(fg, 2000) / rms(fa, 2000), 6.0, 0.05, "road tyre: gravel under the tyre is six times the tarmac road");
+
+            std::vector<double> still; run(m, 0.0, 8000, &still, nullptr);
+            CHECK(rms(still, 6000) < 0.01 * rms(fl, 4000), "road tyre: the road stands still with the car");
+
+            // The tile's wave draws what is felt: a playing model counts.
+            EffectParams fp; fp.ampPct = 100.0; fp.routes[0] = { 0, 1.0 };
+            Layer F; F.configureFx(haptics::FxType::Road, fp); F.configureRoad(rp);
+            for (int i = 0; i < 4000; ++i) { F.driveRoadSpeed(v); F.step(DT); }
+            CHECK(F.fxOutputLevel(static_cast<int>(haptics::FxType::Road)) > 0.0, "road tyre: the felt level counts the model, not only the texture");
+        }
+
+        // Tyre model, the sim's road: a 10 mm step under FL lifts the FL
+        // body (rough 0: nothing else); a steady climb is not a bump.
+        {
+            RoadParams rp; rp.model = 1; rp.rough = 0.0; rp.bodyMm = 50.0;
+            const double dt = 0.0005;
+            RoadModel m; double pkFL = 0.0, pkRR = 0.0;
+            for (int i = 0; i < 6000; ++i)
+            {
+                for (int w = 0; w < 4; ++w) m.driveHeight(w, (w == WheelFL && i >= 2000) ? 10.0 : 0.0);
+                m.driveSpeed(20.0); m.step(dt, rp);
+                pkFL = std::max(pkFL, std::fabs(m.wheelTravelMm(WheelFL)));
+                pkRR = std::max(pkRR, std::fabs(m.wheelTravelMm(WheelRR)));
+            }
+            CHECK(pkFL > 2.0, "road tyre: a step in the road under FL moves the FL body");
+            CHECK(pkRR < 1e-9, "road tyre: ...and nothing at RR");
+            RoadModel h; double pkH = 0.0;
+            for (int i = 0; i < 20000; ++i)
+            {
+                for (int w = 0; w < 4; ++w) h.driveHeight(w, 100.0 * i * dt);   // climbing 100 mm/s
+                h.driveSpeed(20.0); h.step(dt, rp);
+                if (i >= 10000) pkH = std::max(pkH, std::fabs(h.wheelTravelMm(WheelFL)));
+            }
+            CHECK(pkH < 0.05, "road tyre: a steady climb is a hill, not a bump");
+        }
+
+        // Chassis model: the body's heave acceleration integrated twice above
+        // cut hz. A 6 Hz, 2 m/s^2 heave is 2000 / (2 pi 6)^2 = 1.41 mm, less
+        // the filters' share at 6 Hz (0.986 x 0.949^2 x 0.972 = 0.863).
+        {
+            RoadParams rp; rp.model = 2; rp.bodyMm = 50.0; rp.hpHz = 2.0;
+            const double dt = 0.0005, w6 = 2.0 * PI * 6.0;
+            RoadModel m; double pk = 0.0, pkRR = 0.0;
+            for (int i = 0; i < 12000; ++i)
+            {
+                m.driveChassis(2.0 * std::sin(w6 * i * dt), 0.0, 0.0); m.step(dt, rp);
+                if (i > 6000) { pk = std::max(pk, std::fabs(m.wheelTravelMm(WheelFL))); pkRR = std::max(pkRR, std::fabs(m.wheelTravelMm(WheelRR))); }
+            }
+            approx(pk, 2000.0 / (w6 * w6) * 0.863, 0.06, "road chassis: heave acceleration integrates to the body's movement");
+            approx(pkRR, pk, 1e-9, "road chassis: signs not learned yet = heave only, every corner the same");
+
+            // Signs from the suspension. The body (heave Z at 5 Hz, roll R at
+            // 4 Hz, left up positive) moves opposite to its springs'
+            // compression, so a compression-positive sim sends each corner's
+            // travel against the body above it.
+            auto learn = [&](double suspSign, double rollSign, int& pol, int& roll, double& flMinusFr) {
+                RoadModel c; RoadParams cp = rp;
+                const double w5 = 2.0 * PI * 5.0, w4 = 2.0 * PI * 4.0;
+                double diff = 0.0;
+                for (int i = 0; i < 24000; ++i)
+                {
+                    const double t = i * dt;
+                    const double z = 1.0 * std::sin(w5 * t);                    // body heave, mm
+                    const double r = 0.3 * std::sin(w4 * t);                    // body roll, deg, left up
+                    const double side = r * PI / 180.0 * 800.0;                  // left corner up, mm
+                    const double comp[4] = { -(z + side), -(z - side), -(z + side), -(z - side) };
+                    for (int w = 0; w < 4; ++w) c.driveTravel(w, suspSign * comp[w]);
+                    c.driveChassis(-w5 * w5 * z / 1000.0, 0.0, rollSign * r);
+                    c.step(dt, cp);
+                    if (i >= 20000) diff = std::max(diff, std::fabs(c.wheelTravelMm(WheelFL) - c.wheelTravelMm(WheelFR)));
+                }
+                pol = c.learnedPolarity(); roll = c.learnedRollSign(); flMinusFr = diff;
+            };
+            int pol = 0, roll = 0; double d = 0.0;
+            learn(1.0, 1.0, pol, roll, d);
+            CHECK(pol == -1 && roll == 1, "road chassis: compression-positive suspension, left-up roll: learned as such");
+            CHECK(d > 2.0, "road chassis: once learned, roll moves the left and right corners apart");
+            learn(-1.0, 1.0, pol, roll, d);
+            CHECK(pol == 1 && roll == 1, "road chassis: extension-positive suspension: the same roll sign");
+            learn(1.0, -1.0, pol, roll, d);
+            CHECK(pol == -1 && roll == -1, "road chassis: a sim whose roll is right-up positive is turned round");
+        }
+
+        // Kerb: ribs every pitch hum at speed / pitch on a force sink; on
+        // and off within a few ms; a post gets a thud on and off, not a held
+        // lift; other corners nothing; stronger with speed.
+        {
+            EffectParams p; p.ampPct = 100.0; p.jitter = 0.0;
+            const KerbParams k;   // pitch 25 cm, rise 8, rib 3, full 10
+            const double dt = 0.0005;
+            auto run = [&](double speed, std::vector<double>& f, std::vector<double>& pos, std::vector<double>& lvl, double& rr) {
+                KerbModel m; rr = 0.0;
+                for (int i = 0; i < 6000; ++i)   // 3 s: FL on the kerb from 0.5 to 2.0 s
+                {
+                    const double t = i * dt;
+                    m.driveSpeed(speed);
+                    m.drive(WheelFL, (t >= 0.5 && t < 2.0) ? 1.0 : 0.0);
+                    m.step(dt, p, k);
+                    const RoadOut o = m.outputFor(Part::FL);
+                    f.push_back(o.force); pos.push_back(o.pos); lvl.push_back(m.wheelLevel(WheelFL));
+                    const RoadOut q = m.outputFor(Part::RR);
+                    rr = std::max(rr, std::max(std::fabs(q.force), std::fabs(q.pos)));
+                }
+            };
+            std::vector<double> f, pos, lvl; double rr = 0.0;
+            run(20.0, f, pos, lvl, rr);
+            int xr = 0; for (size_t i = 1601; i < 3600; ++i) if ((f[i] >= 0.0) != (f[i - 1] >= 0.0)) ++xr;
+            approx(xr / 2.0, 20.0 / 0.25, 3.0, "kerb: the ribs hum at speed / pitch (80 Hz at 20 m/s, 25 cm)");
+            CHECK(lvl[1020] > 0.99 && lvl[4060] < 1e-9, "kerb: on within 10 ms, off within 30 ms");
+            double on = 0.0, mid = 0.0, off = 0.0;
+            for (size_t i = 1000; i < 1400; ++i) on  = std::max(on,  pos[i]);
+            for (size_t i = 3000; i < 3990; ++i) mid = std::max(mid, std::fabs(pos[i]));
+            for (size_t i = 4000; i < 4400; ++i) off = std::min(off, pos[i]);
+            CHECK(on > 0.5 && off < -0.4, "kerb post: a thud up as the tyre steps on, one down as it steps off");
+            CHECK(mid < 0.3 * on, "kerb post: not a held lift while riding along it");
+            CHECK(rr < 1e-9, "kerb: the corners off the kerb carry nothing");
+            std::vector<double> fs, ps, ls; double rs = 0.0;
+            run(8.0, fs, ps, ls, rs);
+            CHECK(rms(f, 1600) > 2.0 * rms(fs, 1600), "kerb: the ribs are stronger at speed");
+        }
     }
 
     // ================= model trigger: detent capture =================

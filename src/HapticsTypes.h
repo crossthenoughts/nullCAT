@@ -89,6 +89,29 @@ struct RoadParams
     double surface    = 0.2;    // mix 0..1
     double surfaceKmh = 100.0;  // full by this road speed
     double surfaceHz  = 12.0;   // the grain's carrier
+    // Which model plays the road (RoadModel.h): 0 suspension (replay the
+    // sim's suspension travel, the 0.9.7 first cut), 1 tyre (a quarter car
+    // per corner on the road under that tyre: the sim's real road where it
+    // gives one, plus roughness laid out by distance), 2 chassis (the sim's
+    // own body heave, pitch and roll in the band the motion cue leaves out).
+    double model      = 1.0;
+    double bodyMm     = 1.0;    // tyre/chassis: body movement that counts as 100%
+    double bodyHz     = 3.0;    // tyre: the car's body bounce (race car 3-5, road car 1-1.5)
+    double hopHz      = 16.0;   // tyre: wheel hop (12-20)
+    double damping    = 0.3;    // tyre: suspension damping ratio
+    double rough      = 2.0;    // tyre: road roughness, 1 = a smooth public road (ISO 8608 class A)
+};
+
+// The Kerb tile: a rumble strip under the tyre that is on one. Ribs at
+// pitch spacing play at speed / pitch, the step up onto the kerb at rise,
+// both through the tyre (RoadModel.h KerbModel).
+struct KerbParams
+{
+    double pitchCm  = 25.0;   // rib spacing
+    double riseMm   = 8.0;    // the step up onto the kerb
+    double ribMm    = 3.0;    // rib height
+    double fullMm   = 10.0;   // kerb movement that counts as 100% on a position axis
+    double detectMm = 0.0;    // no surface type from the sim: a tyre this much above its axle mate is on a kerb (0 = off)
 };
 
 // The Driveline tile: clutch judder and lugging wind-up, each a mix and

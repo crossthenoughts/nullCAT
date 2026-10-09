@@ -204,12 +204,12 @@ int main()
     // copy), the wire's slot count and the route parts of the slip tiles.
     check(has(get("/api/haptics/schema"), "\"tokens\":[\"rpm\",\"speedKmh\"")
           && has(get("/api/haptics/schema"), "\"suspVelRR\"")
-          && has(get("/api/haptics/schema"), "\"maxSlots\":48")
+          && has(get("/api/haptics/schema"), "\"maxSlots\":64")
           && has(get("/api/haptics/schema"), "\"parts\":[\"all\",\"front\",\"rear\",\"fl\",\"fr\",\"rl\",\"rr\"]")
           && has(get("/api/haptics/schema"), "\"key\":\"slipLat\"")
           && has(get("/api/haptics/schema"), "\"label\":\"Lateral slip\"")
-          && has(get("/api/haptics/schema"), "\"kind\":\"slip\""),
-          "GET /api/haptics/schema carries tokens, maxSlots, parts and the slip kind");
+          && has(get("/api/haptics/schema"), "\"kind\":\"slip\"") && has(get("/api/haptics/schema"), "\"kind\":\"kerb\""),
+          "GET /api/haptics/schema carries tokens, maxSlots, parts and the slip and kerb kinds");
     check(has(post("/api/haptics/test", "{\"effect\":\"slipLat\"}"), "amplitude is 0"),
           "POST /api/haptics/test: a saved effect at amp 0 is refused with the reason");
     check(has(post("/api/haptics/test", "{\"effect\":\"skid\"}"), "Unknown effect"),

@@ -1121,8 +1121,37 @@ function hapChanSpec(entry){
 }
 const HAP_FLAG_TOKENS=['absActive','limiter','tcActive','pitLimiter'];
 // Which status hapWheels set a tile's per-wheel line reads (-1 = none):
-// 0 lateral severity, 1 longitudinal severity, 2 road replay travel mm.
-function hapWheelSet(k){ return k==='slipLat'?0:k==='slipLon'?1:k==='road'?2:-1; }
+// 0 lateral severity, 1 longitudinal severity, 2 road mm, 3 on a kerb 0..1.
+function hapWheelSet(k){ return k==='slipLat'?0:k==='slipLon'?1:k==='road'?2:k==='kerb'?3:-1; }
+// Road: the settings each model reads (the rest are dimmed), and the
+// roadNoise texture's, live only while the model has nothing to run on.
+const HAP_ROAD_MODEL_KEYS=[['fullMm','surface','surfaceHz','surfaceKmh'],
+  ['bodyMm','rough','bodyHz','hopHz','damping'],['bodyMm']];
+const HAP_ROAD_ALL_KEYS=['fullMm','surface','surfaceHz','surfaceKmh','bodyMm','rough','bodyHz','hopHz','damping'];
+const HAP_ROAD_TEX_KEYS=['freqHz','jitter','peakPct'];
+// The dimmed settings of the Road and Kerb tiles with the reason, from the
+// chosen model and what is arriving (null = the generic path trims).
+function hapDimFor(k,dv,have){
+  const on=(t)=>{ const i=NCX_TOKENS.indexOf(t); return i>=0&&!!have[i]; };
+  const all=(p)=>['FL','FR','RL','RR'].every(w=>on(p+w));
+  if(k==='road'){
+    const m=Math.round(+dv.model)||0;
+    const corners=all('roadHeight')||all('suspVel')||all('suspTravel');
+    const fed=(m===1)?(corners||on('speedKmh')):(m===2)?on('accHeave'):(all('suspVel')||all('suspTravel'));
+    const dim={}; const name=['suspension','tyre','chassis'][m]||'suspension';
+    HAP_ROAD_ALL_KEYS.forEach(x=>{ if(!HAP_ROAD_MODEL_KEYS[m].includes(x)) dim[x]='Not used by the '+name+' model'; });
+    if(fed) HAP_ROAD_TEX_KEYS.forEach(x=>{ if(!(m===0&&x==='jitter')) dim[x]='The roadNoise texture: only when the model has nothing to run on'; });
+    return dim;
+  }
+  if(k==='kerb'){
+    const dim={};
+    if(all('surface')){ dim.peakPct='The sim sends the surface under each tyre: the curbs channel is not used'; dim.detectMm='The sim sends the surface under each tyre: no detection needed'; }
+    else if(on('curbs')) dim.detectMm='The curbs channel is live: no detection needed';
+    else if(all('roadHeight')) dim.peakPct='No curbs channel: kerbs come from the road heights (detect mm)';
+    return dim;
+  }
+  return null;
+}
 // The trims that belong to one input path or the other: when per-wheel
 // data is live the magnitude trim is dimmed, and vice versa, so only the
 // trim that acts on what is arriving reads as live.
@@ -1164,7 +1193,7 @@ function hapHintHz(fx,dv){
   if(fx.k==='rpmVibe') return 13;
   if(fx.k==='slipLat') return +dv.slideHz>0?+dv.slideHz:11;
   if(fx.k==='slipLon') return +dv.lockHz>0?+dv.lockHz:9;
-  if(fx.k==='road') return 8;   // replay has no carrier: the bump rate the controller derates at
+  if(fx.k==='road'||fx.k==='kerb') return 8;   // no single carrier: the bump rate the controller derates at
   return +dv.freqHz>0?+dv.freqHz:30;
 }
 
@@ -1507,8 +1536,10 @@ function hapLive(s){
       }).join('  ');
       ch.classList.toggle('bad',!allOk);
       // Only the trim that acts on the live path reads as live.
+      const special=hapDimFor(k,t.dv,s.ncxHave);
       t.tile.querySelectorAll('[data-pk]').forEach(row=>{
         const key=row.dataset.pk;
+        if(special){ row.classList.toggle('dim',!!special[key]); row.title=special[key]||''; return; }
         const dim=(wheelLive&&HAP_TRIM_MAG.includes(key))||(magLive&&!wheelLive&&HAP_TRIM_WHEEL.includes(key));
         row.classList.toggle('dim',dim);
         row.title=dim?(wheelLive?'Per-wheel data is live: this trim applies to the single-channel fallback only':'The single channel is live: this trim applies to per-wheel data only'):'';

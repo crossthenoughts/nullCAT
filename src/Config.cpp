@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cctype>
+#include <cmath>
 #include <stdexcept>
 
 // ---------- helpers ----------------------------------------------------------
@@ -260,6 +261,14 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
                 o["fullMm"] = c.hapticsRoad.fullMm; o["hpHz"] = c.hapticsRoad.hpHz;
                 o["surface"] = c.hapticsRoad.surface; o["surfaceKmh"] = c.hapticsRoad.surfaceKmh;
                 o["surfaceHz"] = c.hapticsRoad.surfaceHz;
+                o["model"] = c.hapticsRoad.model; o["bodyMm"] = c.hapticsRoad.bodyMm; o["bodyHz"] = c.hapticsRoad.bodyHz;
+                o["hopHz"] = c.hapticsRoad.hopHz; o["damping"] = c.hapticsRoad.damping; o["rough"] = c.hapticsRoad.rough;
+            }
+            else if (info.kind == haptics::Kind::Kerb)
+            {
+                const haptics::KerbParams& k = c.hapticsKerb;
+                o["pitchCm"] = k.pitchCm; o["riseMm"] = k.riseMm; o["ribMm"] = k.ribMm;
+                o["fullMm"] = k.fullMm; o["detectMm"] = k.detectMm;
             }
             else if (info.kind == haptics::Kind::Driveline)
             {
@@ -365,6 +374,21 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                 c.hapticsRoad.surface    = o.value("surface").toDouble(c.hapticsRoad.surface);
                 c.hapticsRoad.surfaceKmh = o.value("surfaceKmh").toDouble(c.hapticsRoad.surfaceKmh);
                 c.hapticsRoad.surfaceHz  = o.value("surfaceHz").toDouble(c.hapticsRoad.surfaceHz);
+                c.hapticsRoad.model      = o.value("model").toDouble(c.hapticsRoad.model);
+                c.hapticsRoad.bodyMm     = o.value("bodyMm").toDouble(c.hapticsRoad.bodyMm);
+                c.hapticsRoad.bodyHz     = o.value("bodyHz").toDouble(c.hapticsRoad.bodyHz);
+                c.hapticsRoad.hopHz      = o.value("hopHz").toDouble(c.hapticsRoad.hopHz);
+                c.hapticsRoad.damping    = o.value("damping").toDouble(c.hapticsRoad.damping);
+                c.hapticsRoad.rough      = o.value("rough").toDouble(c.hapticsRoad.rough);
+            }
+            if (info.kind == haptics::Kind::Kerb)
+            {
+                haptics::KerbParams& k = c.hapticsKerb;
+                k.pitchCm  = o.value("pitchCm").toDouble(k.pitchCm);
+                k.riseMm   = o.value("riseMm").toDouble(k.riseMm);
+                k.ribMm    = o.value("ribMm").toDouble(k.ribMm);
+                k.fullMm   = o.value("fullMm").toDouble(k.fullMm);
+                k.detectMm = o.value("detectMm").toDouble(k.detectMm);
             }
             if (info.kind == haptics::Kind::Driveline)
             {
@@ -1308,6 +1332,28 @@ std::vector<std::string> AppConfig::validate() const
                     errors.push_back(pfx + "surfaceKmh out of range [20, 300]");
                 if (hapticsRoad.surfaceHz < 4.0 || hapticsRoad.surfaceHz > 40.0)
                     errors.push_back(pfx + "surfaceHz out of range [4, 40]");
+                const double m = hapticsRoad.model;
+                if (m < 0.0 || m > 2.0 || m != std::floor(m))
+                    errors.push_back(pfx + "model must be 0 (suspension), 1 (tyre) or 2 (chassis)");
+                if (hapticsRoad.bodyMm < 0.1 || hapticsRoad.bodyMm > 20.0)
+                    errors.push_back(pfx + "bodyMm out of range [0.1, 20]");
+                if (hapticsRoad.bodyHz < 0.8 || hapticsRoad.bodyHz > 8.0)
+                    errors.push_back(pfx + "bodyHz out of range [0.8, 8]");
+                if (hapticsRoad.hopHz < 6.0 || hapticsRoad.hopHz > 30.0)
+                    errors.push_back(pfx + "hopHz out of range [6, 30]");
+                if (hapticsRoad.damping < 0.05 || hapticsRoad.damping > 1.5)
+                    errors.push_back(pfx + "damping out of range [0.05, 1.5]");
+                if (hapticsRoad.rough < 0.0 || hapticsRoad.rough > 20.0)
+                    errors.push_back(pfx + "rough out of range [0, 20]");
+            }
+            if (info.kind == haptics::Kind::Kerb)
+            {
+                const haptics::KerbParams& k = hapticsKerb;
+                if (k.pitchCm < 5.0 || k.pitchCm > 100.0)   errors.push_back(pfx + "pitchCm out of range [5, 100]");
+                if (k.riseMm < 0.0 || k.riseMm > 50.0)      errors.push_back(pfx + "riseMm out of range [0, 50]");
+                if (k.ribMm < 0.0 || k.ribMm > 20.0)        errors.push_back(pfx + "ribMm out of range [0, 20]");
+                if (k.fullMm < 0.5 || k.fullMm > 50.0)      errors.push_back(pfx + "fullMm out of range [0.5, 50]");
+                if (k.detectMm < 0.0 || k.detectMm > 100.0) errors.push_back(pfx + "detectMm out of range [0, 100]");
             }
             if (info.kind == haptics::Kind::Slip)
             {

@@ -9,6 +9,33 @@ middle number carries breaking changes and the last carries fixes.
 Development branch. Nothing here is in a release yet.
 
 ### Added
+- Road **model**: the road as the car's body feels it. **tyre** (the new
+  default) runs a model of each corner (tyre, spring and damper, the
+  body above: `body hz`, `hop hz`, `damping`) over the road under that
+  tyre: the sim's own road where it sends one (Assetto Corsa), else its
+  suspension, plus a fine roughness laid out along the road (`rough x`),
+  so its pitch follows speed and the rears meet each bump a wheelbase
+  after the fronts, rougher on gravel, grass and cobbles where the sim
+  says what is under the tyre (Automobilista 2). **chassis** plays the
+  sim's own body heave, pitch and roll, learning which way they turn
+  from the suspension. **suspension** is the replay below, kept. A seat
+  actuator gets the body's movement (`body mm` is 100 %), a belt or
+  shaker its acceleration. Existing users: the Road tile moves to the
+  tyre model; set model to suspension to keep the old replay.
+- **Kerb** is a rumble strip: ribs every `pitch cm` humming at speed
+  over the pitch, a thud on and off on a seat actuator, the ribs and a
+  kick on and off on a belt or shaker, per corner (routes take a part
+  now). Which tyre is on a kerb comes from the surface under it
+  (Automobilista 2), the game's kerb channel (Competizione, EVO), or a
+  tyre stepping up past its axle partner in the road heights (Assetto
+  Corsa, `detect mm`, off by default). Kerb's `freq hz` is gone: the ribs'
+  pitch sets the hum. Test runs it at 80 km/h, on and off.
+- Assetto Corsa's slip angle per wheel, worked out by the SimHub plugin
+  from each tyre's heading against where its contact patch moved: the
+  Lateral slip tile gets a true sideways slide instead of the combined
+  slip. Protocol 1.5 widens the channel wire to 64 slots and adds the
+  road height and surface under each tyre, the body's heave, pitch and
+  roll, and the wheelbase and track.
 - Nothing to bind for the sims the SimHub plugin knows: for Assetto
   Corsa, Competizione, EVO, Rally and Automobilista 2 it sends the
   per-wheel channels (wheel speeds, loads, the sim's combined slip, a

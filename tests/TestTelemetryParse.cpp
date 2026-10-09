@@ -142,11 +142,12 @@ int main()
         check(!ok, "reject: Ncx header with no comma");
 
         std::string line = "NULLCATX";
-        for (int i = 0; i < 60; ++i) line += "," + std::to_string(i + 0.25);
+        for (int i = 0; i < 80; ++i) line += "," + std::to_string(i + 0.25);
         d = parse(line.c_str(), &ok);
-        check(ok && d.numNcx == MAX_NCX_CHANNELS && MAX_NCX_CHANNELS == 48
-              && std::fabs(d.ncx[47] - 47.25) < 1e-12,
-              "channel count clamped at MAX_NCX_CHANNELS (48 since protocol 1.3), first 48 kept");
+        check(ok && d.numNcx == MAX_NCX_CHANNELS && MAX_NCX_CHANNELS == 64
+              && std::fabs(d.ncx[63] - 63.25) < 1e-12,
+              "channel count clamped at MAX_NCX_CHANNELS (64 since protocol 1.5), first 64 kept");
+        check(NcxTok::TokenCount <= MAX_NCX_CHANNELS, "every token has a slot on the numbered line");
         check(!d.ncxFresh,
               "parsePacket never sets ncxFresh (getLatestData owns freshness)");
     }

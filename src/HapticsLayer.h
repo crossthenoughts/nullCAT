@@ -156,24 +156,30 @@ public:
                     {
                         m_road.step(dtSec, m_roadParams);
                         m_roadLevel = m_road.level();
-                        if (m_roadLevel >= 1e-4)
+                        if (m_roadLevel >= 1e-4 || m_road.active())
                             for (const Route& r : p.routes)
                             {
                                 if (r.gain <= 0.0) continue;
-                                const double s = m_road.outputFor(r.part);
-                                if (s == 0.0) continue;
-                                if (r.shaker >= 0) { toShaker(r, p.ampPct * s); continue; }   // a replay has no carrier: as is
+                                // A post is told how far (body displacement), a
+                                // belt or shaker how hard (body acceleration).
+                                const RoadOut o = m_road.outputFor(r.part);
+                                if (r.shaker >= 0) { if (o.force != 0.0) toShaker(r, p.ampPct * o.force); continue; }
                                 if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
                                 // No single carrier in a replay: derate a position sink
                                 // at a representative bump rate; the owner's sum guard
                                 // holds the axis limits regardless.
-                                m_overlay[r.axis] += p.ampPct * s * r.gain * sinkScale(r.axis, p.ampPct * r.gain, road_k::kDerateHz);
+                                if (m_sinkKind[r.axis] == SinkKind::Position)
+                                    m_overlay[r.axis] += p.ampPct * o.pos * r.gain * sinkScale(r.axis, p.ampPct * r.gain, road_k::kDerateHz);
+                                else
+                                    m_overlay[r.axis] += p.ampPct * o.force * r.gain;
                             }
                     }
                 }
-                // The surface grain: its own rough oscillator at surface hz
-                // (low enough for a position axis to carry), whole-car.
+                // The surface grain (the suspension model only: the tyre
+                // model's road already carries its roughness): its own rough
+                // oscillator at surface hz, whole-car.
                 {
+                    if (static_cast<int>(m_roadParams.model + 0.5) != 0) m_surfTarget = 0.0;
                     const double rate = (m_surfTarget > m_surfLevel) ? dtSec / 0.050 : dtSec / 0.120;
                     m_surfLevel += std::max(-rate, std::min(rate, m_surfTarget - m_surfLevel));
                     m_surfTarget = 0.0;   // the law drives it every cycle
@@ -195,6 +201,26 @@ public:
                     }
                 }
                 // ...and on to the texture path with the law's level.
+            }
+            // Kerb: the rumble strip under whichever tyres are on one.
+            if (i == static_cast<int>(FxType::Kerb))
+            {
+                if (p.ampPct <= 0.0) { m_kerb.clear(); f.level = 0.0; continue; }
+                m_kerb.step(dtSec, p, m_kerbParams);
+                f.level = m_kerb.level();
+                if (!m_kerb.active()) continue;
+                for (const Route& r : p.routes)
+                {
+                    if (r.gain <= 0.0) continue;
+                    const RoadOut o = m_kerb.outputFor(r.part);
+                    if (r.shaker >= 0) { if (o.force != 0.0) toShaker(r, p.ampPct * o.force); continue; }
+                    if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
+                    if (m_sinkKind[r.axis] == SinkKind::Position)
+                        m_overlay[r.axis] += p.ampPct * o.pos * r.gain * sinkScale(r.axis, p.ampPct * r.gain, road_k::kDerateHz);
+                    else
+                        m_overlay[r.axis] += p.ampPct * o.force * r.gain;
+                }
+                continue;
             }
             if (i == static_cast<int>(FxType::Driveline))
             {
@@ -484,10 +510,30 @@ public:
     double roadWheelTravelMm(int wheel) const { return m_road.wheelTravelMm(wheel); }
     double roadReplayLevel() const            { return m_roadLevel; }
     bool   roadReplaying() const              { return m_road.active(); }
+    // The road under each tyre (mm, world), the surface class there, the
+    // car's speed, its body and geometry: the tyre and chassis models.
+    void driveRoadHeight(int wheel, double heightMm) { m_road.driveHeight(wheel, heightMm); m_roadDriven = true; }
+    void driveRoadSurface(int wheel, int cls)        { m_road.driveSurface(wheel, cls); }
+    void driveRoadSpeed(double speedMs)              { m_road.driveSpeed(speedMs); m_kerb.driveSpeed(speedMs); m_roadDriven = true; }
+    void driveChassis(double accHeaveMs2, double pitchDeg, double rollDeg)
+    {
+        m_road.driveChassis(accHeaveMs2, pitchDeg, rollDeg); m_roadDriven = true;
+    }
+    void driveGeometry(double wheelbaseM, double trackM) { m_road.driveGeometry(wheelbaseM, trackM); }
+    const RoadModel& roadModel() const               { return m_road; }
     // The surface grain's level 0..1 for THIS cycle (the law: the surface
     // mix x how far up to surface km/h the car is). Not driven = releasing.
-    void   driveRoadSurface(double level)     { m_surfTarget = std::max(0.0, std::min(1.0, level)); }
-    double roadSurfaceLevel() const           { return m_surfLevel; }
+    void   driveRoadGrain(double level)       { m_surfTarget = std::max(0.0, std::min(1.0, level)); }
+    double roadGrainLevel() const             { return m_surfLevel; }
+
+    // ---- kerb (the rumble strip). Config apply for the params; the law
+    // says per wheel, per cycle, how much of the tyre is on a kerb.
+    void configureKerb(const KerbParams& k)   { m_kerbParams = k; }
+    const KerbParams& kerbParams() const      { return m_kerbParams; }
+    void   driveKerb(int wheel, double level) { m_kerb.drive(wheel, level); }
+    void   driveKerbSpeed(double speedMs)     { m_kerb.driveSpeed(speedMs); }   // driveRoadSpeed sets it too
+    double kerbWheelLevel(int wheel) const    { return m_kerb.wheelLevel(wheel); }
+    const KerbModel& kerbModel() const        { return m_kerb; }
 
     // ---- driveline (clutch judder + lugging wind-up). Config apply for
     // the params; the law drives the two severities per cycle.
@@ -540,7 +586,7 @@ public:
         if (i < 0 || i >= FX_TYPE_COUNT || m_muted || m_masterGain <= 0.0) return 0.0;
         const EffectParams& p = m_fxParams[i];
         if (p.ampPct <= 0.0 || !hasRoute(p)) return 0.0;
-        return m_fx[i].level;
+        return fxLevel(i);   // Road: its model or grain as well as the texture
     }
 
     static bool hasRoute(const EffectParams& p)
@@ -581,6 +627,7 @@ public:
         m_slipLon.clear();
         m_road.clear();
         m_roadDriven = false;
+        m_kerb.clear();
         m_surfLevel = m_surfTarget = 0.0; m_surfOsc.reset();
         m_driveline.clear();
         for (double& o : m_overlay) o = 0.0;
@@ -685,6 +732,8 @@ private:
     SlipParams   m_slipLonParams{ 1.0,  9.0, 1.0, 16.0, 0.8 };
     RoadModel    m_road;
     RoadParams   m_roadParams;
+    KerbModel    m_kerb;
+    KerbParams   m_kerbParams;
     DrivelineModel  m_driveline;
     DrivelineParams m_drivelineParams;
     bool         m_roadDriven = false;   // a law drove corners this cycle
