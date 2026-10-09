@@ -123,8 +123,10 @@ namespace NullcatChannelExporter
 
         public void Init(PluginManager pluginManager)
         {
+            _pm = pluginManager;
             var host = "127.0.0.1";
             var port = 4444;
+            var settingsNote = "no NullcatChannelExporter.json beside the DLL, defaults";
             for (var g = 0; g < Groups.Length; g++) { _fileProps[g] = new string[4]; _groupProps[g] = new string[4]; }
             try
             {
@@ -132,6 +134,7 @@ namespace NullcatChannelExporter
                 var path = Path.Combine(dir ?? ".", "NullcatChannelExporter.json");
                 if (File.Exists(path))
                 {
+                    settingsNote = "settings from " + path;
                     // Tiny hand parser: known keys only, no JSON library needed.
                     var text = File.ReadAllText(path);
                     var h = ExtractString(text, "host");
@@ -151,12 +154,27 @@ namespace NullcatChannelExporter
                     }
                 }
             }
-            catch { /* keep defaults */ }
+            catch (Exception ex) { settingsNote = "settings file unreadable (" + ex.Message + "), defaults"; }
             ApplyBindings(null);
 
-            _target = new IPEndPoint(IPAddress.Parse(host), port);
+            try { _target = new IPEndPoint(IPAddress.Parse(host), port); }
+            catch (Exception ex)
+            {
+                settingsNote += "; host '" + host + "' is not an IP address (" + ex.Message + "), sending to 127.0.0.1";
+                host = "127.0.0.1";
+                _target = new IPEndPoint(IPAddress.Loopback, port);
+            }
             _udp = new UdpClient();
+
+            // Say where the stream goes, in SimHub's log and as a property
+            // anyone can read in the property list: when nothing arrives at
+            // the rig, this is the first thing to look at.
+            _targetText = host + ":" + port;
+            try { SimHub.Logging.Current.Info("nullCAT Channel Exporter: sending to " + _targetText + " (" + settingsNote + ")"); } catch { }
+            try { pluginManager.AddProperty("Target", GetType(), _targetText); } catch { }
+            try { pluginManager.AddProperty("Game", GetType(), ""); } catch { }
         }
+        private string _targetText = "";
 
         // The groups in force for a game: the file's where it binds all
         // four wheels, else the built-in preset's, else nothing.
@@ -185,7 +203,18 @@ namespace NullcatChannelExporter
                 }
             }
             _presetGame = gameName ?? "";
+            if (_presetGame.Length > 0)
+            {
+                var groups = new StringBuilder();
+                for (var g = 0; g < Groups.Length; g++)
+                    if (!string.IsNullOrWhiteSpace(_groupProps[g][0])) groups.Append(groups.Length > 0 ? ", " : "").Append(Groups[g]);
+                var note = "nullCAT Channel Exporter: game '" + _presetGame + "', per-wheel groups: "
+                         + (groups.Length > 0 ? groups.ToString() : "none") + (preset != null ? " (built-in preset)" : " (no preset for this game)");
+                try { SimHub.Logging.Current.Info(note); } catch { }
+                try { _pm?.SetPropertyValue("Game", GetType(), _presetGame + ": " + (groups.Length > 0 ? groups.ToString() : "no per-wheel groups")); } catch { }
+            }
         }
+        private PluginManager _pm;
 
         public void DataUpdate(PluginManager pluginManager, ref GameData data)
         {
