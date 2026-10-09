@@ -309,6 +309,24 @@ int main()
         for (int w = 0; w < 4; ++w) v.have[NcxValues::LoadFL + w] = false;
         setW(NcxValues::SlipAngleFL, 0.0, 0.0, 0.0, 0.0); settle(300);
 
+        // Combined slip per wheel (protocol 1.4, Assetto Corsa's wheelSlip):
+        // the lateral source where no slip angle exists, past 60% of peak %
+        // (default 100: 60 = onset, 100 = full), with the wheel's own
+        // longitudinal severity taken out so a straight-line lockup is not a
+        // slide. Per-wheel angles win over it when both arrive.
+        for (int w = 0; w < 4; ++w) v.have[NcxValues::SlipAngleFL + w] = false;
+        setW(NcxValues::WheelSlipFL, 100.0, 80.0, 0.0, 0.0); settle(100);
+        check(lvl(FxType::Skid, WheelFL) > 0.95 && std::fabs(lvl(FxType::Skid, WheelFR) - 0.5) < 0.05 && lvl(FxType::Skid, WheelRR) < 0.01,
+              "I-8 combined slip: 100 on FL = full scrub, 80 on FR = halfway, nothing on the rears");
+        setW(NcxValues::SlipRatioFL, -0.8, 0.0, 0.0, 0.0); settle(100);   // FL fully locked
+        check(lvl(FxType::Lockup, WheelFL) > 0.95 && lvl(FxType::Skid, WheelFL) < 0.05,
+              "I-8 combined slip: a fully locked FL plays as lock, not as a slide");
+        for (int w = 0; w < 4; ++w) v.have[NcxValues::SlipRatioFL + w] = false;
+        setW(NcxValues::SlipAngleFL, 0.0, 0.0, 0.0, 0.0); settle(300);
+        check(lvl(FxType::Skid, WheelFL) < 0.01, "I-8 combined slip: slip angles present (and small) win over it");
+        for (int w = 0; w < 4; ++w) { v.have[NcxValues::SlipAngleFL + w] = false; v.have[NcxValues::WheelSlipFL + w] = false; }
+        settle(300);
+
         // Longitudinal from slip ratio: - locks, + spins; onset 0.15, full at
         // peak 0.8. FL -0.8 = full lock; RR +0.475 = halfway spin.
         setW(NcxValues::SlipRatioFL, -0.8, 0.0, 0.0, 0.475); settle(100);
@@ -478,6 +496,11 @@ int main()
             set(NcxValues::ThrottlePct, 80.0); settleD(200);
             set(NcxValues::ThrottlePct, 0.0);
             check(knocks(200) == 1, "I-8 shunt: a fast lift knocks once");
+            // The tile's level (what the wave and the readout follow) must
+            // fall back to 0 once the knock is over: on the bench the
+            // Driveline wave stayed "live" after the first shunt.
+            check(L.fxLevel(static_cast<int>(FxType::Driveline)) < 1e-6,
+                  "I-8 shunt: the reported level is 0 again after the knock (no stuck wave)");
             set(NcxValues::Gear, 0.0); settleD(200); set(NcxValues::ThrottlePct, 80.0);
             check(knocks(200) == 0, "I-8 shunt: nothing in neutral");
 
@@ -526,6 +549,40 @@ int main()
               "I-8 road: without corners the roadNoise texture drives the tile");
         v.fresh = false; settle(300);
         check(L.fxLevel(static_cast<int>(FxType::Road)) < 0.01, "I-8 road: stale stream fades it");
+
+        // Suspension TRAVEL (protocol 1.4, Assetto Corsa): the change in
+        // travel enters the same high-passed replay; velocities win when
+        // both arrive; a held sample adds nothing more.
+        v.fresh = true; v.have[NcxValues::RoadNoise] = false;
+        setW(NcxValues::SuspTravelFL, 0.0, 0.0, 0.0, 0.0); settle(20);
+        setW(NcxValues::SuspTravelFL, 6.0, 0.0, 0.0, 0.0); settle(5);
+        check(L.roadReplaying() && L.roadWheelTravelMm(WheelFL) > 4.0 && L.roadWheelTravelMm(WheelRR) == 0.0,
+              "I-8 road: a 6 mm step in FL travel replays on FL");
+        settle(400);
+        check(L.roadWheelTravelMm(WheelFL) < 1.0, "I-8 road: travel held still is cut away by cut hz (only the bump remains)");
+        setW(NcxValues::SuspVelFL, 0.0, 0.0, 0.0, 400.0); settle(50);
+        check(L.roadWheelTravelMm(WheelRR) > 1.0, "I-8 road: velocities win over travel when both arrive");
+        for (int w = 0; w < 4; ++w) { v.have[NcxValues::SuspVelFL + w] = false; v.have[NcxValues::SuspTravelFL + w] = false; }
+        settle(400);
+
+        // Surface: the tarmac grain under a rolling car, a texture rising
+        // with road speed (surface x at surface km/h and above), on top of
+        // either path; nothing at a standstill.
+        v.have[NcxValues::SpeedKmh] = true; v.val[NcxValues::SpeedKmh] = 80.0;
+        L.configureRoad({ 8.0, 2.0, 0.1, 100.0 }); settle(300);
+        check(std::fabs(L.fxLevel(static_cast<int>(FxType::Road)) - 0.08) < 0.02,
+              "I-8 surface: 0.1 x at 80 of 100 km/h = level 0.08 with nothing else driving the tile");
+        L.configureRoad({ 8.0, 2.0, 0.5, 50.0 }); settle(300);
+        check(std::fabs(L.fxLevel(static_cast<int>(FxType::Road)) - 0.5) < 0.03,
+              "I-8 surface: 0.5 x, full from 50 km/h = level 0.5 at 80");
+        setW(NcxValues::SuspVelFL, 400.0, 0.0, 0.0, 0.0); settle(50);
+        check(L.roadReplaying() && L.fxLevel(static_cast<int>(FxType::Road)) >= 0.5,
+              "I-8 surface: the grain stays under a replayed bump");
+        for (int w = 0; w < 4; ++w) v.have[NcxValues::SuspVelFL + w] = false;
+        v.val[NcxValues::SpeedKmh] = 0.0; settle(400);
+        check(L.fxLevel(static_cast<int>(FxType::Road)) < 0.01, "I-8 surface: nothing at a standstill");
+        L.configureRoad({ 8.0, 2.0, 0.0, 100.0 }); v.val[NcxValues::SpeedKmh] = 100.0; settle(300);
+        check(L.fxLevel(static_cast<int>(FxType::Road)) < 0.01, "I-8 surface: surface x 0 = off");
     }
 
     // ---- P-1..P-4: a POSITION (CSP) axis as a routing destination ----

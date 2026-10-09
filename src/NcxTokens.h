@@ -29,6 +29,9 @@ struct NcxTok
         SuspVelFL, SuspVelFR, SuspVelRL, SuspVelRR,             // mm/s, signed
         Boost,                                                  // bar, turbo boost (negative = vacuum)
         PitLimiter,                                             // 0 or 1; pit limiter engaged
+        // protocol 1.4
+        WheelSlipFL, WheelSlipFR, WheelSlipRL, WheelSlipRR,     // combined slip per wheel, 0..100 (100 = let go); lateral source where no slip angle exists
+        SuspTravelFL, SuspTravelFR, SuspTravelRL, SuspTravelRR, // suspension travel, mm, signed (the road from sims that give position, not velocity)
         TokenCount
     };
 };
@@ -49,6 +52,8 @@ inline const char* ncxTokenName(int t)
         "loadFL", "loadFR", "loadRL", "loadRR",
         "suspVelFL", "suspVelFR", "suspVelRL", "suspVelRR",
         "boost", "pitLimiter",
+        "wheelSlipFL", "wheelSlipFR", "wheelSlipRL", "wheelSlipRR",
+        "suspTravelFL", "suspTravelFR", "suspTravelRL", "suspTravelRR",
     };
     return (t >= 0 && t < NcxTok::TokenCount) ? kNames[t] : "";
 }

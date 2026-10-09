@@ -297,6 +297,14 @@ private slots:
         QCOMPARE(t.find("AssettoCorsa", "Mazda 787B").key, std::string("ac:ks_mazda_787b"));
         QCOMPARE(t.find("AssettoCorsa", "Nissan 370z Nismo").key, std::string("ac:ks_nissan_370z"));
         QCOMPARE(t.find("AssettoCorsa", "Ferrari F40").key, std::string("ac:ferrari_f40"));
+        // AMS2 keys are the game's own strings (SimHub's car list), with an
+        // aero variant folding onto its base car.
+        QCOMPARE(t.find("Automobilista2", "BMW M3 Sport Evo Group A").source, std::string("stock"));
+        QCOMPARE(t.find("Automobilista2", "Porsche 963 - Low Downforce").key, std::string("ams2:Porsche 963"));
+        QCOMPARE(t.find("Automobilista2", "Formula USA 2023 - Speedway").key, std::string("ams2:Formula USA 2023"));
+        QCOMPARE(t.find("Automobilista2", "McLaren MP4_4 - Low Downforce").key, std::string("ams2:McLaren MP4/4"));
+        QCOMPARE(t.find("Automobilista2", "Fusca 1 Hot Cars").source, std::string("stock"));
+        QVERIFY(t.find("Automobilista2", "Some Car - Low Downforce").source.empty());
         // Every entry has the five sections, notes, and never routes.
         QFile f(path); QVERIFY(f.open(QIODevice::ReadOnly));
         const QJsonObject cars = QJsonDocument::fromJson(f.readAll()).object().value("cars").toObject();

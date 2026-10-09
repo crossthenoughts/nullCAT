@@ -99,12 +99,14 @@ constexpr ParamSpec kSlipLonParams[] = {        // longitudinal slip: lock judde
 constexpr const char* kSlipLatKeys[5] = { "scrub", "scrubHz", "slide", "slideHz", "peakDeg" };
 constexpr const char* kSlipLonKeys[5] = { "lock", "lockHz", "spin", "spinHz", "peakRatio" };
 constexpr ParamSpec kRoadParams[] = {           // road: texture carrier + per-corner replay settings
-    { "ampPct",  "amp %",     0,   100, 1,    nullptr },
-    { "freqHz",  "freq hz",   10,  120, 1,    nullptr },
-    { "jitter",  "jitter",    0,   1,   0.05, nullptr },
-    { "fullMm",  "full mm",   0.5, 50,  0.5,  nullptr },
-    { "hpHz",    "cut hz",    0.5, 10,  0.5,  nullptr },
-    { "peakPct", "peak %",    1,   100, 1,    nullptr },   // roadNoise texture fallback only
+    { "ampPct",     "amp %",       0,   100, 1,    nullptr },
+    { "freqHz",     "freq hz",     10,  120, 1,    nullptr },
+    { "jitter",     "jitter",      0,   1,   0.05, nullptr },
+    { "fullMm",     "full mm",     0.5, 50,  0.5,  nullptr },
+    { "hpHz",       "cut hz",      0.5, 10,  0.5,  nullptr },
+    { "peakPct",    "peak %",      1,   100, 1,    nullptr },   // roadNoise texture fallback only
+    { "surface",    "surface x",   0,   1,   0.05, nullptr },   // tarmac grain rising with road speed
+    { "surfaceKmh", "surface km/h", 20, 300, 5,    nullptr },   // ...full by this speed
 };
 constexpr ParamSpec kDrivelineParams[] = {      // driveline: clutch judder + lugging wind-up
     { "ampPct",   "amp %",      0,   100, 1,    nullptr },
@@ -184,20 +186,22 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "value that counts as a full slide on that path).",
       kSlipLonKeys, { 1.0, 9.0, 1.0, 10.0, 0.8 } },
     { Effect::Skid,        "slipLat",     "Lateral slip", Kind::Slip, EventType::COUNT, FxType::Skid,
-      { "slipAngle*|skid", "speedKmh", "~load*", nullptr }, { 0.0, 25.0, 0.0, 0.5 }, kSlipLatParams, 8,
+      { "slipAngle*|wheelSlip*|skid", "speedKmh", "~load*", nullptr }, { 0.0, 25.0, 0.0, 0.5 }, kSlipLatParams, 8,
       "The tyres sliding sideways, per wheel. Scrub: the fronts pushing wide, a fine fast texture. Slide: the "
       "rears stepping out, an irregular slower chatter. Severity rises from the slip angle past the tyre's limit "
       "up to peak deg; the carrier slows and roughens as it goes (squeal, moan, shudder) and the onset is abrupt. "
       "The loaded tyre is weighted up when wheel loads arrive. Route with a part (a corner, an axle, all). Needs "
-      "per-wheel slip angles, or the single skid channel as a fallback (peak % is the channel value that counts "
-      "as a full slide on that path). Nothing at a standstill.",
+      "per-wheel slip angles; else the per-wheel combined slip (Assetto Corsa, Automobilista 2) with the "
+      "longitudinal share taken out, full at peak %; else the single skid channel. Nothing at a standstill.",
       kSlipLatKeys, { 1.0, 25.0, 1.0, 11.0, 7.0 } },
     { Effect::Road,        "road",        "Road",         Kind::Road, EventType::COUNT, FxType::Road,
-      { "suspVel*|roadNoise", nullptr }, { 0.0, 28.0, 0.0, 0.6 }, kRoadParams, 6,
-      "The road surface. With per-corner suspension velocities from the sim it REPLAYS the road: each corner's "
-      "travel, with the slow body motion cut away (cut hz) so only the bumps remain, at their real timing; full mm "
-      "is the bump that counts as 100%. Route with a part so each actuator plays its own corner. Without them, a "
-      "texture at freq hz scaled by the roadNoise channel, full at peak %.", nullptr, {} },
+      { "suspVel*|suspTravel*|roadNoise", "~speedKmh", nullptr }, { 0.0, 28.0, 0.0, 0.6 }, kRoadParams, 8,
+      "The road surface. With per-corner suspension velocities (or travel) from the sim it REPLAYS the road: each "
+      "corner's travel, with the slow body motion cut away (cut hz) so only the bumps remain, at their real timing; "
+      "full mm is the bump that counts as 100%. Route with a part so each actuator plays its own corner. Without "
+      "them, a texture at freq hz scaled by the roadNoise channel, full at peak %. Surface x adds the tarmac grain "
+      "under a rolling car on top of either: a rough texture at freq hz that rises with road speed, full by "
+      "surface km/h, so a moving car is never dead silent.", nullptr, {} },
     { Effect::Limiter,     "limiter",     "Limiter",      Kind::Continuous, EventType::COUNT, FxType::Limiter,
       { "limiter", nullptr }, { 0.0, 12.0, 0.0, 0.15 }, kTextureParams, 3,
       "Extra hammer on top of the engine effect while the limiter is in (the engine effect already cuts "

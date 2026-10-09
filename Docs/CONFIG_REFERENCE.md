@@ -154,6 +154,8 @@ Road-only fields, used when the sim sends `suspVelFL..RR` (the tile then replays
 |---|---|---|
 | `fullMm` | `8` | Suspension travel (mm) that is 100 % amplitude, 0.5 to 50. |
 | `hpHz` | `2` | High-pass on the travel (Hz), 0.5 to 10: removes the slow body motion the motion cue already produces, leaving the bumps. |
+| `surface` | `0.1` | The tarmac grain under a rolling car: a rough texture at the tile's carrier whose level rises with road speed, mixed in at this level (0 to 1, 0 = off) on top of the replay or the `roadNoise` texture. |
+| `surfaceKmh` | `100` | Road speed (km/h, 20 to 300) by which the surface texture is at its full mix; it rises from nothing at a standstill. |
 
 Driveline-only fields (`driveline`):
 

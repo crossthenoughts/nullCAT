@@ -258,6 +258,7 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
             else if (info.kind == haptics::Kind::Road)
             {
                 o["fullMm"] = c.hapticsRoad.fullMm; o["hpHz"] = c.hapticsRoad.hpHz;
+                o["surface"] = c.hapticsRoad.surface; o["surfaceKmh"] = c.hapticsRoad.surfaceKmh;
             }
             else if (info.kind == haptics::Kind::Driveline)
             {
@@ -358,8 +359,10 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
             }
             if (info.kind == haptics::Kind::Road)
             {
-                c.hapticsRoad.fullMm = o.value("fullMm").toDouble(c.hapticsRoad.fullMm);
-                c.hapticsRoad.hpHz   = o.value("hpHz").toDouble(c.hapticsRoad.hpHz);
+                c.hapticsRoad.fullMm     = o.value("fullMm").toDouble(c.hapticsRoad.fullMm);
+                c.hapticsRoad.hpHz       = o.value("hpHz").toDouble(c.hapticsRoad.hpHz);
+                c.hapticsRoad.surface    = o.value("surface").toDouble(c.hapticsRoad.surface);
+                c.hapticsRoad.surfaceKmh = o.value("surfaceKmh").toDouble(c.hapticsRoad.surfaceKmh);
             }
             if (info.kind == haptics::Kind::Driveline)
             {
@@ -1295,6 +1298,10 @@ std::vector<std::string> AppConfig::validate() const
                     errors.push_back(pfx + "fullMm out of range [0.5, 50]");
                 if (hapticsRoad.hpHz < 0.5 || hapticsRoad.hpHz > 10.0)
                     errors.push_back(pfx + "hpHz out of range [0.5, 10]");
+                if (hapticsRoad.surface < 0.0 || hapticsRoad.surface > 1.0)
+                    errors.push_back(pfx + "surface out of range [0, 1]");
+                if (hapticsRoad.surfaceKmh < 20.0 || hapticsRoad.surfaceKmh > 300.0)
+                    errors.push_back(pfx + "surfaceKmh out of range [20, 300]");
             }
             if (info.kind == haptics::Kind::Slip)
             {

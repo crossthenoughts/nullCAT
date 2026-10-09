@@ -3,23 +3,25 @@
 //
 // nullCAT Channel Exporter - a deliberately dumb SimHub plugin.
 //
-// Sends up to three UDP lines per data tick (protocol 1.3, Docs/PROTOCOL.md):
+// Sends up to three UDP lines per data tick (protocol 1.4, Docs/PROTOCOL.md):
 //
 //   NULLCATX,<rpm>,<speedKmh>,<gear>,<clutchPct>,<throttlePct>,
 //            <brakePct>,<absActive>,<skid>,<lockup>,<roadNoise>,
-//            <limiter>,<tcActive>,<curbs>,<maxRpm>
+//            <limiter>,<tcActive>,<curbs>,<maxRpm>      (for older receivers)
 //
-//   NULLCATY,boost=..,pitLimiter=..,slipAngleFL=..,...   (boost and pit limiter always; the
-//            per-wheel groups only when bound in the settings file, by name)
+//   NULLCATY,rpm=..,speedKmh=..,...,boost=..,pitLimiter=..,wheelSpeedFL=..,...
+//            (everything by name: the classic channels again, boost and the
+//            pit limiter, the magnitudes when bound, the per-wheel groups
+//            in force, each only when all four wheels read)
 //
 //   NULLCATY,game=..,car=..,carId=..               (once a second)
 //
-// That is the whole job. No shaping, no game-specific logic, no state:
-// nullCAT owns all of that (it holds the tyre model and maps channels onto
-// effects). The classic channels go positionally for compatibility with
-// older receivers; the per-wheel groups go by NAME so a group that is not
-// bound is simply absent (never a row of zeros a receiver could mistake
-// for "no slip").
+// That is the whole job. No shaping, no state: nullCAT owns the tyre
+// model and maps channels onto effects. The only game knowledge here is
+// WHICH raw fields each sim exposes per wheel (the built-in presets), so
+// a known sim needs no setup at all; the settings file overrides a group
+// when it binds all four wheels. A group that is not in force is simply
+// absent (never a row of zeros a receiver could mistake for "no slip").
 //
 // Configuration: NullcatChannelExporter.json next to this DLL,
 //   { "host": "192.168.1.50", "port": 4444,
@@ -63,9 +65,59 @@ namespace NullcatChannelExporter
 
         // Per-wheel groups, wheel order FL FR RL RR (the protocol's).
         private static readonly string[] Wheels = { "FL", "FR", "RL", "RR" };
-        private static readonly string[] Groups = { "slipAngle", "slipRatio", "wheelSpeed", "load", "suspVel" };
-        private readonly string[][] _groupProps = new string[5][];
-        private readonly double[]   _groupScale = { 1, 1, 1, 1, 1 };
+        private static readonly string[] Groups = { "slipAngle", "slipRatio", "wheelSpeed", "load", "suspVel", "wheelSlip", "suspTravel" };
+        private readonly string[][] _fileProps  = new string[Groups.Length][];   // from the settings file (override)
+        private readonly double[]   _fileScale  = { 1, 1, 1, 1, 1, 1, 1 };
+        private readonly string[][] _groupProps = new string[Groups.Length][];   // what is in force (file, else preset)
+        private readonly double[]   _groupScale = { 1, 1, 1, 1, 1, 1, 1 };
+
+        // Built-in bindings per game, so nothing needs typing for the sims
+        // we know: the raw per-wheel fields SimHub exposes for each (read
+        // from its game-reader assemblies; 01 = FL, 02 = FR, 03 = RL,
+        // 04 = RR in every one of them) with the unit scale the wire wants.
+        // The settings file overrides a group only when it binds all four
+        // wheels. Keyed by SimHub's GameName, compared without case or
+        // punctuation.
+        private struct PresetGroup { public string Group, Prefix; public double Scale; public PresetGroup(string g, string p, double s) { Group = g; Prefix = p; Scale = s; } }
+        private static readonly PresetGroup[] PresetAC = {
+            // Assetto Corsa: angular speed (rad/s) for lock/spin, load, the
+            // combined slip (1.0 = let go -> 100) for lateral, travel (m -> mm).
+            new PresetGroup("wheelSpeed", "DataCorePlugin.GameRawData.Physics.WheelAngularSpeed", 1),
+            new PresetGroup("load",       "DataCorePlugin.GameRawData.Physics.WheelLoad",         1),
+            new PresetGroup("wheelSlip",  "DataCorePlugin.GameRawData.Physics.WheelSlip",         100),
+            new PresetGroup("suspTravel", "DataCorePlugin.GameRawData.Physics.SuspensionTravel",  1000),
+        };
+        private static readonly PresetGroup[] PresetACC = {
+            // Competizione, EVO, Rally: a real slip ratio per wheel, the rest as AC.
+            new PresetGroup("slipRatio",  "DataCorePlugin.GameRawData.Physics.slipRatio",         1),
+            new PresetGroup("wheelSpeed", "DataCorePlugin.GameRawData.Physics.WheelAngularSpeed", 1),
+            new PresetGroup("load",       "DataCorePlugin.GameRawData.Physics.WheelLoad",         1),
+            new PresetGroup("wheelSlip",  "DataCorePlugin.GameRawData.Physics.WheelSlip",         100),
+            new PresetGroup("suspTravel", "DataCorePlugin.GameRawData.Physics.SuspensionTravel",  1000),
+        };
+        private static readonly PresetGroup[] PresetAMS2 = {
+            // Automobilista 2 (shared memory): tyre rev/s for lock/spin,
+            // suspension velocity (m/s -> mm/s), slip speed (m/s; 5 m/s -> 100).
+            new PresetGroup("wheelSpeed", "DataCorePlugin.GameRawData.mTyreRPS",            1),
+            new PresetGroup("suspVel",    "DataCorePlugin.GameRawData.mSuspensionVelocity", 1000),
+            new PresetGroup("wheelSlip",  "DataCorePlugin.GameRawData.mTyreSlipSpeed",      20),
+        };
+        private static PresetGroup[] PresetFor(string gameName)
+        {
+            var g = Norm(gameName);
+            if (g == "assettocorsa") return PresetAC;
+            if (g == "assettocorsacompetizione" || g == "assettocorsaevo" || g == "assettocorsarally") return PresetACC;
+            if (g == "automobilista2") return PresetAMS2;
+            return null;
+        }
+        private static string Norm(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            var sb = new StringBuilder(s.Length);
+            foreach (var c in s) if (char.IsLetterOrDigit(c)) sb.Append(char.ToLowerInvariant(c));
+            return sb.ToString();
+        }
+        private string _presetGame;   // the game the groups in force were resolved for
 
         private DateTime _lastIdentity = DateTime.MinValue;
 
@@ -73,7 +125,7 @@ namespace NullcatChannelExporter
         {
             var host = "127.0.0.1";
             var port = 4444;
-            for (var g = 0; g < Groups.Length; g++) _groupProps[g] = new string[4];
+            for (var g = 0; g < Groups.Length; g++) { _fileProps[g] = new string[4]; _groupProps[g] = new string[4]; }
             try
             {
                 var dir  = Path.GetDirectoryName(typeof(NullcatChannelExporterPlugin).Assembly.Location);
@@ -93,16 +145,46 @@ namespace NullcatChannelExporter
                     for (var g = 0; g < Groups.Length; g++)
                     {
                         for (var w = 0; w < 4; w++)
-                            _groupProps[g][w] = ExtractString(text, Groups[g] + Wheels[w] + "Prop");
+                            _fileProps[g][w] = ExtractString(text, Groups[g] + Wheels[w] + "Prop");
                         var sc = ExtractNumber(text, Groups[g] + "Scale");
-                        if (sc > 0) _groupScale[g] = sc;
+                        if (sc > 0) _fileScale[g] = sc;
                     }
                 }
             }
             catch { /* keep defaults */ }
+            ApplyBindings(null);
 
             _target = new IPEndPoint(IPAddress.Parse(host), port);
             _udp = new UdpClient();
+        }
+
+        // The groups in force for a game: the file's where it binds all
+        // four wheels, else the built-in preset's, else nothing.
+        private void ApplyBindings(string gameName)
+        {
+            var preset = PresetFor(gameName);
+            for (var g = 0; g < Groups.Length; g++)
+            {
+                var f = _fileProps[g];
+                var fileBound = !string.IsNullOrWhiteSpace(f[0]) && !string.IsNullOrWhiteSpace(f[1])
+                             && !string.IsNullOrWhiteSpace(f[2]) && !string.IsNullOrWhiteSpace(f[3]);
+                if (fileBound)
+                {
+                    for (var w = 0; w < 4; w++) _groupProps[g][w] = f[w];
+                    _groupScale[g] = _fileScale[g];
+                    continue;
+                }
+                for (var w = 0; w < 4; w++) _groupProps[g][w] = null;
+                _groupScale[g] = 1;
+                if (preset == null) continue;
+                foreach (var pg in preset)
+                {
+                    if (pg.Group != Groups[g]) continue;
+                    for (var w = 0; w < 4; w++) _groupProps[g][w] = pg.Prefix + "0" + (w + 1);
+                    _groupScale[g] = pg.Scale;
+                }
+            }
+            _presetGame = gameName ?? "";
         }
 
         public void DataUpdate(PluginManager pluginManager, ref GameData data)
@@ -113,6 +195,9 @@ namespace NullcatChannelExporter
             // and nullCAT's staleness fail-safe releases every effect.
             try { if (data.GamePaused) return; } catch { }
             var d = data.NewData;
+            // A different game: its built-in bindings (the file's override
+            // groups stay in force whatever the game).
+            if ((data.GameName ?? "") != _presetGame) ApplyBindings(data.GameName);
 
             // Gear arrives as a string ("N", "R", "1".."8"); the wire wants a
             // number: N -> 0, R -> -1, digits as-is, anything odd -> 0.
@@ -156,29 +241,42 @@ namespace NullcatChannelExporter
             }
             catch { boost = 0; }
 
+            var skid   = ReadProp(pluginManager, _skidProp);
+            var lockup = ReadProp(pluginManager, _lockupProp);
+            var road   = ReadProp(pluginManager, _roadProp);
+            var curbs  = ReadProp(pluginManager, _curbsProp);
             var line = string.Format(CultureInfo.InvariantCulture,
                 "NULLCATX,{0:0.#},{1:0.##},{2:0},{3:0.#},{4:0.#},{5:0.#},{6:0},{7:0.#},{8:0.#},{9:0.#},{10:0},{11:0},{12:0.#},{13:0}",
                 d.Rpms, d.SpeedKmh, gear, d.Clutch, d.Throttle,
-                d.Brake, abs,
-                ReadProp(pluginManager, _skidProp),
-                ReadProp(pluginManager, _lockupProp),
-                ReadProp(pluginManager, _roadProp),
-                limiter, tc,
-                ReadProp(pluginManager, _curbsProp),
-                maxRpm);
+                d.Brake, abs, skid, lockup, road, limiter, tc, curbs, maxRpm);
             Send(line);
 
-            // Per-wheel groups by name: only groups with all four wheels
-            // bound, only when every wheel reads as a number this tick.
-            // Named line: boost every tick (its slot sits past the per-wheel
-            // groups, so it cannot go positionally without padding them), then
-            // the bound per-wheel groups.
-            var y = new StringBuilder("NULLCATY,boost=");
-            y.Append(boost.ToString("0.###", CultureInfo.InvariantCulture));
-            // Pit limiter: cuts like the rev limiter on the rig, never teaches the redline.
+            // The named line carries EVERYTHING by name: the classic
+            // channels again (so a receiver's slot map never matters for
+            // this plugin; a name wins over a slot binding), boost and the
+            // pit limiter, the four magnitudes only when bound, then the
+            // per-wheel groups in force, each only when all four wheels
+            // read as numbers this tick. The numbered line above stays for
+            // older receivers.
             double pit = 0;
             try { pit = Convert.ToDouble(d.PitLimiterOn, CultureInfo.InvariantCulture) > 0 ? 1 : 0; } catch { pit = 0; }
-            y.Append(",pitLimiter=").Append(pit.ToString("0", CultureInfo.InvariantCulture));
+            var y = new StringBuilder(256);
+            y.Append("NULLCATY,rpm=").Append(d.Rpms.ToString("0.#", CultureInfo.InvariantCulture))
+             .Append(",speedKmh=").Append(d.SpeedKmh.ToString("0.##", CultureInfo.InvariantCulture))
+             .Append(",gear=").Append(gear.ToString("0", CultureInfo.InvariantCulture))
+             .Append(",clutchPct=").Append(d.Clutch.ToString("0.#", CultureInfo.InvariantCulture))
+             .Append(",throttlePct=").Append(d.Throttle.ToString("0.#", CultureInfo.InvariantCulture))
+             .Append(",brakePct=").Append(d.Brake.ToString("0.#", CultureInfo.InvariantCulture))
+             .Append(",absActive=").Append(abs.ToString("0", CultureInfo.InvariantCulture))
+             .Append(",limiter=").Append(limiter.ToString("0", CultureInfo.InvariantCulture))
+             .Append(",tcActive=").Append(tc.ToString("0", CultureInfo.InvariantCulture))
+             .Append(",maxRpm=").Append(maxRpm.ToString("0", CultureInfo.InvariantCulture))
+             .Append(",boost=").Append(boost.ToString("0.###", CultureInfo.InvariantCulture))
+             .Append(",pitLimiter=").Append(pit.ToString("0", CultureInfo.InvariantCulture));
+            if (!string.IsNullOrWhiteSpace(_skidProp))   y.Append(",skid=").Append(skid.ToString("0.#", CultureInfo.InvariantCulture));
+            if (!string.IsNullOrWhiteSpace(_lockupProp)) y.Append(",lockup=").Append(lockup.ToString("0.#", CultureInfo.InvariantCulture));
+            if (!string.IsNullOrWhiteSpace(_roadProp))   y.Append(",roadNoise=").Append(road.ToString("0.#", CultureInfo.InvariantCulture));
+            if (!string.IsNullOrWhiteSpace(_curbsProp))  y.Append(",curbs=").Append(curbs.ToString("0.#", CultureInfo.InvariantCulture));
             for (var g = 0; g < Groups.Length; g++)
             {
                 var props = _groupProps[g];

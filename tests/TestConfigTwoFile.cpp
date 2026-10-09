@@ -128,7 +128,7 @@ private slots:
         c.hapticsMasterGain = 1.3;
         c.hapticsSlipLat = { 0.7, 28.0, 0.4, 9.0, 6.5 };
         c.hapticsSlipLon = { 0.9, 8.0, 0.2, 12.0, 0.6 };
-        c.hapticsRoad    = { 12.0, 3.5 };
+        c.hapticsRoad    = { 12.0, 3.5, 0.35, 140.0 };
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Road)].routes[0].part = haptics::Part::RR;
         c.hapticsDriveline = { 0.8, 9.0, 0.6, 6.5, 1.0, 0.7, 0.4, 55.0 };
         c.hapticsEngine.inertia = 0.3; c.hapticsEngine.turbo = 1; c.hapticsEngine.liftoff = 1.5; c.hapticsEngine.pops = 0.4;
@@ -171,6 +171,7 @@ private slots:
         QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)].routes[1].part   == haptics::Part::All);
         QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Lockup)].routes[1].part == haptics::Part::Rear);
         QCOMPARE(r.hapticsRoad.fullMm, 12.0); QCOMPARE(r.hapticsRoad.hpHz, 3.5);
+        QCOMPARE(r.hapticsRoad.surface, 0.35); QCOMPARE(r.hapticsRoad.surfaceKmh, 140.0);
         QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Road)].routes[0].part == haptics::Part::RR);
         QCOMPARE(r.hapticsDriveline.clutch, 0.8); QCOMPARE(r.hapticsDriveline.clutchHz, 9.0);
         QCOMPARE(r.hapticsDriveline.lug, 0.6);    QCOMPARE(r.hapticsDriveline.lugHz, 6.5);

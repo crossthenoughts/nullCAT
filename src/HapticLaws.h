@@ -197,34 +197,12 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
         // slip angles and skid magnitudes that are noise or stale).
         const bool moving = speed > kSlipMinSpeedKmh;
 
-        // Lateral: slip angle (deg) past the onset share of peak deg.
-        {
-            const SlipParams& sp = L.slipParams(FxType::Skid);
-            const double peak  = std::max(0.5, sp.peak);
-            const double onset = kSlipOnsetFrac * peak;
-            const bool preview = st.previewSec[static_cast<int>(FxType::Skid)] > 0.0;
-            const bool perWheel = haveW(NcxValues::SlipAngleFL);
-            const double single = mag(NcxValues::Skid, FxType::Skid);
-            for (int w = 0; w < WHEEL_COUNT; ++w)
-            {
-                double sev = 0.0;
-                if (moving && perWheel)
-                {
-                    const double ang = std::fabs(v.val[NcxValues::SlipAngleFL + w]);
-                    sev = std::max(0.0, std::min(1.0, (ang - onset) / std::max(1e-6, peak - onset)));
-                }
-                else if (moving && !perWheel && live && v.have[NcxValues::Skid])
-                    sev = single;
-                sev = std::min(1.0, sev * loadW[w]);
-                if (preview) sev = 1.0;
-                const bool front = (w == WheelFL || w == WheelFR);
-                L.driveSlip(FxType::Skid, w, front ? sev : 0.0, front ? 0.0 : sev);
-            }
-        }
-
-        // Longitudinal: slip ratio (- locking, + spinning) past the onset
-        // ratio up to peak ratio. Ratio from the sim, else from wheel
-        // speeds with the learned rolling factor, else the lockup channel.
+        // Longitudinal first (its per-wheel severities are needed by the
+        // lateral combined-slip path): slip ratio (- locking, + spinning)
+        // past the onset ratio up to peak ratio. Ratio from the sim, else
+        // from wheel speeds with the learned rolling factor, else the
+        // lockup channel.
+        double lonSev[WHEEL_COUNT] = { 0.0, 0.0, 0.0, 0.0 };
         {
             const SlipParams& sp = L.slipParams(FxType::Lockup);
             const double peak = std::max(kLonOnsetRatio + 0.05, sp.peak);
@@ -267,6 +245,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
                     lock = single;
                 lock = std::min(1.0, lock * loadW[w]);
                 spin = std::min(1.0, spin * loadW[w]);
+                lonSev[w] = std::max(lock, spin);
                 if (preview) { lock = 1.0; spin = 1.0; }
                 L.driveSlip(FxType::Lockup, w, lock, spin);
             }
@@ -274,6 +253,45 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
             const double hzScale = (speed > 0.0)
                 ? std::max(kLockHzMin, std::min(kLockHzMax, speed / kLockHzRefKmh)) : 1.0;
             L.setSlipCarrierScale(FxType::Lockup, hzScale, 1.0);
+        }
+
+        // Lateral: slip angle (deg) past the onset share of peak deg. Where
+        // the sim has no slip angle but a combined slip per wheel (Assetto
+        // Corsa's wheelSlip, Automobilista 2's slip speed), that past the
+        // same onset share of peak % with the longitudinal share already
+        // playing on the other tile taken out, so a straight-line lockup
+        // does not read as a slide. Else the single skid channel.
+        {
+            const SlipParams& sp = L.slipParams(FxType::Skid);
+            const double peak  = std::max(0.5, sp.peak);
+            const double onset = kSlipOnsetFrac * peak;
+            const bool preview = st.previewSec[static_cast<int>(FxType::Skid)] > 0.0;
+            const bool perWheel = haveW(NcxValues::SlipAngleFL);
+            const bool combined = !perWheel && haveW(NcxValues::WheelSlipFL);
+            const double peakC  = std::max(1.0, L.fxParams(FxType::Skid).peakPct);
+            const double onsetC = kSlipOnsetFrac * peakC;
+            const double single = mag(NcxValues::Skid, FxType::Skid);
+            for (int w = 0; w < WHEEL_COUNT; ++w)
+            {
+                double sev = 0.0;
+                if (moving && perWheel)
+                {
+                    const double ang = std::fabs(v.val[NcxValues::SlipAngleFL + w]);
+                    sev = std::max(0.0, std::min(1.0, (ang - onset) / std::max(1e-6, peak - onset)));
+                }
+                else if (moving && combined)
+                {
+                    const double c = std::fabs(v.val[NcxValues::WheelSlipFL + w]);
+                    sev = std::max(0.0, std::min(1.0, (c - onsetC) / std::max(1e-6, peakC - onsetC)));
+                    sev = std::max(0.0, sev - lonSev[w]);
+                }
+                else if (moving && !perWheel && !combined && live && v.have[NcxValues::Skid])
+                    sev = single;
+                sev = std::min(1.0, sev * loadW[w]);
+                if (preview) sev = 1.0;
+                const bool front = (w == WheelFL || w == WheelFR);
+                L.driveSlip(FxType::Skid, w, front ? sev : 0.0, front ? 0.0 : sev);
+            }
         }
         // Preview timers for the slip slots decay here (previewOr does it
         // for the oscillator slots).
@@ -285,18 +303,30 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
     }
 
     // Road: replay the corners when the sim sends suspension velocities
-    // (mm/s, all four); the roadNoise texture otherwise. A preview runs
-    // the texture so Test shows something without a sim.
+    // (mm/s) or travel (mm), all four; the roadNoise texture otherwise.
+    // The surface grain rides on either: the texture at the tile's
+    // carrier, rising with road speed, full by surface km/h, at the
+    // surface mix. A preview runs the texture so Test shows something
+    // without a sim.
     {
-        bool corners = live && st.previewSec[static_cast<int>(FxType::Road)] <= 0.0;
-        for (int w = 0; w < WHEEL_COUNT && corners; ++w) corners = v.have[NcxValues::SuspVelFL + w];
-        if (corners)
+        const bool previewing = st.previewSec[static_cast<int>(FxType::Road)] > 0.0;
+        bool vel = live && !previewing, travel = live && !previewing;
+        for (int w = 0; w < WHEEL_COUNT; ++w)
         {
-            for (int w = 0; w < WHEEL_COUNT; ++w) L.driveRoad(w, v.val[NcxValues::SuspVelFL + w]);
-            L.driveFx(FxType::Road, 0.0, 0.0);
+            vel    = vel    && v.have[NcxValues::SuspVelFL + w];
+            travel = travel && v.have[NcxValues::SuspTravelFL + w];
         }
-        else
-            L.driveFx(FxType::Road, previewOr(FxType::Road, mag(NcxValues::RoadNoise, FxType::Road)), 0.0);
+        if (vel)         for (int w = 0; w < WHEEL_COUNT; ++w) L.driveRoad(w, v.val[NcxValues::SuspVelFL + w]);
+        else if (travel) for (int w = 0; w < WHEEL_COUNT; ++w) L.driveRoadTravel(w, v.val[NcxValues::SuspTravelFL + w]);
+        const RoadParams& rp = L.roadParams();
+        double texture = (vel || travel) ? 0.0 : mag(NcxValues::RoadNoise, FxType::Road);
+        if (live && rp.surface > 0.0 && v.have[NcxValues::SpeedKmh])
+        {
+            const double spd = std::max(0.0, v.val[NcxValues::SpeedKmh]);
+            const double full = std::max(1.0, rp.surfaceKmh);
+            texture = std::max(texture, rp.surface * std::min(1.0, spd / full));
+        }
+        L.driveFx(FxType::Road, previewOr(FxType::Road, texture), 0.0);
     }
 
     // Driveline: clutch judder while the pedal is in the slipping band with

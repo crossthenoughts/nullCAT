@@ -92,7 +92,15 @@ public:
         m_out.shuntHz = shuntHz;
         for (int i = 0; i < kShuntPool; ++i)
         {
-            if (m_shT[i] >= dur) continue;
+            if (m_shT[i] >= kShuntIdle) continue;
+            if (m_shT[i] >= dur)
+            {
+                // The knock is over: retire the slot, or level() would
+                // report it for ever (the wave on the tile stayed "live"
+                // after the first shunt, found on the bench).
+                m_shT[i] = kShuntIdle; m_shAmp[i] = 0.0;
+                continue;
+            }
             const double env = wavesynth::envelope(m_shT[i], dur, dur * 0.3);
             m_out.shunt += m_shAmp[i] * d.shunt * env * std::sin(2.0 * wavesynth::kPi * (m_shT[i] / dur));
             m_shT[i] += dtSec;
@@ -102,7 +110,7 @@ public:
     const DrivelineOut& out() const { return m_out; }
     double level() const
     {
-        double sh = 0.0; for (int i = 0; i < kShuntPool; ++i) if (m_shT[i] < 1.0) sh = std::max(sh, m_shAmp[i]);
+        double sh = 0.0; for (int i = 0; i < kShuntPool; ++i) if (m_shT[i] < kShuntIdle) sh = std::max(sh, m_shAmp[i]);
         return std::max(std::max(m_lJ, m_lL), std::max(m_lW, sh));
     }
     double judderLevel() const { return m_lJ; }
@@ -135,10 +143,11 @@ private:
         return osc.step(f, dtSec) * level * mix;
     }
 
-    static constexpr int kShuntPool = 2;
+    static constexpr int    kShuntPool = 2;
+    static constexpr double kShuntIdle = 1e9;   // slot timer when no knock is running
     double m_tJ = 0.0, m_tL = 0.0, m_lJ = 0.0, m_lL = 0.0;
     double m_tW = 0.0, m_lW = 0.0, m_whineHz = 0.0;
-    double m_shT[kShuntPool] = { 1e9, 1e9 }, m_shAmp[kShuntPool] = { 0.0, 0.0 };
+    double m_shT[kShuntPool] = { kShuntIdle, kShuntIdle }, m_shAmp[kShuntPool] = { 0.0, 0.0 };
     wavesynth::Oscillator m_oscJ, m_oscL, m_oscW;
     uint64_t m_rng = 0x9E3779B97F4A7C15ull;
     DrivelineOut m_out;

@@ -42,7 +42,22 @@ public:
         if (wheel < 0 || wheel >= WHEEL_COUNT) return;
         if (!std::isfinite(velMmS)) velMmS = 0.0;
         m_w[wheel].v = velMmS;
+        m_w[wheel].dx = 0.0;
         m_w[wheel].driven = true;
+    }
+    // ...or suspension travel, mm, signed, for sims that give position
+    // and not velocity (Assetto Corsa). The change since the last sample
+    // enters the same high-passed integral, so a held sample (the sender
+    // runs slower than the loop) adds nothing until the next one lands.
+    void driveTravel(int wheel, double travelMm)
+    {
+        if (wheel < 0 || wheel >= WHEEL_COUNT) return;
+        if (!std::isfinite(travelMm)) return;
+        W& w = m_w[wheel];
+        w.dx = w.haveTravel ? (travelMm - w.lastTravel) : 0.0;
+        w.lastTravel = travelMm; w.haveTravel = true;
+        w.v = 0.0;
+        w.driven = true;
     }
 
     void step(double dtSec, const RoadParams& p)
@@ -55,7 +70,7 @@ public:
         {
             if (w.driven)
             {
-                w.x = w.x * leak + w.v * dtSec;
+                w.x = w.x * leak + w.v * dtSec + w.dx;
                 w.gate = 1.0;
             }
             else
@@ -64,8 +79,9 @@ public:
                 // the same leak and the gate fades, so nothing holds.
                 w.x *= leak;
                 w.gate = std::max(0.0, w.gate - dtSec / kReleaseSec);
+                w.haveTravel = false;
             }
-            w.driven = false;
+            w.driven = false; w.dx = 0.0;
             w.s = std::max(-1.0, std::min(1.0, w.x / full)) * w.gate;
         }
     }
@@ -114,9 +130,12 @@ private:
     struct W
     {
         double v = 0.0;       // driven velocity this cycle
+        double dx = 0.0;      // driven travel change this cycle (travel path)
         double x = 0.0;       // high-passed travel, mm
         double s = 0.0;       // this cycle's sample, -1..1
         double gate = 0.0;    // 1 while driven, fades when not
+        double lastTravel = 0.0;
+        bool   haveTravel = false;
         bool   driven = false;
     };
     W m_w[WHEEL_COUNT];

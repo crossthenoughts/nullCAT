@@ -309,8 +309,10 @@ body[data-view="setup"] .vw-op{ display:none !important; }
 .hap-wwrap{ position:relative; }
 .hap-wtag{ position:absolute; top:0; right:2px; font-family:var(--mono); font-size:.52rem;
   letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft); pointer-events:none; }
-.hwheels{ font-family:var(--mono); font-size:.58rem; letter-spacing:.04em; color:var(--ink-soft);
-  font-variant-numeric:tabular-nums; white-space:pre; margin:2px 0 1px; }
+.hwheels{ font-family:var(--mono); font-size:.58rem; letter-spacing:.02em; color:var(--ink-soft);
+  font-variant-numeric:tabular-nums; margin:2px 0 1px;
+  display:grid; grid-template-columns:1fr 1fr; column-gap:6px; row-gap:1px; }
+.hwheels span{ white-space:nowrap; overflow:hidden; text-overflow:clip; }
 .hwheels.hot{ color:var(--ink); }
 .hr.dim{ opacity:.4; }
 .hrows{ display:flex; flex-direction:column; gap:3px; }

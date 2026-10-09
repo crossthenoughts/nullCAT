@@ -2,29 +2,28 @@
 
 Sends raw sim telemetry to nullCAT for the force-device effects (shifter,
 active pedal) and the haptic effect layer. Up to three UDP lines per tick,
-nothing else (wire protocol 1.3, see `Docs/PROTOCOL.md` in the nullCAT
+nothing else (wire protocol 1.4, see `Docs/PROTOCOL.md` in the nullCAT
 repo):
 
     NULLCATX,<rpm>,<speedKmh>,<gear>,<clutchPct>,<throttlePct>,
              <brakePct>,<absActive>,<skid>,<lockup>,<roadNoise>,
-             <limiter>,<tcActive>,<curbs>,<maxRpm>
-    NULLCATY,boost=..,pitLimiter=..,slipAngleFL=..,...  (boost, pit limiter, the per-wheel channels you bind)
+             <limiter>,<tcActive>,<curbs>,<maxRpm>       (for older receivers)
+    NULLCATY,rpm=..,speedKmh=..,...,boost=..,pitLimiter=..,wheelSpeedFL=..,...
+             (everything by name: the classic channels, boost, the pit
+             limiter, and the per-wheel channels for the running game)
     NULLCATY,game=..,car=..,carId=..             (once a second)
 
 All the feel and logic lives in nullCAT - this plugin never changes when
 effects do. Gear is numeric on the wire: `0` = neutral, `-1` = reverse.
-A channel the current game cannot feed is sent as 0 (the classic line) or
-not at all (the per-wheel line), which leaves its effect silently inert
-on the rig. Boost and the pit limiter travel on the named line rather
-than as extra positional slots because their slots (34 and 35) sit past
-the per-wheel groups, which the plugin only sends when they are bound;
-nothing on the rig side needs setting up for that, the named line maps
-itself.
+Everything goes by name on the second line, so nothing on the rig side
+needs mapping for this plugin; the numbered line is kept for receivers
+older than 0.9.7. A per-wheel channel the current game cannot feed is not
+sent at all, which leaves its effect silently inert on the rig.
 
 In SimHub's plugin list it appears as **nullCAT Channel Exporter**:
 "Sends raw telemetry to nullCAT over UDP: rpm, speed, gear, pedals,
 ABS/TC/limiter flags, and optional per-wheel slip, load and suspension
-channels for the haptic layer". Version 1.3 of the plugin goes with
+channels for the haptic layer". Version 1.4 of the plugin goes with
 nullCAT 0.9.7; it works with 0.9.6 too (the extra channels are simply
 ignored there).
 
@@ -64,13 +63,30 @@ you: rpm, speed, gear, clutch, throttle, brake, ABS active, rev limiter
 turbo boost and the pit limiter. They drive the Engine, Gear shift, ABS,
 Limiter and TC effects. The game and car names go along once a second.
 
-## Optional: per-wheel slip for the tyre effects
+For the sims the plugin knows, the per-wheel channels need nothing from
+you either: it knows which raw fields each game exposes and sends them
+by itself.
 
-The Lateral slip and Longitudinal slip effects work per wheel. Bind the
-game's raw per-wheel fields and nullCAT does the rest (it holds the tyre
-model: where slip starts to matter, the limit, load weighting, how the
-texture changes as the slide grows). Each group needs all four wheels,
-in the order FL, FR, RL, RR:
+| Game | Sent per wheel, without setup | Feeds |
+|---|---|---|
+| Assetto Corsa | wheel speeds, tyre loads, the combined slip, suspension travel | Longitudinal slip, Lateral slip, Road |
+| Assetto Corsa Competizione, EVO, Rally | a real slip ratio, wheel speeds, loads, combined slip, suspension travel | Longitudinal slip, Lateral slip, Road |
+| Automobilista 2 | wheel speeds, suspension velocities, tyre slip speed | Longitudinal slip, Lateral slip, Road |
+
+Plain Assetto Corsa has no slip angle per wheel (only the combined slip
+magnitude), so its Lateral slip comes from that magnitude with the
+longitudinal part taken out; Competizione, EVO and Rally do expose a
+slip angle (`Physics.slipAngle01..04`) and you can bind it below if you
+prefer it to the combined slip.
+
+## Optional: binding per-wheel channels yourself
+
+For a game the plugin does not know, or to override a built-in group,
+bind the game's raw per-wheel fields and nullCAT does the rest (it holds
+the tyre model: where slip starts to matter, the limit, load weighting,
+how the texture changes as the slide grows). Each group needs all four
+wheels, in the order FL, FR, RL, RR; a group you bind replaces the
+built-in one for that group only:
 
 ```json
 "slipAngleFLProp": "DataCorePlugin.GameRawData....",
@@ -83,17 +99,17 @@ in the order FL, FR, RL, RR:
 | Group | What to bind | Unit on the wire | Used by |
 |---|---|---|---|
 | `slipAngle*` | tyre slip angle per wheel | degrees (`slipAngleScale: 57.2958` for radians) | Lateral slip |
+| `wheelSlip*` | the game's combined slip magnitude per wheel | 0..100, 100 = the tyre let go (set the scale so a clear slide reads about 100) | Lateral slip, when the game has no slip angle |
 | `slipRatio*` | longitudinal slip ratio per wheel | signed ratio, -1 = locked | Longitudinal slip |
 | `wheelSpeed*` | wheel rotational speed per wheel | any unit; nullCAT learns the rolling factor | Longitudinal slip, when the game has no slip ratio |
 | `load*` | vertical tyre load per wheel | any unit (ratios only) | weights the loaded tyre up (optional) |
 | `suspVel*` | suspension velocity per corner | mm/s (`suspVelScale: 1000` for m/s) | Road (replays each corner) |
+| `suspTravel*` | suspension travel per corner | mm (`suspTravelScale: 1000` for metres) | Road, when the game gives position rather than velocity |
 
-Which fields exist depends on the game. Assetto Corsa, Competizione and
-EVO expose slip angle, slip ratio and (AC, EVO) load per wheel; rFactor 2
-and Le Mans Ultimate expose the contact-patch velocities and tyre load;
-Automobilista 2 exposes wheel speeds (`mTyreRPS`) and suspension
-velocities but no slip, so bind `wheelSpeed*` there; iRacing exposes
-suspension velocities only. The raw fields are listed in SimHub under
+SimHub numbers a game's per-wheel fields `01` to `04`, and in every game
+reader checked that is FL, FR, RL, RR. rFactor 2 and Le Mans Ultimate
+expose the contact-patch velocities and tyre load; iRacing exposes
+suspension velocities. The raw fields are listed in SimHub under
 Settings, Properties, filtered on `GameRawData`.
 
 ## Optional: the single magnitude channels
@@ -121,10 +137,9 @@ group's scale.
 
 ## nullCAT side
 
-Nothing to bind: a fresh rig config ships with every channel bound in
-this plugin's slot order, and the per-wheel line names its channels
-itself. If you have changed the bindings, the Sim channels section of the
-web Setup view has a "Reset to defaults" button.
+Nothing to bind: every channel from this plugin arrives by name, so the
+Sim channels map in the web Setup view (which is for senders that use
+the numbered line) does not apply to it.
 
 See the Haptics section of `Docs/DEVICES.md` in the nullCAT repository
 for what each effect does, which channels it needs, and how to tune it.

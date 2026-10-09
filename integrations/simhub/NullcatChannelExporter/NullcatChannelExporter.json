@@ -7,7 +7,9 @@
 
   "_help_channels": "Twelve channels need no setup and are always sent: rpm, speed, gear, clutch, throttle, brake, ABS active, rev limiter (computed from rpm vs the car max), TC active, the car max rpm, turbo boost and the pit limiter. They drive the Engine, Gear shift, ABS, Limiter and TC effects in nullCAT. The game and car names are sent once a second.",
 
-  "_help_props": "Everything below is OPTIONAL. Each value is the full name of ANY SimHub property. Find names in SimHub under Settings, Properties (copy the exact text, dots included), or make your own with an NCalc formula. ShakeIt effects can also be exported as properties from the effect's settings and then appear in the same list. Leave a value empty and that channel is not sent, so its effect stays silent.",
+  "_help_presets": "Assetto Corsa, Competizione, EVO, Rally and Automobilista 2 need NOTHING below: the plugin knows which per-wheel fields each of them exposes (wheel speeds, loads, combined slip, suspension travel or velocity, a real slip ratio where the game has one) and sends them by itself. Fill a group in only to override that, or for a game the plugin does not know.",
+
+  "_help_props": "Everything below is OPTIONAL. Each value is the full name of ANY SimHub property. Find names in SimHub under Settings, Properties (copy the exact text, dots included), or make your own with an NCalc formula. ShakeIt effects can also be exported as properties from the effect's settings and then appear in the same list. Leave a value empty and that channel is not sent (or comes from the built-in preset for a known game).",
   "_help_name_shape": "A property name looks like PluginName.Section.ValueName, for example DataCorePlugin.GameData.Brake (that one is the brake, 0..100, and is already sent automatically). The game's raw fields are under DataCorePlugin.GameRawData.",
 
   "_help_magnitudes": "The four magnitudes are 0..100 summaries. skid and lockup are the FALLBACK for the two slip effects when the per-wheel channels below are not bound: they feed all four wheels at once.",
@@ -58,5 +60,19 @@
   "suspVelFRProp": "",
   "suspVelRLProp": "",
   "suspVelRRProp": "",
-  "suspVelScale": 1
+  "suspVelScale": 1,
+
+  "_help_suspTravel": "Suspension travel per corner in mm, signed, for games that give position rather than velocity: the Road effect takes the bumps out of it. Set suspTravelScale to 1000 if the game gives metres.",
+  "suspTravelFLProp": "",
+  "suspTravelFRProp": "",
+  "suspTravelRLProp": "",
+  "suspTravelRRProp": "",
+  "suspTravelScale": 1,
+
+  "_help_wheelSlip": "Combined tyre slip per wheel (the game's own slip magnitude), 0..100 with 100 = the tyre has let go: the Lateral slip effect's source where the game has no slip angle. Set wheelSlipScale so that a clear slide reads about 100 (Assetto Corsa's wheelSlip: 100; a slip speed in m/s: 20).",
+  "wheelSlipFLProp": "",
+  "wheelSlipFRProp": "",
+  "wheelSlipRLProp": "",
+  "wheelSlipRRProp": "",
+  "wheelSlipScale": 1
 }

@@ -1493,7 +1493,9 @@ function hapLive(s){
         const sp=hapChanSpec(entry); const ok=sp.ok(s.ncxHave);
         if(!sp.optional) allOk=allOk&&ok;
         // Which path feeds a two-path entry (per-wheel group or magnitude).
-        if(sp.alts.length>1){ const a=sp.live(s.ncxHave); if(a){ if(a.endsWith('*')) wheelLive=true; else magLive=true; } }
+        // The combined-slip group is per wheel but scaled by peak %, so it
+        // counts as the magnitude path for the trims.
+        if(sp.alts.length>1){ const a=sp.live(s.ncxHave); if(a){ if(a.endsWith('*')&&a!=='wheelSlip*') wheelLive=true; else magLive=true; } }
         return sp.text(s.ncxHave,vals,pks)+(ok?' ✓':(sp.optional?' ·':' ✗'));
       }).join('  ');
       ch.classList.toggle('bad',!allOk);
@@ -1510,7 +1512,10 @@ function hapLive(s){
     if(wl&&Array.isArray(s.hapWheels)&&Array.isArray(s.hapWheelsPk)){
       const k=+wl.dataset.wheels, now=s.hapWheels[k]||[], pk=s.hapWheelsPk[k]||[];
       const f=(v)=>(k===2?(+v||0).toFixed(1):(+v||0).toFixed(2));
-      wl.textContent=['FL','FR','RL','RR'].map((n,i)=>n+' '+f(now[i])+'/'+f(pk[i])).join('  ');
+      // Four cells in a 2 x 2 grid (FL FR / RL RR): one line was wider
+      // than the tile and ran under its neighbour.
+      const cells=wl.children;
+      ['FL','FR','RL','RR'].forEach((n,i)=>{ if(cells[i]) cells[i].textContent=n+' '+f(now[i])+'/'+f(pk[i]); });
       wl.classList.toggle('hot',pk.some(v=>+v>0.05));
     }
     if(t.fx.transient){
@@ -1602,8 +1607,9 @@ function hapInit(){
       +'<button class="btn btn-sm" type="button" id="hapCarPull" title="Apply this car\'s entry to the engine, limiter, driveline, ABS and TC tiles">pull car preset</button>'
       +'<button class="btn btn-sm" type="button" id="hapCarSave" title="File the SAVED engine, limiter, driveline, ABS and TC settings under this car in your own layer; it then wins over the shipped entry. Save the strip first if you have edits.">save for this car</button>'
       +'<button class="btn btn-sm" type="button" id="hapCarForget" title="Drop your entry for this car; the shipped one (if any) is used again">forget</button>'
-      +'<label class="hk" title="Take the engine, limiter, driveline, ABS and TC settings from the car table whenever the sim names a car it knows. Routes, master gain and the other tiles never move. Off: the table only acts on pull car preset."><input type="checkbox" id="hapFollowCar"'+(cfgObj.haptics.followCar!==false?' checked':'')+'> follow car</label>'
       +'<span class="hk" id="hapCarMsg"></span></div>'
+      +'<div class="hr hap-game" title="Take the engine, limiter, driveline, ABS and TC settings from the car table whenever the sim names a car it knows. Routes, master gain and the other tiles never move. Off: the table only acts on pull car preset.">'
+      +'<label class="hk"><input type="checkbox" id="hapFollowCar"'+(cfgObj.haptics.followCar!==false?' checked':'')+'> follow car</label></div>'
       +'<div class="hr hap-game" title="Any entry in the table as a starting point: the nearest car when yours has none. Apply it, tune to taste, then save for this car."><span class="hk">preset</span>'
       +'<input type="text" id="hapCarPick" list="hapCarList" placeholder="search cars" autocomplete="off"><datalist id="hapCarList"></datalist>'
       +'<button class="btn btn-sm" type="button" id="hapCarApply" title="Apply the picked entry to the engine, limiter, driveline, ABS and TC tiles">apply</button></div>'
@@ -1707,7 +1713,7 @@ function hapInit(){
     // session peak per corner. Test drives 1.00 on every wheel, so the
     // line is the direct comparison; the peak holds until Reset peaks.
     const wset=hapWheelSet(fx.k);
-    if(wset>=0) h+='<div class="hk hwheels" data-wheels="'+wset+'" title="Per wheel: now/peak since Reset peaks (Test = 1.00 on every wheel)">FL -  FR -  RL -  RR -</div>';
+    if(wset>=0) h+='<div class="hk hwheels" data-wheels="'+wset+'" title="Per wheel: now/peak since Reset peaks (Test = 1.00 on every wheel)"><span>FL -</span><span>FR -</span><span>RL -</span><span>RR -</span></div>';
     else if(!fx.transient&&fx.fxIdx!==undefined) h+='<div class="hk hwheels" data-in="1" title="What this effect is driven with: now/peak since Reset peaks (Test = 1.00)">in -</div>';
     h+='<div class="hrows">';
     for(const [key,lab,min,max,st,opts] of fx.params){

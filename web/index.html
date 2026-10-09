@@ -123,10 +123,11 @@
         <div class="fldtip">This machine's listen address, not the sender's. Blank or 0.0.0.0 = all interfaces (recommended).</div>
       </div>
       <div class="cgrp vw-setup" style="grid-column:1/-1">
-        <div class="gt">Sim channels (NULLCATX bindings)</div>
-        <div class="fldtip">Maps numbered wire channels from the sender (the SimHub plugin) onto
-          named tokens. The defaults match the plugin exactly - touch this only if you reorder
-          channels sender-side or add a custom sender. Saved with the rig config.</div>
+        <div class="gt">Sim channels (numbered line)</div>
+        <div class="fldtip">For senders that use the numbered NULLCATX line (FlyPT Mover, SimTools, a
+          feeder of your own): which slot carries which channel, with a scale and offset for its
+          units. The SimHub plugin names every channel it sends, and a named channel always wins,
+          so nothing here affects a SimHub setup. Saved with the rig config.</div>
         <div id="ncxRows"></div>
         <div class="frow" style="margin-top:6px">
           <button class="btn btn-sm" id="ncxAdd" type="button">+ Add binding</button>

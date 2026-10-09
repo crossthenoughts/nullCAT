@@ -263,18 +263,22 @@ effect silent.
 | Engine | the engine running, from idle to the limiter (below) | rpm, throttle, limiter |
 | ABS | a regular pulse while ABS works and the brake is on | brake, ABS active |
 | Longitudinal slip | a wheel locking under braking, or spinning under power, per wheel (below) | per-wheel slip ratio or wheel speeds, road speed; or the single lockup channel |
-| Lateral slip | the tyres sliding sideways: the fronts scrubbing wide, the rears stepping out, per wheel (below) | per-wheel slip angles; or the single skid channel |
-| Road | the road surface: each corner's bumps replayed from the suspension, per wheel (below); or a texture | per-corner suspension velocity; or the single road channel |
+| Lateral slip | the tyres sliding sideways: the fronts scrubbing wide, the rears stepping out, per wheel (below) | per-wheel slip angles, or the sim's per-wheel combined slip; or the single skid channel |
+| Road | the road surface: each corner's bumps replayed from the suspension, per wheel (below), the tarmac grain under a rolling car; or a texture | per-corner suspension velocity or travel, road speed; or the single road channel |
 | Limiter | an extra hammer while on the rev limiter | limiter |
 | TC pulse | a pulse while traction control cuts | TC active |
 | Kerb | kerb strip rumble | kerbs |
 | Driveline | a slipping clutch juddering at a launch, the engine lugging at low revs (below) | clutch, rpm, gear (speed, throttle) |
 
 With the SimHub plugin, rpm, speed, gear, clutch, throttle, brake, ABS,
-limiter and traction control arrive automatically. The per-wheel slip
-channels, road and kerbs need SimHub properties named in the plugin's
-settings file (see the plugin README). Any other motion software that
-can send a text line can feed the same channels (see PROTOCOL.md).
+limiter and traction control arrive automatically, and for Assetto
+Corsa, Competizione, EVO, Rally and Automobilista 2 so do the per-wheel
+channels: the plugin knows which raw fields each of those sims exposes
+and sends them by itself, so every tile but Kerb has its input with
+nothing to set up. For another sim the per-wheel channels, road and
+kerbs need SimHub properties named in the plugin's settings file (see
+the plugin README). Any other motion software that can send a text line
+can feed the same channels (see PROTOCOL.md).
 
 `freq hz` sets the carrier: lower is a heavier, slower shake, higher is
 a finer buzz. `jitter` roughens it so slip, road and kerbs feel like
@@ -311,12 +315,17 @@ nothing plays inside the first 0.15, where the tyre is still gripping.
 When the sim sends wheel loads, the loaded tyre's slip is weighted up and
 the unloaded one's down, so the outside tyre in a corner shakes harder.
 
-Where the sim only gives one overall slip value, the single `skid` and
-`lockup` channels still work and feed all four wheels at once; the parts
-then simply select the same thing. **peak %** is the channel value that
-counts as a full slide on that path (100 by default): a property that
-only ever reaches 25 in a burnout gets `peak %` 25 and the tile reaches
-full severity like the per-wheel tiles do. Where it gives wheel speeds
+Where the sim has no slip angle but a combined slip per wheel (Assetto
+Corsa's wheel slip, Automobilista 2's tyre slip speed), Lateral slip
+takes that instead, with the part of it the Longitudinal tile is
+already playing taken out, so a straight-line lockup does not read as a
+slide; `peak %` is its scale (100 = the tyre has let go). Where the sim
+only gives one overall slip value, the single `skid` and `lockup`
+channels still work and feed all four wheels at once; the parts then
+simply select the same thing. **peak %** there is the channel value that
+counts as a full slide (100 by default): a property that only ever
+reaches 25 in a burnout gets `peak %` 25 and the tile reaches full
+severity like the per-wheel tiles do. Where it gives wheel speeds
 but no slip ratios, nullCAT learns each wheel's rolling factor while you
 cruise (brake off, light throttle, above 30 km/h) and works the ratio out
 itself, so a sender's wheel-speed unit and staggered tyre sizes need no
@@ -349,19 +358,25 @@ it is the other way round. Drive, read the peak, set the trim, Save.
 ### Road
 
 With per-corner suspension velocities from the sim (most titles have
-them), the Road tile stops making a texture and **replays the road**:
-each corner's suspension travel, with the slow body motion that the
-motion cue already produces cut away so only the bumps remain, at their
-real timing and shape. Route it with a part like the slip tiles: on a
-four-post rig each actuator plays its own corner, so a kerb under the
-right-front arrives at the right-front. Two settings: **full mm** is the
-bump that counts as 100 % amplitude (8 by default; lower for a stiff
-race car, higher for a rally car), and **cut hz** is where the slow
-motion is cut (2 by default; raise it if the seat follows body roll the
-cue is already doing, lower it to let longer undulations through).
+them; Assetto Corsa gives suspension travel instead, which works the
+same way), the Road tile **replays the road**: each corner's suspension
+travel, with the slow body motion that the motion cue already produces
+cut away so only the bumps remain, at their real timing and shape. Route
+it with a part like the slip tiles: on a four-post rig each actuator
+plays its own corner, so a kerb under the right-front arrives at the
+right-front. Two settings: **full mm** is the bump that counts as 100 %
+amplitude (8 by default; lower for a stiff race car, higher for a rally
+car), and **cut hz** is where the slow motion is cut (2 by default;
+raise it if the seat follows body roll the cue is already doing, lower
+it to let longer undulations through).
 
-Without the per-corner channels the tile plays a texture at `freq hz`
-scaled by the single `road` channel, as before.
+On top of the replay (or of the single `road` channel's texture where a
+sim has no per-corner data) the tile plays the **surface**: the grain of
+the tarmac under a rolling car, a rough texture at `freq hz` whose level
+rises with road speed and is full by **surface km/h** (100 by default),
+at the **surface x** mix (0.1 by default; 0 turns it off). It is what
+tells you the car is moving on a smooth straight, where the replay alone
+would be silent; keep it low, it is a background, not a cue.
 
 ### Driveline
 

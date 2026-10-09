@@ -105,7 +105,7 @@ NULLCATY,game=Automobilista 2,car=Formula Ultimate Gen2,carId=Formula Ultimate G
 NULLCATY,rpm=11480,speedKmh=212.4,gear=5,throttlePct=100,brakePct=0,slipRatioRL=0.08,slipRatioRR=0.31,slipAngleFL=2.1
 ```
 
-### Token registry (protocol 1.3)
+### Token registry (protocol 1.4)
 
 | Slot | Token | Unit / convention |
 |---|---|---|
@@ -130,6 +130,8 @@ NULLCATY,rpm=11480,speedKmh=212.4,gear=5,throttlePct=100,brakePct=0,slipRatioRL=
 | 30..33 | `suspVelFL` .. `suspVelRR` | suspension velocity per corner, **mm/s**, signed (positive = compressing). The Road effect replays each corner from these *(since 1.3)* |
 | 34 | `boost` | turbo boost, **bar** relative to atmosphere (vacuum negative or 0). Heavier firings under boost and the blow-off on a lift; absent = the engine effect uses rpm instead *(since 1.3)* |
 | 35 | `pitLimiter` | 0 or 1; pit limiter engaged. Cuts like the rev limiter without teaching the redline *(since 1.3)* |
+| 36..39 | `wheelSlipFL` .. `wheelSlipRR` | the sim's own combined tyre slip magnitude per wheel, scaled so that **100 = the tyre has let go** (Assetto Corsa's `wheelSlip` x 100, a slip speed in m/s x 20). The lateral slip effect's source where the sim has no slip angle: nullCAT takes the longitudinal share (from `slipRatio*` or `wheelSpeed*`) out of it first, and the effect's peak % trims the scale *(since 1.4)* |
+| 40..43 | `suspTravelFL` .. `suspTravelRR` | suspension travel per corner, **mm**, signed, for sims that give position rather than velocity (Assetto Corsa). The Road effect takes the bumps out of it; `suspVel*` wins when both are sent *(since 1.4)* |
 
 Per-wheel groups are always sent as all four or not at all: a group with
 a wheel missing is treated as absent. A sender that only has per-axle
@@ -183,12 +185,19 @@ and can come from the same tool.
 
 ## Version history
 
+- **1.4** (nullCAT 0.9.7): added the per-wheel tokens `wheelSlip*` (a
+  sim's combined slip magnitude, the lateral source where no slip angle
+  exists) and `suspTravel*` (suspension position for sims without a
+  velocity), and the optional `carId` identity string. The reference
+  SimHub plugin now sends every channel by name and carries built-in
+  per-game bindings. No change to parsing; every 1.3 sender remains
+  fully compatible.
 - **1.3** (nullCAT 0.9.7): the channel wire widened from 16 to 48 slots.
   Added the per-wheel raw-physics tokens `slipAngle*`, `slipRatio*`,
   `wheelSpeed*`, `load*`, `suspVel*` and `maxRpm`, consumed by the new
   per-wheel Lateral slip and Longitudinal slip effects (`skid` and
   `lockup` remain as fallbacks). Added line type 3, `NULLCATY`, named
-  channels plus the `game`, `car` and optional `carId` identity strings. No change to the
+  channels plus the `game` and `car` identity strings. No change to the
   motion line or to NULLCATX parsing; every 1.2 sender remains fully
   compatible.
 - **1.2** (nullCAT 0.9.6): added tokens `limiter`, `tcActive`, `curbs` for

@@ -197,11 +197,18 @@ CarTable::Match CarTable::toMatch(const Row& row, const char* source)
 CarTable::Match CarTable::find(const std::string& game, const std::string& car) const
 {
     if (car.empty()) return Match{};
-    const std::string key = keyFor(game, car);
-    std::lock_guard<std::mutex> lk(m_mx);
-    const std::string nk = normaliseKey(key);
-    if (const Row* r = lookup(m_user, nk))  return toMatch(*r, "user");
-    if (const Row* r = lookup(m_stock, nk)) return toMatch(*r, "stock");
+    {
+        const std::string key = keyFor(game, car);
+        std::lock_guard<std::mutex> lk(m_mx);
+        const std::string nk = normaliseKey(key);
+        if (const Row* r = lookup(m_user, nk))  return toMatch(*r, "user");
+        if (const Row* r = lookup(m_stock, nk)) return toMatch(*r, "stock");
+    }
+    // An aero or track variant of a car the sim names with a suffix
+    // ("Porsche 963 - Low Downforce", "Formula USA 2023 - Speedway") is
+    // the same car to the engine and driveline: fall back to the base.
+    const size_t dash = car.rfind(" - ");
+    if (dash != std::string::npos && dash > 0) return find(game, car.substr(0, dash));
     return Match{};
 }
 

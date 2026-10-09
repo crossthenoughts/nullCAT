@@ -9,6 +9,21 @@ middle number carries breaking changes and the last carries fixes.
 Development branch. Nothing here is in a release yet.
 
 ### Added
+- Nothing to bind for the sims the SimHub plugin knows: for Assetto
+  Corsa, Competizione, EVO, Rally and Automobilista 2 it sends the
+  per-wheel channels (wheel speeds, loads, the sim's combined slip, a
+  slip ratio where the game has one, suspension travel or velocity) by
+  itself, so Longitudinal slip, Lateral slip and Road all have their
+  input out of the box. Every channel now travels by name, so the Sim
+  channels map in Setup no longer touches a SimHub setup (it is for
+  senders on the numbered line). Protocol 1.4 adds `wheelSlip*` (the
+  lateral source where a sim has no slip angle, with the longitudinal
+  share taken out) and `suspTravel*` (the road from a sim that gives
+  position rather than velocity).
+- Road **surface**: the grain of the tarmac under a rolling car, a
+  texture that rises with road speed on top of the replayed bumps, at
+  its own mix (`surface x`, 0.1 by default) with `surface km/h` setting
+  where it is full. A moving car is no longer silent on a smooth road.
 - The car table: an entry for every car in Assetto Corsa (Kunos content
   and DLC) and Automobilista 2 carrying what belongs to the car (the
   engine's description and character, the limiter, the driveline, ABS and
@@ -141,7 +156,18 @@ Development branch. Nothing here is in a release yet.
   sends identical packets too and the guard muted the engine after two
   seconds in the pits. The SimHub plugin goes quiet on pause by itself.
 
+### Fixed
+- The Driveline tile's wave stayed "live" after its first shunt knock
+  (Test, or any fast throttle crossing): a finished knock kept counting
+  towards the tile's level for ever. The output itself was right; the
+  wave and the `in now/pk` readout were not.
+- The per-wheel readout line ran off the slip and Road tiles; it is a
+  2 x 2 grid now.
+
 ### Changed
+- The Sim channels map in Setup is labelled for what it is: the slot map
+  for senders on the numbered line. The SimHub plugin names everything
+  it sends and is not affected by it.
 - Route gains are validated per destination: a position axis takes mm
   up to its own Haptic max, a torque axis or shaker a 0 to 2 multiplier.
   The validator used to stop every route at 2 while the route editor

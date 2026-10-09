@@ -123,29 +123,37 @@ public:
             const EffectParams& p = m_fxParams[i];
             const bool slipSlot = slipFor(static_cast<FxType>(i)) != nullptr;
             // Road replay: per-corner suspension travel when the sim sends
-            // it (the law drives the corners); the texture oscillator is the
-            // fallback and runs below when it does not.
-            if (i == static_cast<int>(FxType::Road) && (m_roadDriven || m_road.active()))
+            // it (the law drives the corners). The texture oscillator below
+            // runs as well: it carries the roadNoise fallback when there is
+            // no replay, and the surface grain (the law's level) always, so
+            // the bumps ride on the tarmac texture rather than replacing it.
+            if (i == static_cast<int>(FxType::Road))
             {
-                m_roadDriven = false;
-                if (p.ampPct <= 0.0) { m_road.clear(); f.level = 0.0; continue; }
-                m_road.step(dtSec, m_roadParams);
-                f.level = m_road.level();
-                f.targetLevel = 0.0;
-                if (f.level < 1e-4) continue;
-                for (const Route& r : p.routes)
+                m_roadLevel = 0.0;
+                if (m_roadDriven || m_road.active())
                 {
-                    if (r.gain <= 0.0) continue;
-                    const double s = m_road.outputFor(r.part);
-                    if (s == 0.0) continue;
-                    if (r.shaker >= 0) { toShaker(r, p.ampPct * s); continue; }   // a replay has no carrier: as is
-                    if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
-                    // No single carrier in a replay: derate a position sink
-                    // at a representative bump rate; the owner's sum guard
-                    // holds the axis limits regardless.
-                    m_overlay[r.axis] += p.ampPct * s * r.gain * sinkScale(r.axis, p.ampPct * r.gain, road_k::kDerateHz);
+                    m_roadDriven = false;
+                    if (p.ampPct <= 0.0) m_road.clear();
+                    else
+                    {
+                        m_road.step(dtSec, m_roadParams);
+                        m_roadLevel = m_road.level();
+                        if (m_roadLevel >= 1e-4)
+                            for (const Route& r : p.routes)
+                            {
+                                if (r.gain <= 0.0) continue;
+                                const double s = m_road.outputFor(r.part);
+                                if (s == 0.0) continue;
+                                if (r.shaker >= 0) { toShaker(r, p.ampPct * s); continue; }   // a replay has no carrier: as is
+                                if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
+                                // No single carrier in a replay: derate a position sink
+                                // at a representative bump rate; the owner's sum guard
+                                // holds the axis limits regardless.
+                                m_overlay[r.axis] += p.ampPct * s * r.gain * sinkScale(r.axis, p.ampPct * r.gain, road_k::kDerateHz);
+                            }
+                    }
                 }
-                continue;
+                // ...and on to the texture path with the law's level.
             }
             if (i == static_cast<int>(FxType::Driveline))
             {
@@ -416,7 +424,13 @@ public:
         m_road.drive(wheel, velMmS);
         m_roadDriven = true;
     }
+    void driveRoadTravel(int wheel, double travelMm)
+    {
+        m_road.driveTravel(wheel, travelMm);
+        m_roadDriven = true;
+    }
     double roadWheelTravelMm(int wheel) const { return m_road.wheelTravelMm(wheel); }
+    double roadReplayLevel() const            { return m_roadLevel; }
     bool   roadReplaying() const              { return m_road.active(); }
 
     // ---- driveline (clutch judder + lugging wind-up). Config apply for
@@ -452,8 +466,12 @@ public:
     bool muted() const           { return m_muted; }
 
     // Live level of one continuous effect (0..1 smoothed) - status surface.
+    // The Road slot shows the louder of its replay and its texture.
     double fxLevel(int i) const
-    { return (i >= 0 && i < FX_TYPE_COUNT) ? m_fx[i].level : 0.0; }
+    {
+        if (i < 0 || i >= FX_TYPE_COUNT) return 0.0;
+        return (i == static_cast<int>(FxType::Road)) ? std::max(m_fx[i].level, m_roadLevel) : m_fx[i].level;
+    }
 
     // What the effect is actually PUTTING OUT, not what it is being driven
     // with: zero when its amplitude is 0, it has no route with gain, or the
@@ -585,6 +603,7 @@ private:
     DrivelineModel  m_driveline;
     DrivelineParams m_drivelineParams;
     bool         m_roadDriven = false;   // a law drove corners this cycle
+    double       m_roadLevel  = 0.0;     // the replay's level this cycle (the texture has its own)
     EffectParams m_params[EVENT_TYPE_COUNT];
     EffectParams m_fxParams[FX_TYPE_COUNT];
     Event        m_events[MAX_EVENTS];
