@@ -322,6 +322,7 @@ body[data-view="setup"] .vw-op{ display:none !important; }
 .hr select{ width:92px; font-size:.72rem; padding:.1rem .2rem; }
 .hr input{ width:64px; font-size:.78rem; padding:.14rem .3rem; text-align:right;
   font-variant-numeric:tabular-nums; }
+.hr input[type=checkbox]{ width:auto; padding:0; margin:0 .2rem; }
 /* Bottom row pinned to the card bottom: tiles differ in row count (channel
    chip, 2 vs 3 params) and the grid stretches them to the tallest, so the
    rows block takes the slack and every mute/route/Test line sits level. */

@@ -276,7 +276,11 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
                 const bool abs = (info.kind == haptics::Kind::Abs);
                 const haptics::PulseParams& q = abs ? c.hapticsAbs : c.hapticsTc;
                 o["sharp"] = q.sharp; o["spread"] = q.spread;
-                if (abs) { o["slow"] = q.slow; o["buzz"] = q.buzz; o["buzzHz"] = q.buzzHz; }
+                if (abs)
+                {
+                    o["slow"] = q.slow; o["buzz"] = q.buzz; o["buzzHz"] = q.buzzHz;
+                    o["slipLink"] = q.slipLink; o["lockLink"] = q.lockLink; o["scrubLink"] = q.scrubLink;
+                }
             }
             else if (info.kind == haptics::Kind::Driveline)
             {
@@ -410,6 +414,9 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                     q.slow   = o.value("slow").toDouble(q.slow);
                     q.buzz   = o.value("buzz").toDouble(q.buzz);
                     q.buzzHz = o.value("buzzHz").toDouble(q.buzzHz);
+                    q.slipLink  = o.value("slipLink").toDouble(q.slipLink);
+                    q.lockLink  = o.value("lockLink").toDouble(q.lockLink);
+                    q.scrubLink = o.value("scrubLink").toDouble(q.scrubLink);
                 }
             }
             if (info.kind == haptics::Kind::Driveline)
@@ -1388,6 +1395,9 @@ std::vector<std::string> AppConfig::validate() const
                     if (q.slow < 0.0 || q.slow > 1.0)          errors.push_back(pfx + "slow out of range [0, 1]");
                     if (q.buzz < 0.0 || q.buzz > 1.0)          errors.push_back(pfx + "buzz out of range [0, 1]");
                     if (q.buzzHz < 15.0 || q.buzzHz > 120.0)   errors.push_back(pfx + "buzzHz out of range [15, 120]");
+                    if (q.slipLink != 0.0 && q.slipLink != 1.0) errors.push_back(pfx + "slipLink must be 0 (off) or 1 (on)");
+                    if (q.lockLink < 0.0 || q.lockLink > 1.0)   errors.push_back(pfx + "lockLink out of range [0, 1]");
+                    if (q.scrubLink < 0.0 || q.scrubLink > 1.0) errors.push_back(pfx + "scrubLink out of range [0, 1]");
                 }
             }
             if (info.kind == haptics::Kind::Slip)

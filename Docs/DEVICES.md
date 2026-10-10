@@ -504,6 +504,15 @@ that corner's valve; an axle or all plays its corners together, the full
 pulse when they are in step and less as they drift apart, as the car's
 body feels the four wheels' braking added up.
 
+Tick **slip link** to tie ABS to the slip tiles. While ABS works, each
+corner's valve then shapes that wheel's slip: the lock texture on the
+Longitudinal tile stays at the edge of locking (ABS never lets the wheel
+lock) and surges with every cycle, by **lock x** (0.7 by default); the
+Lateral tile's scrub and slide ease after each dump, when the tyre gets
+its grip back sideways, by **scrub x** (0.3). Spin is left alone. It works
+with the ABS tile's own amp at 0 too, if you want ABS felt only through
+the tyres. The sim's slip data arrives too slowly to carry the valves'
+rhythm itself, so this puts it back.
 **TC pulse** is the body surge of each traction-control cut: drive lost,
 then back, about **freq hz** times a second, with the same **sharp** and
 **spread** (each cut a little different in timing and depth).

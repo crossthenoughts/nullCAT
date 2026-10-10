@@ -399,7 +399,8 @@ private slots:
             return false; };
         cfg.hapticsAbs.sharp = 1.5;  QVERIFY2(refused("sharp"), "abs sharp 1.5 is refused");
         cfg.hapticsAbs.sharp = 0.5; cfg.hapticsAbs.buzzHz = 10.0; QVERIFY2(refused("buzzHz"), "buzz hz 10 is refused");
-        cfg.hapticsAbs.buzzHz = 40.0; cfg.hapticsTc.spread = -0.1; QVERIFY2(refused("spread"), "tc spread -0.1 is refused");
+        cfg.hapticsAbs.buzzHz = 40.0; cfg.hapticsAbs.slipLink = 0.5; QVERIFY2(refused("slipLink"), "slip link 0.5 is refused (off or on)");
+        cfg.hapticsAbs.slipLink = 1.0; cfg.hapticsTc.spread = -0.1; QVERIFY2(refused("spread"), "tc spread -0.1 is refused");
         cfg.hapticsTc.spread = 0.5; QVERIFY(cfg.validate().empty());
     }
 

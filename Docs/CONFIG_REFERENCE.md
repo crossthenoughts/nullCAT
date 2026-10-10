@@ -186,6 +186,7 @@ ABS and TC fields (`abs`, `tc`; `freqHz` is the cycle rate):
 | `abs`, `tc` | `spread` | `0.5` | 0 to 1: each cycle up to 30 % longer or shorter and 35 % shallower; for ABS each corner also on its own rate (up to 18 % apart), so the corners drift in and out of step. 0 = one regular pulse. |
 | `abs` | `slow` | `0.5` | 0 to 1: how far the cycle slows towards a stop (rate x (1 - slow x (1 - speed / 80 km/h)) below 80 km/h; speed unknown = full rate). |
 | `abs` | `buzz`, `buzzHz` | `0.3`, `40` | The pump and valve buzz: mix 0 to 1 and carrier 15 to 120 Hz. |
+| `abs` | `slipLink`, `lockLink`, `scrubLink` | `0`, `0.7`, `0.3` | Slip link (0 off, 1 on): while ABS works each corner's valve cycle shapes that wheel's slip tiles. The lock texture is held between 0.5 x the ABS level and 0.6 (never locked) and scaled by 1 - lockLink x (1 - m), m running from 1 with the pressure on to 0 just after the dump; lateral slip by 1 - scrubLink x (1 - m). Spin is untouched. Works with the ABS tile's amp at 0. |
 
 ABS routes take a `part`: one corner plays that corner's valve, an axle or `all` the average of its corners.
 Driveline-only fields (`driveline`):

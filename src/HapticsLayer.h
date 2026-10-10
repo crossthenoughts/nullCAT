@@ -256,6 +256,13 @@ public:
                 // model ramps per wheel itself.)
                 const double rate = (f.targetLevel > f.level) ? dtSec / 0.050 : dtSec / 0.120;
                 f.level += std::max(-rate, std::min(rate, f.targetLevel - f.level));
+                // ABS runs its corners' valves whenever it works, its own
+                // amp or not: the slip link (below, slip slots) follows them.
+                if (i == static_cast<int>(FxType::AbsPulse))
+                {
+                    m_absLinkLevel = (f.level >= 1e-4) ? f.level : 0.0;
+                    if (m_absLinkLevel > 0.0) m_absModel.step(dtSec, f.freqHz, m_absParams);
+                }
                 if (p.ampPct <= 0.0 || f.level < 1e-4) continue;
             }
             else if (p.ampPct <= 0.0)
@@ -308,7 +315,7 @@ public:
             {
                 const bool abs = (i == static_cast<int>(FxType::AbsPulse));
                 PulseModel& pm = abs ? m_absModel : m_tcModel;
-                pm.step(dtSec, f.freqHz, abs ? m_absParams : m_tcParams);
+                if (!abs) pm.step(dtSec, f.freqHz, m_tcParams);   // ABS stepped with its level, above
                 const double lvl = p.ampPct * f.level;
                 const double bz = pm.buzz(), bzHz = pm.buzzHz();
                 for (const Route& r : p.routes)
@@ -334,6 +341,25 @@ public:
             // component carrier on a position sink.
             if (SlipModel* sm = slipFor(static_cast<FxType>(i)))
             {
+                // ABS slip link: while ABS works, each wheel's slip follows
+                // its corner's valve. m: 1 with the pressure on (the slip at
+                // its highest), 0 just after the dump (the wheel recovering).
+                // Lock: at the edge of locking every cycle, never locked
+                // (held between kAbsLockFloor x level and kAbsLockCap),
+                // surging with the cycle; lateral: scrub and slide easing
+                // after each dump; spin untouched.
+                if (m_absParams.slipLink >= 0.5 && m_absLinkLevel > 0.0)
+                {
+                    const bool lon = (static_cast<FxType>(i) == FxType::Lockup);
+                    const double link = std::max(0.0, std::min(1.0, lon ? m_absParams.lockLink : m_absParams.scrubLink));
+                    for (int w = 0; w < WHEEL_COUNT; ++w)
+                    {
+                        const double m = 0.5 * (1.0 + m_absModel.channel(w));
+                        const double k = 1.0 - link * (1.0 - m);
+                        if (lon) sm->shape(w, kAbsLockFloor * m_absLinkLevel, kAbsLockCap, k, 1.0);
+                        else     sm->shape(w, 0.0, 1.0, k, k);
+                    }
+                }
                 sm->step(dtSec, p, *slipParamsFor(static_cast<FxType>(i)));
                 f.level = sm->level();
                 if (f.level < 1e-4) continue;
@@ -666,6 +692,7 @@ public:
         m_surfLevel = m_surfTarget = 0.0; m_surfOsc.reset();
         m_driveline.clear();
         m_absModel.clear();
+        m_absLinkLevel = 0.0;
         m_tcModel.clear();
         for (double& o : m_overlay) o = 0.0;
         for (double& o : m_shaker)  o = 0.0;
@@ -770,6 +797,10 @@ private:
     PulseModel   m_tcModel{ 1, pulse_k::kTcDrop };
     PulseParams  m_absParams;
     PulseParams  m_tcParams{ 0.3, 0.5, 0.0, 0.0, 40.0 };
+    double       m_absLinkLevel = 0.0;   // ABS working this cycle (its smoothed level), for the slip link
+    // The slip link's lock: ABS keeps a wheel at the edge of locking, never
+    // locked.
+    static constexpr double kAbsLockFloor = 0.5, kAbsLockCap = 0.6;
     bool         m_roadDriven = false;   // a law drove corners this cycle
     double       m_roadLevel  = 0.0;     // the replay's level this cycle (the texture has its own)
     double       m_surfTarget = 0.0, m_surfLevel = 0.0;   // the surface grain (Road slot)

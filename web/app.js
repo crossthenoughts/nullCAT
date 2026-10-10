@@ -1143,6 +1143,11 @@ function hapDimFor(k,dv,have){
     if(fed) HAP_ROAD_TEX_KEYS.forEach(x=>{ if(!(m===0&&x==='jitter')) dim[x]='The roadNoise texture: only when the model has nothing to run on'; });
     return dim;
   }
+  if(k==='abs'){
+    const dim={};
+    if(Math.round(+dv.slipLink)!==1){ dim.lockLink='Slip link is off'; dim.scrubLink='Slip link is off'; }
+    return dim;
+  }
   if(k==='kerb'){
     const dim={};
     if(all('surface')){ dim.peakPct='The sim sends the surface under each tyre: the curbs channel is not used'; dim.detectMm='The sim sends the surface under each tyre: no detection needed'; }
@@ -1760,7 +1765,9 @@ function hapInit(){
     h+='<div class="hrows">';
     for(const [key,lab,min,max,st,opts] of fx.params){
       h+='<div class="hr" data-pk="'+key+'"><span class="hk">'+lab+'</span>';
-      if(opts)   // a choice, not a number: value = option index
+      if(opts&&opts.length===2&&/^(off|no)$/i.test(opts[0]))   // an on/off choice: a tickbox (value 0 / 1)
+        h+='<input type="checkbox" data-k="'+key+'"'+(Math.round(+dv[key])===1?' checked':'')+'></div>';
+      else if(opts)   // a choice, not a number: value = option index
         h+='<select data-k="'+key+'">'+opts.map((o,i)=>'<option value="'+i+'"'+(Math.round(+dv[key])===i?' selected':'')+'>'+o+'</option>').join('')+'</select></div>';
       else
         h+='<input type="number" min="'+min+'" max="'+max+'" step="'+st+'" data-k="'+key+'" value="'+dv[key]+'"></div>';
@@ -1774,9 +1781,10 @@ function hapInit(){
     tile.innerHTML=h;
     const svg=tile.querySelector('svg'); hapWave(svg,fx,dv);
     tile.querySelectorAll('input,select').forEach(inp=>{ inp.onchange=()=>{
-      const v=+inp.value; if(!isFinite(v)) return;
-      dv[inp.dataset.k]=(inp.tagName==='SELECT')?v:Math.max(+inp.min,Math.min(+inp.max,v));
-      if(inp.tagName!=='SELECT') inp.value=dv[inp.dataset.k];
+      const box=(inp.type==='checkbox');
+      const v=box?(inp.checked?1:0):+inp.value; if(!isFinite(v)) return;
+      dv[inp.dataset.k]=(inp.tagName==='SELECT'||box)?v:Math.max(+inp.min,Math.min(+inp.max,v));
+      if(inp.tagName!=='SELECT'&&!box) inp.value=dv[inp.dataset.k];
       hapWave(svg,fx,dv);
       tile.classList.toggle('on',dv.ampPct>0);
       refreshDirtyUI();

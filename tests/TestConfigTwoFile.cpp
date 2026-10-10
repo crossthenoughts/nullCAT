@@ -130,7 +130,7 @@ private slots:
         c.hapticsSlipLon = { 0.9, 8.0, 0.2, 12.0, 0.6 };
         c.hapticsRoad    = { 12.0, 3.5, 0.35, 140.0, 18.0, 2.0, 1.5, 4.0, 18.0, 0.4, 3.0 };
         c.hapticsKerb    = { 30.0, 10.0, 4.0, 12.0, 15.0 };
-        c.hapticsAbs     = { 0.6, 0.8, 0.4, 0.5, 55.0 };
+        c.hapticsAbs     = { 0.6, 0.8, 0.4, 0.5, 55.0, 1.0, 0.45, 0.2 };
         c.hapticsTc      = { 0.2, 0.9, 0.0, 0.0, 40.0 };
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Abs)].routes[0].part = haptics::Part::FR;
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Kerb)].routes[1].part = haptics::Part::Front;
@@ -186,6 +186,7 @@ private slots:
         QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Kerb)].routes[1].part == haptics::Part::Front);
         QCOMPARE(r.hapticsAbs.sharp, 0.6); QCOMPARE(r.hapticsAbs.spread, 0.8); QCOMPARE(r.hapticsAbs.slow, 0.4);
         QCOMPARE(r.hapticsAbs.buzz, 0.5);  QCOMPARE(r.hapticsAbs.buzzHz, 55.0);
+        QCOMPARE(r.hapticsAbs.slipLink, 1.0); QCOMPARE(r.hapticsAbs.lockLink, 0.45); QCOMPARE(r.hapticsAbs.scrubLink, 0.2);
         QCOMPARE(r.hapticsTc.sharp, 0.2);  QCOMPARE(r.hapticsTc.spread, 0.9);
         QCOMPARE(r.hapticsTc.slow, 0.0);   QCOMPARE(r.hapticsTc.buzz, 0.0);   // TC carries neither
         QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Abs)].routes[0].part == haptics::Part::FR);

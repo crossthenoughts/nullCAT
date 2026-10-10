@@ -83,6 +83,9 @@ constexpr ParamSpec kAbsParams[] = {            // ABS: the corners' valves, the
     { "slow",   "slow x",    0,   1,   0.05, nullptr },   // the cycle slowing towards a stop
     { "buzz",   "buzz x",    0,   1,   0.05, nullptr },   // the pump and valves
     { "buzzHz", "buzz hz",   15,  120, 1,    nullptr },
+    { "slipLink",  "slip link", 0, 1,  1,    "off|on" },  // the corners' valves shape the slip tiles
+    { "lockLink",  "lock x",    0, 1,  0.05, nullptr },   // ...the lock texture surging with each cycle
+    { "scrubLink", "scrub x",   0, 1,  0.05, nullptr },   // ...the lateral slip easing after each dump
 };
 constexpr ParamSpec kTcParams[] = {             // TC: the cuts' surge
     { "ampPct", "amp %",     0,   100, 1,    nullptr },
@@ -208,14 +211,16 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "fuel-cut crackle on the overrun. Needs rpm (throttle, limiter and boost optional).",
       nullptr, {} },
     { Effect::Abs,         "abs",         "ABS",          Kind::Abs, EventType::COUNT, FxType::AbsPulse,
-      { "brakePct", "absActive", "~speedKmh", nullptr }, { 0.0, 12.0, 0.0, 0.0 }, kAbsParams, 7,
+      { "brakePct", "absActive", "~speedKmh", nullptr }, { 0.0, 12.0, 0.0, 0.0 }, kAbsParams, 10,
       "ABS working under braking: at each corner the valve dumps the brake pressure and rebuilds it, about freq hz "
       "times a second, so the car's deceleration judders. sharp is the dump's edge (0 round, 1 a hard knock); "
       "spread lets each corner run on its own rate and each cycle differ, so the four drift in and out of step and "
       "the car grumbles rather than beating; slow x slows the cycle as the car slows (the thump-thump before a "
       "stop: 0.5 = half rate at a standstill); buzz x / hz is the pump and valves underneath, best on a belt or "
-      "shaker. Route with a part so a post carries its own corner. Needs the absActive and brakePct channels "
-      "(speed for slow x).",
+      "shaker. Route with a part so a post carries its own corner. Slip link on: while ABS works each corner's "
+      "valve shapes that wheel's slip tiles, the lock texture held at the edge of locking and surging with each "
+      "cycle (lock x), the lateral slip easing after each dump (scrub x); this works with ABS's own amp at 0 too. "
+      "Needs the absActive and brakePct channels (speed for slow x).",
       nullptr, {} },
     { Effect::Lockup,      "slipLon",     "Longitudinal slip", Kind::Slip, EventType::COUNT, FxType::Lockup,
       { "slipRatio*|wheelSpeed*|lockup", "speedKmh", "~load*", nullptr }, { 0.0, 9.0, 0.0, 0.2 }, kSlipLonParams, 8,

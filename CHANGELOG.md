@@ -31,7 +31,11 @@ Development branch. Nothing here is in a release yet.
   carry its own corner. TC gets **sharp** and **spread** too. The
   defaults are softer and less regular than before; sharp 1 and spread
   0 give the old pulse back.
-- Lateral slip: how a slide comes in is now yours to set. **onset %**
+- ABS **slip link** (a tickbox on the ABS tile): while ABS works, each
+  corner's valve shapes that wheel's slip tiles: the lock texture held at
+  the edge of locking and surging with every cycle (`lock x`), the
+  lateral slip easing after each dump (`scrub x`). Works with ABS's own
+  amp at 0. On/off settings on the tiles are tickboxes now (turbo too).- Lateral slip: how a slide comes in is now yours to set. **onset %**
   (where it starts, as a share of peak deg; 40, was a fixed 60), **ease**
   (0 straight up, 1 a light scrub first), **smooth hz** (steadies the
   slip angle the sim sends, which flickered around the onset and played

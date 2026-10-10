@@ -65,6 +65,17 @@ public:
         w.tB = std::max(0.0, std::min(1.0, b));
     }
 
+    // Reshape a wheel's driven severities after drive() and before step()
+    // (the ABS slip link): component A held between floorA and capA, then
+    // each scaled (kA, kB).
+    void shape(int wheel, double floorA, double capA, double kA, double kB)
+    {
+        if (wheel < 0 || wheel >= WHEEL_COUNT) return;
+        W& w = m_w[wheel];
+        w.tA = std::max(0.0, std::min(1.0, std::min(capA, std::max(w.tA, floorA)) * kA));
+        w.tB = std::max(0.0, std::min(1.0, w.tB * kB));
+    }
+
     // Carrier multipliers applied on top of the set hz (lock judder falls
     // with road speed; 1 = as set).
     void setCarrierScale(double aScale, double bScale)

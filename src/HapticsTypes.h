@@ -138,6 +138,13 @@ struct PulseParams
     double slow   = 0.5;    // ABS: how far the cycle slows towards a stop (0 = never, 0.5 = half rate at a standstill)
     double buzz   = 0.3;    // ABS: the pump and valve buzz mix 0..1
     double buzzHz = 40.0;   // ...its carrier
+    // ABS slip link (0 off, 1 on): while ABS works, each corner's valve
+    // cycle shapes that wheel's slip tiles. lockLink: the lock texture,
+    // held near (never at) full lock and surging with the cycle; scrubLink:
+    // the lateral slip easing after each dump. Spin is untouched.
+    double slipLink  = 0.0;
+    double lockLink  = 0.7;
+    double scrubLink = 0.3;
 };
 
 // The Driveline tile: clutch judder and lugging wind-up, each a mix and

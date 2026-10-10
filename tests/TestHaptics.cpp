@@ -1525,6 +1525,51 @@ int main()
             std::vector<double> diff(withBuzz[0].size());
             for (size_t i = 0; i < diff.size(); ++i) diff[i] = withBuzz[0][i] - inStep[2][i];
             approx(static_cast<double>(crossings(diff).size()) / 4.0, 40.0, 4.0, "abs buzz: a buzz at buzz hz under the pulse");
+
+            // Slip link: while ABS works each corner's valve shapes that
+            // wheel's slip tiles. ABS's own amp 0 (felt only through the slip
+            // tiles); the sim shows no lock on FL, a full scrub on FL, full
+            // spin on RR.
+            auto linked = [&](double link, double simLock, std::vector<double>& lockFL, std::vector<double>& scrubFL,
+                              std::vector<double>& spinRR, std::vector<double>& valveFL) {
+                Layer L; EffectParams a; a.ampPct = 0.0; a.freqHz = 10.0;
+                EffectParams s; s.ampPct = 100.0; s.routes[0] = { 0, 1.0 };
+                L.configureFx(FxType::AbsPulse, a); L.configureFx(FxType::Lockup, s); L.configureFx(FxType::Skid, s);
+                PulseParams q{ 1.0, 0.0, 0.0, 0.0, 40.0 }; q.slipLink = link; q.lockLink = 0.7; q.scrubLink = 0.3;
+                L.configurePulse(FxType::AbsPulse, q);
+                for (int i = 0; i < 6000; ++i)
+                {
+                    L.driveFx(FxType::AbsPulse, 1.0, 0.0);
+                    for (int w = 0; w < 4; ++w) L.driveSlip(FxType::Lockup, w, w == WheelFL ? simLock : 0.0, w == WheelRR ? 1.0 : 0.0);
+                    L.driveSlip(FxType::Skid, WheelFL, 1.0, 0.0);
+                    L.step(DT);
+                    if (i >= 2000)
+                    {
+                        lockFL.push_back(L.slipWheelLevel(FxType::Lockup, WheelFL));
+                        scrubFL.push_back(L.slipWheelLevel(FxType::Skid, WheelFL));
+                        spinRR.push_back(L.slipWheelLevel(FxType::Lockup, WheelRR));
+                        valveFL.push_back(L.absModel().channel(WheelFL));
+                    }
+                }
+            };
+            auto lo = [](const std::vector<double>& v) { double m = 1e9; for (double x : v) m = std::min(m, x); return m; };
+            auto hi = [](const std::vector<double>& v) { double m = -1e9; for (double x : v) m = std::max(m, x); return m; };
+            std::vector<double> lk, sc, sp, vf;
+            linked(1.0, 0.0, lk, sc, sp, vf);
+            CHECK(hi(lk) > 0.4 && hi(lk) <= 0.6 + 1e-9 && lo(lk) < 0.3, "abs slip link: the lock texture surges each cycle at the edge of locking, never locked");
+            auto ccorr = [&](const std::vector<double>& a, const std::vector<double>& b) {
+                const double ma = mean(a), mb = mean(b); double ab = 0.0, aa = 0.0, bb = 0.0;
+                for (size_t i = 0; i < a.size(); ++i) { ab += (a[i] - ma) * (b[i] - mb); aa += (a[i] - ma) * (a[i] - ma); bb += (b[i] - mb) * (b[i] - mb); }
+                return ab / std::sqrt(aa * bb); };
+            CHECK(ccorr(lk, vf) > 0.5, "abs slip link: ...in step with that corner's valve");
+            CHECK(hi(sc) > 0.95 && lo(sc) < 0.85, "abs slip link: the scrub eases after each dump and returns");
+            CHECK(lo(sp) > 0.95, "abs slip link: spin is untouched");
+            std::vector<double> lk2, sc2, sp2, vf2;
+            linked(1.0, 1.0, lk2, sc2, sp2, vf2);
+            CHECK(hi(lk2) <= 0.6 + 1e-9, "abs slip link: a wheel the sim shows locked stays at the edge while ABS works");
+            std::vector<double> lk0, sc0, sp0, vf0;
+            linked(0.0, 0.0, lk0, sc0, sp0, vf0);
+            CHECK(hi(lk0) < 1e-9 && lo(sc0) > 0.95, "abs slip link off: the slip tiles are the sim's alone");
         }
 
         // Traction control cuts a share of the engine's firings, more with

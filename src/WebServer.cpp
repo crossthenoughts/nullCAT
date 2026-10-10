@@ -1561,7 +1561,11 @@ bool WebServer::start()
                     const AppConfig dc;   // the tiles' defaults (TC has no slow or buzz)
                     const haptics::PulseParams& q = (info.kind == haptics::Kind::Abs) ? dc.hapticsAbs : dc.hapticsTc;
                     d["sharp"] = q.sharp; d["spread"] = q.spread;
-                    if (info.kind == haptics::Kind::Abs) { d["slow"] = q.slow; d["buzz"] = q.buzz; d["buzzHz"] = q.buzzHz; }
+                    if (info.kind == haptics::Kind::Abs)
+                    {
+                        d["slow"] = q.slow; d["buzz"] = q.buzz; d["buzzHz"] = q.buzzHz;
+                        d["slipLink"] = q.slipLink; d["lockLink"] = q.lockLink; d["scrubLink"] = q.scrubLink;
+                    }
                 }
                 else if (info.kind == haptics::Kind::Driveline)
                 {
