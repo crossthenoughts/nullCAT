@@ -2168,6 +2168,29 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
         if (state != AxisMotionState::PARKED)
             rt.parkHoldLatched = false;
 
+        // Last line: while live telemetry shapes a position axis's command,
+        // it can never move further in one cycle than the axis's maxVelocity
+        // allows. The guards upstream already hold this; if one ever fails,
+        // the step is held to the limit here and logged once, instead of
+        // reaching the drive as a jump.
+        if (!ac.torqueMode && !ac.caps.isDevice()
+            && (state == AxisMotionState::ONLINE || state == AxisMotionState::BLENDING))
+        {
+            const double maxStep = ac.maxVelocityMmS * m_cycleTimeSec * 1.05 + 1.0 / std::max(1.0, ac.countsPerMm);
+            const double step = outPos - rt.currentPos;
+            if (std::fabs(step) > maxStep)
+            {
+                if (!rt.stepGuardWarned)
+                {
+                    RT_LOG_WARNING("MotionController: Axis %d command step %.3f mm in one cycle held to %.3f mm "
+                        "(maxVelocity) -- a guard upstream let it through.", i + 1, step, maxStep);
+                    rt.stepGuardWarned = true;
+                }
+                outPos = rt.currentPos + std::copysign(maxStep, step);
+            }
+        }
+        else rt.stepGuardWarned = false;
+
         // Haptics overlay: rides ON TOP of whatever the state machine
         // commanded, torque-mode axes only, live states only (a limp or
         // parking axis never buzzes), and the SUM is clamped inside the

@@ -4,6 +4,25 @@ Notable changes to nullCAT. Format follows [Keep a Changelog](https://keepachang
 versioning is [Semantic Versioning](https://semver.org/) - while on `0.x`, the
 middle number carries breaking changes and the last carries fixes.
 
+## [0.9.7] - unreleased
+
+A safety fix for 0.9.6. Nothing else changes; update whenever the rig is
+parked.
+
+### Fixed
+- Position axes (seat actuators, surge): when the motion data spiked and
+  snapped back from one frame to the next (a glitch in the stream, a crash
+  spike that got past the sender's filter, a reset in the sim), the
+  command could swing past the axis's maximum velocity the other way
+  within a single control cycle: a hard jolt, or an excessive position
+  increment fault (Er87) on the drive. Stopping is still immediate, but
+  reversing now respects the acceleration limit, and nothing exceeds the
+  maximum velocity.
+- A last line of defence: while the sim drives a position axis, its
+  command can never move further in one cycle than the axis's maximum
+  velocity allows. If anything upstream ever lets more through, it is held
+  to that limit and logged once.
+
 ## [0.9.6] - 2026-10-07
 
 0.9.5 was a pre-release that never became an official release. If you

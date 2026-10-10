@@ -390,6 +390,32 @@ static void OvershootStop(double v)
     check("Relative braking: instant-stop overshoot bounded to momentum floor", maxOver <= floor*1.3 + 0.5, d);
 }
 
+// ---- Wild target: the braking cap never commands past Vmax or reverses at once ----
+// The braking cap is the target's estimated velocity +- the braking velocity. A
+// target that jumps every cycle (the 0.9.7 bench: a haptic overlay fed back into
+// the hold) gives a wild estimate, and the cap swung the command past Vmax the
+// other way in one cycle. Now: |vel| <= Vmax always, and a reversal takes Amax.
+static void WildTarget()
+{
+    CommandConditioner f; f.reset(0, 0);
+    uint32_t rng = 12345u;
+    double prev = 0.0, prevV = 0.0, maxV = 0.0, maxRevStep = 0.0; bool havePrevV = false;
+    for (int n = 0; n < 20000; ++n)
+    {
+        rng = rng * 1664525u + 1013904223u;
+        const double jump = ((rng >> 8) / 16777216.0 - 0.5) * 2.0;     // +-1 mm every cycle
+        const double tgt = 3.0 * std::sin(2.0 * M_PI * 12.0 * n * DT) + jump;
+        const double p = f.stepBypass(tgt, DT, DT, VMAX, AMAX, BRAKE_EPS);
+        const double v = (p - prev) / DT;
+        if (std::fabs(v) > maxV) maxV = std::fabs(v);
+        if (havePrevV && v * prevV < 0.0 && std::fabs(v) * DT > maxRevStep) maxRevStep = std::fabs(v) * DT;
+        prev = p; prevV = v; havePrevV = true;
+    }
+    char d[180]; snprintf(d, sizeof(d), "peak |vel| %.1f mm/s (Vmax %.0f), largest step out of a reversal %.4f mm (Amax*dt^2 %.4f)",
+                          maxV, VMAX, maxRevStep, AMAX * DT * DT);
+    check("Wild target: never past Vmax, no instant reversal", maxV <= VMAX * (1.0 + 1e-9) && maxRevStep <= AMAX * DT * DT * 1.001, d);
+}
+
 // ---- vt accuracy DURING binds: a bind is only a problem if vt was inaccurate ----
 // A relative-braking bind is not inherently bad -- if vt is tracking the real target
 // velocity well and the clamp engages on a genuine fast transient, that is the clamp
@@ -554,6 +580,7 @@ int main()
     printf("--- target-velocity-aware (relative) braking: low-latency + bounded overshoot ---\n");
     RelBraking(100.0); RelBraking(200.0); RelBraking(300.0);
     OvershootStop(200.0); OvershootStop(300.0);
+    WildTarget();
     VtAccuracyDuringBinds();
     WindowedAccel();
     BypassClean();

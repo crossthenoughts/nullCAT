@@ -391,6 +391,7 @@ private:
         int     blendExtensions   = 0;
         TrajectoryState traj;     // s-curve planner state
         CommandConditioner onlineCond;   // CSP command conditioner (Bypass/Interpolate/Filter); seeded at handoff
+        bool    stepGuardWarned   = false; // the last-line step check has logged this live stretch
         double  onlineStaleSec    = 0.0;  // time since last valid telemetry frame in ONLINE
         double  lastTension       = 0.0;  // belt: last commanded torque % (stale-hold + park-ramp start)
         // Belt guard runtime (armed through BLENDING + ONLINE; re-seeded each tension-up)
