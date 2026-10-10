@@ -1813,6 +1813,7 @@ static void applyHapticsTo(haptics::Layer& L, const std::array<haptics::EffectPa
                            const haptics::EngineParams& engine, const haptics::SlipParams& slipLat,
                            const haptics::SlipParams& slipLon, const haptics::RoadParams& road,
                            const haptics::KerbParams& kerb, const haptics::PulseParams& abs, const haptics::PulseParams& tc,
+                           const haptics::SurfaceParams& surface,
                            const haptics::DrivelineParams& driveline, double masterGain)
 {
     for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
@@ -1829,6 +1830,7 @@ static void applyHapticsTo(haptics::Layer& L, const std::array<haptics::EffectPa
             case haptics::Kind::Kerb:
             case haptics::Kind::Abs:
             case haptics::Kind::Tc:
+            case haptics::Kind::Surface:
             case haptics::Kind::Driveline:  L.configureFx(info.fx, p);   break;
         }
     }
@@ -1839,6 +1841,7 @@ static void applyHapticsTo(haptics::Layer& L, const std::array<haptics::EffectPa
     L.configureKerb(kerb);
     L.configurePulse(haptics::FxType::AbsPulse, abs);
     L.configurePulse(haptics::FxType::TcPulse, tc);
+    L.configureSurface(surface);
     L.configureDriveline(driveline);
     L.setMasterGain(masterGain);
 }
@@ -1846,7 +1849,7 @@ static void applyHapticsTo(haptics::Layer& L, const std::array<haptics::EffectPa
 void MotionController::applyHaptics(const AppConfig& c)
 {
     applyHapticsTo(m_haptics, c.hapticsFx, c.hapticsEngine, c.hapticsSlipLat, c.hapticsSlipLon, c.hapticsRoad, c.hapticsKerb,
-                   c.hapticsAbs, c.hapticsTc, c.hapticsDriveline, c.hapticsMasterGain);
+                   c.hapticsAbs, c.hapticsTc, c.hapticsSurface, c.hapticsDriveline, c.hapticsMasterGain);
 }
 
 // What each axis is as a haptic destination, and for position axes the
@@ -1889,6 +1892,7 @@ void MotionController::stageHaptics(const AppConfig& c)
     m_hapStage.kerb       = c.hapticsKerb;
     m_hapStage.abs        = c.hapticsAbs;
     m_hapStage.tc         = c.hapticsTc;
+    m_hapStage.surface    = c.hapticsSurface;
     m_hapStage.driveline  = c.hapticsDriveline;
     m_hapStage.masterGain = c.hapticsMasterGain;
     m_hapStage.positionBudget = c.hapticsPositionBudget;
@@ -1904,7 +1908,7 @@ void MotionController::applyStagedHaptics()
     HapticsStage s;   // trivially copyable, no allocation on this thread
     { std::lock_guard<std::mutex> lk(m_hapStageLock); s = m_hapStage; }
     m_hapStagePending.store(false, std::memory_order_release);
-    applyHapticsTo(m_haptics, s.fx, s.engine, s.slipLat, s.slipLon, s.road, s.kerb, s.abs, s.tc, s.driveline, s.masterGain);
+    applyHapticsTo(m_haptics, s.fx, s.engine, s.slipLat, s.slipLon, s.road, s.kerb, s.abs, s.tc, s.surface, s.driveline, s.masterGain);
     m_hapPositionBudget = std::max(0.0, std::min(1.0, s.positionBudget));
     m_haptics.setAxisDelayCycles(static_cast<int>(s.axisDelayMs / 1000.0 / std::max(1e-6, m_cycleTimeSec) + 0.5));
     applyHapticSinks();

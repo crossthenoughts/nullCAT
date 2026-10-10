@@ -38,14 +38,20 @@ struct NcxTok
         AccHeave,                                               // body vertical acceleration, m/s^2, up positive
         PitchDeg, RollDeg,                                      // body pitch and roll, degrees
         Wheelbase, TrackWidth,                                  // car geometry, m (contact patch to contact patch)
+        // protocol 1.6
+        Rain,                                                   // rain falling, 0..1 (0 dry weather, 1 the heaviest)
+        Wet,                                                    // water on the road, 0..1 (0 dry, 1 standing water), where the sim knows it
+        WetFL, WetFR, WetRL, WetRR,                             // ...under each tyre, where the sim knows it (wins over wet)
         TokenCount
     };
 };
 
-// What the ground under a tyre is, as a sender reports it (protocol 1.5).
-// Senders map their sim's own surface names onto these.
+// What the ground under a tyre is, as a sender reports it (protocol 1.5;
+// snow to water since 1.6). Senders map their sim's own surface names onto
+// these.
 enum SurfaceClass { SurfTarmac = 0, SurfBumpy = 1, SurfKerb = 2, SurfGravel = 3, SurfGrass = 4,
-                    SurfDirt = 5, SurfCobbles = 6, SURFACE_CLASS_COUNT = 7 };
+                    SurfDirt = 5, SurfCobbles = 6, SurfSnow = 7, SurfIce = 8, SurfSand = 9,
+                    SurfMud = 10, SurfWater = 11, SURFACE_CLASS_COUNT = 12 };
 
 // Wheel order used by every per-wheel token group.
 enum Wheel { WheelFL = 0, WheelFR = 1, WheelRL = 2, WheelRR = 3, WHEEL_COUNT = 4 };
@@ -68,6 +74,7 @@ inline const char* ncxTokenName(int t)
         "roadHeightFL", "roadHeightFR", "roadHeightRL", "roadHeightRR",
         "surfaceFL", "surfaceFR", "surfaceRL", "surfaceRR",
         "accHeave", "pitchDeg", "rollDeg", "wheelbase", "trackWidth",
+        "rain", "wet", "wetFL", "wetFR", "wetRL", "wetRR",
     };
     return (t >= 0 && t < NcxTok::TokenCount) ? kNames[t] : "";
 }

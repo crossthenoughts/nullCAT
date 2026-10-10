@@ -271,6 +271,12 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
                 o["pitchCm"] = k.pitchCm; o["riseMm"] = k.riseMm; o["ribMm"] = k.ribMm;
                 o["fullMm"] = k.fullMm; o["detectMm"] = k.detectMm;
             }
+            else if (info.kind == haptics::Kind::Surface)
+            {
+                const haptics::SurfaceParams& s = c.hapticsSurface;
+                o["stones"] = s.stones; o["crunch"] = s.crunch; o["studs"] = s.studs;
+                o["puddles"] = s.puddles; o["aquaKmh"] = s.aquaKmh; o["smooth"] = s.smooth;
+            }
             else if (info.kind == haptics::Kind::Abs || info.kind == haptics::Kind::Tc)
             {
                 const bool abs = (info.kind == haptics::Kind::Abs);
@@ -402,6 +408,16 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                 k.ribMm    = o.value("ribMm").toDouble(k.ribMm);
                 k.fullMm   = o.value("fullMm").toDouble(k.fullMm);
                 k.detectMm = o.value("detectMm").toDouble(k.detectMm);
+            }
+            if (info.kind == haptics::Kind::Surface)
+            {
+                haptics::SurfaceParams& s = c.hapticsSurface;
+                s.stones  = o.value("stones").toDouble(s.stones);
+                s.crunch  = o.value("crunch").toDouble(s.crunch);
+                s.studs   = o.value("studs").toDouble(s.studs);
+                s.puddles = o.value("puddles").toDouble(s.puddles);
+                s.aquaKmh = o.value("aquaKmh").toDouble(s.aquaKmh);
+                s.smooth  = o.value("smooth").toDouble(s.smooth);
             }
             if (info.kind == haptics::Kind::Abs || info.kind == haptics::Kind::Tc)
             {
@@ -1383,6 +1399,16 @@ std::vector<std::string> AppConfig::validate() const
                 if (k.ribMm < 0.0 || k.ribMm > 20.0)        errors.push_back(pfx + "ribMm out of range [0, 20]");
                 if (k.fullMm < 0.5 || k.fullMm > 50.0)      errors.push_back(pfx + "fullMm out of range [0.5, 50]");
                 if (k.detectMm < 0.0 || k.detectMm > 100.0) errors.push_back(pfx + "detectMm out of range [0, 100]");
+            }
+            if (info.kind == haptics::Kind::Surface)
+            {
+                const haptics::SurfaceParams& s = hapticsSurface;
+                if (s.stones < 0.0 || s.stones > 1.0)     errors.push_back(pfx + "stones out of range [0, 1]");
+                if (s.crunch < 0.0 || s.crunch > 1.0)     errors.push_back(pfx + "crunch out of range [0, 1]");
+                if (s.studs != 0.0 && s.studs != 1.0)     errors.push_back(pfx + "studs must be 0 (off) or 1 (on)");
+                if (s.puddles < 0.0 || s.puddles > 1.0)   errors.push_back(pfx + "puddles out of range [0, 1]");
+                if (s.aquaKmh < 40.0 || s.aquaKmh > 250.0) errors.push_back(pfx + "aquaKmh out of range [40, 250]");
+                if (s.smooth < 0.0 || s.smooth > 1.0)     errors.push_back(pfx + "smooth out of range [0, 1]");
             }
             if (info.kind == haptics::Kind::Abs || info.kind == haptics::Kind::Tc)
             {

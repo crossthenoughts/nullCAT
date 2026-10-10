@@ -445,9 +445,12 @@ namespace NullcatChannelExporter
         }
 
         // Automobilista 2: the surface under each tyre (the game's terrain
-        // material), mapped onto protocol 1.5's plain classes.
+        // material), mapped onto the protocol's plain classes, and the rain.
         private static void AppendAms2Surface(StringBuilder y, PluginManager pm)
         {
+            double rain;
+            if (ReadRaw(pm, "DataCorePlugin.GameRawData.mRainDensity", out rain) && !double.IsNaN(rain))
+                y.Append(",rain=").Append(Math.Max(0, Math.Min(1, rain)).ToString("0.###", CultureInfo.InvariantCulture));
             var cls = new int[4];
             for (var w = 0; w < 4; w++)
             {
@@ -459,19 +462,22 @@ namespace NullcatChannelExporter
                 y.Append(",surface").Append(Wheels[w]).Append('=').Append(cls[w].ToString(CultureInfo.InvariantCulture));
         }
 
-        // Project CARS 2 / AMS2 terrain materials -> 0 tarmac, 1 bumpy tarmac,
-        // 2 kerb (rumble strip), 3 gravel and sand, 4 grass, 5 dirt and snow,
-        // 6 cobbles.
+        // AMS2 terrain materials (SimHub's AMS2 eTerrain) -> 0 tarmac,
+        // 1 bumpy tarmac, 2 kerb (rumble strip), 3 gravel, 4 grass, 5 dirt,
+        // 6 cobbles, 7 snow, 8 ice, 9 sand.
         private static int Ams2SurfaceClass(int t)
         {
             switch (t)
             {
                 case 2: case 3: case 4: case 11: case 35: case 36: return 1;          // bumpy roads, drains, damaged, train track
                 case 10: case 25: case 40: case 41: return 2;                         // rumble strips, exit rumble strips, B1/B2 rumbles
-                case 8: case 9: case 15: case 16: case 42: case 43: return 3;         // gravel, sand
+                case 8: case 9: return 3;                                             // gravel, bumpy gravel
                 case 6: case 7: case 24: case 26: case 27: case 28: case 32: return 4; // grass, verges, grasscrete, astroturf
-                case 17: case 18: case 19: case 20: case 22: case 30: case 31: case 33: case 34: return 5; // dirt, clay, snow
+                case 5: case 17: case 18: case 19: case 20: case 22: case 31: return 5; // marbles, dirt, dirt roads, dirt bank, baked clay
                 case 23: case 29: case 37: return 6;                                  // wood, cobbles
+                case 33: case 34: case 44: return 7;                                  // snow half, snow full, snow walls
+                case 45: return 8;                                                    // ice road
+                case 15: case 16: case 30: case 42: case 43: return 9;                // sand, bumpy sand, sand road, rough sand
                 default: return 0;
             }
         }

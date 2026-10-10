@@ -500,6 +500,7 @@ private:
         haptics::RoadParams   road;
         haptics::KerbParams   kerb;
         haptics::PulseParams  abs, tc;
+        haptics::SurfaceParams surface;
         haptics::DrivelineParams driveline;
         double masterGain = 1.0;
         double positionBudget = 0.4;

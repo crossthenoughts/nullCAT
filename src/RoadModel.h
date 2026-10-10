@@ -78,10 +78,14 @@ namespace road_k {
     constexpr double kForceRefHz   = 8.0;   // a force sink's 100% = full scale moved at this rate
     constexpr double kInputLpHz    = 25.0;  // sim values arrive ~60 times a second, held: smooth the steps
     // Roughness per surface class (tarmac, bumpy, kerb, gravel, grass, dirt,
-    // cobbles), x the tarmac road's SHORT wavelengths (under kSurfWaveM: the
-    // surface, not the undulations a car rides over anyway). Kerb ribs are
-    // the Kerb tile's. A change of surface eases in over kSurfEaseSec.
-    constexpr double kSurfGain[SURFACE_CLASS_COUNT] = { 1.0, 3.0, 1.0, 6.0, 3.0, 5.0, 4.0 };
+    // cobbles, snow, ice, sand, mud, water), x the tarmac road: its LONG
+    // undulations and its SHORT wavelengths (under kSurfWaveM, the surface
+    // itself) apart, so grass undulates softly, gravel is coarse, snow fills
+    // the bumps and ice is glassy. Kerb ribs are the Kerb tile's; stones,
+    // crunch and puddles the Surface tile's. A change of surface eases in
+    // over kSurfEaseSec.
+    constexpr double kSurfLong[SURFACE_CLASS_COUNT]  = { 1.0, 2.0, 1.0, 1.5, 2.5, 2.0, 1.0, 0.7, 0.5, 1.5, 2.0, 1.0 };
+    constexpr double kSurfShort[SURFACE_CLASS_COUNT] = { 1.0, 3.0, 1.0, 6.0, 1.5, 4.0, 4.0, 0.8, 0.2, 2.5, 2.0, 0.3 };
     constexpr double kSurfWaveM   = 2.0;
     constexpr double kSurfEaseSec = 0.1;
     // Chassis model.
@@ -216,6 +220,15 @@ public:
         m_speed = std::isfinite(speedMs) ? std::max(0.0, speedMs) : 0.0;
         m_speedDriven = true;
     }
+    // The water under the tyre (0..1) and how far it floats on it (0..1),
+    // from the Surface tile; smooth: how far water fills the texture.
+    void driveWater(int wheel, double water, double floating)
+    {
+        if (wheel < 0 || wheel >= WHEEL_COUNT) return;
+        m_w[wheel].water    = std::isfinite(water)    ? std::max(0.0, std::min(1.0, water))    : 0.0;
+        m_w[wheel].floating = std::isfinite(floating) ? std::max(0.0, std::min(1.0, floating)) : 0.0;
+    }
+    void setWaterSmooth(double smooth) { m_smooth = std::max(0.0, std::min(1.0, smooth)); }
     // The body: vertical acceleration m/s^2, pitch and roll degrees.
     void driveChassis(double accHeaveMs2, double pitchDeg, double rollDeg)
     {
@@ -352,7 +365,8 @@ private:
         QuarterCar qc;
         double zsHp = 0.0, zsPrev = 0.0, asHp = 0.0, asPrev = 0.0;
         // the random road under this tyre (both models)
-        double rBase = 0.0, rShort = 0.0, rPrev = 0.0, rGain = 1.0; bool rSeen = false;
+        double rBase = 0.0, rShort = 0.0, rPrev = 0.0, rGainL = 1.0, rGainS = 1.0; bool rSeen = false;
+        double water = 0.0, floating = 0.0;   // from the Surface tile: water under the tyre, the tyre floating on it
         // suspension model's roughness: its quarter car and output
         double synF = 0.0, dHp = 0.0, dPrev = 0.0;
         QuarterCar qr;
@@ -414,9 +428,11 @@ private:
 
     // The random road under wheel i this cycle, mm: the profile at its
     // distance (the rears a wheelbase behind), drift off, x rough x, its
-    // short wavelengths x the surface class's gain (eased). Scaling the
-    // whole profile by surface stepped the road by tens of mm at a change of
-    // surface; the long undulations are the same road on any surface.
+    // long undulations and short wavelengths each x the surface class's
+    // gain (eased). Scaling the whole profile by one gain stepped the road
+    // by tens of mm at a change of surface. Water fills the short
+    // wavelengths (smooth x water); a tyre floating on it (aquaplaning) has
+    // no road under it at all.
     double roughAt(int i, double dtSec, const RoadParams& p, double wb)
     {
         using namespace road_k;
@@ -424,15 +440,20 @@ private:
         const bool front = (i == WheelFL || i == WheelFR);
         const int  side  = (i == WheelFL || i == WheelRL) ? 0 : 1;
         const double raw = profileAt(side, front ? m_dist : m_dist - wb);
-        const double gTarget = kSurfGain[w.surface];
-        if (!w.rSeen) { w.rPrev = raw; w.rBase = w.rShort = 0.0; w.rGain = gTarget; w.rSeen = true; }
+        const double wetK   = 1.0 - m_smooth * w.water;
+        const double floatK = 1.0 - w.floating;
+        const double gL = kSurfLong[w.surface] * floatK;
+        const double gS = kSurfShort[w.surface] * wetK * floatK;
+        if (!w.rSeen) { w.rPrev = raw; w.rBase = w.rShort = 0.0; w.rGainL = gL; w.rGainS = gS; w.rSeen = true; }
         const double baseA  = std::exp(-2.0 * wavesynth::kPi * kRoadHpHz * dtSec);
         const double shortA = std::exp(-2.0 * wavesynth::kPi * std::max(kRoadHpHz, m_speed / kSurfWaveM) * dtSec);
         const double dRaw = raw - w.rPrev; w.rPrev = raw;
         w.rBase  = baseA  * (w.rBase  + dRaw);
         w.rShort = shortA * (w.rShort + dRaw);
-        w.rGain += (gTarget - w.rGain) * std::min(1.0, dtSec / kSurfEaseSec);
-        return std::max(0.0, p.rough) * (w.rBase + (w.rGain - 1.0) * w.rShort);
+        const double ease = std::min(1.0, dtSec / kSurfEaseSec);
+        w.rGainL += (gL - w.rGainL) * ease;
+        w.rGainS += (gS - w.rGainS) * ease;
+        return std::max(0.0, p.rough) * (w.rGainL * w.rBase + (w.rGainS - w.rGainL) * w.rShort);
     }
 
     void stepTyre(double dtSec, const RoadParams& p, double hpHz)
@@ -602,6 +623,7 @@ private:
     double  m_speed = 0.0, m_dist = 0.0;
     bool    m_speedDriven = false;
     double  m_wheelbase = 0.0, m_track = 0.0;
+    double  m_smooth = 0.7;          // water fills the texture (SurfaceParams::smooth)
     int64_t m_genIdx = -1;
     double  m_c = 0.0, m_iL = 0.0, m_iR = 0.0;
     float   m_prof[2][road_k::kProfileN] = {};

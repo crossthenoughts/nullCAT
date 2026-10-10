@@ -1198,7 +1198,7 @@ function hapHintHz(fx,dv){
   if(fx.k==='rpmVibe') return 13;
   if(fx.k==='slipLat') return +dv.slideHz>0?+dv.slideHz:11;
   if(fx.k==='slipLon') return +dv.lockHz>0?+dv.lockHz:9;
-  if(fx.k==='road'||fx.k==='kerb') return 8;   // no single carrier: the bump rate the controller derates at
+  if(fx.k==='road'||fx.k==='kerb'||fx.k==='surface') return 8;   // no single carrier: the bump rate the controller derates at
   return +dv.freqHz>0?+dv.freqHz:30;
 }
 

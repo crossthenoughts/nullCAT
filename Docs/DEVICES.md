@@ -283,6 +283,7 @@ effect silent.
 | TC pulse | the body surge of each traction-control cut: a loss of drive and a recovery, each cut a little different (below; the Engine tile stutters as well) | TC active |
 | Kerb | the rumble strip under a tyre on a kerb: a hum that rises and falls with speed, a thud on and off (below) | the surface under each tyre, or the kerbs channel, or the road height under each tyre |
 | Driveline | a slipping clutch juddering at a launch, the engine lugging at low revs (below) | clutch, rpm, gear (speed, throttle) |
+| Surface | what the ground does under each tyre: stones on gravel, snow crunching, studs on ice, puddles dragging and floating the tyre (below) | the surface under each tyre, speed (rain or wetness) |
 
 With the SimHub plugin, rpm, speed, gear, clutch, throttle, brake, ABS,
 limiter and traction control arrive automatically, and for Assetto
@@ -422,8 +423,11 @@ like the car.
   100 % (25 by default). **rough x** sets the roughness (1 is a smooth
   public road, 2 by default, more for a bumpy track, 0 for the sim's
   movement alone); where the sim says what is under the tyre
-  (Automobilista 2) it is rougher on bumpy tarmac, cobbles, grass, dirt
-  and gravel. **body hz** (how fast the body bounces on its springs: 3
+  (Automobilista 2) it is rougher on bumpy tarmac, cobbles,
+  dirt and gravel, undulates softly on grass, fills in on snow and is
+  glassy on ice; water on the road smooths it (the Surface tile's
+  **smooth x**), and a tyre floating on standing water has no road under
+  it at all. **body hz** (how fast the body bounces on its springs: 3
   by default for a race car, 1 to 1.5 for a road car), **hop hz** (how
   fast the wheel hops on its tyre, 16) and **damping** (how quickly a
   bounce dies away, 0.3) shape how the corner passes the roughness on.
@@ -480,6 +484,32 @@ track's camber and banking usually give there. Detect mm is 0 (off) by
 default; around 15 finds raised kerbs. A flat painted kerb cannot be
 found that way. The Test button runs the strip at 80 km/h, on and off.
 
+### Surface
+
+What the ground does under each tyre beyond the road's shape, per
+corner (route it with a part like Road).
+
+- **stones x** (0.6): on gravel, sand and dirt the tyres strike stones, a
+  couple per metre on gravel, so more of them the faster you go, each a
+  size of its own and now and then a big one: a sharp tick on a belt or
+  shaker, a small bump on a seat actuator.
+- **crunch x** (0.5): snow compacting under the tread (sand lighter, mud
+  a low squelch), rising with speed.
+- **studs**: tick it for studded tyres; on ice and snow the studs bite
+  with a rough buzz at speed.
+- **puddle x** (0.6): on a wet road the puddles lie along it, the same
+  puddle every lap, the rears meeting it a wheelbase after the fronts.
+  The water drags at a tyre as it enters (a tug, stronger with speed);
+  above **aqua km/h** (90) in standing water the tyre floats and the road
+  under it goes quiet, then bites as it comes out of the water.
+- **smooth x** (0.7): how far water fills the Road tile's texture.
+
+How wet the road is comes from the sim: its wetness per tyre or for the
+track where it sends one, else the rain falling, from which nullCAT lets
+the water stand on the road (about a minute of heavy rain to stand, a few
+minutes to dry). Automobilista 2 sends the surface under each tyre (snow
+and ice included) and its rain. Test runs gravel, then snow, then a wet
+road, at 80 km/h.
 ### ABS and TC
 
 **ABS** works at each corner: the valve dumps the brake pressure and

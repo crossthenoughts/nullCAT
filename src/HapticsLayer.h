@@ -31,6 +31,7 @@
 #include "RoadModel.h"
 #include "DrivelineModel.h"
 #include "PulseModel.h"
+#include "SurfaceModel.h"
 #include "WaveSynth.h"
 #include <algorithm>
 #include <cstdint>
@@ -108,6 +109,13 @@ public:
         for (double& o : m_overlay) o = 0.0;
         for (double& o : m_shaker)  o = 0.0;
         if (dtSec <= 0.0) return;
+
+        // The ground under the tyres (the Surface tile) runs whatever its
+        // amp: the water it finds smooths the Road tile's texture, and a
+        // tyre floating on it has no road under it.
+        m_surface.step(dtSec, m_surfaceParams);
+        m_road.setWaterSmooth(m_surfaceParams.smooth);
+        for (int w = 0; w < WHEEL_COUNT; ++w) m_road.driveWater(w, m_surface.water(w), m_surface.floating(w));
 
         // One-shot transients.
         for (Event& e : m_events)
@@ -202,6 +210,24 @@ public:
                     }
                 }
                 // ...and on to the texture path with the law's level.
+            }
+            // Surface: stones, crunch, studs and puddles, per corner.
+            if (i == static_cast<int>(FxType::Surface))
+            {
+                f.level = m_surface.level();
+                if (p.ampPct <= 0.0 || f.level < 1e-4) continue;
+                for (const Route& r : p.routes)
+                {
+                    if (r.gain <= 0.0) continue;
+                    const SurfaceModel::Out o = m_surface.outputFor(r.part);
+                    if (r.shaker >= 0) { if (o.force != 0.0) toShaker(r, p.ampPct * o.force); continue; }
+                    if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
+                    if (m_sinkKind[r.axis] == SinkKind::Position)
+                        m_overlay[r.axis] += p.ampPct * o.pos * r.gain * sinkScale(r.axis, p.ampPct * r.gain, road_k::kDerateHz);
+                    else
+                        m_overlay[r.axis] += p.ampPct * o.force * r.gain;
+                }
+                continue;
             }
             // Kerb: the rumble strip under whichever tyres are on one.
             if (i == static_cast<int>(FxType::Kerb))
@@ -562,13 +588,16 @@ public:
     // The road under each tyre (mm, world), the surface class there, the
     // car's speed, its body and geometry: the tyre and chassis models.
     void driveRoadHeight(int wheel, double heightMm) { m_road.driveHeight(wheel, heightMm); m_roadDriven = true; }
-    void driveRoadSurface(int wheel, int cls)        { m_road.driveSurface(wheel, cls); }
-    void driveRoadSpeed(double speedMs)              { m_road.driveSpeed(speedMs); m_kerb.driveSpeed(speedMs); m_roadDriven = true; }
+    void driveRoadSurface(int wheel, int cls)        { m_road.driveSurface(wheel, cls); m_surface.driveSurface(wheel, cls); }
+    void driveRoadSpeed(double speedMs)
+    {
+        m_road.driveSpeed(speedMs); m_kerb.driveSpeed(speedMs); m_surface.driveSpeed(speedMs); m_roadDriven = true;
+    }
     void driveChassis(double accHeaveMs2, double pitchDeg, double rollDeg)
     {
         m_road.driveChassis(accHeaveMs2, pitchDeg, rollDeg); m_roadDriven = true;
     }
-    void driveGeometry(double wheelbaseM, double trackM) { m_road.driveGeometry(wheelbaseM, trackM); }
+    void driveGeometry(double wheelbaseM, double trackM) { m_road.driveGeometry(wheelbaseM, trackM); m_surface.driveGeometry(wheelbaseM); }
     const RoadModel& roadModel() const               { return m_road; }
     // The surface grain's level 0..1 for THIS cycle (the law: the surface
     // mix x how far up to surface km/h the car is). Not driven = releasing.
@@ -583,6 +612,15 @@ public:
     void   driveKerbSpeed(double speedMs)     { m_kerb.driveSpeed(speedMs); }   // driveRoadSpeed sets it too
     double kerbWheelLevel(int wheel) const    { return m_kerb.wheelLevel(wheel); }
     const KerbModel& kerbModel() const        { return m_kerb; }
+
+    // ---- the Surface tile. Config apply for the params; the law drives the
+    // water under each tyre per cycle (the class and speed come with the
+    // Road tile's inputs above).
+    void configureSurface(const SurfaceParams& q)  { m_surfaceParams = q; }
+    const SurfaceParams& surfaceParams() const     { return m_surfaceParams; }
+    void driveWet(int wheel, double wet)           { m_surface.driveWet(wheel, wet); }
+    void driveSurfaceSpeed(double speedMs)         { m_surface.driveSpeed(speedMs); }   // a Test preview's own speed
+    const SurfaceModel& surfaceModel() const       { return m_surface; }
 
     // ---- driveline (clutch judder + lugging wind-up). Config apply for
     // the params; the law drives the two severities per cycle.
@@ -693,6 +731,7 @@ public:
         m_driveline.clear();
         m_absModel.clear();
         m_absLinkLevel = 0.0;
+        m_surface.clear();
         m_tcModel.clear();
         for (double& o : m_overlay) o = 0.0;
         for (double& o : m_shaker)  o = 0.0;
@@ -793,6 +832,8 @@ private:
     KerbParams   m_kerbParams;
     DrivelineModel  m_driveline;
     DrivelineParams m_drivelineParams;
+    SurfaceModel  m_surface;
+    SurfaceParams m_surfaceParams;
     PulseModel   m_absModel{ WHEEL_COUNT, pulse_k::kAbsDrop };
     PulseModel   m_tcModel{ 1, pulse_k::kTcDrop };
     PulseParams  m_absParams;

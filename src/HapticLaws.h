@@ -52,6 +52,9 @@ struct LawsState
     // source starts the smoothing afresh.
     double slipF[WHEEL_COUNT] = {};
     int    slipSrc = 0;
+    // The water standing on the road, built up from the rain where the sim
+    // sends rain but no wetness (0 dry .. 1 standing water).
+    double waterFilm = 0.0;
 };
 
 namespace laws_k {
@@ -107,6 +110,10 @@ namespace laws_k {
     constexpr double kPreviewKerbCycle = 1.0;      // ...in every this long
     constexpr double kKerbMinKmh       = 10.0;     // height detection: rolling
     constexpr double kKerbBiasSec      = 2.0;      // how fast the axle's usual left-right learns
+    // Surface laws: the water film from rain.
+    constexpr double kFilmFillSec      = 60.0;     // heavy rain stands on the road in about a minute
+    constexpr double kFilmDrySec       = 240.0;    // ...and takes a few to dry off
+    constexpr double kPreviewPhaseSec  = 0.7;      // a Surface Test: gravel, snow, then a wet road
 }
 
 // Start a Test preview on a continuous/engine slot.
@@ -445,6 +452,41 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
         }
         st.kerbBiasSeen = heights;
         for (int w = 0; w < WHEEL_COUNT; ++w) L.driveKerb(w, lvl[w]);
+    }
+
+    // Surface: the water on the road under each tyre: the sim's own per
+    // tyre where it sends it, else its track wetness, else a film built up
+    // from the rain. The surface class and the speed reach the model with
+    // the Road tile's inputs above. A Test preview runs gravel, then snow,
+    // then a wet road, at 80 km/h.
+    {
+        double& previewLeft = st.previewSec[static_cast<int>(FxType::Surface)];
+        bool wetW = live;
+        for (int w = 0; w < WHEEL_COUNT; ++w) wetW = wetW && v.have[NcxValues::WetFL + w];
+        const bool wet  = live && v.have[NcxValues::Wet];
+        const bool rain = live && v.have[NcxValues::Rain];
+        if (rain)
+        {
+            const double r = std::max(0.0, std::min(1.0, v.val[NcxValues::Rain]));
+            st.waterFilm += dtSec * (r * (1.0 - st.waterFilm) / kFilmFillSec - (1.0 - r) * st.waterFilm / kFilmDrySec);
+            st.waterFilm = std::max(0.0, std::min(1.0, st.waterFilm));
+        }
+        double water[WHEEL_COUNT] = {};
+        for (int w = 0; w < WHEEL_COUNT; ++w)
+            water[w] = wetW ? v.val[NcxValues::WetFL + w] : wet ? v.val[NcxValues::Wet] : rain ? st.waterFilm : 0.0;
+        if (previewLeft > 0.0)
+        {
+            const double t = kPreviewSec - previewLeft;
+            const int cls = (t < kPreviewPhaseSec) ? SurfGravel : (t < 2.0 * kPreviewPhaseSec) ? SurfSnow : SurfTarmac;
+            for (int w = 0; w < WHEEL_COUNT; ++w)
+            {
+                L.driveRoadSurface(w, cls);
+                water[w] = (cls == SurfTarmac) ? 1.0 : 0.0;
+            }
+            L.driveSurfaceSpeed(kPreviewKmh / 3.6);
+            previewLeft -= dtSec;
+        }
+        for (int w = 0; w < WHEEL_COUNT; ++w) L.driveWet(w, water[w]);
     }
 
     // Driveline: clutch judder while the pedal is in the slipping band with

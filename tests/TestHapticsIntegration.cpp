@@ -762,6 +762,67 @@ int main()
         }
     }
 
+    // ---- I-10: the Surface tile through the laws ----
+    {
+        using haptics::FxType; using haptics::Part;
+        const double dt = 0.002;
+        haptics::Layer L; haptics::LawsState st;
+        haptics::EffectParams sp; sp.ampPct = 100.0; sp.routes[0] = { 0, 1.0, Part::FL }; sp.routes[1] = { 1, 1.0, Part::FR };
+        L.configureFx(FxType::Surface, sp);
+        NcxValues v{}; v.fresh = true;
+        v.have[NcxValues::SpeedKmh] = true; v.val[NcxValues::SpeedKmh] = 72.0;   // 20 m/s
+        auto surf = [&](int fl, int fr, int rl, int rr)
+        { const int s[4] = { fl, fr, rl, rr }; for (int w = 0; w < 4; ++w) { v.have[NcxValues::SurfaceFL + w] = true; v.val[NcxValues::SurfaceFL + w] = s[w]; } };
+        // FL on gravel, FR on tarmac: stones on FL's route, nothing on FR's.
+        surf(SurfGravel, SurfTarmac, SurfTarmac, SurfTarmac);
+        double pk0 = 0.0, pk1 = 0.0;
+        for (int i = 0; i < 1500; ++i)
+        {
+            haptics::driveLaws(L, st, v, dt); L.step(dt);
+            pk0 = std::max(pk0, std::fabs(L.overlayFor(0))); pk1 = std::max(pk1, std::fabs(L.overlayFor(1)));
+        }
+        check(L.surfaceModel().stonesStruck(WheelFL) > 50 && L.surfaceModel().stonesStruck(WheelFR) == 0,
+              "I-10 surface: the gravel under FL strikes stones, the tarmac under FR none");
+        check(pk0 > 1.0 && pk1 < 1e-9, "I-10 surface: FL's route plays them, FR's is silent");
+
+        // Rain builds a water film (a minute of heavy rain: 63%); the sim's
+        // own wetness wins over it; per tyre wins over that.
+        surf(SurfTarmac, SurfTarmac, SurfTarmac, SurfTarmac);
+        v.have[NcxValues::Rain] = true; v.val[NcxValues::Rain] = 1.0;
+        for (int i = 0; i < 30000; ++i) haptics::driveLaws(L, st, v, dt);
+        check(std::fabs(st.waterFilm - 0.632) < 0.03, "I-10 surface: a minute of heavy rain stands on the road (63%)");
+        check(std::fabs(L.surfaceModel().wetness(WheelFL) - st.waterFilm) < 1e-9, "I-10 surface: with rain alone, the film is the wetness");
+        v.have[NcxValues::Wet] = true; v.val[NcxValues::Wet] = 0.2;
+        haptics::driveLaws(L, st, v, dt); L.step(dt);
+        check(std::fabs(L.surfaceModel().wetness(WheelRR) - 0.2) < 1e-9, "I-10 surface: the sim's wetness wins over the rain");
+        const double perW[4] = { 0.9, 0.0, 0.0, 0.5 };
+        for (int w = 0; w < 4; ++w) { v.have[NcxValues::WetFL + w] = true; v.val[NcxValues::WetFL + w] = perW[w]; }
+        haptics::driveLaws(L, st, v, dt); L.step(dt);
+        check(std::fabs(L.surfaceModel().wetness(WheelFL) - 0.9) < 1e-9 && std::fabs(L.surfaceModel().wetness(WheelRR) - 0.5) < 1e-9,
+              "I-10 surface: per tyre wins over the track's wetness");
+        v.val[NcxValues::Rain] = 0.0;
+        for (int w = 0; w < 4; ++w) v.have[NcxValues::WetFL + w] = false;
+        v.have[NcxValues::Wet] = false;
+        const double film = st.waterFilm;
+        for (int i = 0; i < 30000; ++i) haptics::driveLaws(L, st, v, dt);
+        check(st.waterFilm < film * 0.85 && st.waterFilm > film * 0.7, "I-10 surface: after the rain the road dries slowly");
+
+        // A Test preview with no sim: gravel stones, then snow, then puddles.
+        {
+            haptics::Layer P; haptics::LawsState ps; NcxValues none{};
+            P.configureFx(FxType::Surface, sp);
+            haptics::startPreview(ps, FxType::Surface);
+            for (int i = 0; i < 300; ++i) { haptics::driveLaws(P, ps, none, dt); P.step(dt); }
+            check(P.surfaceModel().stonesStruck(WheelFL) > 10, "I-10 surface preview: gravel first, stones struck");
+            double snow = 0.0;
+            for (int i = 0; i < 400; ++i) { haptics::driveLaws(P, ps, none, dt); P.step(dt); if (i > 100 && i < 350) snow = std::max(snow, std::fabs(P.overlayFor(0))); }
+            check(snow > 1.0, "I-10 surface preview: then snow crunching");
+            double wet = 0.0;
+            for (int i = 0; i < 300; ++i) { haptics::driveLaws(P, ps, none, dt); P.step(dt); wet = std::max(wet, P.surfaceModel().wetness(WheelFL)); }
+            check(wet > 0.99, "I-10 surface preview: then a wet road");
+        }
+    }
+
     // ---- P-1..P-4: a POSITION (CSP) axis as a routing destination ----
     // Route gain on a position axis is mm at 100% amplitude. The offset is
     // tracked inside the haptic share of the axis limits (what the actuator

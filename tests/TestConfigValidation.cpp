@@ -404,6 +404,20 @@ private slots:
         cfg.hapticsTc.spread = 0.5; QVERIFY(cfg.validate().empty());
     }
 
+    // Surface: stones, crunch, puddles, smooth 0..1; studs off/on; aqua km/h.
+    void surface_ranges()
+    {
+        AppConfig cfg = validConfig();
+        QCOMPARE(cfg.hapticsSurface.aquaKmh, 90.0); QCOMPARE(cfg.hapticsSurface.studs, 0.0);
+        const auto refused = [&cfg](const char* key) {
+            for (const auto& e : cfg.validate()) if (e.find(key) != std::string::npos) return true;
+            return false; };
+        cfg.hapticsSurface.studs = 0.5;   QVERIFY2(refused("studs"), "studs 0.5 is refused (off or on)");
+        cfg.hapticsSurface.studs = 1.0; cfg.hapticsSurface.aquaKmh = 30.0; QVERIFY2(refused("aquaKmh"), "aqua 30 km/h is refused");
+        cfg.hapticsSurface.aquaKmh = 120.0; cfg.hapticsSurface.smooth = 1.2; QVERIFY2(refused("smooth"), "smooth 1.2 is refused");
+        cfg.hapticsSurface.smooth = 0.4; QVERIFY(cfg.validate().empty());
+    }
+
     // The frozen-stream guard is off by default and only takes a usable window.
     void ncxFrozenMs_range()
     {

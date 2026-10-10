@@ -1313,6 +1313,118 @@ int main()
         }
     }
 
+    // ================= Surface: stones, crunch, studs, puddles =================
+    {
+        using haptics::SurfaceModel; using haptics::SurfaceParams; using haptics::Part; using haptics::RoadModel;
+        using haptics::RoadParams;
+        const double dt = 0.0005;
+        auto rmsOf = [](const std::vector<double>& v, size_t from)
+        { double s = 0.0; size_t n = 0; for (size_t i = from; i < v.size(); ++i) { s += v[i] * v[i]; ++n; } return n ? std::sqrt(s / n) : 0.0; };
+        // Run the model on one surface for every wheel; FL's force trace.
+        auto runS = [&](SurfaceModel& m, int cls, double wet, double speed, const SurfaceParams& q, int n, std::vector<double>* force) {
+            for (int i = 0; i < n; ++i)
+            {
+                for (int w = 0; w < 4; ++w) { m.driveSurface(w, cls); m.driveWet(w, wet); }
+                if (speed >= 0.0) m.driveSpeed(speed);
+                m.step(dt, q);
+                if (force) force->push_back(m.outputFor(Part::FL).force);
+            }
+        };
+        const SurfaceParams q;   // stones 0.6, crunch 0.5, studs off, puddles 0.6, aqua 90, smooth 0.7
+
+        // Stones: so many per metre, so more with speed; none on tarmac,
+        // none at a standstill or once the speed stops arriving.
+        {
+            SurfaceModel g; runS(g, SurfGravel, 0.0, 20.0, q, 8000, nullptr);       // 4 s at 20 m/s: 80 m
+            approx(static_cast<double>(g.stonesStruck(WheelFL)), 2.0 * 80.0, 40.0, "surface stones: two per metre of gravel under a tyre");
+            SurfaceModel s; runS(s, SurfGravel, 0.0, 5.0, q, 8000, nullptr);
+            CHECK(s.stonesStruck(WheelFL) < g.stonesStruck(WheelFL) / 2, "surface stones: fewer at walking pace");
+            SurfaceModel t; std::vector<double> ft; runS(t, SurfTarmac, 0.0, 20.0, q, 4000, &ft);
+            CHECK(t.stonesStruck(WheelFL) == 0 && rmsOf(ft, 0) == 0.0, "surface: dry tarmac has nothing for this tile");
+            SurfaceModel u; runS(u, SurfGravel, 0.0, -1.0, q, 4000, nullptr);
+            CHECK(u.stonesStruck(WheelFL) == 0, "surface stones: no speed arriving, no stones");
+            SurfaceModel z; std::vector<double> fz; SurfaceParams q0 = q; q0.stones = 0.0;
+            runS(z, SurfGravel, 0.0, 20.0, q0, 4000, &fz);
+            CHECK(rmsOf(fz, 0) < 0.05, "surface stones: stones x 0, (almost) nothing on gravel");
+        }
+        // Crunch on snow, studs on ice.
+        {
+            SurfaceModel sn; std::vector<double> fs; runS(sn, SurfSnow, 0.0, 20.0, q, 6000, &fs);
+            CHECK(rmsOf(fs, 2000) > 0.03, "surface crunch: snow crunches under the tread");
+            SurfaceParams qs = q; qs.studs = 1.0;
+            SurfaceModel ice; std::vector<double> fi; runS(ice, SurfIce, 0.0, 20.0, q, 4000, &fi);
+            SurfaceModel st;  std::vector<double> fst; runS(st, SurfIce, 0.0, 20.0, qs, 4000, &fst);
+            CHECK(rmsOf(fi, 0) == 0.0, "surface: ice without studs is silent here");
+            CHECK(rmsOf(fst, 1000) > 0.1, "surface studs: studded tyres buzz on ice");
+        }
+        // Puddles: laid out along the road, the same puddle every pass; a
+        // dry road has none; wet, about a third of the road.
+        {
+            int wetCells = 0, n = 0;
+            for (double x = 0.0; x < 2000.0; x += 0.1, ++n)
+            {
+                if (SurfaceModel::puddleDepth(0, x, 1.0) > 0.0) ++wetCells;
+                if (SurfaceModel::puddleDepth(0, x, 0.0) > 0.0) { wetCells = -100000; break; }
+            }
+            const double cover = static_cast<double>(wetCells) / n;
+            CHECK(cover > 0.15 && cover < 0.5, "surface puddles: a wet road is puddled about a third of the way");
+            CHECK(SurfaceModel::puddleDepth(1, 123.4, 0.8) == SurfaceModel::puddleDepth(1, 123.4, 0.8), "surface puddles: the same puddle every pass");
+
+            // The rears meet a puddle a wheelbase after the fronts.
+            SurfaceModel m; m.driveGeometry(2.5);
+            std::vector<double> wf, wr;
+            for (int i = 0; i < 12000; ++i)
+            {
+                for (int w = 0; w < 4; ++w) { m.driveSurface(w, SurfTarmac); m.driveWet(w, 1.0); }
+                m.driveSpeed(20.0); m.step(dt, q);
+                wf.push_back(m.water(WheelFL)); wr.push_back(m.water(WheelRL));
+            }
+            int bestLag = -1; double bestErr = 1e18;
+            for (int lag = 200; lag < 300; ++lag)
+            { double e = 0.0; for (size_t i = 6000; i < 11900; ++i) e += std::fabs(wr[i] - wf[i - lag]); if (e < bestErr) { bestErr = e; bestLag = lag; } }
+            approx(bestLag * dt, 2.5 / 20.0, 0.002, "surface puddles: the rears meet the fronts' puddles a wheelbase later");
+
+            // Into a puddle the water drags (a tug); none with puddle x 0.
+            SurfaceModel a; std::vector<double> fa; runS(a, SurfTarmac, 1.0, 20.0, q, 8000, &fa);
+            SurfaceParams qn = q; qn.puddles = 0.0;
+            SurfaceModel b; std::vector<double> fb; runS(b, SurfTarmac, 1.0, 20.0, qn, 8000, &fb);
+            double minA = 0.0; for (double x : fa) minA = std::min(minA, x);
+            CHECK(minA < -0.1 && rmsOf(fb, 0) == 0.0, "surface puddles: a tug as a tyre enters a puddle at speed; none at puddle x 0");
+
+            // Aquaplaning: above aqua km/h in deep water the tyre floats, at
+            // a slow pace it never does.
+            auto floated = [&](double speed) {
+                SurfaceModel f; double most = 0.0;
+                for (int i = 0; i < 16000; ++i)
+                {
+                    for (int w = 0; w < 4; ++w) { f.driveSurface(w, SurfTarmac); f.driveWet(w, 1.0); }
+                    f.driveSpeed(speed); f.step(dt, q);
+                    most = std::max(most, f.floating(WheelFL));
+                }
+                return most; };
+            CHECK(floated(32.0) > 0.99, "surface aquaplaning: at 115 km/h a deep puddle floats the tyre");
+            CHECK(floated(15.0) == 0.0, "surface aquaplaning: at 54 km/h it never does");
+        }
+        // The Road tile's roughness follows the surface: ice glassy, water
+        // smoothing the texture, a floating tyre with no road under it.
+        {
+            RoadParams rp; rp.model = 0; rp.rough = 2.0; rp.fullMm = 200.0;
+            auto travel = [&](int cls, double water, double floating) {
+                RoadModel m; m.driveGeometry(2.5, 1.6); std::vector<double> v;
+                for (int i = 0; i < 8000; ++i)
+                {
+                    for (int w = 0; w < 4; ++w) { m.driveTravel(w, 0.0); m.driveSurface(w, cls); m.driveWater(w, water, floating); }
+                    m.driveSpeed(25.0); m.step(dt, rp);
+                    v.push_back(m.wheelTravelMm(WheelFL));
+                }
+                return rmsOf(v, 3000); };
+            const double tar = travel(SurfTarmac, 0.0, 0.0);
+            CHECK(travel(SurfIce, 0.0, 0.0) < 0.6 * tar, "road surface: ice is smoother than tarmac");
+            CHECK(travel(SurfTarmac, 1.0, 0.0) < tar, "road surface: standing water smooths the texture");
+            CHECK(travel(SurfTarmac, 1.0, 1.0) < 0.05 * tar, "road surface: a floating tyre has no road under it");
+        }
+    }
+
     // ================= model trigger: detent capture =================
     {
         DeviceParams p;

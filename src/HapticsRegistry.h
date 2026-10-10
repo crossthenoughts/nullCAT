@@ -23,14 +23,14 @@
 namespace haptics {
 
 enum class Effect { DetentClick = 0, GearShift, Engine, Abs, Lockup, Skid, Road,
-                    Limiter, Tc, Kerb, Driveline, COUNT };
+                    Limiter, Tc, Kerb, Driveline, Surface, COUNT };
 static constexpr int EFFECT_COUNT = static_cast<int>(Effect::COUNT);
 
 // Slip: a per-wheel model (SlipModel.h) whose routes carry a Part. Road:
 // the texture oscillator with a per-corner replay (RoadModel.h) when the
 // sim sends suspension velocities; routes carry a Part too.
-enum class Kind { Transient, Continuous, Engine, Slip, Road, Driveline, Kerb, Abs, Tc };
-inline bool kindHasParts(Kind k) { return k == Kind::Slip || k == Kind::Road || k == Kind::Kerb || k == Kind::Abs; }
+enum class Kind { Transient, Continuous, Engine, Slip, Road, Driveline, Kerb, Abs, Tc, Surface };
+inline bool kindHasParts(Kind k) { return k == Kind::Slip || k == Kind::Road || k == Kind::Kerb || k == Kind::Abs || k == Kind::Surface; }
 
 // One tunable the UI shows for an effect: config key, label, range, step,
 // and for a choice an options list ("a|b|c", value = index) instead.
@@ -167,8 +167,16 @@ constexpr ParamSpec kKerbParams[] = {           // kerb: the rumble strip under 
     { "peakPct",  "peak %",    1,   100, 1,    nullptr },   // the single curbs channel
     { "detectMm", "detect mm", 0,   100, 1,    nullptr },   // no surface type: a tyre this far above its mate is on a kerb (0 off)
 };
-constexpr ParamSpec kEngineParams[] = {
-    { "ampPct",    "amp %",                 0,   100,   1,    nullptr },
+constexpr ParamSpec kSurfaceParams[] = {        // surface: stones, crunch, studs, puddles
+    { "ampPct",  "amp %",      0,   100, 1,    nullptr },
+    { "stones",  "stones x",   0,   1,   0.05, nullptr },   // gravel, sand, dirt: stones struck
+    { "crunch",  "crunch x",   0,   1,   0.05, nullptr },   // snow (sand, mud) underfoot
+    { "studs",   "studs",      0,   1,   1,    "off|on" },  // studded tyres on ice and snow
+    { "puddles", "puddle x",   0,   1,   0.05, nullptr },   // the tug into a puddle, the bite out
+    { "aquaKmh", "aqua km/h",  40,  250, 5,    nullptr },   // a tyre floats in standing water from here
+    { "smooth",  "smooth x",   0,   1,   0.05, nullptr },   // how far water fills the road's texture
+};
+constexpr ParamSpec kEngineParams[] = {    { "ampPct",    "amp %",                 0,   100,   1,    nullptr },
     { "cylinders", "cyl / rotors",          1,   16,    1,    nullptr },
     { "litres",    "litres",                0.1, 30,    0.1,  nullptr },
     { "layout",    "layout",                0,   5,     1,    "inline|V|flat / boxer|wankel|two-stroke|electric" },
@@ -293,8 +301,17 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "straight-cut gears meshing, its pitch stepping with every gear and its level with load. Shunt is the "
       "backlash taking up when the throttle snaps open or shut, in gear and rolling. Nothing in neutral. Needs "
       "clutch, rpm and gear (speed and throttle make it exact).", nullptr, {} },
+    { Effect::Surface,     "surface",     "Surface",      Kind::Surface, EventType::COUNT, FxType::Surface,
+      { "surface*", "speedKmh", "~rain|wet", nullptr }, { 0.0, 60.0, 0.0, 0.0 }, kSurfaceParams, 7,
+      "What the ground does under each tyre beyond the road's shape, per corner (route with a part). Stones: "
+      "on gravel, sand and dirt the tyres strike stones, more of them the faster you go, a sharp tick on a belt "
+      "or shaker and a small bump on a post. Crunch: snow compacting under the tread (sand lighter, mud a low "
+      "squelch). Studs: studded tyres biting on ice and snow, a rough buzz. Puddles: on a wet road, puddles "
+      "laid out along it; the water drags at a tyre as it enters (stronger with speed), above aqua km/h in "
+      "standing water the tyre floats and the road under it goes quiet, and it bites as it comes out. smooth x "
+      "is how far water fills the Road tile's texture. Needs the surface under each tyre (Automobilista 2) "
+      "and the wetness or the rain.", nullptr, {} },
 };
-
 } // namespace registry_detail
 
 // Per-effect defaults from the table, for seeding AppConfig.

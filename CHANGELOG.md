@@ -22,6 +22,17 @@ Development branch. Nothing here is in a release yet.
   which way they turn from the suspension. A seat actuator gets the
   movement, a belt or shaker its acceleration. The old surface grain is
   still there but off by default: the roughness does its job.
+- **Surface** tile: what the ground does under each tyre beyond the
+  road's shape. Stones struck on gravel, sand and dirt, busier with
+  speed; snow crunching (and a mud squelch); studded tyres buzzing on ice
+  and snow; puddles laid out along a wet road, dragging at a tyre as it
+  enters, floating it above the aquaplaning speed (the road under it goes
+  quiet) and biting as it comes out. The Road tile's roughness now takes
+  each surface's character (soft grass undulation, coarse gravel, filled
+  snow, glassy ice) and water smooths it. Wetness comes from the sim, or
+  is built up from its rain. Protocol 1.6: snow, ice, sand, mud and
+  standing water classes, `rain`, `wet`, `wetFL..RR`; the SimHub plugin
+  maps Automobilista 2's snow, ice and sand and sends its rain.
 - ABS and TC feel more like the real thing. ABS works per corner: each
   valve on its own rate, each cycle a little different, so the four
   drift in and out of step and the car grumbles instead of beating
