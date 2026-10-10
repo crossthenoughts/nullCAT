@@ -328,7 +328,7 @@ Development branch. Nothing here is in a release yet.
   mute and e-stop, the channel laws, the config round-trip, and the
   web strip rendering from the schema.
 
-## [0.9.7] - unreleased
+## [0.9.7] - 2026-10-11
 
 A safety fix for 0.9.6. Nothing else changes; update whenever the rig is
 parked.
