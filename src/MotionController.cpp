@@ -1614,7 +1614,7 @@ double MotionController::stepPositionOnline(int i, AxisMotionState& state,
     // Hold if no data: the CUE's own position, never rt.currentPos on CSP.
     // rt.currentPos is the command sent, haptic overlay included; holding
     // it fed the overlay back in every cycle (a 0.1 mm vibration became
-    // ~200 mm/s of travel: the 0.9.7 bench, motion off, unpark, the posts
+    // ~200 mm/s of travel: the dev bench, motion off, unpark, the posts
     // ran wild). PP takes no haptics, so its command is its cue.
     const double cueHold = ac.ppMode ? rt.currentPos : rt.onlineCond.pos;
     double targetMm = cueHold;
@@ -2307,7 +2307,7 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
 
         // The haptics guard lives for one ONLINE stretch. Kept across a park
         // and re-home it resumed from a stale position and velocity at the
-        // next ONLINE and stepped the posts (the 0.9.7 bench's Er87).
+        // next ONLINE and stepped the posts (the dev bench's Er87).
         if (state != AxisMotionState::ONLINE)
             rt.hapActive = false;
 

@@ -990,6 +990,53 @@ private slots:
                  qPrintable("golden drift, actual: " + got.join(" ")));
     }
 
+    // ---- Wild motion target: no command step past maxVelocity ----
+    // A target that spikes and snaps back every frame (a glitching stream, a
+    // crash spike past the sender's filter) gave the braking clamp a wild
+    // target-velocity estimate, and it could swing the command far past
+    // maxVelocity the other way in one cycle. Every cycle's command step
+    // must stay inside maxVelocity, and a reversal must pass through a stop.
+    void positionPath_wildTarget_neverStepsPastVmax()
+    {
+        AppConfig cfg = makeAxisConfig("linear_vertical", "csp", "endstop", 100.0, 1.5);
+        cfg.drives[0].spikeFilterEnabled = false;   // let the wildness reach the conditioner
+        MotionController mc;
+        mc.configure(cfg);
+        mc.startHoming();                           // null drives: instant home
+
+        const double dt = 1.0 / std::max(1, cfg.controlLoopHz);
+        const DriveConfig& d = cfg.drives[0];
+        const double kCount = 0.001;   // generously more than one encoder count
+        const double maxStep = d.maxVelocityMmS * dt * 1.05 + kCount;
+        const double revStep = d.maxAccelerationMmS2 * dt * dt * 1.001 + kCount;
+
+        MotionOutput out{};
+        TelemetryData empty{};
+        for (int c = 0; c < 50; ++c) mc.process(empty, out, nullptr, 0);   // home + unpark + blend
+        TelemetryData td{};
+        td.valid = true; td.numPositions = 1;
+        td.packetType = TelemetryPacketType::Motion;
+        td.nominalFrameSec = 3.0 * dt;   // a new frame every 3 cycles: the target-velocity estimate is live
+        uint32_t rng = 12345u;
+        double prev = out.positions[0], prevStep = 0.0, worst = 0.0, worstRev = 0.0;
+        bool haveStep = false, online = false;
+        for (int c = 0; c < 4000; ++c)
+        {
+            rng = rng * 1664525u + 1013904223u;
+            // Around mid-stroke, a jump of up to +-12000 counts every few cycles.
+            if (c % 3 == 0) td.positions[0] = 32768.0 + ((rng >> 8) / 16777216.0 - 0.5) * 24000.0;
+            mc.process(td, out, nullptr, 0);
+            online = online || mc.getAxisState(0) == AxisMotionState::ONLINE;
+            const double s = out.positions[0] - prev;
+            worst = std::max(worst, std::fabs(s));
+            if (haveStep && s * prevStep < 0.0) worstRev = std::max(worstRev, std::fabs(s));
+            prev = out.positions[0]; prevStep = s; haveStep = true;
+        }
+        QVERIFY2(online, "the axis reached ONLINE");
+        QVERIFY2(worst <= maxStep, qPrintable(QString("a command step of %1 mm, past maxVelocity's %2 mm").arg(worst).arg(maxStep)));
+        QVERIFY2(worstRev <= revStep, qPrintable(QString("a %1 mm step straight out of a reversal (Amax allows %2)").arg(worstRev).arg(revStep)));
+    }
+
     // ---- Stage D golden pin: mixed rig (CSP + PP + belt), byte-identical ----
     void mixedRig_goldenSequence_stageD()
     {

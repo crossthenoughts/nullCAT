@@ -17,14 +17,14 @@ All the feel and logic lives in nullCAT - this plugin never changes when
 effects do. Gear is numeric on the wire: `0` = neutral, `-1` = reverse.
 Everything goes by name on the second line, so nothing on the rig side
 needs mapping for this plugin; the numbered line is kept for receivers
-older than 0.9.7. A per-wheel channel the current game cannot feed is not
+older than 0.9.8. A per-wheel channel the current game cannot feed is not
 sent at all, which leaves its effect silently inert on the rig.
 
 In SimHub's plugin list it appears as **nullCAT Channel Exporter**:
 "Sends raw telemetry to nullCAT over UDP: rpm, speed, gear, pedals,
 ABS/TC/limiter flags, and optional per-wheel slip, load and suspension
 channels for the haptic layer". Version 1.6 of the plugin goes with
-nullCAT 0.9.7; it works with 0.9.6 too (the extra channels are simply
+nullCAT 0.9.8; it works with 0.9.6 and 0.9.7 too (the extra channels are simply
 ignored there).
 
 SimHub is one sender among others: FlyPT Mover, SimTools or your own

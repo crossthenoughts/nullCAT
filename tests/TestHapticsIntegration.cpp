@@ -231,7 +231,7 @@ int main()
 
         // Single skid channel (fallback): 50 -> every wheel at 0.5 -> tile
         // level 0.5. Only while rolling: a stationary car's skid value is
-        // noise (the 0.9.7 bench read a held value at a standstill).
+        // noise (the dev bench read a held value at a standstill).
         v.val[NcxValues::Skid] = 50.0; settle(200);
         check(L.fxLevel(static_cast<int>(haptics::FxType::Skid)) < 0.01, "I-7 skid at a standstill is silent");
         v.val[NcxValues::SpeedKmh] = 60.0; settle(200);
@@ -1061,7 +1061,7 @@ int main()
             check(parked.width() < 0.05,                          "P-4 PARKED: no haptics");
         }
 
-        // P-5..P-7: the 0.9.7 bench fault. Motion off (no positions on the
+        // P-5..P-7: the dev bench fault. Motion off (no positions on the
         // wire), sim channels live, haptics on the posts: unparked, the hold
         // fed the overlay back in every cycle and the posts ran at 400 mm/s
         // with instant reversals; a park and re-home later the stale guard

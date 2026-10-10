@@ -392,7 +392,7 @@ static void OvershootStop(double v)
 
 // ---- Wild target: the braking cap never commands past Vmax or reverses at once ----
 // The braking cap is the target's estimated velocity +- the braking velocity. A
-// target that jumps every cycle (the 0.9.7 bench: a haptic overlay fed back into
+// target that jumps every cycle (the dev bench: a haptic overlay fed back into
 // the hold) gives a wild estimate, and the cap swung the command past Vmax the
 // other way in one cycle. Now: |vel| <= Vmax always, and a reversal takes Amax.
 static void WildTarget()

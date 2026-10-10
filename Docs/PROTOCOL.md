@@ -5,7 +5,7 @@ the nullCAT exporter plugin, or any tool that can emit a text line) and the
 nullCAT controller (the **receiver**). This document is the contract: the
 wire only ever changes here, version-bumped, and senders adapt to it.
 
-**Protocol version: 1.3** (nullCAT 0.9.7). History at the bottom.
+**Protocol version: 1.6** (nullCAT 0.9.8). History at the bottom.
 
 nullCAT does not depend on any particular sender. SimHub with the nullCAT
 plugin, FlyPT Mover, SimTools, a custom feeder reading the game's shared
@@ -193,13 +193,13 @@ and can come from the same tool.
 
 ## Version history
 
-- **1.6** (nullCAT 0.9.7): surface classes 7 snow, 8 ice, 9 sand, 10 mud,
+- **1.6** (nullCAT 0.9.8): surface classes 7 snow, 8 ice, 9 sand, 10 mud,
   11 standing water; tokens `rain`, `wet` and `wetFL` .. `wetRR`, for the
   Surface effect (stones, crunch, studs, puddles and aquaplaning) and the
   Road effect's surface-shaped roughness. The reference SimHub plugin
   maps Automobilista 2's snow, ice and sand and sends its rain. No change
   to parsing; every 1.5 sender remains fully compatible.
-- **1.5** (nullCAT 0.9.7): the channel wire widened from 48 to 64 slots.
+- **1.5** (nullCAT 0.9.8): the channel wire widened from 48 to 64 slots.
   Added `roadHeight*` and `surface*` per wheel, `accHeave`, `pitchDeg`,
   `rollDeg`, `wheelbase` and `trackWidth`, for the Road effect's tyre and
   chassis models and the Kerb effect's rumble strip. The reference SimHub
@@ -207,14 +207,14 @@ and can come from the same tool.
   slip angle per wheel (from each tyre's heading against its direction of
   travel). No change to parsing; every 1.4 sender remains fully
   compatible.
-- **1.4** (nullCAT 0.9.7): added the per-wheel tokens `wheelSlip*` (a
+- **1.4** (nullCAT 0.9.8): added the per-wheel tokens `wheelSlip*` (a
   sim's combined slip magnitude, the lateral source where no slip angle
   exists) and `suspTravel*` (suspension position for sims without a
   velocity), and the optional `carId` identity string. The reference
   SimHub plugin now sends every channel by name and carries built-in
   per-game bindings. No change to parsing; every 1.3 sender remains
   fully compatible.
-- **1.3** (nullCAT 0.9.7): the channel wire widened from 16 to 48 slots.
+- **1.3** (nullCAT 0.9.8): the channel wire widened from 16 to 48 slots.
   Added the per-wheel raw-physics tokens `slipAngle*`, `slipRatio*`,
   `wheelSpeed*`, `load*`, `suspVel*` and `maxRpm`, consumed by the new
   per-wheel Lateral slip and Longitudinal slip effects (`skid` and
