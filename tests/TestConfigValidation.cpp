@@ -378,6 +378,7 @@ private slots:
         QCOMPARE(cfg.hapticsSlipLat.onsetPct, 40.0);
         QCOMPARE(cfg.hapticsSlipLat.attackMs, 30.0);
         QCOMPARE(cfg.hapticsSlipLon.attackMs, 8.0);   // Longitudinal keeps the fast attack
+        QCOMPARE(cfg.hapticsSlipLat.budget, 1.0);     // grip budget on by default
         const auto refused = [&cfg](const char* key) {
             for (const auto& e : cfg.validate()) if (e.find(key) != std::string::npos) return true;
             return false; };

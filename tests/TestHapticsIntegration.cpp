@@ -388,6 +388,36 @@ int main()
             check(lv() > 0.95, "I-8 attack 30 ms: full by 40 ms");
         }
 
+        // Grip budget: a wheel with both a slip angle and a slip ratio slides
+        // when the two together reach its limit. Onset 40% of 7 deg = 2.8 deg,
+        // the ratio's limit 0.15; linear ease, no smoothing, fast attack.
+        {
+            auto budgetRun = [&](double budget, double angle, double ratio, double& lat, double& lon) {
+                haptics::Layer B; haptics::LawsState bs;
+                B.configureFx(FxType::Skid, p); B.configureFx(FxType::Lockup, p);
+                haptics::SlipParams lp{ 1.0, 25.0, 1.0, 11.0, 7.0, 40.0, 0.0, 0.0, 8.0 }; lp.budget = budget;
+                B.configureSlip(FxType::Skid, lp); B.configureSlip(FxType::Lockup, { 1.0, 9.0, 1.0, 10.0, 0.8 });
+                NcxValues bv{}; bv.fresh = true;
+                bv.have[NcxValues::SpeedKmh] = true; bv.val[NcxValues::SpeedKmh] = 100.0;
+                for (int w = 0; w < 4; ++w)
+                {
+                    bv.have[NcxValues::SlipAngleFL + w] = true; bv.val[NcxValues::SlipAngleFL + w] = (w == 0) ? angle : 0.0;
+                    bv.have[NcxValues::SlipRatioFL + w] = true; bv.val[NcxValues::SlipRatioFL + w] = (w == 0) ? ratio : 0.0;
+                }
+                for (int i = 0; i < 100; ++i) { haptics::driveLaws(B, bs, bv, dt); B.step(dt); }
+                lat = B.slipWheelLevel(FxType::Skid, WheelFL); lon = B.slipWheelLevel(FxType::Lockup, WheelFL);
+            };
+            double lat = 0.0, lon = 0.0;
+            budgetRun(0.0, 2.8, -0.15, lat, lon);
+            check(lat < 0.01 && lon < 0.01, "I-8 budget off: angle and braking each at its own limit, nothing");
+            budgetRun(1.0, 2.8, -0.15, lat, lon);
+            check(lat > 0.05 && lon > 0.05, "I-8 budget on: the two together are past the limit, a slide on both tiles (trail braking)");
+            budgetRun(1.0, 4.9, 0.0, lat, lon);
+            check(std::fabs(lat - 0.5) < 0.05 && lon < 0.01, "I-8 budget on: pure sideways is the Lateral tile as before");
+            budgetRun(1.0, 0.0, -0.475, lat, lon);
+            check(lat < 0.01 && std::fabs(lon - 0.5) < 0.05, "I-8 budget on: pure braking is the Longitudinal tile as before");
+        }
+
         // Longitudinal from slip ratio: - locks, + spins; onset 0.15, full at
         // peak 0.8. FL -0.8 = full lock; RR +0.475 = halfway spin.
         setW(NcxValues::SlipRatioFL, -0.8, 0.0, 0.0, 0.475); settle(100);

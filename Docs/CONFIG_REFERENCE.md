@@ -147,6 +147,7 @@ Slip-only fields. Both tiles are per-wheel models with two components, each with
 | `slipLat` | `onsetPct` | `40` | The slide starts at this share of `peakDeg` (and of `peakPct` on the combined-slip path), 0 to 90. |
 | `slipLat` | `ease` | `1` | The way in, 0 to 2: severity = linear rise ^ (1 + ease); 0 linear, 1 squared (a light scrub first), 2 cubed. |
 | `slipLat` | `smoothHz` | `8` | One-pole smoothing of the per-wheel slip angle or combined slip (Hz), 0 to 30, 0 = as sent. |
+| `slipLat` | `budget` | `1` | Grip budget (0 off, 1 on; it drives both slip tiles): where a wheel has both a slip angle and a slip ratio, u = sqrt((angle / onset angle)^2 + (ratio / 0.15)^2); the slide grows from u = 1 to the full point blended by direction (peakDeg / onset, peakRatio / 0.15), shaped by `ease`, and splits into Lateral and Longitudinal by direction. |
 | `slipLat` | `attackMs` | `30` | How fast a wheel's slide builds, 2 to 200 ms (the longitudinal tile keeps 8). |
 | `slipLon` | `lock`, `lockHz` | `1`, `9` | A wheel locking under braking: mix and carrier (4 to 30 Hz) at 80 km/h; the carrier follows road speed. |
 | `slipLon` | `spin`, `spinHz` | `1`, `10` | A driven wheel spinning: mix and carrier (4 to 30 Hz), fixed. |

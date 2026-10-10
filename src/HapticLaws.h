@@ -226,6 +226,11 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
         // Slip means nothing at a standstill (a stationary car reports
         // slip angles and skid magnitudes that are noise or stale).
         const bool moving = speed > kSlipMinSpeedKmh;
+        // Each wheel's signed slip ratio where one is known this cycle (from
+        // the sim or the wheel speeds), for the grip budget below.
+        double ratioW[WHEEL_COUNT] = {};
+        bool   ratioOk[WHEEL_COUNT] = {};
+        double lonPeak = kLonOnsetRatio + 0.05;
 
         // Longitudinal: slip ratio (- locking, + spinning) past the onset
         // ratio up to peak ratio. Ratio from the sim, else from wheel speeds
@@ -233,6 +238,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
         {
             const SlipParams& sp = L.slipParams(FxType::Lockup);
             const double peak = std::max(kLonOnsetRatio + 0.05, sp.peak);
+            lonPeak = peak;
             const bool preview = st.previewSec[static_cast<int>(FxType::Lockup)] > 0.0;
             const bool haveRatio = haveW(NcxValues::SlipRatioFL);
             const bool haveWs    = !haveRatio && haveW(NcxValues::WheelSpeedFL) && v.have[NcxValues::SpeedKmh];
@@ -261,12 +267,14 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
                     const double r = v.val[NcxValues::SlipRatioFL + w];
                     lock = std::max(0.0, std::min(1.0, (-r - kLonOnsetRatio) / (peak - kLonOnsetRatio)));
                     spin = std::max(0.0, std::min(1.0, ( r - kLonOnsetRatio) / (peak - kLonOnsetRatio)));
+                    ratioW[w] = r; ratioOk[w] = true;
                 }
                 else if (moving && haveWs && st.rollKnown[w])
                 {
                     const double r = v.val[NcxValues::WheelSpeedFL + w] * st.rollK[w] / speed - 1.0;
                     lock = std::max(0.0, std::min(1.0, (-r - kLonOnsetRatio) / (peak - kLonOnsetRatio)));
                     spin = std::max(0.0, std::min(1.0, ( r - kLonOnsetRatio) / (peak - kLonOnsetRatio)));
+                    ratioW[w] = r; ratioOk[w] = true;
                 }
                 else if (moving && !haveRatio && !haveWs && live && v.have[NcxValues::Lockup])
                     lock = single;
@@ -329,6 +337,35 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
                 if (preview) sev = 1.0;
                 const bool front = (w == WheelFL || w == WheelFR);
                 L.driveSlip(FxType::Skid, w, front ? sev : 0.0, front ? 0.0 : sev);
+
+                // Grip budget: a wheel with both a slip angle and a slip
+                // ratio slides when the two TOGETHER reach its limit. Each
+                // is measured against its own grip limit (the onset angle;
+                // the 0.15 ratio), the two combine as a circle (1 = at the
+                // limit), and the slide grows from there to a full slide
+                // (blended between the two full points by direction), then
+                // plays on each tile by its direction (sideways: Lateral;
+                // along: Longitudinal, lock or spin by sign). Pure sideways
+                // or pure along gives the same severity as the tiles alone.
+                if (sp.budget >= 0.5 && moving && perWheel && ratioOk[w] && !preview
+                    && st.previewSec[static_cast<int>(FxType::Lockup)] <= 0.0)
+                {
+                    const double onsetA = std::max(0.05 * peak, onset);
+                    const double aN = st.slipF[w] / onsetA;
+                    const double kN = std::fabs(ratioW[w]) / kLonOnsetRatio;
+                    const double u  = std::sqrt(aN * aN + kN * kN);
+                    double lat = 0.0, lon = 0.0;
+                    if (u > 1e-9)
+                    {
+                        const double wa = aN * aN / (u * u), wk = kN * kN / (u * u);
+                        const double uFull = wa * (peak / onsetA) + wk * (lonPeak / kLonOnsetRatio);
+                        const double s = curve((u - 1.0) / std::max(1e-6, uFull - 1.0));
+                        lat = std::min(1.0, s * (aN / u) * loadW[w]);
+                        lon = std::min(1.0, s * (kN / u) * loadW[w]);
+                    }
+                    L.driveSlip(FxType::Skid, w, front ? lat : 0.0, front ? 0.0 : lat);
+                    L.driveSlip(FxType::Lockup, w, ratioW[w] < 0.0 ? lon : 0.0, ratioW[w] > 0.0 ? lon : 0.0);
+                }
             }
         }
         // Preview timers for the slip slots decay here (previewOr does it

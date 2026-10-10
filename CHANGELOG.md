@@ -46,7 +46,13 @@ Development branch. Nothing here is in a release yet.
   corner's valve shapes that wheel's slip tiles: the lock texture held at
   the edge of locking and surging with every cycle (`lock x`), the
   lateral slip easing after each dump (`scrub x`). Works with ABS's own
-  amp at 0. On/off settings on the tiles are tickboxes now (turbo too).- Lateral slip: how a slide comes in is now yours to set. **onset %**
+  amp at 0. On/off settings on the tiles are tickboxes now (turbo too).- Slip **grip budget** (on by default, a tickbox on Lateral slip): a
+  tyre's grip is one budget shared between cornering and braking or
+  driving. Where the sim sends a slip angle and a slip ratio or wheel
+  speeds, a wheel slides when the two together reach its limit (trail
+  braking, power out of a corner), on whichever tile matches its
+  direction; pure cornering or braking is unchanged.
+- Lateral slip: how a slide comes in is now yours to set. **onset %**
   (where it starts, as a share of peak deg; 40, was a fixed 60), **ease**
   (0 straight up, 1 a light scrub first), **smooth hz** (steadies the
   slip angle the sim sends, which flickered around the onset and played

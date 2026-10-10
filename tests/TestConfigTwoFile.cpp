@@ -126,7 +126,7 @@ private slots:
         c.hapticsEngine.buzz = 0.9; c.hapticsEngine.order = 0.5; c.hapticsEngine.limHit = 1.2;
         c.hapticsEngine.limHz = 10; c.hapticsEngine.limJit = 0.3;
         c.hapticsMasterGain = 1.3;
-        c.hapticsSlipLat = { 0.7, 28.0, 0.4, 9.0, 6.5, 35.0, 1.5, 10.0, 45.0 };
+        c.hapticsSlipLat = { 0.7, 28.0, 0.4, 9.0, 6.5, 35.0, 1.5, 10.0, 45.0, 0.0 };
         c.hapticsSlipLon = { 0.9, 8.0, 0.2, 12.0, 0.6 };
         c.hapticsRoad    = { 12.0, 3.5, 0.35, 140.0, 18.0, 2.0, 1.5, 4.0, 18.0, 0.4, 3.0 };
         c.hapticsKerb    = { 30.0, 10.0, 4.0, 12.0, 15.0 };
@@ -174,6 +174,7 @@ private slots:
         QCOMPARE(r.hapticsSlipLat.bHz, 9.0);  QCOMPARE(r.hapticsSlipLat.peak, 6.5);
         QCOMPARE(r.hapticsSlipLat.onsetPct, 35.0); QCOMPARE(r.hapticsSlipLat.ease, 1.5);
         QCOMPARE(r.hapticsSlipLat.smoothHz, 10.0); QCOMPARE(r.hapticsSlipLat.attackMs, 45.0);
+        QCOMPARE(r.hapticsSlipLat.budget, 0.0);   // saved off, read back off (the default is on)
         QCOMPARE(r.hapticsSlipLon.aMix, 0.9); QCOMPARE(r.hapticsSlipLon.aHz, 8.0);  QCOMPARE(r.hapticsSlipLon.bMix, 0.2);
         QCOMPARE(r.hapticsSlipLon.bHz, 12.0); QCOMPARE(r.hapticsSlipLon.peak, 0.6);
         QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)].routes[0].part   == haptics::Part::FL);

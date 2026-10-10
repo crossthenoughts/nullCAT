@@ -82,6 +82,11 @@ struct SlipParams
     double ease     = 1.0;
     double smoothHz = 8.0;
     double attackMs = 8.0;
+    // Grip budget (the Lateral tile's, 0 off, 1 on; it drives both tiles):
+    // a tyre's grip is one budget shared between cornering and braking or
+    // driving, so a wheel with both a slip angle and a slip ratio slides
+    // when the two together reach its limit, not each on its own.
+    double budget   = 0.0;
 };
 
 // The Road tile's replay settings (used when per-corner suspension

@@ -336,6 +336,15 @@ ms** is how fast a slide builds (30 by default; lower for a snappier
 break-away). As slip grows the carrier slows and roughens on its own
 (squeal, moan, shudder).
 
+**grip budget** (on by default) treats each tyre's grip as one budget
+shared between cornering and braking or driving, as a real tyre's is.
+Where the sim sends both a slip angle and a slip ratio (or wheel speeds:
+Assetto Corsa, Competizione, EVO, Rally), a wheel starts to slide when the
+two together reach its limit: braking into a corner or powering out of
+one slides the tyre earlier than either alone would. The slide then plays
+on this tile or on Longitudinal slip by which way the tyre is sliding.
+Pure cornering or pure braking feels as before. Untick it to compare.
+
 **Longitudinal slip** is the tread slipping along the road. **lock** is a
 wheel turning slower than the car under braking: a heavy judder whose
 beat falls with road speed. **spin** is a driven wheel turning faster

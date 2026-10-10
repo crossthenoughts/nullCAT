@@ -66,7 +66,7 @@ struct EffectInfo
     SlipParams   slipDefaults;
 };
 
-constexpr int SLIP_KEY_COUNT = 9;   // SlipParams fields with a config key (slipField)
+constexpr int SLIP_KEY_COUNT = 10;  // SlipParams fields with a config key (slipField)
 
 namespace registry_detail {
 
@@ -104,6 +104,7 @@ constexpr ParamSpec kSlipLatParams[] = {        // lateral slip: scrub (fronts) 
     { "ease",    "ease",       0,   2,   0.1,  nullptr },   // 0 linear, 1 a gentle start, 2 gentler
     { "smoothHz","smooth hz",  0,   30,  1,    nullptr },   // slip angle smoothing, 0 off
     { "attackMs","attack ms",  2,   200, 1,    nullptr },   // how fast a slide builds
+    { "budget",  "grip budget", 0,  1,   1,    "off|on" },  // cornering and braking/driving share one grip
     { "jitter",  "jitter",     0,   1,   0.05, nullptr },
     { "peakPct", "peak %",     1,   400, 1,    nullptr },   // combined-slip and skid-channel paths
 };
@@ -120,9 +121,9 @@ constexpr ParamSpec kSlipLonParams[] = {        // longitudinal slip: lock judde
 // SlipParams fields by index (slipField). A null key = that tile does not
 // carry the field (Longitudinal keeps its fixed onset and curve).
 constexpr const char* kSlipLatKeys[SLIP_KEY_COUNT] = { "scrub", "scrubHz", "slide", "slideHz", "peakDeg",
-                                                       "onsetPct", "ease", "smoothHz", "attackMs" };
+                                                       "onsetPct", "ease", "smoothHz", "attackMs", "budget" };
 constexpr const char* kSlipLonKeys[SLIP_KEY_COUNT] = { "lock", "lockHz", "spin", "spinHz", "peakRatio",
-                                                       nullptr, nullptr, nullptr, nullptr };
+                                                       nullptr, nullptr, nullptr, nullptr, nullptr };
 constexpr ParamSpec kRoadParams[] = {           // road: the model, its settings, the texture fallback
     { "ampPct",     "amp %",       0,   100, 1,    nullptr },
     { "model",      "model",       0,   2,   1,    "suspension|tyre|chassis" },
@@ -242,17 +243,20 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "slide on that path).",
       kSlipLonKeys, { 1.0, 9.0, 1.0, 16.0, 0.8 } },
     { Effect::Skid,        "slipLat",     "Lateral slip", Kind::Slip, EventType::COUNT, FxType::Skid,
-      { "slipAngle*|wheelSlip*|skid", "speedKmh", "~load*", nullptr }, { 0.0, 20.0, 0.0, 0.5 }, kSlipLatParams, 12,
+      { "slipAngle*|wheelSlip*|skid", "speedKmh", "~load*", nullptr }, { 0.0, 20.0, 0.0, 0.5 }, kSlipLatParams, 13,
       "The tyres sliding, per wheel. Scrub: the fronts pushing wide, a fine texture. Slide: the rears stepping "
       "out, an irregular slower chatter. A slide starts at onset % of peak deg and is full at peak deg; ease "
       "shapes the way in (0 straight up, 1 a light scrub first, 2 lighter still), smooth hz steadies the slip "
-      "angle the sim sends, attack ms is how fast a slide builds. The carrier slows and roughens as the slide "
+      "angle the sim sends, attack ms is how fast a slide builds. Grip budget on: a tyre has one grip for "
+      "cornering and braking or driving together, so where the sim sends both a slip angle and a slip ratio (or "
+      "wheel speeds) a wheel slides when the two together reach its limit (trail braking, power out of a corner), "
+      "and the slide plays here or on Longitudinal slip by its direction. The carrier slows and roughens as the slide "
       "grows (squeal, moan, shudder). The loaded tyre is weighted up when wheel loads arrive; the two wheels of "
       "an axle move together. Route with a part (a corner, an axle, all). Needs per-wheel slip angles; else the "
       "per-wheel combined slip (Automobilista 2: any sliding tyre, spinning and locking included), from onset % "
       "of peak % up to full at peak % (the chip shows the value arriving and its peak); else the single skid "
       "channel. Nothing at a standstill.",
-      kSlipLatKeys, { 1.0, 20.0, 1.0, 11.0, 7.0, 40.0, 1.0, 8.0, 30.0 } },
+      kSlipLatKeys, { 1.0, 20.0, 1.0, 11.0, 7.0, 40.0, 1.0, 8.0, 30.0, 1.0 } },
     { Effect::Road,        "road",        "Road",         Kind::Road, EventType::COUNT, FxType::Road,
       { "roadHeight*|suspVel*|suspTravel*|roadNoise", "speedKmh", "~surface*", "~accHeave", nullptr },
       { 0.0, 16.0, 0.0, 0.6 }, kRoadParams, 15,
@@ -366,6 +370,7 @@ inline double& slipField(SlipParams& s, int i)
         case 6: return s.ease;
         case 7: return s.smoothHz;
         case 8: return s.attackMs;
+        case 9: return s.budget;
         default: return s.peak;
     }
 }
