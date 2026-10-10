@@ -275,7 +275,8 @@ struct AppConfig
     haptics::PulseParams  hapticsAbs;    // the ABS tile's pulse (sharp, spread, slow, buzz)
     haptics::PulseParams  hapticsTc{ 0.3, 0.5, 0.0, 0.0, 40.0 };   // the TC tile's (sharp, spread; no slow or buzz)
     haptics::SurfaceParams hapticsSurface;   // the Surface tile (stones, crunch, studs, puddles; water smooths the road)
-    haptics::WheelsParams  hapticsWheels;    // the Wheels tile (out of round, flat spots, brake judder)
+    haptics::WheelsParams  hapticsWheels;    // the Wheels tile (out of balance, flat spots, brake judder)
+    haptics::ImpactParams  hapticsImpacts;   // the Impacts tile (the edge of a hit through the suspension)
     haptics::DrivelineParams hapticsDriveline;   // clutch judder + lug of the Driveline tile
     double                hapticsMasterGain  = 1.0;   // 0..2, scales every overlay
     // Share of each POSITION axis's maxVelocity / maxAcceleration that haptics

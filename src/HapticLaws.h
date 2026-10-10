@@ -122,6 +122,11 @@ namespace laws_k {
     constexpr double kPreviewWheelSpread[WHEEL_COUNT] = { 0.0, 0.004, -0.003, 0.007 };   // a Test: each wheel a touch apart
     constexpr double kPreviewFlatMm    = 0.8;
     constexpr double kPreviewBrake     = 0.6;
+    // Impacts laws: a Test preview's knocks (wheel -1 = every corner).
+    struct PreviewKnock { double atSec; int wheel; double severity, sign; };
+    constexpr PreviewKnock kPreviewKnocks[] = {
+        { 0.10, WheelFL, 1.0, 1.0 }, { 0.50, WheelFR, 0.6, 1.0 }, { 0.90, WheelRL, 1.0, -1.0 },
+        { 1.30, WheelRR, 0.6, 1.0 }, { 1.70, -1, 1.0, 1.0 } };
 }
 
 // Start a Test preview on a continuous/engine slot.
@@ -568,6 +573,37 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
             previewLeft -= dtSec;
         }
         for (int w = 0; w < WHEEL_COUNT; ++w) L.driveWet(w, water[w]);
+    }
+
+    // Impacts: each corner's suspension velocity (or its travel, the
+    // velocity worked out per sample) and the body's vertical acceleration;
+    // the model finds the sudden jumps. A Test preview knocks FL, FR, RL
+    // (a top-out), RR, then the whole car.
+    {
+        double& previewLeft = st.previewSec[static_cast<int>(FxType::Impacts)];
+        if (previewLeft > 0.0)
+        {
+            const double t0 = kPreviewSec - previewLeft, t1 = t0 + dtSec;
+            for (const PreviewKnock& k : kPreviewKnocks)
+                if (k.atSec >= t0 && k.atSec < t1)
+                {
+                    if (k.wheel < 0) for (int w = 0; w < WHEEL_COUNT; ++w) L.impactKnock(w, k.severity, k.sign);
+                    else L.impactKnock(k.wheel, k.severity, k.sign);
+                }
+            previewLeft -= dtSec;
+        }
+        else if (live)
+        {
+            bool vel = true, travel = true;
+            for (int w = 0; w < WHEEL_COUNT; ++w)
+            {
+                vel    = vel    && v.have[NcxValues::SuspVelFL + w];
+                travel = travel && v.have[NcxValues::SuspTravelFL + w];
+            }
+            if (vel)         for (int w = 0; w < WHEEL_COUNT; ++w) L.driveImpactVelocity(w, v.val[NcxValues::SuspVelFL + w]);
+            else if (travel) for (int w = 0; w < WHEEL_COUNT; ++w) L.driveImpactTravel(w, v.val[NcxValues::SuspTravelFL + w]);
+            if (v.have[NcxValues::AccHeave]) L.driveImpactHeave(v.val[NcxValues::AccHeave]);
+        }
     }
 
     // Driveline: clutch judder while the pedal is in the slipping band with

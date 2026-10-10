@@ -433,6 +433,24 @@ private slots:
         cfg.hapticsWheels.judder = 0.0; QVERIFY(cfg.validate().empty());
     }
 
+    // Impacts: from 100..3000, full 300..8000 and above from, heave 0..5 g,
+    // the ring 15..120 Hz over 10..200 ms.
+    void impacts_ranges()
+    {
+        AppConfig cfg = validConfig();
+        QCOMPARE(cfg.hapticsImpacts.fromMmS, 500.0); QCOMPARE(cfg.hapticsImpacts.heaveG, 1.5);
+        const auto refused = [&cfg](const char* key) {
+            for (const auto& e : cfg.validate()) if (e.find(key) != std::string::npos) return true;
+            return false; };
+        cfg.hapticsImpacts.fullMmS = 400.0;  QVERIFY2(refused("fullMmS must be above"), "full below from is refused");
+        cfg.hapticsImpacts.fullMmS = 2500.0; cfg.hapticsImpacts.heaveG = 6.0; QVERIFY2(refused("heaveG"), "heave 6 g is refused");
+        cfg.hapticsImpacts.heaveG = 0.0;
+        haptics::EffectParams& p = cfg.hapticsFx[static_cast<size_t>(haptics::Effect::Impacts)];
+        p.durMs = 5.0; QVERIFY2(refused("durMs"), "a 5 ms ring is refused");
+        p.durMs = 80.0; p.ampPct = 50.0; p.freqHz = 200.0; QVERIFY2(refused("ring freqHz"), "a 200 Hz ring is refused");
+        p.freqHz = 60.0; QVERIFY(cfg.validate().empty());
+    }
+
     // The frozen-stream guard is off by default and only takes a usable window.
     void ncxFrozenMs_range()
     {

@@ -1201,6 +1201,7 @@ function hapHintHz(fx,dv){
   if(fx.k==='slipLon') return +dv.lockHz>0?+dv.lockHz:9;
   if(fx.k==='road'||fx.k==='kerb'||fx.k==='surface') return 8;   // no single carrier: the bump rate the controller derates at
   if(fx.k==='wheels') return 11;   // the wheel's rate at about 80 km/h
+  if(fx.k==='impacts') return 15;  // a post's jolt
   return +dv.freqHz>0?+dv.freqHz:30;
 }
 

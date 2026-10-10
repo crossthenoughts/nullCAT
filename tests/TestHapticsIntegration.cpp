@@ -911,6 +911,53 @@ int main()
         }
     }
 
+    // ---- I-12: the Impacts tile through the laws ----
+    {
+        using haptics::FxType; using haptics::Part;
+        const double dt = 0.002;
+        haptics::Layer L; haptics::LawsState st;
+        haptics::EffectParams ip; ip.ampPct = 100.0; ip.freqHz = 40.0; ip.durMs = 50.0;
+        ip.routes[0] = { 0, 1.0, Part::FL }; ip.routes[1] = { 1, 1.0, Part::FR };
+        L.configureFx(FxType::Impacts, ip); L.configureImpacts(haptics::ImpactParams{});
+        NcxValues v{}; v.fresh = true;
+        auto vel = [&](double fl) { for (int w = 0; w < 4; ++w) { v.have[NcxValues::SuspVelFL + w] = true; v.val[NcxValues::SuspVelFL + w] = (w == WheelFL) ? fl : 0.0; } };
+        vel(0.0);
+        for (int i = 0; i < 100; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
+        vel(2000.0);   // FL compresses at 2 m/s from one sample to the next: a kerb strike
+        double pk0 = 0.0, pk1 = 0.0;
+        for (int i = 0; i < 100; ++i)
+        {
+            haptics::driveLaws(L, st, v, dt); L.step(dt);
+            pk0 = std::max(pk0, std::fabs(L.overlayFor(0))); pk1 = std::max(pk1, std::fabs(L.overlayFor(1)));
+        }
+        check(L.impactModel().knocks(WheelFL) == 1 && pk0 > 50.0 && pk1 < 1e-9,
+              "I-12 impacts: a sudden 2 m/s compression on FL knocks FL's route, FR's is silent");
+        // Travel instead (Assetto Corsa), and the body's heave.
+        haptics::Layer T; haptics::LawsState ts; T.configureFx(FxType::Impacts, ip); T.configureImpacts(haptics::ImpactParams{});
+        NcxValues tv{}; tv.fresh = true;
+        for (int i = 0; i < 600; ++i)
+        {
+            const double held = std::floor(i * dt * 60.0) / 60.0;
+            for (int w = 0; w < 4; ++w) { tv.have[NcxValues::SuspTravelFL + w] = true; tv.val[NcxValues::SuspTravelFL + w] = (w == WheelRR && held >= 0.5) ? 30.0 : 0.0; }
+            tv.have[NcxValues::AccHeave] = true; tv.val[NcxValues::AccHeave] = (held >= 1.0) ? 40.0 : 0.0;
+            haptics::driveLaws(T, ts, tv, dt); T.step(dt);
+        }
+        check(T.impactModel().knocks(WheelRR) >= 1 && T.impactModel().knocks(WheelFR) == 1,
+              "I-12 impacts: RR's travel jumping 30 mm in a sample knocks RR; a 4 g heave jump knocks every corner");
+
+        // A Test preview with no sim: FL, FR, RL (down), RR, then the whole car.
+        {
+            haptics::Layer P; haptics::LawsState ps; NcxValues none{};
+            P.configureFx(FxType::Impacts, ip); P.configureImpacts(haptics::ImpactParams{});
+            haptics::startPreview(ps, FxType::Impacts);
+            double flPk = 0.0;
+            for (int i = 0; i < 1000; ++i) { haptics::driveLaws(P, ps, none, dt); P.step(dt); if (i < 150) flPk = std::max(flPk, std::fabs(P.overlayFor(0))); }
+            check(flPk > 50.0, "I-12 impacts preview: FL knocks first");
+            check(P.impactModel().knocks(WheelFL) == 2 && P.impactModel().knocks(WheelRL) == 2 && P.impactModel().knocks(WheelRR) == 2,
+                  "I-12 impacts preview: each corner once, then the whole car");
+        }
+    }
+
     // ---- P-1..P-4: a POSITION (CSP) axis as a routing destination ----
     // Route gain on a position axis is mm at 100% amplitude. The offset is
     // tracked inside the haptic share of the axis limits (what the actuator

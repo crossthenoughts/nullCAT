@@ -1552,6 +1552,105 @@ int main()
         }
     }
 
+    // ================= Impacts: the edge of a hit through the suspension =================
+    {
+        using haptics::ImpactModel; using haptics::ImpactParams; using haptics::EffectParams; using haptics::Part;
+        const double dt = 0.0005;
+        EffectParams ep; ep.freqHz = 40.0; ep.durMs = 50.0;
+        const ImpactParams q;   // from 500, full 2500 mm/s, heave 1.5 g
+        // FL's suspension velocity held between sim samples 1/60 s apart;
+        // vel(t) gives each sample. Traces of FL's force and post outputs.
+        auto run = [&](ImpactModel& m, double (*vel)(double), double secs, std::vector<double>* f, std::vector<double>* p) {
+            const int n = static_cast<int>(secs / dt);
+            for (int i = 0; i < n; ++i)
+            {
+                const double t = i * dt, held = std::floor(t * 60.0) / 60.0;
+                for (int w = 0; w < 4; ++w) m.driveVelocity(w, w == WheelFL ? vel(held) : 0.0);
+                m.step(dt, ep, q);
+                if (f) f->push_back(m.outputFor(Part::FL).force);
+                if (p) p->push_back(m.outputFor(Part::FL).pos);
+            }
+        };
+        // A bump stop at 0.5 s: compressing at 1500 mm/s, stopped dead.
+        {
+            ImpactModel m; std::vector<double> f, p;
+            run(m, [](double t) { return (t < 0.3) ? 100.0 * std::sin(20.0 * t) : (t < 0.5 ? 1500.0 : 0.0); }, 0.9, &f, &p);
+            CHECK(m.knocks(WheelFL) == 2, "impacts: the sudden compression and its stop are two knocks");
+            approx(m.lastSeverity(WheelFL), (1500.0 - 500.0) / 2000.0, 0.01, "impacts: a 1500 mm/s jump is a half knock");
+            CHECK(m.knocks(WheelFR) == 0, "impacts: the still corners do not knock");
+            const size_t at = static_cast<size_t>(std::ceil(0.5 * 60.0) / 60.0 / dt);   // the stop's sample
+            double pk = 0.0; size_t pkAt = 0;
+            for (size_t i = at; i < at + 200; ++i) if (std::fabs(f[i]) > pk) { pk = std::fabs(f[i]); pkAt = i; }
+            CHECK(std::fabs(f[at]) < 0.2 * pk && (pkAt - at) * dt < 0.25 / 40.0 + 0.002, "impacts: the knock rises from nothing within a quarter cycle (the edge)");
+            double late = 0.0; for (size_t i = at + 400; i < at + 500; ++i) late = std::max(late, std::fabs(f[i]));
+            CHECK(late < 0.03 * pk, "impacts: and dies within ring ms x 4");
+            // Ring frequency from the spacing of its zero crossings.
+            size_t first = 0, last = 0; int xr = 0;
+            for (size_t i = at + 2; i < at + 400; ++i)
+                if ((f[i] >= 0.0) != (f[i - 1] >= 0.0)) { if (!xr) first = i; last = i; ++xr; }
+            approx((xr - 1) / 2.0 / ((last - first) * dt), 40.0, 1.0, "impacts: the knock rings at ring hz");
+            double up = 0.0; for (size_t i = at; i < at + 140; ++i) up = std::max(up, p[i]);
+            CHECK(up > 0.45 && std::fabs(p[at + 140]) < 1e-9, "impacts: the post jolts up for the bump stop and is back by 1/15 s");
+        }
+        // Topping out: an extension stopped dead jolts the post down.
+        {
+            ImpactModel m; std::vector<double> p;
+            run(m, [](double t) { return (t < 0.3) ? 0.0 : (t < 0.5 ? -100.0 : 0.0); }, 0.3, nullptr, nullptr);
+            m.knock(WheelFL, 0.0, 1.0);
+            ImpactModel n; run(n, [](double t) { return (t < 0.2) ? -2000.0 : 0.0; }, 0.4, nullptr, &p);
+            double dn = 0.0; for (double x : p) dn = std::min(dn, x);
+            CHECK(n.knocks(WheelFL) == 1 && dn < -0.5, "impacts: topping out jolts the post down");
+            CHECK(m.knocks(WheelFL) == 0, "impacts: a small change is no knock");
+        }
+        // A harder hit straight after breaks through; an equal one does not.
+        {
+            ImpactModel m;
+            run(m, [](double t) { return (t < 0.2) ? 0.0 : (t < 0.2 + 0.5 / 60.0 ? 1500.0 : 3500.0); }, 0.4, nullptr, nullptr);
+            CHECK(m.knocks(WheelFL) == 2, "impacts: a much harder hit one sample later knocks again");
+            ImpactModel n;
+            run(n, [](double t) { return (t < 0.2) ? 0.0 : (t < 0.2 + 0.5 / 60.0 ? 1500.0 : 0.0); }, 0.4, nullptr, nullptr);
+            CHECK(n.knocks(WheelFL) == 1, "impacts: an equal one one sample later does not");
+        }
+        // Travel (Assetto Corsa): the velocity is worked out per sample.
+        {
+            ImpactModel m;
+            for (int i = 0; i < 1600; ++i)
+            {
+                const double t = i * dt, held = std::floor(t * 60.0) / 60.0;
+                const double x = (held < 0.4) ? 30.0 * std::sin(3.0 * held) : (held < 0.6 ? 30.0 * std::sin(1.2) + 1800.0 * (held - 0.4) : 30.0 * std::sin(1.2) + 360.0);
+                for (int w = 0; w < 4; ++w) m.driveTravel(w, w == WheelRR ? x : 0.0);
+                m.step(dt, ep, q);
+            }
+            CHECK(m.knocks(WheelRR) == 2 && m.knocks(WheelFL) == 0, "impacts travel: a corner starting and stopping dead knocks twice");
+            approx(m.lastSeverity(WheelRR), (1800.0 - 500.0) / 2000.0, 0.05, "impacts travel: 1800 mm/s stopped (travel held still) = 0.65");
+            // One dropped frame mid-compression is not a stop.
+            ImpactModel d;
+            for (int i = 0; i < 1600; ++i)
+            {
+                const double t = i * dt; double held = std::floor(t * 60.0) / 60.0;
+                if (held > 0.45 && held < 0.47) held -= 1.0 / 60.0;   // the sample at 28/60 never arrives
+                for (int w = 0; w < 4; ++w) d.driveTravel(w, w == WheelRR ? 900.0 * held : 0.0);
+                d.step(dt, ep, q);
+            }
+            CHECK(d.knocks(WheelRR) == 0, "impacts travel: a dropped frame mid-compression is no knock");
+        }
+        // The body: a vertical g jump knocks every corner.
+        {
+            ImpactModel m;
+            for (int i = 0; i < 1600; ++i)
+            {
+                const double t = i * dt, held = std::floor(t * 60.0) / 60.0;
+                m.driveHeave(held < 0.4 ? 9.8 : 9.8 + 3.0 * 9.80665);   // a 3 g landing
+                m.step(dt, ep, q);
+            }
+            approx(m.lastSeverity(WheelRL), (3.0 - 1.5) / 3.0, 0.01, "impacts body: a 3 g jump at heave 1.5 g is a half knock on every corner");
+            CHECK(m.knocks(WheelFL) == 1 && m.knocks(WheelRR) == 1, "impacts body: one knock each");
+            ImpactParams off = q; off.heaveG = 0.0; ImpactModel z;
+            for (int i = 0; i < 1600; ++i) { z.driveHeave(i < 800 ? 0.0 : 40.0); z.step(dt, ep, off); }
+            CHECK(z.knocks(WheelFL) == 0, "impacts body: heave g 0 = off");
+        }
+    }
+
     // ================= model trigger: detent capture =================
     {
         DeviceParams p;

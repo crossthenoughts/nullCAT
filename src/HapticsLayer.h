@@ -33,6 +33,7 @@
 #include "PulseModel.h"
 #include "SurfaceModel.h"
 #include "WheelsModel.h"
+#include "ImpactModel.h"
 #include "WaveSynth.h"
 #include <algorithm>
 #include <cstdint>
@@ -248,6 +249,27 @@ public:
                     if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
                     if (m_sinkKind[r.axis] == SinkKind::Position)
                         m_overlay[r.axis] += p.ampPct * o.pos * r.gain * sinkScale(r.axis, p.ampPct * r.gain, hz);
+                    else
+                        m_overlay[r.axis] += p.ampPct * o.force * r.gain;
+                }
+                continue;
+            }
+            // Impacts: the edge of a hit, per corner. A post's jolt is
+            // derated at its own rate.
+            if (i == static_cast<int>(FxType::Impacts))
+            {
+                if (p.ampPct <= 0.0) { m_impacts.clear(); f.level = 0.0; continue; }
+                m_impacts.step(dtSec, p, m_impactParams);
+                f.level = m_impacts.level();
+                if (f.level < 1e-4) continue;
+                for (const Route& r : p.routes)
+                {
+                    if (r.gain <= 0.0) continue;
+                    const ImpactModel::Out o = m_impacts.outputFor(r.part);
+                    if (r.shaker >= 0) { if (o.force != 0.0) toShaker(r, p.ampPct * o.force); continue; }
+                    if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
+                    if (m_sinkKind[r.axis] == SinkKind::Position)
+                        m_overlay[r.axis] += p.ampPct * o.pos * r.gain * sinkScale(r.axis, p.ampPct * r.gain, impact_k::kThudHz);
                     else
                         m_overlay[r.axis] += p.ampPct * o.force * r.gain;
                 }
@@ -658,6 +680,16 @@ public:
     void driveWheelsBrake(double brake01)          { m_wheels.driveBrake(brake01); }
     void driveWheelsPreview(double flatMm, double heat) { m_wheels.drivePreview(flatMm, heat); }
     void wheelsFreshTyres()                        { m_wheels.clear(); }
+
+    // ---- the Impacts tile. Config apply for the params; the law drives
+    // each corner's suspension and the body's vertical acceleration.
+    void configureImpacts(const ImpactParams& q)   { m_impactParams = q; }
+    const ImpactParams& impactParams() const       { return m_impactParams; }
+    void driveImpactVelocity(int wheel, double mmS){ m_impacts.driveVelocity(wheel, mmS); }
+    void driveImpactTravel(int wheel, double mm)   { m_impacts.driveTravel(wheel, mm); }
+    void driveImpactHeave(double ms2)              { m_impacts.driveHeave(ms2); }
+    void impactKnock(int wheel, double severity, double sign) { m_impacts.knock(wheel, severity, sign); }
+    const ImpactModel& impactModel() const         { return m_impacts; }
     double wheelFlatMm(int wheel) const            { return m_wheels.flatMm(wheel); }
     const WheelsModel& wheelsModel() const         { return m_wheels; }
 
@@ -772,6 +804,7 @@ public:
         m_absLinkLevel = 0.0;
         m_surface.clear();
         m_wheels.clear();
+        m_impacts.clear();
         m_tcModel.clear();
         for (double& o : m_overlay) o = 0.0;
         for (double& o : m_shaker)  o = 0.0;
@@ -876,6 +909,8 @@ private:
     SurfaceParams m_surfaceParams;
     WheelsModel  m_wheels;
     WheelsParams m_wheelsParams;
+    ImpactModel  m_impacts;
+    ImpactParams m_impactParams;
     PulseModel  m_absModel{ WHEEL_COUNT, pulse_k::kAbsDrop };
     PulseModel   m_tcModel{ 1, pulse_k::kTcDrop };
     PulseParams  m_absParams;

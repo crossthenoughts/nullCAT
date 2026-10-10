@@ -23,16 +23,17 @@
 namespace haptics {
 
 enum class Effect { DetentClick = 0, GearShift, Engine, Abs, Lockup, Skid, Road,
-                    Limiter, Tc, Kerb, Driveline, Surface, Wheels, COUNT };
+                    Limiter, Tc, Kerb, Driveline, Surface, Wheels, Impacts, COUNT };
 static constexpr int EFFECT_COUNT = static_cast<int>(Effect::COUNT);
 
 // Slip: a per-wheel model (SlipModel.h) whose routes carry a Part. Road:
 // the texture oscillator with a per-corner replay (RoadModel.h) when the
 // sim sends suspension velocities; routes carry a Part too.
-enum class Kind { Transient, Continuous, Engine, Slip, Road, Driveline, Kerb, Abs, Tc, Surface, Wheels };
+enum class Kind { Transient, Continuous, Engine, Slip, Road, Driveline, Kerb, Abs, Tc, Surface, Wheels, Impacts };
 inline bool kindHasParts(Kind k)
 {
-    return k == Kind::Slip || k == Kind::Road || k == Kind::Kerb || k == Kind::Abs || k == Kind::Surface || k == Kind::Wheels;
+    return k == Kind::Slip || k == Kind::Road || k == Kind::Kerb || k == Kind::Abs || k == Kind::Surface
+        || k == Kind::Wheels || k == Kind::Impacts;
 }
 
 // One tunable the UI shows for an effect: config key, label, range, step,
@@ -186,6 +187,14 @@ constexpr ParamSpec kWheelsParams[] = {         // wheels: out of round, flat sp
     { "flat",    "flat x",     0,   4,   0.1,  nullptr },   // flat spots from lock-ups
     { "judder",  "judder x",   0,   1,   0.05, nullptr },   // hot brake discs under braking
 };
+constexpr ParamSpec kImpactParams[] = {         // impacts: the edge of a hit through the suspension
+    { "ampPct",  "amp %",      0,   100,  1,    nullptr },
+    { "freqHz",  "ring hz",    15,  120,  1,    nullptr },   // the knock's ring on a belt or shaker
+    { "durMs",   "ring ms",    10,  200,  1,    nullptr },   // ...and how fast it dies
+    { "fromMmS", "from mm/s",  100, 3000, 50,   nullptr },   // a suspension velocity jump that starts a knock
+    { "fullMmS", "full mm/s",  300, 8000, 100,  nullptr },   // ...and a full one
+    { "heaveG",  "heave g",    0,   5,    0.1,  nullptr },   // a vertical g jump that knocks the whole car (0 off)
+};
 constexpr ParamSpec kEngineParams[] = {    { "ampPct",    "amp %",                 0,   100,   1,    nullptr },
     { "cylinders", "cyl / rotors",          1,   16,    1,    nullptr },
     { "litres",    "litres",                0.1, 30,    0.1,  nullptr },
@@ -335,6 +344,17 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "brake (best on a belt, surge or a shaker). Each wheel turns at its own speed, so the corners drift in "
       "and out of step; route with a part so each post plays its own corner. Needs the speed; per-wheel slip "
       "ratios or wheel speeds for each wheel's own speed and the lock-ups, the brake for the judder.",
+      nullptr, {} },
+    { Effect::Impacts,     "impacts",     "Impacts",      Kind::Impacts, EventType::COUNT, FxType::Impacts,
+      { "suspVel*|suspTravel*|accHeave", nullptr }, { 0.0, 40.0, 50.0, 0.0 }, kImpactParams, 6,
+      "The edge of a hit, which the motion cue rounds off and never sends to a belt or shaker: a corner's "
+      "suspension stopping or starting dead between two sim samples (the bump stop on a big compression, a "
+      "landing, a kerb strike, the suspension topping out), from from mm/s of sudden change, full at full mm/s; "
+      "and a sudden jump in the body's vertical g (heave g, 0 = off) on every corner. A belt or shaker gets a "
+      "knock ringing at ring hz and dying over ring ms; a post one short jolt, up for a compression, down for a "
+      "top-out (keep its route small: the motion already moves the body). Route with a part so a post knocks "
+      "for its own corner. Needs the suspension velocity or travel per corner, or the body's vertical "
+      "acceleration.",
       nullptr, {} },
 };
 } // namespace registry_detail

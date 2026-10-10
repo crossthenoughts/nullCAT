@@ -285,6 +285,7 @@ effect silent.
 | Driveline | a slipping clutch juddering at a launch, the engine lugging at low revs (below) | clutch, rpm, gear (speed, throttle) |
 | Surface | what the ground does under each tyre: stones on gravel, snow crunching, studs on ice, puddles dragging and floating the tyre (below) | the surface under each tyre, speed (rain or wetness) |
 | Wheels | each wheel turning: slightly out of balance, flat spots from lock-ups, hot brake discs juddering, through the tyre and suspension (below) | speed (per-wheel slip ratio or wheel speeds, brake) |
+| Impacts | the edge of a hit: the bump stop, a landing, a kerb strike, a top-out, as a knock on a belt or shaker and a short jolt on a seat actuator (below) | the suspension per corner, or the body's vertical acceleration |
 
 With the SimHub plugin, rpm, speed, gear, clutch, throttle, brake, ABS,
 limiter and traction control arrive automatically, and for Assetto
@@ -552,6 +553,35 @@ several corners plays them together and beats as they drift. Fresh
 tyres and cold discs come with a new session (the sim quiet for half a
 minute). Test runs 80 km/h: out of balance, then a flat on the front
 left, then hot discs under braking.
+
+### Impacts
+
+The edge of a hit. Your motion software already moves the rig with a
+landing, a big compression or a kerb strike, but rounded off: the sim's
+data arrives about 60 times a second and motion cueing smooths and clips
+the spikes. What it cannot pass on is the crack of the moment itself, and
+it never reaches a belt or a shaker. This tile plays only that.
+
+- A corner's suspension stopping or starting dead from one sim sample to
+  the next: the bump stop at the bottom of a big compression, a landing,
+  a kerb strike, the suspension topping out over a crest. It starts at
+  **from mm/s** (500) of sudden change and is full at **full mm/s**
+  (2500).
+- A sudden jump in the body's vertical g, on every corner: a landing, a
+  heavy compression. **heave g** (1.5) is the jump that starts a knock,
+  full at three times that; 0 turns it off.
+
+A belt or shaker gets a knock that rings at **ring hz** (40) and dies
+over **ring ms** (50). A seat actuator gets one short jolt for its
+corner: up when a compression stopped or started (bump stop, landing,
+kerb), down when the suspension topped out or dropped away. Keep the
+seat routes small: the motion already moves the body, this is only the
+edge on top. Route with a part so each post knocks for its own corner.
+Test knocks each corner in turn (the rear left topping out), then the
+whole car.
+
+Turn **from mm/s** up if rough tracks knock all the time, down if hits
+pass unnoticed.
 
 ### ABS and TC
 

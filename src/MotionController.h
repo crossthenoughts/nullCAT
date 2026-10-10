@@ -502,6 +502,7 @@ private:
         haptics::PulseParams  abs, tc;
         haptics::SurfaceParams surface;
         haptics::WheelsParams wheels;
+        haptics::ImpactParams impacts;
         haptics::DrivelineParams driveline;
         double masterGain = 1.0;
         double positionBudget = 0.4;

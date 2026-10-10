@@ -42,6 +42,12 @@ Development branch. Nothing here is in a release yet.
   shown on the tile); hot discs after hard braking pulsing the braking
   force (**judder x**). Each wheel turns at its own speed, so the corners
   drift in and out of step.
+- **Impacts** tile: the edge of a hit, which the motion cue rounds off
+  and never sends to a belt or shaker. A corner's suspension stopping or
+  starting dead between two sim samples (the bump stop, a landing, a kerb
+  strike, topping out) or a sudden jump in the body's vertical g knocks:
+  a short ring on a belt or shaker, one small jolt on that corner's seat
+  actuator.
 - ABS and TC feel more like the real thing. ABS works per corner: each
   valve on its own rate, each cycle a little different, so the four
   drift in and out of step and the car grumbles instead of beating

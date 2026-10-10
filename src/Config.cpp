@@ -282,6 +282,11 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
                 const haptics::WheelsParams& w = c.hapticsWheels;
                 o["balance"] = w.balance; o["flat"] = w.flat; o["judder"] = w.judder;
             }
+            else if (info.kind == haptics::Kind::Impacts)
+            {
+                const haptics::ImpactParams& m = c.hapticsImpacts;
+                o["fromMmS"] = m.fromMmS; o["fullMmS"] = m.fullMmS; o["heaveG"] = m.heaveG;
+            }
             else if (info.kind == haptics::Kind::Abs || info.kind == haptics::Kind::Tc)
             {
                 const bool abs = (info.kind == haptics::Kind::Abs);
@@ -430,6 +435,13 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                 w.balance = o.value("balance").toDouble(w.balance);
                 w.flat   = o.value("flat").toDouble(w.flat);
                 w.judder = o.value("judder").toDouble(w.judder);
+            }
+            if (info.kind == haptics::Kind::Impacts)
+            {
+                haptics::ImpactParams& m = c.hapticsImpacts;
+                m.fromMmS = o.value("fromMmS").toDouble(m.fromMmS);
+                m.fullMmS = o.value("fullMmS").toDouble(m.fullMmS);
+                m.heaveG  = o.value("heaveG").toDouble(m.heaveG);
             }
             if (info.kind == haptics::Kind::Abs || info.kind == haptics::Kind::Tc)
             {
@@ -1428,6 +1440,17 @@ std::vector<std::string> AppConfig::validate() const
                 if (w.balance < 0.0 || w.balance > 4.0) errors.push_back(pfx + "balance out of range [0, 4]");
                 if (w.flat < 0.0 || w.flat > 4.0)     errors.push_back(pfx + "flat out of range [0, 4]");
                 if (w.judder < 0.0 || w.judder > 1.0) errors.push_back(pfx + "judder out of range [0, 1]");
+            }
+            if (info.kind == haptics::Kind::Impacts)
+            {
+                const haptics::ImpactParams& m = hapticsImpacts;
+                const haptics::EffectParams& ip = hapticsFx[static_cast<size_t>(i)];
+                if (ip.ampPct > 0.0 && (ip.freqHz < 15.0 || ip.freqHz > 120.0)) errors.push_back(pfx + "ring freqHz out of range [15, 120]");
+                if (ip.durMs < 10.0 || ip.durMs > 200.0)        errors.push_back(pfx + "ring durMs out of range [10, 200]");
+                if (m.fromMmS < 100.0 || m.fromMmS > 3000.0)    errors.push_back(pfx + "fromMmS out of range [100, 3000]");
+                if (m.fullMmS < 300.0 || m.fullMmS > 8000.0)    errors.push_back(pfx + "fullMmS out of range [300, 8000]");
+                else if (m.fullMmS <= m.fromMmS)                errors.push_back(pfx + "fullMmS must be above fromMmS");
+                if (m.heaveG < 0.0 || m.heaveG > 5.0)           errors.push_back(pfx + "heaveG out of range [0, 5]");
             }
             if (info.kind == haptics::Kind::Abs || info.kind == haptics::Kind::Tc)
             {

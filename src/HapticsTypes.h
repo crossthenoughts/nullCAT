@@ -22,7 +22,7 @@ static constexpr int EVENT_TYPE_COUNT = static_cast<int>(EventType::COUNT);
 // and Skid are the two per-wheel slip models (longitudinal and lateral);
 // the rest are oscillators whose LEVEL (0..1) is driven per cycle by a law.
 enum class FxType { RpmVibe = 0, AbsPulse = 1, Lockup = 2, Skid = 3, Road = 4,
-                    Limiter = 5, TcPulse = 6, Kerb = 7, Driveline = 8, Surface = 9, Wheels = 10, COUNT };
+                    Limiter = 5, TcPulse = 6, Kerb = 7, Driveline = 8, Surface = 9, Wheels = 10, Impacts = 11, COUNT };
 static constexpr int FX_TYPE_COUNT = static_cast<int>(FxType::COUNT);
 
 // What an axis index is as a routing destination. Torque: the overlay is %
@@ -171,6 +171,15 @@ struct WheelsParams
     double balance = 1.0;    // the wheel out of balance (and a touch out of round), x a typical wheel (0 = perfect)
     double flat   = 1.0;     // flat spots ground in by lock-ups, x their depth (0 = off)
     double judder = 0.5;     // hot brake discs pulsing the braking force, 0..1
+};
+
+// The Impacts tile (ImpactModel.h): the edge of a hit through the
+// suspension. A knock rings at the effect's freqHz over durMs (its decay).
+struct ImpactParams
+{
+    double fromMmS = 500.0;   // a jump in a corner's suspension velocity between two samples that starts a knock
+    double fullMmS = 2500.0;  // ...and the jump that is a full one
+    double heaveG  = 1.5;     // a jump in the body's vertical acceleration (g) that knocks every corner (0 = off)
 };
 
 // The Driveline tile: clutch judder and lugging wind-up, each a mix and
