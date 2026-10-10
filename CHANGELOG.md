@@ -4,7 +4,7 @@ Notable changes to nullCAT. Format follows [Keep a Changelog](https://keepachang
 versioning is [Semantic Versioning](https://semver.org/) - while on `0.x`, the
 middle number carries breaking changes and the last carries fixes.
 
-## [0.9.7] - unreleased
+## [0.9.7] - 2026-10-11
 
 A safety fix for 0.9.6. Nothing else changes; update whenever the rig is
 parked.
