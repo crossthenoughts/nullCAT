@@ -50,6 +50,15 @@ Development branch. Nothing here is in a release yet.
   gains **puncture x**: a punctured tyre (Automobilista 2) rides on its
   folded sidewall, a heavy thump once a revolution. Protocol 1.7: the
   numbered line widens to 96 slots, tokens `onGround*` and `deflated*`.
+- Changing car starts over what was learned about the last one: each
+  wheel's rolling factor, the usual corner load, the kerb height bias,
+  the engine's learned redline, and the tyres (no flat spots, cold
+  discs). A pause in the pits or a menu no longer gives you fresh tyres;
+  without a car name, only ten minutes without the sim does.
+- Readouts for the new tiles: Impacts shows each corner's knock now and
+  its hardest; Surface shows what each tyre is on (`gravel`, `snow`,
+  `tarmac wet`, `float`, `air`); Road shows `air` for a tyre off the
+  ground.
 - **Impacts** tile: the edge of a hit, which the motion cue rounds off
   and never sends to a belt or shaker. A corner's suspension stopping or
   starting dead between two sim samples (the bump stop, a landing, a kerb
@@ -242,6 +251,10 @@ Development branch. Nothing here is in a release yet.
   seconds in the pits. The SimHub plugin goes quiet on pause by itself.
 
 ### Fixed
+- Pi: re-running the installer from a clone after a version change kept
+  the previous version's stamp in an existing build folder, so the new
+  build installed under the old version's name. A version change now
+  re-runs the build's configuration by itself.
 - Haptics on the seat actuators with motion off: unparking with no
   motion data from the sim but its channels still arriving made the
   verticals run wild (the haptic movement built up on itself every

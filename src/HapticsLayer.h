@@ -687,8 +687,14 @@ public:
     void driveGround(int wheel, double contact)
     {
         m_road.driveGround(wheel, contact); m_surface.driveGround(wheel, contact); m_wheels.driveGround(wheel, contact);
+        if (wheel >= 0 && wheel < WHEEL_COUNT) m_ground[wheel] = contact;
     }
     void driveDeflated(int wheel, double deflated) { m_wheels.driveDeflated(wheel, deflated); }
+    double groundContact(int wheel) const { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_ground[wheel] : 1.0; }   // as the law last drove it
+
+    // A different car: what was learned about the last one starts over (the
+    // engine's redline; fresh tyres and cold discs). The law resets its own.
+    void newCar() { m_engine.forgetCar(); m_wheels.clear(); }
 
     // ---- the Impacts tile. Config apply for the params; the law drives
     // each corner's suspension and the body's vertical acceleration.
@@ -920,6 +926,7 @@ private:
     WheelsParams m_wheelsParams;
     ImpactModel  m_impacts;
     ImpactParams m_impactParams;
+    double       m_ground[WHEEL_COUNT] = { 1.0, 1.0, 1.0, 1.0 };   // ground contact as last driven (status)
     PulseModel  m_absModel{ WHEEL_COUNT, pulse_k::kAbsDrop };
     PulseModel   m_tcModel{ 1, pulse_k::kTcDrop };
     PulseParams  m_absParams;

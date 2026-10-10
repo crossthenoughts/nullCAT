@@ -111,6 +111,7 @@ try {
     // line, every other continuous tile an input now/peak line, every
     // wave a source tag slot, and the magnitude-fed tiles a peak % trim.
     wheelLines:   document.querySelectorAll('#hapStrip .hap-tile [data-wheels]').length,
+    surfLines:    document.querySelectorAll('#hapStrip .hap-tile [data-surf]').length,
     inLines:      document.querySelectorAll('#hapStrip .hap-tile [data-in]').length,
     waveTags:     document.querySelectorAll('#hapStrip .hap-tile [data-wtag]').length,
     peakTrims:    document.querySelectorAll('#hapStrip .hap-tile input[data-k="peakPct"]').length,
@@ -162,7 +163,8 @@ try {
   if (st.simDotsGrey !== nEffects) fails.push(`${st.simDotsGrey} grey sim dots with no sim, expected ${nEffects}`);
   if (!st.gameSel)              fails.push('no game selector on the Master tile');
   if (!st.shakerFields)         fails.push('shaker host fields or the axis delay field are missing');
-  if (st.wheelLines !== 5)      fails.push(`${st.wheelLines} per-wheel readout lines, expected 5 (Lateral, Longitudinal, Road, Kerb, Wheels)`);
+  if (st.wheelLines !== 6)      fails.push(`${st.wheelLines} per-wheel readout lines, expected 6 (Lateral, Longitudinal, Road, Kerb, Wheels, Impacts)`);
+  if (st.surfLines !== 1)       fails.push(`${st.surfLines} Surface per-wheel lines, expected 1`);
   if (st.inLines < 5)           fails.push(`${st.inLines} input readout lines, expected one per other continuous tile`);
   if (st.waveTags !== nEffects) fails.push(`${st.waveTags} wave source tags, expected one per effect tile (${nEffects})`);
   if (st.peakTrims !== 4)       fails.push(`${st.peakTrims} peak % trims, expected 4 (two slip tiles, Kerb, Road)`);

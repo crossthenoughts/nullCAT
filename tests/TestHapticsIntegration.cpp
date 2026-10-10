@@ -31,6 +31,7 @@
 #include "MockA6Drive.h"
 
 #include <cstdio>
+#include <cstring>
 #include <cmath>
 #include <algorithm>
 
@@ -881,12 +882,29 @@ int main()
         }
         check(pk0 > 2.0 && pk1 < 1e-9, "I-11 wheels: the flat thumps on FL's route, FR's is silent");
         check(L.fxLevel(static_cast<int>(FxType::Wheels)) > 0.02, "I-11 wheels: the tile level shows it");
-        // The stream quiet for half a minute: fresh tyres.
+        // A minute's pause (the pits, a menu) keeps the flat; so does the
+        // sim naming the car it was already in.
         v.fresh = false;
-        for (int i = 0; i < 14000; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
-        check(L.wheelFlatMm(WheelFL) > 0.35, "I-11 wheels: a short pause keeps the flat");
-        for (int i = 0; i < 1100; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
-        check(L.wheelFlatMm(WheelFL) == 0.0, "I-11 wheels: quiet for 30 s, fresh tyres");
+        for (int i = 0; i < 30000; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
+        check(L.wheelFlatMm(WheelFL) > 0.35, "I-11 wheels: a minute's pause keeps the flat");
+        v.fresh = true; std::strcpy(v.car, "Car A");
+        for (int i = 0; i < 100; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
+        check(L.wheelFlatMm(WheelFL) > 0.35, "I-11 wheels: the sim naming the car keeps the flat");
+        // A different car: fresh tyres, and the per-car learning starts over.
+        st.rollKnown[WheelFL] = true; st.loadRef = 1234.0;
+        std::strcpy(v.car, "Car B");
+        haptics::driveLaws(L, st, v, dt); L.step(dt);
+        check(L.wheelFlatMm(WheelFL) == 0.0 && !st.rollKnown[WheelFL] && st.loadRef == 0.0,
+              "I-11 wheels: a different car brings fresh tyres and forgets the last car's learning");
+        // No identity at all: ten minutes quiet brings fresh tyres.
+        ratios(-1.0, 0.0, 0.0, 0.0); v.val[NcxValues::BrakePct] = 100.0;
+        for (int i = 0; i < 250; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
+        check(L.wheelFlatMm(WheelFL) > 0.1, "I-11 wheels: a new lock-up grinds a new flat");
+        v.fresh = false;
+        for (int i = 0; i < 290000; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
+        check(L.wheelFlatMm(WheelFL) > 0.1, "I-11 wheels: quiet for under ten minutes keeps it");
+        for (int i = 0; i < 11000; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
+        check(L.wheelFlatMm(WheelFL) == 0.0, "I-11 wheels: quiet for ten minutes, fresh tyres");
 
         // A Test preview with no sim: out of round, then a flat on the front
         // left, then hot discs under braking, at 80 km/h.

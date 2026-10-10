@@ -1122,8 +1122,10 @@ function hapChanSpec(entry){
 const HAP_FLAG_TOKENS=['absActive','limiter','tcActive','pitLimiter'];
 // Which status hapWheels set a tile's per-wheel line reads (-1 = none):
 // 0 lateral severity, 1 longitudinal severity, 2 road mm, 3 on a kerb 0..1,
-// 4 flat spot mm.
-function hapWheelSet(k){ return k==='slipLat'?0:k==='slipLon'?1:k==='road'?2:k==='kerb'?3:k==='wheels'?4:-1; }
+// 4 flat spot mm, 5 impact ring. Sets 6..9 (ground contact, surface class,
+// water, floating) are read by the Road cells and the Surface line.
+function hapWheelSet(k){ return k==='slipLat'?0:k==='slipLon'?1:k==='road'?2:k==='kerb'?3:k==='wheels'?4:k==='impacts'?5:-1; }
+const HAP_SURF_NAMES=['tarmac','bumpy','kerb','gravel','grass','dirt','cobbles','snow','ice','sand','mud','water'];
 // Road: the settings each model reads (the rest are dimmed), and the
 // roadNoise texture's, live only while the model has nothing to run on.
 const HAP_ROAD_MODEL_KEYS=[['fullMm','surface','surfaceHz','surfaceKmh','rough','bodyHz','hopHz','damping'],
@@ -1560,9 +1562,20 @@ function hapLive(s){
       const f=(v)=>(k===2?(+v||0).toFixed(1):(+v||0).toFixed(2));
       // Four cells in a 2 x 2 grid (FL FR / RL RR): one line was wider
       // than the tile and ran under its neighbour.
-      const cells=wl.children;
-      ['FL','FR','RL','RR'].forEach((n,i)=>{ if(cells[i]) cells[i].textContent=n+' '+f(now[i])+'/'+f(pk[i]); });
+      const cells=wl.children, ground=s.hapWheels[6]||[];
+      // Road: a tyre in the air shows "air" instead of its travel.
+      ['FL','FR','RL','RR'].forEach((n,i)=>{ if(cells[i]) cells[i].textContent=n+' '+((k===2&&ground[i]!==undefined&&+ground[i]<0.5)?'air':f(now[i])+'/'+f(pk[i])); });
       wl.classList.toggle('hot',pk.some(v=>+v>0.05));
+    }
+    // Surface: what each tyre is on as nullCAT reads it (class, wet,
+    // floating, or in the air).
+    const sl=t.tile.querySelector('[data-surf]');
+    if(sl&&Array.isArray(s.hapWheels)&&s.hapWheels.length>9){
+      const g=s.hapWheels[6]||[], c=s.hapWheels[7]||[], wa=s.hapWheels[8]||[], fl=s.hapWheels[9]||[];
+      const cells=sl.children;
+      ['FL','FR','RL','RR'].forEach((n,i)=>{ if(!cells[i]) return;
+        const txt=(+g[i]<0.5)?'air':(HAP_SURF_NAMES[Math.round(+c[i])]||'tarmac')+((+fl[i]>0.5)?' float':(+wa[i]>0.3)?' wet':'');
+        cells[i].textContent=n+' '+txt; });
     }
     if(t.fx.transient){
       if(firedEdge&&t.dv.ampPct>0&&!t.anim){
@@ -1763,7 +1776,12 @@ function hapInit(){
     // session peak per corner. Test drives 1.00 on every wheel, so the
     // line is the direct comparison; the peak holds until Reset peaks.
     const wset=hapWheelSet(fx.k);
-    if(wset>=0) h+='<div class="hk hwheels" data-wheels="'+wset+'" title="'+(wset===4?'Flat spot per wheel, mm: now/peak since Reset peaks':'Per wheel: now/peak since Reset peaks (Test = 1.00 on every wheel)')+'"><span>FL -</span><span>FR -</span><span>RL -</span><span>RR -</span></div>';
+    const wtitle=(wset===4)?'Flat spot per wheel, mm: now/peak since Reset peaks'
+      :(wset===5)?'Per wheel: the knock still ringing / the hardest knock since Reset peaks (0..1)'
+      :(wset===2)?'Per wheel: road travel mm now/peak since Reset peaks; "air" while that tyre is off the ground'
+      :'Per wheel: now/peak since Reset peaks (Test = 1.00 on every wheel)';
+    if(wset>=0) h+='<div class="hk hwheels" data-wheels="'+wset+'" title="'+wtitle+'"><span>FL -</span><span>FR -</span><span>RL -</span><span>RR -</span></div>';
+    else if(fx.k==='surface') h+='<div class="hk hwheels" data-surf="1" title="What each tyre is on, as nullCAT reads it: the surface, wet or floating, or in the air"><span>FL -</span><span>FR -</span><span>RL -</span><span>RR -</span></div>';
     else if(!fx.transient&&fx.fxIdx!==undefined) h+='<div class="hk hwheels" data-in="1" title="What this effect is driven with: now/peak since Reset peaks (Test = 1.00)">in -</div>';
     h+='<div class="hrows">';
     for(const [key,lab,min,max,st,opts] of fx.params){

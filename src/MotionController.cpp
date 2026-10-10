@@ -723,6 +723,11 @@ void MotionController::publishHapticsStatusLocked()
         m_statusSnapshot.hapticsWheel[2][w] = m_haptics.roadWheelTravelMm(w);
         m_statusSnapshot.hapticsWheel[3][w] = m_haptics.kerbWheelLevel(w);
         m_statusSnapshot.hapticsWheel[4][w] = m_haptics.wheelFlatMm(w);
+        m_statusSnapshot.hapticsWheel[5][w] = m_haptics.impactModel().ringLevel(w);
+        m_statusSnapshot.hapticsWheel[6][w] = m_haptics.groundContact(w);
+        m_statusSnapshot.hapticsWheel[7][w] = m_haptics.surfaceModel().surfaceClass(w);
+        m_statusSnapshot.hapticsWheel[8][w] = m_haptics.surfaceModel().water(w);
+        m_statusSnapshot.hapticsWheel[9][w] = m_haptics.surfaceModel().floating(w);
         for (int s = 0; s < MotionStatus::HAP_WHEEL_SETS; ++s)
             m_statusSnapshot.hapticsWheelPk[s][w] = m_hapWheelPk[s][w];
     }
@@ -754,6 +759,11 @@ void MotionController::trackHapticPeaks()
         m_hapWheelPk[2][w] = std::max(m_hapWheelPk[2][w], std::fabs(m_haptics.roadWheelTravelMm(w)));
         m_hapWheelPk[3][w] = std::max(m_hapWheelPk[3][w], m_haptics.kerbWheelLevel(w));
         m_hapWheelPk[4][w] = std::max(m_hapWheelPk[4][w], m_haptics.wheelFlatMm(w));
+        m_hapWheelPk[5][w] = std::max(m_hapWheelPk[5][w], m_haptics.impactModel().ringLevel(w));
+        m_hapWheelPk[6][w] = std::max(m_hapWheelPk[6][w], 1.0 - m_haptics.groundContact(w));   // been in the air
+        m_hapWheelPk[7][w] = m_haptics.surfaceModel().surfaceClass(w);                           // (no peak: as now)
+        m_hapWheelPk[8][w] = std::max(m_hapWheelPk[8][w], m_haptics.surfaceModel().water(w));
+        m_hapWheelPk[9][w] = std::max(m_hapWheelPk[9][w], m_haptics.surfaceModel().floating(w));
     }
     // A slip channel means nothing at a standstill (a stationary car's slip
     // is a division by almost zero: billions on the wire), so its session

@@ -211,7 +211,7 @@ Wheels fields (`wheels`; `freqHz` is kept but unused). Each wheel's road input r
 | `judder` | `0.5` | 0 to 1: brake judder, a force (not a movement) twice a revolution while braking above 5 %, scaled by disc heat past 0.3 of full. Heat: + 0.001 x brake x speed (m/s) per second, cooling at heat x (0.2 + speed / 30 m/s) / 40 per second. |
 | `puncture` | `1` | 0 to 2: a tyre the sim reports punctured (`deflated*` = 1) rides on its folded sidewall: a 2 mm dip over a quarter of a revolution, plus a fold of 15 % of that twice a revolution. |
 
-Fresh tyres and cold discs whenever the stream has been quiet for 30 s. A tyre in the air (see below) does none of this, and grinds no flat however locked.
+Fresh tyres and cold discs when the sim names a different car (`car=` on the identity line), else after the stream has been quiet for 10 minutes. A different car also starts the rest of the per-car learning over: the rolling factor per wheel, the usual corner load, the kerb height bias and the engine's learned redline. A tyre in the air (see below) does none of this, and grinds no flat however locked.
 
 **Ground contact** (no settings). A tyre is in the air when the sim says so (`onGround*` = 0), else when it carries under 3 % of the usual corner load (`load*`, the usual learned over 3 s while the car carries at least half of it), back on the ground above 8 %; unknown means on the ground. A tyre in the air gets no road roughness through its corner (its road input holds, eased over 20 ms), no stones, crunch or puddles, no kerb and no slip, and the Wheels tile goes quiet for it.
 

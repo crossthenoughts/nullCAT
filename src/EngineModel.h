@@ -193,6 +193,10 @@ public:
         m_tc         = tcCut;
     }
 
+    // A different car: the learned redline starts over (it is a peak hold, so
+    // a lower-revving car would otherwise keep the last car's).
+    void forgetCar() { m_learnedMax = engine_k::kLearnSeedRpm; }
+
     void clear()
     {
         for (double& t : m_pulseT) t = 1e9;

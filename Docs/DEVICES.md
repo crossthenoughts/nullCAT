@@ -399,9 +399,15 @@ actually gives, each tile reads out its input:
   group the largest wheel now and the largest peak (`wheelSlip* 12/140
   ✓`). Slip peaks only count while the car is moving, since a car at a
   standstill reports nonsense slip;
-- the two slip tiles, Road and Kerb show a per-wheel line, `FL 0.00/0.82
-  FR ... ` (now/peak: severity for slip, mm for Road, how much of the
-  tyre is on a kerb for Kerb);
+- the two slip tiles, Road, Kerb, Wheels and Impacts show a per-wheel
+  line, `FL 0.00/0.82 FR ... ` (now/peak: severity for slip, mm for
+  Road, how much of the tyre is on a kerb for Kerb, the flat spot in mm
+  for Wheels, the knock still ringing and the hardest knock for
+  Impacts). On Road a tyre in the air reads `air`;
+- Surface shows what each tyre is on as nullCAT reads it: `FL gravel`,
+  `FR snow`, `RL tarmac wet`, `RR tarmac float` (aquaplaning) or `air`.
+  If the sim says snow and the tile says tarmac, the channel is not
+  arriving;
 - the other continuous tiles show `in 0.12/0.60`, the level they are
   driven with now and at peak;
 - the wave carries a tag: `test` during a Test, `live 0.31` while the sim
@@ -559,8 +565,9 @@ Each wheel turns at its own speed (from the slip ratios or wheel speeds
 the sim sends), so the corners drift in and out of step: route with a
 part so each seat actuator plays its own corner; a route carrying
 several corners plays them together and beats as they drift. Fresh
-tyres and cold discs come with a new session (the sim quiet for half a
-minute). Test runs 80 km/h: out of balance, then a flat on the front
+tyres and cold discs come with a different car; a pause in the pits
+keeps your flats (only ten minutes without the sim at all starts the
+tyres over). Test runs 80 km/h: out of balance, then a flat on the front
 left, then hot discs under braking.
 
 ### Impacts

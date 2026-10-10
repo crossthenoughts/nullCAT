@@ -256,6 +256,7 @@ public:
     double water(int wheel) const    { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_w[wheel].water : 0.0; }
     double floating(int wheel) const { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_w[wheel].floatLvl : 0.0; }
     double wetness(int wheel) const  { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_w[wheel].wet : 0.0; }   // as driven
+    int    surfaceClass(int wheel) const { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_w[wheel].cls : SurfTarmac; }
     double level() const             { return m_level; }
     uint64_t stonesStruck(int wheel) const { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_w[wheel].struck : 0; }
     double distance() const          { return m_dist; }

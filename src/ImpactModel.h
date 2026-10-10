@@ -204,6 +204,7 @@ public:
     double   level() const             { return m_level; }
     uint32_t knocks(int wheel) const   { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_c[wheel].count : 0u; }
     double   lastSeverity(int wheel) const { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_c[wheel].lastSev : 0.0; }
+    double   ringLevel(int wheel) const    { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_c[wheel].eNow : 0.0; }   // the knock still ringing
 
     void clear()
     {

@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 
 namespace haptics {
 
@@ -62,6 +63,11 @@ struct LawsState
     // in the air (with hysteresis).
     double loadRef = 0.0;
     bool   air[WHEEL_COUNT] = {};
+    // The car the sim last named: a different one starts the per-car
+    // learning over (rolling factor, usual load, kerb bias, the engine's
+    // redline, the tyres).
+    char   lastCar[NCY_STR_LEN] = {};
+    bool   carSeen = false;
 };
 
 namespace laws_k {
@@ -128,7 +134,7 @@ namespace laws_k {
     constexpr double kLoadRefSec       = 3.0;      // the usual corner load learns this slowly...
     constexpr double kLoadRefMinShare  = 0.5;      // ...and only while the car carries at least this share of it
     // Wheels laws
-    constexpr double kFreshTyresSec    = 30.0;     // the stream quiet this long: fresh tyres, cold discs
+    constexpr double kFreshTyresSec    = 600.0;    // a different car brings fresh tyres; failing that, the stream quiet this long (a pause in the pits is not a new session)
     constexpr double kPreviewWheelSpread[WHEEL_COUNT] = { 0.0, 0.004, -0.003, 0.007 };   // a Test: each wheel a touch apart
     constexpr double kPreviewFlatMm    = 0.8;
     constexpr double kPreviewBrake     = 0.6;
@@ -152,6 +158,22 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
 {
     using namespace laws_k;
     const bool live = v.fresh;
+
+    // A different car: what was learned about the last one starts over.
+    if (live && v.car[0] != '\0')
+    {
+        if (st.carSeen && std::strncmp(v.car, st.lastCar, NCY_STR_LEN) != 0)
+        {
+            for (int w = 0; w < WHEEL_COUNT; ++w) { st.rollK[w] = 0.0; st.rollKnown[w] = false; st.air[w] = false; }
+            st.loadRef = 0.0;
+            st.kerbBias[0] = st.kerbBias[1] = 0.0; st.kerbBiasSeen = false;
+            st.quietSec = 0.0;
+            L.newCar();
+        }
+        std::memcpy(st.lastCar, v.car, NCY_STR_LEN);
+        st.lastCar[NCY_STR_LEN - 1] = '\0';
+        st.carSeen = true;
+    }
 
     const auto previewOr = [&](FxType t, double level) -> double
     {
@@ -448,8 +470,9 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
         // Wheels: each wheel turns at the car's speed x (1 + its slip ratio)
         // where the ratio is known (from the sim or the wheel speeds, above),
         // else at the car's speed; the ratio and the load share flat-spot a
-        // locked wheel; the brake heats the discs. A stream gone quiet for a
-        // while (a new session, a new car) brings fresh tyres. A Test preview
+        // locked wheel; the brake heats the discs. A different car brings
+        // fresh tyres (above); failing that, a stream quiet for ten minutes
+        // (a pause in the pits keeps them). A Test preview
         // runs at 80 km/h, the wheels a touch apart: out of round, then a flat
         // on the front left, then hot discs under braking.
         {
