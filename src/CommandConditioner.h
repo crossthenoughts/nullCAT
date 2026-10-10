@@ -39,6 +39,7 @@
 // game-telemetry floor. Filter LOW-PASSES; Interpolate is a DISTINCT algorithm.
 // ============================================================
 
+#include <algorithm>
 #include <cmath>
 
 struct CommandConditioner
@@ -210,6 +211,15 @@ struct CommandConditioner
                 // |realized - predicted| target velocity (held between frames).
                 if (vtPredErr > gBindVtErrPeak) { gBindVtErrPeak = vtPredErr; gBindVtAtErr = targetVel; }
                 vel = cap;
+                // The cap rides on the target's estimated velocity, which a
+                // wild target (a feedback loop, a glitching stream) can put
+                // far past vmax the other way. Braking may cut the velocity
+                // to a stop in one cycle; reversing it is acceleration and
+                // takes the acceleration limit; and never beyond vmax.
+                if (err > 0.0 && vel < 0.0) vel = std::max(vel, std::min(0.0, velPrev - amax * dt));
+                if (err < 0.0 && vel > 0.0) vel = std::min(vel, std::max(0.0, velPrev + amax * dt));
+                if (vel >  vmax) vel =  vmax;
+                if (vel < -vmax) vel = -vmax;
             }
         }
 

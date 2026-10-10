@@ -802,6 +802,100 @@ int main()
             check(mc2.getAxisState(0) == AxisMotionState::PARKED, "P-4 un-homed axis is PARKED");
             check(parked.width() < 0.05,                          "P-4 PARKED: no haptics");
         }
+
+        // P-5..P-7: the 0.9.7 bench fault. Motion off (no positions on the
+        // wire), sim channels live, haptics on the posts: unparked, the hold
+        // fed the overlay back in every cycle and the posts ran at 400 mm/s
+        // with instant reversals; a park and re-home later the stale guard
+        // stepped them into Er87. Every cycle's command step must stay
+        // inside maxVelocity, a reversal must pass through a stop (the
+        // acceleration limit), and the hold must not wander.
+        struct StepWatch
+        {
+            double prev = 0.0, prevStep = 0.0; bool have = false, haveStep = false;
+            double maxStep = 0.0, maxRevStep = 0.0;
+            void see(double p)
+            {
+                if (have)
+                {
+                    const double s = p - prev;
+                    maxStep = std::max(maxStep, std::fabs(s));
+                    if (haveStep && s * prevStep < 0.0) maxRevStep = std::max(maxRevStep, std::fabs(s));
+                    prevStep = s; haveStep = true;
+                }
+                prev = p; have = true;
+            }
+        };
+        const double kDt = 1.0 / 500.0;
+        const double kVmaxStep = 200.0 * kDt * 1.001 + 1e-9;            // maxVelocity 200 mm/s, one cycle
+        const double kRevStep  = 2000.0 * kDt * kDt * 1.001 + 0.011;     // a reversal: from a stop, Amax 2000, + a count
+        auto watchRun = [](MotionController& mc, MockA6Drive& mock, const TelemetryData& sd, int cycles, StepWatch& w, Span* sp)
+        {
+            A6Drive* drives[1] = { &mock };
+            for (int i = 0; i < cycles; ++i)
+            {
+                MotionOutput out{}; mc.process(sd, out, drives, 1);
+                w.see(out.positions[0]);
+                if (sp) { sp->lo = std::min(sp->lo, out.positions[0]); sp->hi = std::max(sp->hi, out.positions[0]); }
+            }
+        };
+        TelemetryData noMotion = frame(100.0, true);
+        noMotion.numPositions = 0;                                        // motion off, channels on
+        TelemetryData noMotionQuiet = frame(0.0, true);
+        noMotionQuiet.numPositions = 0;
+        {
+            MotionController mc; MockA6Drive mock;
+            mc.configure(makePosConfig(100.0, 2.0, 12.0, 3.0, 0.4));
+            check(bringOnline(mc, mock), "P-5 position axis reaches ONLINE with motion off");
+            StepWatch w; Span settle, held;
+            watchRun(mc, mock, noMotion, 500, w, &settle);
+            watchRun(mc, mock, noMotion, 2500, w, &held);
+            // 0.4 x 2000 / (2 pi 12)^2 = 0.14 mm: the post vibrates +-0.14 mm
+            // about the hold, and the hold itself does not move.
+            check(held.width() < 0.4, "P-5 motion off: the overlay vibrates about the hold, it does not build up");
+            check(std::fabs(0.5 * (held.lo + held.hi) - 0.5 * (settle.lo + settle.hi)) < 0.1, "P-5 motion off: the hold does not wander");
+            check(w.maxStep <= kVmaxStep, "P-5 motion off: no command step past maxVelocity");
+            check(w.maxRevStep <= kRevStep, "P-5 motion off: no instant reversal");
+        }
+        {
+            MotionController mc; MockA6Drive mock;
+            mc.configure(makePosConfig(100.0, 2.0, 12.0, 3.0, 0.4));
+            check(bringOnline(mc, mock), "P-6 position axis reaches ONLINE");
+            StepWatch w;
+            watchRun(mc, mock, noMotion, 1500, w, nullptr);
+            mc.startPark();
+            watchRun(mc, mock, noMotion, 600, w, nullptr);
+            check(mc.getAxisState(0) == AxisMotionState::PARKED, "P-6 parked with haptics live");
+            { A6Drive* drives[1] = { &mock }; mc.startUnpark(drives, 1); }
+            // Watched from BLENDING on (the unpark itself is a timed move to
+            // centre, 0.1 s here, faster than maxVelocity by design).
+            StepWatch back;
+            for (int i = 0; i < 3000 && mc.getAxisState(0) != AxisMotionState::ONLINE; ++i)
+            {
+                A6Drive* drives[1] = { &mock }; MotionOutput out{};
+                mc.process(noMotion, out, drives, 1);
+                if (mc.getAxisState(0) == AxisMotionState::BLENDING || mc.getAxisState(0) == AxisMotionState::ONLINE)
+                    back.see(out.positions[0]);
+            }
+            check(mc.getAxisState(0) == AxisMotionState::ONLINE, "P-6 back ONLINE after a park, haptics still live");
+            watchRun(mc, mock, noMotion, 1000, back, nullptr);
+            check(back.maxStep <= kVmaxStep, "P-6 the haptics guard starts fresh: no step entering ONLINE again");
+            check(back.maxRevStep <= kRevStep, "P-6 ...and no instant reversal");
+        }
+        {
+            MotionController mc; MockA6Drive mock;
+            mc.configure(makePosConfig(100.0, 2.0, 5.0, 3.0, 0.4));
+            check(bringOnline(mc, mock), "P-7 position axis reaches ONLINE");
+            StepWatch w;
+            for (int k = 0; k < 20; ++k)                                 // the overlay stopping and starting
+            {
+                watchRun(mc, mock, frame(100.0, true, 32767.0), 37, w, nullptr);
+                watchRun(mc, mock, frame(0.0, true, 32767.0), 23, w, nullptr);
+            }
+            watchRun(mc, mock, noMotionQuiet, 400, w, nullptr);
+            check(w.maxStep <= kVmaxStep, "P-7 the overlay going to zero hands back without a step");
+            check(w.maxRevStep <= kRevStep, "P-7 ...and without an instant reversal");
+        }
     }
 
     std::printf("TestHapticsIntegration: %d passed, %d failed\n", g_pass, g_fail);

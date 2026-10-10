@@ -427,9 +427,10 @@ private:
         // Haptics on a position axis: sumGuard passes cue + overlay through
         // the FULL axis limits so the cue keeps priority (the layer has
         // already derated the overlay to what the axis can follow). Seeded
-        // when an overlay first appears.
+        // when an overlay first appears, cleared whenever not ONLINE.
         CommandConditioner sumGuard;
         bool    hapActive         = false;
+        bool    stepGuardWarned   = false; // the last-line step check has logged this live stretch
         double  onlineStaleSec    = 0.0;  // time since last valid telemetry frame in ONLINE
         double  lastTension       = 0.0;  // belt: last commanded torque % (stale-hold + park-ramp start)
         // Belt guard runtime (armed through BLENDING + ONLINE; re-seeded each tension-up)

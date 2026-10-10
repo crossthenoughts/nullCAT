@@ -1609,7 +1609,13 @@ double MotionController::stepPositionOnline(int i, AxisMotionState& state,
     // Decode the telemetry target (shared by CSP and PP paths below).
     // NaN/Inf guard: a non-finite raw sample is treated as "no data" --
     // we never feed garbage into the command stream.
-    double targetMm = rt.currentPos;  // hold if no data
+    // Hold if no data: the CUE's own position, never rt.currentPos on CSP.
+    // rt.currentPos is the command sent, haptic overlay included; holding
+    // it fed the overlay back in every cycle (a 0.1 mm vibration became
+    // ~200 mm/s of travel: the 0.9.7 bench, motion off, unpark, the posts
+    // ran wild). PP takes no haptics, so its command is its cue.
+    const double cueHold = ac.ppMode ? rt.currentPos : rt.onlineCond.pos;
+    double targetMm = cueHold;
     bool haveData = axisFrameUsable(i, telemetryData);
     if (haveData)
     {
@@ -1628,7 +1634,7 @@ double MotionController::stepPositionOnline(int i, AxisMotionState& state,
         //   phase 3 (>= onlineHoldTimeout): park
         // Any returning frame resumes ONLINE tracking seamlessly (the filter
         // slews from wherever it is, braking-clamped). targetMm defaults to
-        // rt.currentPos (phase 1 hold) unless overridden below.
+        // the cue's hold (phase 1) unless overridden below.
         rt.onlineStaleSec += m_cycleTimeSec;
         if (rt.onlineStaleSec >= ac.onlineHoldTimeoutSec)
         {
@@ -1680,18 +1686,31 @@ double MotionController::stepPositionOnline(int i, AxisMotionState& state,
         // axis limits so a hard cue always wins and the drive never sees
         // more than its limits. ONLINE only (never BLENDING, homing or
         // parking), never on PP mode.
+        // The guard engages from the command actually sent last cycle at the
+        // cue's own velocity (no position or velocity seam), is cleared
+        // whenever the axis is not ONLINE (process(), after the state
+        // machine), and hands back to the cue only once it has landed on it.
         if (ac.hapticsMaxMm > 0.0 && state == AxisMotionState::ONLINE)
         {
             double hapMm = m_haptics.overlayFor(i) / 100.0;
             if (hapMm != 0.0 || rt.hapActive)
             {
                 const double brakeEps = 4.0 / std::max(1.0, ac.countsPerMm);
-                if (!rt.hapActive) { rt.sumGuard.seedState(outPos, 0.0); rt.hapActive = true; }
+                const double cueOut = outPos;
+                if (!rt.hapActive)
+                {
+                    rt.sumGuard.seedState(rt.currentPos, (cueOut - rt.currentPos) / m_cycleTimeSec);
+                    rt.hapActive = true;
+                }
                 hapMm = std::max(-ac.hapticsMaxMm, std::min(ac.hapticsMaxMm, hapMm));
-                outPos = rt.sumGuard.stepBypass(outPos + hapMm, m_cycleTimeSec, m_cycleTimeSec,
+                outPos = rt.sumGuard.stepBypass(cueOut + hapMm, m_cycleTimeSec, m_cycleTimeSec,
                                                 ac.maxVelocityMmS, ac.maxAccelMmS2, brakeEps);
-                // Overlay gone: hand the command back to the cue path untouched.
-                if (hapMm == 0.0) rt.hapActive = false;
+                // Overlay gone and the guard back on the cue: hand the command
+                // back. Dropping it the moment the overlay read zero stepped
+                // the command by the last overlay in one cycle.
+                if (hapMm == 0.0 && std::fabs(outPos - cueOut) <= brakeEps
+                    && std::fabs(rt.sumGuard.vel - rt.onlineCond.vel) <= ac.maxAccelMmS2 * m_cycleTimeSec)
+                    rt.hapActive = false;
             }
         }
         else rt.hapActive = false;
@@ -2266,6 +2285,35 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
         // future unhomed park captures a fresh resting position.
         if (state != AxisMotionState::PARKED)
             rt.parkHoldLatched = false;
+
+        // The haptics guard lives for one ONLINE stretch. Kept across a park
+        // and re-home it resumed from a stale position and velocity at the
+        // next ONLINE and stepped the posts (the 0.9.7 bench's Er87).
+        if (state != AxisMotionState::ONLINE)
+            rt.hapActive = false;
+
+        // Last line: while live telemetry or haptics shape a position axis's
+        // command, it can never move further in one cycle than the axis's
+        // maxVelocity allows. The guards upstream already hold this; if one
+        // ever fails, the step is held to the limit here and logged once,
+        // instead of reaching the drive as a jump.
+        if (!ac.torqueMode && !ac.caps.isDevice()
+            && (state == AxisMotionState::ONLINE || state == AxisMotionState::BLENDING))
+        {
+            const double maxStep = ac.maxVelocityMmS * m_cycleTimeSec * 1.05 + 1.0 / std::max(1.0, ac.countsPerMm);
+            const double step = outPos - rt.currentPos;
+            if (std::fabs(step) > maxStep)
+            {
+                if (!rt.stepGuardWarned)
+                {
+                    RT_LOG_WARNING("MotionController: Axis %d command step %.3f mm in one cycle held to %.3f mm "
+                        "(maxVelocity) -- a guard upstream let it through.", i + 1, step, maxStep);
+                    rt.stepGuardWarned = true;
+                }
+                outPos = rt.currentPos + std::copysign(maxStep, step);
+            }
+        }
+        else rt.stepGuardWarned = false;
 
         // Haptics overlay: rides ON TOP of whatever the state machine
         // commanded, torque-mode axes only, live states only (a limp or
