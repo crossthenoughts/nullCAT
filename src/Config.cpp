@@ -277,6 +277,11 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
                 o["stones"] = s.stones; o["crunch"] = s.crunch; o["studs"] = s.studs;
                 o["puddles"] = s.puddles; o["aquaKmh"] = s.aquaKmh; o["smooth"] = s.smooth;
             }
+            else if (info.kind == haptics::Kind::Wheels)
+            {
+                const haptics::WheelsParams& w = c.hapticsWheels;
+                o["balance"] = w.balance; o["flat"] = w.flat; o["judder"] = w.judder;
+            }
             else if (info.kind == haptics::Kind::Abs || info.kind == haptics::Kind::Tc)
             {
                 const bool abs = (info.kind == haptics::Kind::Abs);
@@ -418,6 +423,13 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                 s.puddles = o.value("puddles").toDouble(s.puddles);
                 s.aquaKmh = o.value("aquaKmh").toDouble(s.aquaKmh);
                 s.smooth  = o.value("smooth").toDouble(s.smooth);
+            }
+            if (info.kind == haptics::Kind::Wheels)
+            {
+                haptics::WheelsParams& w = c.hapticsWheels;
+                w.balance = o.value("balance").toDouble(w.balance);
+                w.flat   = o.value("flat").toDouble(w.flat);
+                w.judder = o.value("judder").toDouble(w.judder);
             }
             if (info.kind == haptics::Kind::Abs || info.kind == haptics::Kind::Tc)
             {
@@ -1409,6 +1421,13 @@ std::vector<std::string> AppConfig::validate() const
                 if (s.puddles < 0.0 || s.puddles > 1.0)   errors.push_back(pfx + "puddles out of range [0, 1]");
                 if (s.aquaKmh < 40.0 || s.aquaKmh > 250.0) errors.push_back(pfx + "aquaKmh out of range [40, 250]");
                 if (s.smooth < 0.0 || s.smooth > 1.0)     errors.push_back(pfx + "smooth out of range [0, 1]");
+            }
+            if (info.kind == haptics::Kind::Wheels)
+            {
+                const haptics::WheelsParams& w = hapticsWheels;
+                if (w.balance < 0.0 || w.balance > 4.0) errors.push_back(pfx + "balance out of range [0, 4]");
+                if (w.flat < 0.0 || w.flat > 4.0)     errors.push_back(pfx + "flat out of range [0, 4]");
+                if (w.judder < 0.0 || w.judder > 1.0) errors.push_back(pfx + "judder out of range [0, 1]");
             }
             if (info.kind == haptics::Kind::Abs || info.kind == haptics::Kind::Tc)
             {

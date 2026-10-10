@@ -1504,6 +1504,7 @@ bool WebServer::start()
                            : (info.kind == haptics::Kind::Abs)       ? "abs"
                            : (info.kind == haptics::Kind::Tc)        ? "tc"
                            : (info.kind == haptics::Kind::Surface)   ? "surface"
+                           : (info.kind == haptics::Kind::Wheels)    ? "wheels"
                            : (info.kind == haptics::Kind::Driveline) ? "driveline" : "continuous";
                 if (info.kind != haptics::Kind::Transient) e["fxIdx"] = static_cast<int>(info.fx);
                 // Per-wheel effects: routes carry a part (route editor shows the selector).
@@ -1562,6 +1563,11 @@ bool WebServer::start()
                     const haptics::SurfaceParams sd;
                     d["stones"] = sd.stones; d["crunch"] = sd.crunch; d["studs"] = sd.studs;
                     d["puddles"] = sd.puddles; d["aquaKmh"] = sd.aquaKmh; d["smooth"] = sd.smooth;
+                }
+                else if (info.kind == haptics::Kind::Wheels)
+                {
+                    const haptics::WheelsParams wd;
+                    d["balance"] = wd.balance; d["flat"] = wd.flat; d["judder"] = wd.judder;
                 }
                 else if (info.kind == haptics::Kind::Abs || info.kind == haptics::Kind::Tc)
                 {

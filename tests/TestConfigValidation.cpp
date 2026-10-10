@@ -419,6 +419,20 @@ private slots:
         cfg.hapticsSurface.smooth = 0.4; QVERIFY(cfg.validate().empty());
     }
 
+    // Wheels: balance and flat 0..4, judder 0..1.
+    void wheels_ranges()
+    {
+        AppConfig cfg = validConfig();
+        QCOMPARE(cfg.hapticsWheels.balance, 1.0); QCOMPARE(cfg.hapticsWheels.judder, 0.5);
+        const auto refused = [&cfg](const char* key) {
+            for (const auto& e : cfg.validate()) if (e.find(key) != std::string::npos) return true;
+            return false; };
+        cfg.hapticsWheels.balance = 4.5;  QVERIFY2(refused("balance"), "balance 4.5 is refused");
+        cfg.hapticsWheels.balance = 2.0; cfg.hapticsWheels.flat = -0.1; QVERIFY2(refused("flat"), "flat -0.1 is refused");
+        cfg.hapticsWheels.flat = 3.0; cfg.hapticsWheels.judder = 1.2; QVERIFY2(refused("judder"), "judder 1.2 is refused");
+        cfg.hapticsWheels.judder = 0.0; QVERIFY(cfg.validate().empty());
+    }
+
     // The frozen-stream guard is off by default and only takes a usable window.
     void ncxFrozenMs_range()
     {

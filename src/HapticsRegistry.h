@@ -23,14 +23,17 @@
 namespace haptics {
 
 enum class Effect { DetentClick = 0, GearShift, Engine, Abs, Lockup, Skid, Road,
-                    Limiter, Tc, Kerb, Driveline, Surface, COUNT };
+                    Limiter, Tc, Kerb, Driveline, Surface, Wheels, COUNT };
 static constexpr int EFFECT_COUNT = static_cast<int>(Effect::COUNT);
 
 // Slip: a per-wheel model (SlipModel.h) whose routes carry a Part. Road:
 // the texture oscillator with a per-corner replay (RoadModel.h) when the
 // sim sends suspension velocities; routes carry a Part too.
-enum class Kind { Transient, Continuous, Engine, Slip, Road, Driveline, Kerb, Abs, Tc, Surface };
-inline bool kindHasParts(Kind k) { return k == Kind::Slip || k == Kind::Road || k == Kind::Kerb || k == Kind::Abs || k == Kind::Surface; }
+enum class Kind { Transient, Continuous, Engine, Slip, Road, Driveline, Kerb, Abs, Tc, Surface, Wheels };
+inline bool kindHasParts(Kind k)
+{
+    return k == Kind::Slip || k == Kind::Road || k == Kind::Kerb || k == Kind::Abs || k == Kind::Surface || k == Kind::Wheels;
+}
 
 // One tunable the UI shows for an effect: config key, label, range, step,
 // and for a choice an options list ("a|b|c", value = index) instead.
@@ -177,6 +180,12 @@ constexpr ParamSpec kSurfaceParams[] = {        // surface: stones, crunch, stud
     { "aquaKmh", "aqua km/h",  40,  250, 5,    nullptr },   // a tyre floats in standing water from here
     { "smooth",  "smooth x",   0,   1,   0.05, nullptr },   // how far water fills the road's texture
 };
+constexpr ParamSpec kWheelsParams[] = {         // wheels: out of round, flat spots, brake judder
+    { "ampPct",  "amp %",      0,   100, 1,    nullptr },
+    { "balance", "balance x",  0,   4,   0.1,  nullptr },   // the wheel out of balance (and a touch out of round)
+    { "flat",    "flat x",     0,   4,   0.1,  nullptr },   // flat spots from lock-ups
+    { "judder",  "judder x",   0,   1,   0.05, nullptr },   // hot brake discs under braking
+};
 constexpr ParamSpec kEngineParams[] = {    { "ampPct",    "amp %",                 0,   100,   1,    nullptr },
     { "cylinders", "cyl / rotors",          1,   16,    1,    nullptr },
     { "litres",    "litres",                0.1, 30,    0.1,  nullptr },
@@ -315,6 +324,18 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "standing water the tyre floats and the road under it goes quiet, and it bites as it comes out. smooth x "
       "is how far water fills the Road tile's texture. Needs the surface under each tyre (Automobilista 2) "
       "and the wetness or the rain.", nullptr, {} },
+    { Effect::Wheels,      "wheels",      "Wheels",       Kind::Wheels, EventType::COUNT, FxType::Wheels,
+      { "speedKmh", "~slipRatio*|wheelSpeed*", "~brakePct", "~load*", nullptr }, { 0.0, 12.0, 0.0, 0.0 }, kWheelsParams, 4,
+      "What each wheel does as it turns, felt the way a car passes it on: through the corner's tyre, spring and "
+      "damper (the Road tile's body hz, hop hz and damping), a smooth shake at the wheel's own rate rather than a "
+      "knock per revolution. Balance: the wheel slightly out of balance (and a touch out of round), a shake that "
+      "grows steadily with speed. Flat: a lock-up grinds a flat spot into the tyre where it slid, deeper the "
+      "longer and harder it slid, and it thumps softly once a revolution from then on, wearing slowly round "
+      "again. Judder: discs made hot by hard braking pulse the braking force twice a revolution while you "
+      "brake (best on a belt, surge or a shaker). Each wheel turns at its own speed, so the corners drift in "
+      "and out of step; route with a part so each post plays its own corner. Needs the speed; per-wheel slip "
+      "ratios or wheel speeds for each wheel's own speed and the lock-ups, the brake for the judder.",
+      nullptr, {} },
 };
 } // namespace registry_detail
 

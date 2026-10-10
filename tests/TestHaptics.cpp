@@ -1425,6 +1425,133 @@ int main()
         }
     }
 
+    // ================= Wheels: out of round, flat spots, brake judder =================
+    {
+        using haptics::WheelsModel; using haptics::WheelsParams; using haptics::RoadParams; using haptics::Part;
+        const double dt = 0.0005;
+        const RoadParams rp;   // body 3 Hz, hop 16 Hz, damping 0.3, cut 2 Hz
+        auto rmsOf = [](const std::vector<double>& v, size_t from)
+        { double s = 0.0; size_t n = 0; for (size_t i = from; i < v.size(); ++i) { s += v[i] * v[i]; ++n; } return n ? std::sqrt(s / n) : 0.0; };
+        // Roll every wheel at speed x (1 + spread[w]), brake b; a part's force trace.
+        auto roll = [&](WheelsModel& m, const WheelsParams& q, double speed, const double spread[4], double brake,
+                        int n, Part part, std::vector<double>* force) {
+            for (int i = 0; i < n; ++i)
+            {
+                for (int w = 0; w < 4; ++w) { m.driveWheelSpeed(w, speed * (1.0 + spread[w])); m.driveLock(w, speed, 0.0, 1.0); }
+                m.driveBrake(brake);
+                m.step(dt, q, rp);
+                if (force) force->push_back(m.outputFor(part).force);
+            }
+        };
+        const double same[4] = { 0.0, 0.0, 0.0, 0.0 };
+        WheelsParams balOnly; balOnly.flat = 0.0; balOnly.judder = 0.0;   // balance 1
+
+        // Out of balance: grows steadily with speed (the imbalance's force
+        // with the wheel's rate squared), through the hop (16 Hz: 32 m/s).
+        {
+            const double v[6] = { 10.0, 20.0, 27.0, 32.0, 45.0, 60.0 };
+            double r[6] = {}, p[6] = {};
+            for (int k = 0; k < 6; ++k)
+            {
+                WheelsModel m; std::vector<double> f, pp;
+                for (int i = 0; i < 12000; ++i)
+                {
+                    for (int w = 0; w < 4; ++w) { m.driveWheelSpeed(w, v[k]); m.driveLock(w, v[k], 0.0, 1.0); }
+                    m.step(dt, balOnly, rp);
+                    f.push_back(m.outputFor(Part::FL).force); pp.push_back(m.outputFor(Part::FL).pos);
+                }
+                r[k] = rmsOf(f, 6000); p[k] = rmsOf(pp, 6000);
+            }
+            std::printf("  wheels balance x1, force rms / pos rms by km/h:");
+            for (int k = 0; k < 6; ++k) std::printf(" %.0f %.3f/%.3f", v[k] * 3.6, r[k], p[k]);
+            std::printf("\n");
+            bool rising = true; for (int k = 1; k < 6; ++k) rising = rising && r[k] > r[k - 1];
+            CHECK(rising && r[5] > 6.0 * r[0], "wheels balance: stronger and stronger with speed");
+            CHECK(r[1] > 0.02 && r[5] < 0.6, "wheels balance x 1: subtle in town, clear at speed, not pinned");
+        }
+        // The corners drift in and out of step: all four together beat, one
+        // corner on its own is steady.
+        {
+            const double apart[4] = { 0.0, 0.02, 0.04, 0.06 };
+            WheelsModel a; std::vector<double> fa; roll(a, balOnly, 30.0, apart, 0.0, 24000, Part::All, &fa);
+            WheelsModel c; std::vector<double> fc; roll(c, balOnly, 30.0, apart, 0.0, 24000, Part::FL, &fc);
+            auto swing = [&](const std::vector<double>& f) {
+                double lo = 1e9, hi = 0.0;
+                for (size_t s = 8000; s + 400 <= f.size(); s += 400)
+                { std::vector<double> win(f.begin() + static_cast<long>(s), f.begin() + static_cast<long>(s + 400)); const double x = rmsOf(win, 0); lo = std::min(lo, x); hi = std::max(hi, x); }
+                return hi / std::max(1e-9, lo); };
+            CHECK(swing(fa) > 2.0, "wheels: the four corners together beat as they drift in and out of step");
+            CHECK(swing(fc) < 1.3, "wheels: one corner on its own is steady");
+        }
+        // Flat spots: a locked, sliding wheel grinds a flat, deeper with the
+        // distance slid; a wheel at the edge of locking (ABS) does not.
+        {
+            WheelsParams q; q.balance = 0.0; q.judder = 0.0;
+            WheelsModel m;
+            for (int i = 0; i < 2000; ++i)   // FL locked for 1 s at 20 m/s
+            {
+                for (int w = 0; w < 4; ++w) { m.driveWheelSpeed(w, w == WheelFL ? 0.0 : 20.0); m.driveLock(w, 20.0, w == WheelFL ? -1.0 : 0.0, 1.0); }
+                m.step(dt, q, rp);
+            }
+            approx(m.flatMm(WheelFL), 0.02 * 20.0, 0.01, "wheels flat: 1 s locked at 20 m/s grinds 0.4 mm");
+            CHECK(m.flatMm(WheelFR) == 0.0, "wheels flat: only the locked wheel");
+            std::vector<double> f, fr; WheelsModel* pm = &m;
+            for (int i = 0; i < 8000; ++i)
+            {
+                for (int w = 0; w < 4; ++w) { pm->driveWheelSpeed(w, 20.0); pm->driveLock(w, 20.0, 0.0, 1.0); }
+                pm->step(dt, q, rp);
+                f.push_back(pm->outputFor(Part::FL).force); fr.push_back(pm->outputFor(Part::FR).force);
+            }
+            approx(m.flatMm(WheelFL), 0.4, 0.01, "wheels flat: rolling on does not deepen it");
+            // Once a revolution: at 20 m/s a 2 m tyre turns every 0.1 s (200 samples).
+            std::vector<double> diff; for (size_t i = 4000; i + 200 < f.size(); ++i) diff.push_back(f[i] - f[i + 200]);
+            const double flatRms = rmsOf(f, 4000);
+            std::printf("  wheels flat 0.4 mm at 72 km/h: force rms %.3f, peak", flatRms);
+            double pk = 0.0; for (size_t i = 4000; i < f.size(); ++i) pk = std::max(pk, std::fabs(f[i])); std::printf(" %.3f\n", pk);
+            CHECK(flatRms > 0.02, "wheels flat: a flat spot is felt");
+            CHECK(rmsOf(diff, 0) < 0.1 * flatRms, "wheels flat: once a revolution, the same thump every time round");
+            CHECK(rmsOf(fr, 4000) < 1e-9, "wheels flat: the round tyres carry nothing");
+
+            WheelsModel abs;
+            for (int i = 0; i < 4000; ++i)
+            {
+                for (int w = 0; w < 4; ++w) { abs.driveWheelSpeed(w, 17.0); abs.driveLock(w, 20.0, -0.15, 1.0); }
+                abs.step(dt, q, rp);
+            }
+            CHECK(abs.flatMm(WheelFL) == 0.0, "wheels flat: a wheel kept at the edge of locking grinds no flat");
+        }
+        // Brake judder: only with hot discs, only under braking, twice a
+        // revolution.
+        {
+            WheelsParams q; q.balance = 0.0; q.flat = 0.0;   // judder 0.5
+            WheelsModel cold; std::vector<double> fc; roll(cold, q, 30.0, same, 1.0, 2000, Part::FL, &fc);
+            CHECK(rmsOf(fc, 0) < 1e-9, "wheels judder: cold discs do not judder");
+            WheelsModel hot; roll(hot, q, 50.0, same, 1.0, 20000, Part::FL, nullptr);   // 10 s hard on the brakes at 180 km/h
+            CHECK(hot.discHeat(WheelFL) > 0.35, "wheels judder: long hard braking heats the discs");
+            std::vector<double> fh; roll(hot, q, 30.0, same, 1.0, 2000, Part::FL, &fh);
+            int xr = 0; for (size_t i = 1; i < fh.size(); ++i) if ((fh[i] >= 0.0) != (fh[i - 1] >= 0.0)) ++xr;
+            CHECK(rmsOf(fh, 0) > 0.02, "wheels judder: hot discs pulse the braking force");
+            approx(xr / 2.0, 2.0 * 30.0 / 2.0 * 1.0, 3.0, "wheels judder: twice a revolution (30 Hz at 30 m/s)");
+            std::vector<double> fo; roll(hot, q, 30.0, same, 0.0, 2000, Part::FL, &fo);
+            CHECK(rmsOf(fo, 200) < 1e-6, "wheels judder: off the brake, nothing");
+        }
+        // Nothing turning, nothing felt; a Test preview leaves the tyres as
+        // they were.
+        {
+            WheelsParams q;
+            WheelsModel m; std::vector<double> f;
+            for (int i = 0; i < 4000; ++i) { m.step(dt, q, rp); f.push_back(m.outputFor(Part::All).force); }
+            CHECK(rmsOf(f, 0) == 0.0 && m.level() == 0.0, "wheels: no speed arriving, nothing");
+            for (int i = 0; i < 2000; ++i)
+            {
+                for (int w = 0; w < 4; ++w) m.driveWheelSpeed(w, 22.0);
+                m.driveBrake(0.6); m.drivePreview(0.3, 1.0); m.step(dt, q, rp);
+            }
+            CHECK(m.level() > 0.05, "wheels preview: a flat and hot discs play");
+            CHECK(m.flatMm(WheelFL) == 0.0 && m.discHeat(WheelFL) < 0.01, "wheels preview: the tyres' own flat and heat untouched");
+        }
+    }
+
     // ================= model trigger: detent capture =================
     {
         DeviceParams p;

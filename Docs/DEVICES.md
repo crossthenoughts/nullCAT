@@ -284,6 +284,7 @@ effect silent.
 | Kerb | the rumble strip under a tyre on a kerb: a hum that rises and falls with speed, a thud on and off (below) | the surface under each tyre, or the kerbs channel, or the road height under each tyre |
 | Driveline | a slipping clutch juddering at a launch, the engine lugging at low revs (below) | clutch, rpm, gear (speed, throttle) |
 | Surface | what the ground does under each tyre: stones on gravel, snow crunching, studs on ice, puddles dragging and floating the tyre (below) | the surface under each tyre, speed (rain or wetness) |
+| Wheels | each wheel turning: slightly out of balance, flat spots from lock-ups, hot brake discs juddering, through the tyre and suspension (below) | speed (per-wheel slip ratio or wheel speeds, brake) |
 
 With the SimHub plugin, rpm, speed, gear, clutch, throttle, brake, ABS,
 limiter and traction control arrive automatically, and for Assetto
@@ -519,6 +520,39 @@ the water stand on the road (about a minute of heavy rain to stand, a few
 minutes to dry). Automobilista 2 sends the surface under each tyre (snow
 and ice included) and its rain. Test runs gravel, then snow, then a wet
 road, at 80 km/h.
+
+### Wheels
+
+What each wheel does as it turns. Nothing here knocks once a revolution
+on its own: what each wheel does runs through that corner's tyre, spring
+and damper (the Road tile's **body hz**, **hop hz** and **damping**),
+the way a car passes it on, so you feel a smooth shake at the wheel's
+own rate.
+
+- **balance x** (1): the wheel slightly out of balance, as any wheel is,
+  and a touch out of round. The shake grows steadily with speed: barely
+  there in town, clear at motorway speed and above. 0 is a perfect
+  wheel; raise it for a wheel that has lost a weight or taken a knock.
+- **flat x** (1): a wheel that locks and slides grinds a flat spot into
+  the tyre where it slid, deeper the further and harder it slid (a
+  second locked at 70 km/h is a clear one). From then on it thumps
+  softly once a revolution, wearing slowly round over the next tens of
+  kilometres. A wheel kept at the edge of locking by ABS grinds
+  none. The tile's per-wheel line shows each tyre's flat in mm.
+- **judder x** (0.5): brake discs made hot by hard braking pulse the
+  braking force twice a revolution while you brake. The heat builds
+  from how hard and how fast you brake and cools as you drive, so it
+  shows after repeated heavy stops, not on the first. It is a push fore
+  and aft: route it to a belt, surge or a shaker.
+
+Each wheel turns at its own speed (from the slip ratios or wheel speeds
+the sim sends), so the corners drift in and out of step: route with a
+part so each seat actuator plays its own corner; a route carrying
+several corners plays them together and beats as they drift. Fresh
+tyres and cold discs come with a new session (the sim quiet for half a
+minute). Test runs 80 km/h: out of balance, then a flat on the front
+left, then hot discs under braking.
+
 ### ABS and TC
 
 **ABS** works at each corner: the valve dumps the brake pressure and

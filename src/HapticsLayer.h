@@ -32,6 +32,7 @@
 #include "DrivelineModel.h"
 #include "PulseModel.h"
 #include "SurfaceModel.h"
+#include "WheelsModel.h"
 #include "WaveSynth.h"
 #include <algorithm>
 #include <cstdint>
@@ -224,6 +225,29 @@ public:
                     if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
                     if (m_sinkKind[r.axis] == SinkKind::Position)
                         m_overlay[r.axis] += p.ampPct * o.pos * r.gain * sinkScale(r.axis, p.ampPct * r.gain, road_k::kDerateHz);
+                    else
+                        m_overlay[r.axis] += p.ampPct * o.force * r.gain;
+                }
+                continue;
+            }
+            // Wheels: out of round, flat spots, brake judder, per corner. A
+            // position sink is derated at the fastest wheel's rate (what it
+            // plays), never below the road's bump rate.
+            if (i == static_cast<int>(FxType::Wheels))
+            {
+                if (p.ampPct <= 0.0) { m_wheels.clear(); f.level = 0.0; continue; }
+                m_wheels.step(dtSec, m_wheelsParams, m_roadParams);
+                f.level = m_wheels.level();
+                if (f.level < 1e-4) continue;
+                const double hz = std::max(road_k::kDerateHz, m_wheels.rateHz());
+                for (const Route& r : p.routes)
+                {
+                    if (r.gain <= 0.0) continue;
+                    const RoadOut o = m_wheels.outputFor(r.part);
+                    if (r.shaker >= 0) { if (o.force != 0.0) toShaker(r, p.ampPct * o.force); continue; }
+                    if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
+                    if (m_sinkKind[r.axis] == SinkKind::Position)
+                        m_overlay[r.axis] += p.ampPct * o.pos * r.gain * sinkScale(r.axis, p.ampPct * r.gain, hz);
                     else
                         m_overlay[r.axis] += p.ampPct * o.force * r.gain;
                 }
@@ -622,6 +646,21 @@ public:
     void driveSurfaceSpeed(double speedMs)         { m_surface.driveSpeed(speedMs); }   // a Test preview's own speed
     const SurfaceModel& surfaceModel() const       { return m_surface; }
 
+    // ---- the Wheels tile. Config apply for the params; the law drives each
+    // wheel's speed, its lock-ups and the brake per cycle.
+    void configureWheels(const WheelsParams& q)    { m_wheelsParams = q; }
+    const WheelsParams& wheelsParams() const       { return m_wheelsParams; }
+    void driveWheelSpeed(int wheel, double ms)     { m_wheels.driveWheelSpeed(wheel, ms); }
+    void driveWheelLock(int wheel, double carMs, double slipRatio, double loadShare)
+    {
+        m_wheels.driveLock(wheel, carMs, slipRatio, loadShare);
+    }
+    void driveWheelsBrake(double brake01)          { m_wheels.driveBrake(brake01); }
+    void driveWheelsPreview(double flatMm, double heat) { m_wheels.drivePreview(flatMm, heat); }
+    void wheelsFreshTyres()                        { m_wheels.clear(); }
+    double wheelFlatMm(int wheel) const            { return m_wheels.flatMm(wheel); }
+    const WheelsModel& wheelsModel() const         { return m_wheels; }
+
     // ---- driveline (clutch judder + lugging wind-up). Config apply for
     // the params; the law drives the two severities per cycle.
     // ---- ABS and TC (the pulse model). Config apply for the params; the
@@ -732,6 +771,7 @@ public:
         m_absModel.clear();
         m_absLinkLevel = 0.0;
         m_surface.clear();
+        m_wheels.clear();
         m_tcModel.clear();
         for (double& o : m_overlay) o = 0.0;
         for (double& o : m_shaker)  o = 0.0;
@@ -834,7 +874,9 @@ private:
     DrivelineParams m_drivelineParams;
     SurfaceModel  m_surface;
     SurfaceParams m_surfaceParams;
-    PulseModel   m_absModel{ WHEEL_COUNT, pulse_k::kAbsDrop };
+    WheelsModel  m_wheels;
+    WheelsParams m_wheelsParams;
+    PulseModel  m_absModel{ WHEEL_COUNT, pulse_k::kAbsDrop };
     PulseModel   m_tcModel{ 1, pulse_k::kTcDrop };
     PulseParams  m_absParams;
     PulseParams  m_tcParams{ 0.3, 0.5, 0.0, 0.0, 40.0 };

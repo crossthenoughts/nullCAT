@@ -126,7 +126,7 @@ Top level: `configVersion`, `numDrives` (1 to 10, must match `axes[]`),
 
 ### global.haptics
 
-One object per effect: `detentClick`, `gearShift`, `rpmVibe` (the engine), `abs`, `slipLon` (longitudinal slip), `slipLat` (lateral slip), `road`, `limiter`, `tc`, `kerb`, `driveline`, `surface`, plus `masterGain` (number, 0 to 2, default `1`, scales every effect) and `positionBudget` (number, 0 to 1, default `0.4`, the share of each position axis's velocity and acceleration limits that haptics may use; see `hapticsMaxMm` below) and `axisDelayMs` (number, 0 to 60, default `0`: holds the axis haptic overlays back by this much so they land together with the slower shaker path; the motion cue is never delayed) and `followCar` (bool, default `true`: whenever the sim names a car the car table knows, the engine, limiter, driveline, ABS and TC entries take that car's values; routes and everything else stay. The shipped table is `cars.json` beside the program, your own entries `cars.local.json` beside this file; a profile never carries this switch). Every effect is off until it has an amplitude above 0 and at least one route. Saves apply live, with no re-initialize.
+One object per effect: `detentClick`, `gearShift`, `rpmVibe` (the engine), `abs`, `slipLon` (longitudinal slip), `slipLat` (lateral slip), `road`, `limiter`, `tc`, `kerb`, `driveline`, `surface`, `wheels`, plus `masterGain` (number, 0 to 2, default `1`, scales every effect) and `positionBudget` (number, 0 to 1, default `0.4`, the share of each position axis's velocity and acceleration limits that haptics may use; see `hapticsMaxMm` below) and `axisDelayMs` (number, 0 to 60, default `0`: holds the axis haptic overlays back by this much so they land together with the slower shaker path; the motion cue is never delayed) and `followCar` (bool, default `true`: whenever the sim names a car the car table knows, the engine, limiter, driveline, ABS and TC entries take that car's values; routes and everything else stay. The shipped table is `cars.json` beside the program, your own entries `cars.local.json` beside this file; a profile never carries this switch). Every effect is off until it has an amplitude above 0 and at least one route. Saves apply live, with no re-initialize.
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
@@ -135,7 +135,7 @@ One object per effect: `detentClick`, `gearShift`, `rpmVibe` (the engine), `abs`
 | `durMs` | double | per effect | Length of a one-shot effect (detent click, gear shift), 5 to 100 ms. |
 | `jitter` | double | per effect | 0 to 1. Roughens the carrier so skid, road and kerb feel like texture rather than a tone. For the engine it is the idle lope (per-revolution unevenness). |
 | `peakPct` | double | `100` | For effects fed by a magnitude channel (`kerb` from `curbs`, `road` from `roadNoise`, the two slip tiles from `skid` / `lockup`, and `slipLat` from the per-wheel combined slip `wheelSlip*`): the channel value that counts as full severity, 1 to 400. A property that peaks at 25 gets 25; on the combined-slip path, where 100 is only the wire's convention for a let-go tyre, a car that reads 140 in a slide gets 140. Present on every effect object; ignored by the others and by the other per-wheel paths (those use `peakDeg`, `peakRatio`, `fullMm`). |
-| `routes` | array | `[]` | Where the effect goes: `[{"axis": <index>, "gain": <number>, "part": <string>}]` or `[{"shaker": <index>, "gain": <number>, "harm": <int>}]`, up to 14 entries, any axis or shaker channel. A shaker route's `gain` is full scale at 100 % amplitude (1 = full, soft-clipped above), `harm` (1 to 8, default 1) the harmonic of the effect's carrier it plays, phase-locked. On a torque axis (belt, device) `gain` is a multiplier, 0 to 2. On a position (CSP) axis `gain` is the offset in mm at 100 % amplitude, 0 to that axis's `hapticsMaxMm`. `part` (the two slip effects, road, kerb, ABS and surface only, default `"all"`): which wheels this axis carries, `all`, `front`, `rear`, `fl`, `fr`, `rl`, `rr`; the strongest of them plays. No routes = the effect reaches nothing. |
+| `routes` | array | `[]` | Where the effect goes: `[{"axis": <index>, "gain": <number>, "part": <string>}]` or `[{"shaker": <index>, "gain": <number>, "harm": <int>}]`, up to 14 entries, any axis or shaker channel. A shaker route's `gain` is full scale at 100 % amplitude (1 = full, soft-clipped above), `harm` (1 to 8, default 1) the harmonic of the effect's carrier it plays, phase-locked. On a torque axis (belt, device) `gain` is a multiplier, 0 to 2. On a position (CSP) axis `gain` is the offset in mm at 100 % amplitude, 0 to that axis's `hapticsMaxMm`. `part` (the two slip effects, road, kerb, ABS, surface and wheels only, default `"all"`): which wheels this axis carries, `all`, `front`, `rear`, `fl`, `fr`, `rl`, `rr`; the strongest of them plays (ABS and wheels: their mean). No routes = the effect reaches nothing. |
 
 Slip-only fields. Both tiles are per-wheel models with two components, each with a mix (0 to 1) and a carrier; the route's `part` picks the wheels. `freqHz` is kept in the object but unused by these two.
 
@@ -190,6 +190,7 @@ ABS and TC fields (`abs`, `tc`; `freqHz` is the cycle rate):
 | `abs` | `slipLink`, `lockLink`, `scrubLink` | `0`, `0.7`, `0.3` | Slip link (0 off, 1 on): while ABS works each corner's valve cycle shapes that wheel's slip tiles. The lock texture is held between 0.5 x the ABS level and 0.6 (never locked) and scaled by 1 - lockLink x (1 - m), m running from 1 with the pressure on to 0 just after the dump; lateral slip by 1 - scrubLink x (1 - m). Spin is untouched. Works with the ABS tile's amp at 0. |
 
 ABS routes take a `part`: one corner plays that corner's valve, an axle or `all` the average of its corners.
+
 Surface fields (`surface`; `freqHz` is kept but unused):
 
 | Field | Default | Notes |
@@ -200,6 +201,17 @@ Surface fields (`surface`; `freqHz` is kept but unused):
 | `puddles` | `0.6` | 0 to 1: puddles laid out per side on a wet road (a 60 % x wet squared chance per 4 m, 1 to 3.5 m long): the tug entering (stronger with speed squared, full at 90 km/h) and the bite out of a float. |
 | `aquaKmh` | `90` | 40 to 250: the speed a tyre floats at in standing water (higher in shallower water). |
 | `smooth` | `0.7` | 0 to 1: how far water fills the Road tile's texture under a tyre (its short wavelengths). |
+
+Wheels fields (`wheels`; `freqHz` is kept but unused). Each wheel's road input runs through a quarter car per corner with the `road` entry's `bodyHz`, `hopHz`, `damping` and `hpHz`; a post's 100 % is 0.3 mm of body movement, a belt's or shaker's that movement at 8 Hz. A route's `part` plays the mean of its corners. Each wheel turns at speed x (1 + its slip ratio) from `slipRatio*` (or `wheelSpeed*`), else at the road speed, on a 2 m circumference.
+
+| Field | Default | Notes |
+|---|---|---|
+| `balance` | `1` | 0 to 4: the wheel out of balance, 1 = an imbalance of 0.08 mm per unsprung mass (a force on the hub growing with the wheel's rate squared), plus out of round by 0.02 mm once a revolution and 30 % of that twice a revolution. |
+| `flat` | `1` | 0 to 4: flat spots x their depth. A wheel at slip ratio -0.5 or below with the car moving grinds 0.02 mm per metre slid (x its load share from `load*`, up to 2 mm) where its tread sat when it locked; the flat is a dip over 8 % of a revolution and wears off over 30 km (1/e). |
+| `judder` | `0.5` | 0 to 1: brake judder, a force (not a movement) twice a revolution while braking above 5 %, scaled by disc heat past 0.3 of full. Heat: + 0.001 x brake x speed (m/s) per second, cooling at heat x (0.2 + speed / 30 m/s) / 40 per second. |
+
+Fresh tyres and cold discs whenever the stream has been quiet for 30 s.
+
 Driveline-only fields (`driveline`):
 
 | Field | Default | Notes |

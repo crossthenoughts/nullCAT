@@ -134,6 +134,8 @@ private slots:
         c.hapticsTc      = { 0.2, 0.9, 0.0, 0.0, 40.0 };
         c.hapticsSurface = { 0.4, 0.8, 1.0, 0.3, 110.0, 0.5 };
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Surface)].routes[0].part = haptics::Part::RL;
+        c.hapticsWheels  = { 2.5, 0.5, 0.8 };
+        c.hapticsFx[static_cast<size_t>(haptics::Effect::Wheels)].routes[1].part = haptics::Part::Rear;
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Abs)].routes[0].part = haptics::Part::FR;
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Kerb)].routes[1].part = haptics::Part::Front;
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Road)].routes[0].part = haptics::Part::RR;
@@ -196,6 +198,8 @@ private slots:
         QCOMPARE(r.hapticsSurface.stones, 0.4);  QCOMPARE(r.hapticsSurface.crunch, 0.8); QCOMPARE(r.hapticsSurface.studs, 1.0);
         QCOMPARE(r.hapticsSurface.puddles, 0.3); QCOMPARE(r.hapticsSurface.aquaKmh, 110.0); QCOMPARE(r.hapticsSurface.smooth, 0.5);
         QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Surface)].routes[0].part == haptics::Part::RL);
+        QCOMPARE(r.hapticsWheels.balance, 2.5); QCOMPARE(r.hapticsWheels.flat, 0.5); QCOMPARE(r.hapticsWheels.judder, 0.8);
+        QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Wheels)].routes[1].part == haptics::Part::Rear);
         QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Road)].routes[0].part == haptics::Part::RR);
         QCOMPARE(r.hapticsDriveline.clutch, 0.8); QCOMPARE(r.hapticsDriveline.clutchHz, 9.0);
         QCOMPARE(r.hapticsDriveline.lug, 0.6);    QCOMPARE(r.hapticsDriveline.lugHz, 6.5);

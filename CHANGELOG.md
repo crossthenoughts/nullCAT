@@ -33,6 +33,15 @@ Development branch. Nothing here is in a release yet.
   is built up from its rain. Protocol 1.6: snow, ice, sand, mud and
   standing water classes, `rain`, `wet`, `wetFL..RR`; the SimHub plugin
   maps Automobilista 2's snow, ice and sand and sends its rain.
+- **Wheels** tile: each wheel turning, felt through that corner's tyre,
+  spring and damper as a smooth shake at the wheel's own rate rather
+  than a knock per revolution. The wheel slightly out of balance, a shake
+  growing steadily with speed (**balance x**); flat spots
+  ground in by lock-ups, deeper the further a wheel slid, thumping softly
+  once a revolution and wearing off (**flat x**, with each tyre's flat
+  shown on the tile); hot discs after hard braking pulsing the braking
+  force (**judder x**). Each wheel turns at its own speed, so the corners
+  drift in and out of step.
 - ABS and TC feel more like the real thing. ABS works per corner: each
   valve on its own rate, each cycle a little different, so the four
   drift in and out of step and the car grumbles instead of beating

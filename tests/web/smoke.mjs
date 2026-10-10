@@ -162,7 +162,7 @@ try {
   if (st.simDotsGrey !== nEffects) fails.push(`${st.simDotsGrey} grey sim dots with no sim, expected ${nEffects}`);
   if (!st.gameSel)              fails.push('no game selector on the Master tile');
   if (!st.shakerFields)         fails.push('shaker host fields or the axis delay field are missing');
-  if (st.wheelLines !== 4)      fails.push(`${st.wheelLines} per-wheel readout lines, expected 4 (Lateral, Longitudinal, Road, Kerb)`);
+  if (st.wheelLines !== 5)      fails.push(`${st.wheelLines} per-wheel readout lines, expected 5 (Lateral, Longitudinal, Road, Kerb, Wheels)`);
   if (st.inLines < 5)           fails.push(`${st.inLines} input readout lines, expected one per other continuous tile`);
   if (st.waveTags !== nEffects) fails.push(`${st.waveTags} wave source tags, expected one per effect tile (${nEffects})`);
   if (st.peakTrims !== 4)       fails.push(`${st.peakTrims} peak % trims, expected 4 (two slip tiles, Kerb, Road)`);

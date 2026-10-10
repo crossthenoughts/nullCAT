@@ -124,7 +124,7 @@ struct MotionStatus
     // holds until Reset peaks: the tile readouts, so a session's worst
     // slide can be read after the sim gave the screen back. Same for the
     // channel values themselves (the chip shows value and peak).
-    static constexpr int HAP_WHEEL_SETS = 4;   // 0 lateral, 1 longitudinal, 2 road mm, 3 on a kerb
+    static constexpr int HAP_WHEEL_SETS = 5;   // 0 lateral, 1 longitudinal, 2 road mm, 3 on a kerb, 4 flat spot mm
     double          hapticsIn     [haptics::FX_TYPE_COUNT] = {};
     double          hapticsInPk   [haptics::FX_TYPE_COUNT] = {};
     double          hapticsWheel  [HAP_WHEEL_SETS][4]      = {};
@@ -501,6 +501,7 @@ private:
         haptics::KerbParams   kerb;
         haptics::PulseParams  abs, tc;
         haptics::SurfaceParams surface;
+        haptics::WheelsParams wheels;
         haptics::DrivelineParams driveline;
         double masterGain = 1.0;
         double positionBudget = 0.4;

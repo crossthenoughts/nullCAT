@@ -1121,8 +1121,9 @@ function hapChanSpec(entry){
 }
 const HAP_FLAG_TOKENS=['absActive','limiter','tcActive','pitLimiter'];
 // Which status hapWheels set a tile's per-wheel line reads (-1 = none):
-// 0 lateral severity, 1 longitudinal severity, 2 road mm, 3 on a kerb 0..1.
-function hapWheelSet(k){ return k==='slipLat'?0:k==='slipLon'?1:k==='road'?2:k==='kerb'?3:-1; }
+// 0 lateral severity, 1 longitudinal severity, 2 road mm, 3 on a kerb 0..1,
+// 4 flat spot mm.
+function hapWheelSet(k){ return k==='slipLat'?0:k==='slipLon'?1:k==='road'?2:k==='kerb'?3:k==='wheels'?4:-1; }
 // Road: the settings each model reads (the rest are dimmed), and the
 // roadNoise texture's, live only while the model has nothing to run on.
 const HAP_ROAD_MODEL_KEYS=[['fullMm','surface','surfaceHz','surfaceKmh','rough','bodyHz','hopHz','damping'],
@@ -1199,6 +1200,7 @@ function hapHintHz(fx,dv){
   if(fx.k==='slipLat') return +dv.slideHz>0?+dv.slideHz:11;
   if(fx.k==='slipLon') return +dv.lockHz>0?+dv.lockHz:9;
   if(fx.k==='road'||fx.k==='kerb'||fx.k==='surface') return 8;   // no single carrier: the bump rate the controller derates at
+  if(fx.k==='wheels') return 11;   // the wheel's rate at about 80 km/h
   return +dv.freqHz>0?+dv.freqHz:30;
 }
 
@@ -1760,7 +1762,7 @@ function hapInit(){
     // session peak per corner. Test drives 1.00 on every wheel, so the
     // line is the direct comparison; the peak holds until Reset peaks.
     const wset=hapWheelSet(fx.k);
-    if(wset>=0) h+='<div class="hk hwheels" data-wheels="'+wset+'" title="Per wheel: now/peak since Reset peaks (Test = 1.00 on every wheel)"><span>FL -</span><span>FR -</span><span>RL -</span><span>RR -</span></div>';
+    if(wset>=0) h+='<div class="hk hwheels" data-wheels="'+wset+'" title="'+(wset===4?'Flat spot per wheel, mm: now/peak since Reset peaks':'Per wheel: now/peak since Reset peaks (Test = 1.00 on every wheel)')+'"><span>FL -</span><span>FR -</span><span>RL -</span><span>RR -</span></div>';
     else if(!fx.transient&&fx.fxIdx!==undefined) h+='<div class="hk hwheels" data-in="1" title="What this effect is driven with: now/peak since Reset peaks (Test = 1.00)">in -</div>';
     h+='<div class="hrows">';
     for(const [key,lab,min,max,st,opts] of fx.params){

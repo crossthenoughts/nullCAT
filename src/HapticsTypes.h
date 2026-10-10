@@ -22,7 +22,7 @@ static constexpr int EVENT_TYPE_COUNT = static_cast<int>(EventType::COUNT);
 // and Skid are the two per-wheel slip models (longitudinal and lateral);
 // the rest are oscillators whose LEVEL (0..1) is driven per cycle by a law.
 enum class FxType { RpmVibe = 0, AbsPulse = 1, Lockup = 2, Skid = 3, Road = 4,
-                    Limiter = 5, TcPulse = 6, Kerb = 7, Driveline = 8, Surface = 9, COUNT };
+                    Limiter = 5, TcPulse = 6, Kerb = 7, Driveline = 8, Surface = 9, Wheels = 10, COUNT };
 static constexpr int FX_TYPE_COUNT = static_cast<int>(FxType::COUNT);
 
 // What an axis index is as a routing destination. Torque: the overlay is %
@@ -162,6 +162,15 @@ struct SurfaceParams
     double puddles = 0.6;    // the drag tug into a puddle and the bite out of it, 0..1
     double aquaKmh = 90.0;   // the speed a tyre floats at in standing water
     double smooth  = 0.7;    // how far water smooths the road's texture, 0..1
+};
+
+// The Wheels tile (WheelsModel.h): what each wheel does as it turns, through
+// the Road tile's quarter car (body hz, hop hz, damping).
+struct WheelsParams
+{
+    double balance = 1.0;    // the wheel out of balance (and a touch out of round), x a typical wheel (0 = perfect)
+    double flat   = 1.0;     // flat spots ground in by lock-ups, x their depth (0 = off)
+    double judder = 0.5;     // hot brake discs pulsing the braking force, 0..1
 };
 
 // The Driveline tile: clutch judder and lugging wind-up, each a mix and

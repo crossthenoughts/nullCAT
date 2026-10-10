@@ -55,6 +55,9 @@ struct LawsState
     // The water standing on the road, built up from the rain where the sim
     // sends rain but no wetness (0 dry .. 1 standing water).
     double waterFilm = 0.0;
+    // How long the stream has been quiet (fresh tyres for the Wheels tile
+    // once it has been quiet a while).
+    double quietSec = 0.0;
 };
 
 namespace laws_k {
@@ -113,7 +116,12 @@ namespace laws_k {
     // Surface laws: the water film from rain.
     constexpr double kFilmFillSec      = 60.0;     // heavy rain stands on the road in about a minute
     constexpr double kFilmDrySec       = 240.0;    // ...and takes a few to dry off
-    constexpr double kPreviewPhaseSec  = 0.7;      // a Surface Test: gravel, snow, then a wet road
+    constexpr double kPreviewPhaseSec  = 0.7;      // a Surface Test: gravel, snow, then a wet road (Wheels: balance, flat, judder)
+    // Wheels laws
+    constexpr double kFreshTyresSec    = 30.0;     // the stream quiet this long: fresh tyres, cold discs
+    constexpr double kPreviewWheelSpread[WHEEL_COUNT] = { 0.0, 0.004, -0.003, 0.007 };   // a Test: each wheel a touch apart
+    constexpr double kPreviewFlatMm    = 0.8;
+    constexpr double kPreviewBrake     = 0.6;
 }
 
 // Start a Test preview on a continuous/engine slot.
@@ -374,6 +382,42 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
         {
             double& left = st.previewSec[static_cast<int>(t)];
             if (left > 0.0) left -= dtSec;
+        }
+
+        // Wheels: each wheel turns at the car's speed x (1 + its slip ratio)
+        // where the ratio is known (from the sim or the wheel speeds, above),
+        // else at the car's speed; the ratio and the load share flat-spot a
+        // locked wheel; the brake heats the discs. A stream gone quiet for a
+        // while (a new session, a new car) brings fresh tyres. A Test preview
+        // runs at 80 km/h, the wheels a touch apart: out of round, then a flat
+        // on the front left, then hot discs under braking.
+        {
+            double& previewLeft = st.previewSec[static_cast<int>(FxType::Wheels)];
+            if (live) st.quietSec = 0.0;
+            else if (st.quietSec < kFreshTyresSec && (st.quietSec += dtSec) >= kFreshTyresSec) L.wheelsFreshTyres();
+            if (previewLeft > 0.0)
+            {
+                const double t = kPreviewSec - previewLeft;
+                for (int w = 0; w < WHEEL_COUNT; ++w)
+                {
+                    L.driveWheelSpeed(w, kPreviewKmh / 3.6 * (1.0 + kPreviewWheelSpread[w]));
+                    L.driveWheelLock(w, 0.0, 0.0, 1.0);   // the preview's heat is its own: the discs stay as they are
+                }
+                const bool flat = t >= kPreviewPhaseSec, judder = t >= 2.0 * kPreviewPhaseSec;
+                L.driveWheelsBrake(judder ? kPreviewBrake : 0.0);
+                L.driveWheelsPreview(flat ? kPreviewFlatMm : 0.0, judder ? 1.0 : 0.0);
+                previewLeft -= dtSec;
+            }
+            else if (live && v.have[NcxValues::SpeedKmh])
+            {
+                const double carMs = speed / 3.6;
+                for (int w = 0; w < WHEEL_COUNT; ++w)
+                {
+                    L.driveWheelSpeed(w, ratioOk[w] ? carMs * std::max(0.0, 1.0 + ratioW[w]) : carMs);
+                    L.driveWheelLock(w, carMs, ratioOk[w] ? ratioW[w] : 0.0, loadW[w]);
+                }
+                L.driveWheelsBrake(v.have[NcxValues::BrakePct] ? v.val[NcxValues::BrakePct] / 100.0 : 0.0);
+            }
         }
     }
 

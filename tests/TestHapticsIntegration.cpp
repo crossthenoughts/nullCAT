@@ -853,6 +853,64 @@ int main()
         }
     }
 
+    // ---- I-11: the Wheels tile through the laws ----
+    {
+        using haptics::FxType; using haptics::Part;
+        const double dt = 0.002;
+        haptics::Layer L; haptics::LawsState st;
+        haptics::EffectParams wp; wp.ampPct = 100.0; wp.routes[0] = { 0, 1.0, Part::FL }; wp.routes[1] = { 1, 1.0, Part::FR };
+        L.configureFx(FxType::Wheels, wp);
+        haptics::WheelsParams q; q.balance = 0.0; q.judder = 0.0; L.configureWheels(q);
+        NcxValues v{}; v.fresh = true;
+        v.have[NcxValues::SpeedKmh] = true; v.val[NcxValues::SpeedKmh] = 72.0;   // 20 m/s
+        v.have[NcxValues::BrakePct] = true; v.val[NcxValues::BrakePct] = 100.0;
+        auto ratios = [&](double fl, double fr, double rl, double rr)
+        { const double r[4] = { fl, fr, rl, rr }; for (int w = 0; w < 4; ++w) { v.have[NcxValues::SlipRatioFL + w] = true; v.val[NcxValues::SlipRatioFL + w] = r[w]; } };
+        // FL locked for a second: a flat ground into FL alone.
+        ratios(-1.0, -0.1, -0.1, -0.1);
+        for (int i = 0; i < 500; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
+        check(std::fabs(L.wheelFlatMm(WheelFL) - 0.4) < 0.01 && L.wheelFlatMm(WheelFR) == 0.0,
+              "I-11 wheels: a second locked at 72 km/h grinds a 0.4 mm flat into FL alone");
+        // Rolling on: FL's route thumps once a revolution, FR's is silent.
+        ratios(0.0, 0.0, 0.0, 0.0); v.val[NcxValues::BrakePct] = 0.0;
+        double pk0 = 0.0, pk1 = 0.0;
+        for (int i = 0; i < 1500; ++i)
+        {
+            haptics::driveLaws(L, st, v, dt); L.step(dt);
+            if (i > 500) { pk0 = std::max(pk0, std::fabs(L.overlayFor(0))); pk1 = std::max(pk1, std::fabs(L.overlayFor(1))); }
+        }
+        check(pk0 > 2.0 && pk1 < 1e-9, "I-11 wheels: the flat thumps on FL's route, FR's is silent");
+        check(L.fxLevel(static_cast<int>(FxType::Wheels)) > 0.02, "I-11 wheels: the tile level shows it");
+        // The stream quiet for half a minute: fresh tyres.
+        v.fresh = false;
+        for (int i = 0; i < 14000; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
+        check(L.wheelFlatMm(WheelFL) > 0.35, "I-11 wheels: a short pause keeps the flat");
+        for (int i = 0; i < 1100; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
+        check(L.wheelFlatMm(WheelFL) == 0.0, "I-11 wheels: quiet for 30 s, fresh tyres");
+
+        // A Test preview with no sim: out of round, then a flat on the front
+        // left, then hot discs under braking, at 80 km/h.
+        {
+            haptics::Layer P; haptics::LawsState ps; NcxValues none{};
+            P.configureFx(FxType::Wheels, wp); P.configureWheels(haptics::WheelsParams{});
+            haptics::startPreview(ps, FxType::Wheels);
+            double run = 0.0, flat = 0.0, judder = 0.0;
+            for (int i = 0; i < 1000; ++i)
+            {
+                haptics::driveLaws(P, ps, none, dt); P.step(dt);
+                const double o = std::fabs(P.overlayFor(0));
+                if (i > 100 && i < 340) run = std::max(run, o);
+                else if (i > 450 && i < 690) flat = std::max(flat, o);
+                else if (i > 750) judder = std::max(judder, o);
+            }
+            std::printf("  I-11 wheels preview peaks: balance %.2f, flat %.2f, judder %.2f\n", run, flat, judder);
+            check(run > 0.5, "I-11 wheels preview: out of balance first");
+            check(flat > 1.5 * run, "I-11 wheels preview: then a flat on the front left");
+            check(judder > flat, "I-11 wheels preview: then hot discs under braking");
+            check(P.wheelFlatMm(WheelFL) == 0.0, "I-11 wheels preview: the tyres' own state untouched");
+        }
+    }
+
     // ---- P-1..P-4: a POSITION (CSP) axis as a routing destination ----
     // Route gain on a position axis is mm at 100% amplitude. The offset is
     // tracked inside the haptic share of the axis limits (what the actuator
