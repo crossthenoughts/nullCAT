@@ -1568,7 +1568,7 @@ bool WebServer::start()
                 else if (info.kind == haptics::Kind::Wheels)
                 {
                     const haptics::WheelsParams wd;
-                    d["balance"] = wd.balance; d["flat"] = wd.flat; d["judder"] = wd.judder;
+                    d["balance"] = wd.balance; d["flat"] = wd.flat; d["judder"] = wd.judder; d["puncture"] = wd.puncture;
                 }
                 else if (info.kind == haptics::Kind::Impacts)
                 {

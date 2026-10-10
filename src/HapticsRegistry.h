@@ -186,6 +186,7 @@ constexpr ParamSpec kWheelsParams[] = {         // wheels: out of round, flat sp
     { "balance", "balance x",  0,   4,   0.1,  nullptr },   // the wheel out of balance (and a touch out of round)
     { "flat",    "flat x",     0,   4,   0.1,  nullptr },   // flat spots from lock-ups
     { "judder",  "judder x",   0,   1,   0.05, nullptr },   // hot brake discs under braking
+    { "puncture","puncture x", 0,   2,   0.1,  nullptr },   // a punctured tyre, when the sim says so
 };
 constexpr ParamSpec kImpactParams[] = {         // impacts: the edge of a hit through the suspension
     { "ampPct",  "amp %",      0,   100,  1,    nullptr },
@@ -334,16 +335,18 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "is how far water fills the Road tile's texture. Needs the surface under each tyre (Automobilista 2) "
       "and the wetness or the rain.", nullptr, {} },
     { Effect::Wheels,      "wheels",      "Wheels",       Kind::Wheels, EventType::COUNT, FxType::Wheels,
-      { "speedKmh", "~slipRatio*|wheelSpeed*", "~brakePct", "~load*", nullptr }, { 0.0, 12.0, 0.0, 0.0 }, kWheelsParams, 4,
+      { "speedKmh", "~slipRatio*|wheelSpeed*", "~brakePct", "~load*", "~deflated*" }, { 0.0, 12.0, 0.0, 0.0 }, kWheelsParams, 5,
       "What each wheel does as it turns, felt the way a car passes it on: through the corner's tyre, spring and "
       "damper (the Road tile's body hz, hop hz and damping), a smooth shake at the wheel's own rate rather than a "
       "knock per revolution. Balance: the wheel slightly out of balance (and a touch out of round), a shake that "
       "grows steadily with speed. Flat: a lock-up grinds a flat spot into the tyre where it slid, deeper the "
       "longer and harder it slid, and it thumps softly once a revolution from then on, wearing slowly round "
       "again. Judder: discs made hot by hard braking pulse the braking force twice a revolution while you "
-      "brake (best on a belt, surge or a shaker). Each wheel turns at its own speed, so the corners drift in "
-      "and out of step; route with a part so each post plays its own corner. Needs the speed; per-wheel slip "
-      "ratios or wheel speeds for each wheel's own speed and the lock-ups, the brake for the judder.",
+      "brake (best on a belt, surge or a shaker). Puncture: when the sim says a tyre is deflated (Automobilista "
+      "2), the wheel rides on its folded sidewall, a heavy thump once a revolution. A wheel in the air does none "
+      "of this. Each wheel turns at its own speed, so the corners drift in and out of step; route with a part "
+      "so each post plays its own corner. Needs the speed; per-wheel slip ratios or wheel speeds for each "
+      "wheel's own speed and the lock-ups, the brake for the judder.",
       nullptr, {} },
     { Effect::Impacts,     "impacts",     "Impacts",      Kind::Impacts, EventType::COUNT, FxType::Impacts,
       { "suspVel*|suspTravel*|accHeave", nullptr }, { 0.0, 40.0, 50.0, 0.0 }, kImpactParams, 6,

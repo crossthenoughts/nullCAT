@@ -171,6 +171,7 @@ struct WheelsParams
     double balance = 1.0;    // the wheel out of balance (and a touch out of round), x a typical wheel (0 = perfect)
     double flat   = 1.0;     // flat spots ground in by lock-ups, x their depth (0 = off)
     double judder = 0.5;     // hot brake discs pulsing the braking force, 0..1
+    double puncture = 1.0;   // a punctured tyre (when the sim says so) thumping once a revolution, 0..2
 };
 
 // The Impacts tile (ImpactModel.h): the edge of a hit through the

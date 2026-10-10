@@ -2,7 +2,7 @@
 
 Sends raw sim telemetry to nullCAT for the force-device effects (shifter,
 active pedal) and the haptic effect layer. Up to three UDP lines per tick,
-nothing else (wire protocol 1.6, see `Docs/PROTOCOL.md` in the nullCAT
+nothing else (wire protocol 1.7, see `Docs/PROTOCOL.md` in the nullCAT
 repo):
 
     NULLCATX,<rpm>,<speedKmh>,<gear>,<clutchPct>,<throttlePct>,
@@ -23,7 +23,7 @@ sent at all, which leaves its effect silently inert on the rig.
 In SimHub's plugin list it appears as **nullCAT Channel Exporter**:
 "Sends raw telemetry to nullCAT over UDP: rpm, speed, gear, pedals,
 ABS/TC/limiter flags, and optional per-wheel slip, load and suspension
-channels for the haptic layer". Version 1.6 of the plugin goes with
+channels for the haptic layer". Version 1.7 of the plugin goes with
 nullCAT 0.9.8; it works with 0.9.6 and 0.9.7 too (the extra channels are simply
 ignored there).
 
@@ -82,7 +82,7 @@ by itself.
 |---|---|---|
 | Assetto Corsa | slip angle, wheel speeds, tyre loads, the combined slip, suspension travel, the road height under each tyre, wheelbase and track | Longitudinal slip, Lateral slip, Road, Kerb |
 | Assetto Corsa Competizione, EVO, Rally | slip angle, a real slip ratio, wheel speeds, loads, combined slip, suspension travel, road height, wheelbase and track, the game's kerb vibration | Longitudinal slip, Lateral slip, Road, Kerb |
-| Automobilista 2 | wheel speeds, suspension velocities, tyre slip speed, the surface under each tyre (snow and ice included), the rain | Longitudinal slip, Lateral slip, Road, Kerb, Surface |
+| Automobilista 2 | wheel speeds, suspension velocities, tyre slip speed, the surface under each tyre (snow and ice included), the rain, which tyres are on the ground and which are punctured | Longitudinal slip, Lateral slip, Road, Kerb, Surface, Wheels; a tyre in the air goes quiet |
 
 Every game also sends the body's vertical acceleration, pitch and roll
 from SimHub's own motion data, for the Road tile's chassis model.

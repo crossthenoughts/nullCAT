@@ -303,6 +303,12 @@ can feed the same channels (see PROTOCOL.md).
 a finer buzz. `jitter` roughens it so slip, road and kerbs feel like
 texture rather than a tone.
 
+A tyre in the air goes quiet: no road, surface, kerb or slip through
+that corner, and nothing from the Wheels tile, until it lands. nullCAT
+knows a tyre is in the air when the sim says so (Automobilista 2) or when
+it carries next to none of its usual load (Assetto Corsa, Competizione,
+EVO, Rally). It needs no settings.
+
 ### Tyre slip
 
 The two slip tiles work per wheel: each of the four tyres has its own
@@ -545,6 +551,9 @@ own rate.
   from how hard and how fast you brake and cools as you drive, so it
   shows after repeated heavy stops, not on the first. It is a push fore
   and aft: route it to a belt, surge or a shaker.
+- **puncture x** (1): when the sim says a tyre is punctured (Automobilista
+  2), the wheel rides on its folded sidewall: a heavy thump once a
+  revolution.
 
 Each wheel turns at its own speed (from the slip ratios or wheel speeds
 the sim sends), so the corners drift in and out of step: route with a

@@ -42,6 +42,14 @@ Development branch. Nothing here is in a release yet.
   shown on the tile); hot discs after hard braking pulsing the braking
   force (**judder x**). Each wheel turns at its own speed, so the corners
   drift in and out of step.
+- A tyre in the air goes quiet: no road, surface, kerb or slip through
+  that corner and nothing from the Wheels tile until it lands, so a jump
+  or a crest feels like flying instead of tarmac under you. nullCAT knows
+  from the sim (Automobilista 2's tyre flags) or from the tyre carrying
+  next to none of its load (the Assetto Corsa family). The Wheels tile
+  gains **puncture x**: a punctured tyre (Automobilista 2) rides on its
+  folded sidewall, a heavy thump once a revolution. Protocol 1.7: the
+  numbered line widens to 96 slots, tokens `onGround*` and `deflated*`.
 - **Impacts** tile: the edge of a hit, which the motion cue rounds off
   and never sends to a belt or shaker. A corner's suspension stopping or
   starting dead between two sim samples (the bump stop, a landing, a kerb

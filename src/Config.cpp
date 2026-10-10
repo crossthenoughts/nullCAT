@@ -280,7 +280,7 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
             else if (info.kind == haptics::Kind::Wheels)
             {
                 const haptics::WheelsParams& w = c.hapticsWheels;
-                o["balance"] = w.balance; o["flat"] = w.flat; o["judder"] = w.judder;
+                o["balance"] = w.balance; o["flat"] = w.flat; o["judder"] = w.judder; o["puncture"] = w.puncture;
             }
             else if (info.kind == haptics::Kind::Impacts)
             {
@@ -435,6 +435,7 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                 w.balance = o.value("balance").toDouble(w.balance);
                 w.flat   = o.value("flat").toDouble(w.flat);
                 w.judder = o.value("judder").toDouble(w.judder);
+                w.puncture = o.value("puncture").toDouble(w.puncture);
             }
             if (info.kind == haptics::Kind::Impacts)
             {
@@ -1440,6 +1441,7 @@ std::vector<std::string> AppConfig::validate() const
                 if (w.balance < 0.0 || w.balance > 4.0) errors.push_back(pfx + "balance out of range [0, 4]");
                 if (w.flat < 0.0 || w.flat > 4.0)     errors.push_back(pfx + "flat out of range [0, 4]");
                 if (w.judder < 0.0 || w.judder > 1.0) errors.push_back(pfx + "judder out of range [0, 1]");
+                if (w.puncture < 0.0 || w.puncture > 2.0) errors.push_back(pfx + "puncture out of range [0, 2]");
             }
             if (info.kind == haptics::Kind::Impacts)
             {

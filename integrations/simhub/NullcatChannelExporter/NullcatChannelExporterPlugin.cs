@@ -460,6 +460,25 @@ namespace NullcatChannelExporter
             }
             for (var w = 0; w < 4; w++)
                 y.Append(",surface").Append(Wheels[w]).Append('=').Append(cls[w].ToString(CultureInfo.InvariantCulture));
+            AppendAms2TyreFlags(y, pm);
+        }
+
+        // Automobilista 2 tyre flags (protocol 1.7): bit 0 attached, bit 1
+        // inflated, bit 2 on the ground. A tyre still attached but no longer
+        // inflated is punctured.
+        private static void AppendAms2TyreFlags(StringBuilder y, PluginManager pm)
+        {
+            var flags = new int[4];
+            for (var w = 0; w < 4; w++)
+            {
+                double f;
+                if (!ReadRaw(pm, "DataCorePlugin.GameRawData.mTyreFlags0" + (w + 1), out f) || double.IsNaN(f)) return;
+                flags[w] = (int)f;
+            }
+            for (var w = 0; w < 4; w++)
+                y.Append(",onGround").Append(Wheels[w]).Append('=').Append((flags[w] & 4) != 0 ? '1' : '0');
+            for (var w = 0; w < 4; w++)
+                y.Append(",deflated").Append(Wheels[w]).Append('=').Append(((flags[w] & 1) != 0 && (flags[w] & 2) == 0) ? '1' : '0');
         }
 
         // AMS2 terrain materials (SimHub's AMS2 eTerrain) -> 0 tarmac,

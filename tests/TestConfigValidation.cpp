@@ -219,14 +219,14 @@ private slots:
             if (e.find("unknown token") != std::string::npos) found = true;
         QVERIFY2(found, "unknown token rejected");
 
-        // Protocol 1.5 widened the wire to 64 slots: 63 is the last valid one.
-        cfg.ncxBindings = { { "rpm", 63, 1.0, 0.0 } };
-        QVERIFY2(cfg.validate().empty(), "slot 63 accepted (wire carries 0..63)");
-        cfg.ncxBindings = { { "rpm", 64, 1.0, 0.0 } };
+        // Protocol 1.7 widened the wire to 96 slots: 95 is the last valid one.
+        cfg.ncxBindings = { { "rpm", 95, 1.0, 0.0 } };
+        QVERIFY2(cfg.validate().empty(), "slot 95 accepted (wire carries 0..95)");
+        cfg.ncxBindings = { { "rpm", 96, 1.0, 0.0 } };
         found = false;
         for (const auto& e : cfg.validate())
             if (e.find("slot out of range") != std::string::npos) found = true;
-        QVERIFY2(found, "slot 64 rejected (wire carries 0..63)");
+        QVERIFY2(found, "slot 96 rejected (wire carries 0..95)");
 
         // Every 1.3 token is a known name (the registry drives validation).
         cfg.ncxBindings = { { "slipAngleFL", 14, 1.0, 0.0 }, { "suspVelRR", 33, 1.0, 0.0 },
@@ -430,7 +430,8 @@ private slots:
         cfg.hapticsWheels.balance = 4.5;  QVERIFY2(refused("balance"), "balance 4.5 is refused");
         cfg.hapticsWheels.balance = 2.0; cfg.hapticsWheels.flat = -0.1; QVERIFY2(refused("flat"), "flat -0.1 is refused");
         cfg.hapticsWheels.flat = 3.0; cfg.hapticsWheels.judder = 1.2; QVERIFY2(refused("judder"), "judder 1.2 is refused");
-        cfg.hapticsWheels.judder = 0.0; QVERIFY(cfg.validate().empty());
+        cfg.hapticsWheels.judder = 0.0; cfg.hapticsWheels.puncture = 2.5; QVERIFY2(refused("puncture"), "puncture 2.5 is refused");
+        cfg.hapticsWheels.puncture = 0.5; QVERIFY(cfg.validate().empty());
     }
 
     // Impacts: from 100..3000, full 300..8000 and above from, heave 0..5 g,

@@ -681,6 +681,15 @@ public:
     void driveWheelsPreview(double flatMm, double heat) { m_wheels.drivePreview(flatMm, heat); }
     void wheelsFreshTyres()                        { m_wheels.clear(); }
 
+    // How far each tyre touches the ground (0 in the air .. 1), per cycle:
+    // the Road, Surface and Wheels tiles go quiet for a tyre in the air (the
+    // law gates slip and kerb itself). Not driven = on the ground.
+    void driveGround(int wheel, double contact)
+    {
+        m_road.driveGround(wheel, contact); m_surface.driveGround(wheel, contact); m_wheels.driveGround(wheel, contact);
+    }
+    void driveDeflated(int wheel, double deflated) { m_wheels.driveDeflated(wheel, deflated); }
+
     // ---- the Impacts tile. Config apply for the params; the law drives
     // each corner's suspension and the body's vertical acceleration.
     void configureImpacts(const ImpactParams& q)   { m_impactParams = q; }

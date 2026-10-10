@@ -5,7 +5,7 @@ the nullCAT exporter plugin, or any tool that can emit a text line) and the
 nullCAT controller (the **receiver**). This document is the contract: the
 wire only ever changes here, version-bumped, and senders adapt to it.
 
-**Protocol version: 1.6** (nullCAT 0.9.8). History at the bottom.
+**Protocol version: 1.7** (nullCAT 0.9.8). History at the bottom.
 
 nullCAT does not depend on any particular sender. SimHub with the nullCAT
 plugin, FlyPT Mover, SimTools, a custom feeder reading the game's shared
@@ -52,7 +52,7 @@ Every field after the header is one axis value, in the rig's axis order,
 NULLCATX,<ch0>,<ch1>,...,<chN>\n
 ```
 
-Up to **64** plain-number channels carrying raw sim values for the device
+Up to **96** plain-number channels carrying raw sim values for the device
 state effects and the haptic layer. The wire carries numbers only;
 **meaning is assigned receiver-side** by the rig's `ncxBindings` config
 (each binding: channel slot, token, scale, offset). The recommended
@@ -105,7 +105,7 @@ NULLCATY,game=Automobilista 2,car=Formula Ultimate Gen2,carId=Formula Ultimate G
 NULLCATY,rpm=11480,speedKmh=212.4,gear=5,throttlePct=100,brakePct=0,slipRatioRL=0.08,slipRatioRR=0.31,slipAngleFL=2.1
 ```
 
-### Token registry (protocol 1.6)
+### Token registry (protocol 1.7)
 
 | Slot | Token | Unit / convention |
 |---|---|---|
@@ -140,6 +140,8 @@ NULLCATY,rpm=11480,speedKmh=212.4,gear=5,throttlePct=100,brakePct=0,slipRatioRL=
 | 57 | `rain` | rain falling, **0..1** (0 dry weather, 1 the heaviest). Where no wetness is sent, nullCAT builds the water standing on the road from it (a minute of heavy rain to stand, several to dry) *(since 1.6)* |
 | 58 | `wet` | water on the road, **0..1** (0 dry, 1 standing water), where the sim knows it; wins over `rain` *(since 1.6)* |
 | 59..62 | `wetFL` .. `wetRR` | the same under each tyre, where the sim knows it; wins over `wet` *(since 1.6)* |
+| 63..66 | `onGroundFL` .. `onGroundRR` | **1** the tyre touches the ground, **0** it is in the air. Where it is not sent, nullCAT tells a tyre in the air from its `load*` (almost none of the usual corner load). A tyre in the air gets no road, surface, kerb or slip *(since 1.7)* |
+| 67..70 | `deflatedFL` .. `deflatedRR` | **1** the tyre is punctured, **0** inflated, as the sim says. Feeds the Wheels effect's puncture *(since 1.7)* |
 
 Per-wheel groups are always sent as all four or not at all: a group with
 a wheel missing is treated as absent. A sender that only has per-axle
@@ -193,6 +195,12 @@ and can come from the same tool.
 
 ## Version history
 
+- **1.7** (nullCAT 0.9.8): the channel wire widened from 64 to 96 slots
+  (every token keeps a slot, with room to grow). Added `onGroundFL` ..
+  `onGroundRR` (a tyre in the air goes quiet) and `deflatedFL` ..
+  `deflatedRR` (punctures). The reference SimHub plugin sends both from
+  Automobilista 2's tyre flags. No change to parsing; every 1.6 sender
+  remains fully compatible.
 - **1.6** (nullCAT 0.9.8): surface classes 7 snow, 8 ice, 9 sand, 10 mud,
   11 standing water; tokens `rain`, `wet` and `wetFL` .. `wetRR`, for the
   Surface effect (stones, crunch, studs, puddles and aquaplaning) and the

@@ -88,6 +88,7 @@ namespace road_k {
     constexpr double kSurfShort[SURFACE_CLASS_COUNT] = { 1.0, 3.0, 1.0, 6.0, 1.5, 4.0, 4.0, 0.8, 0.2, 2.5, 2.0, 0.3 };
     constexpr double kSurfWaveM   = 2.0;
     constexpr double kSurfEaseSec = 0.1;
+    constexpr double kGroundEaseSec = 0.02;   // a tyre leaving or meeting the ground eases over this
     // Chassis model.
     constexpr double kLearnSec   = 5.0;     // sign learning memory
     constexpr double kLearnCorr  = 0.3;     // correlation that sets a sign
@@ -229,6 +230,15 @@ public:
         m_w[wheel].floating = std::isfinite(floating) ? std::max(0.0, std::min(1.0, floating)) : 0.0;
     }
     void setWaterSmooth(double smooth) { m_smooth = std::max(0.0, std::min(1.0, smooth)); }
+    // How far the tyre touches the ground, 0 in the air .. 1 (not driven this
+    // cycle = on the ground). In the air the road under it stops reaching the
+    // corner (its input holds, so the corner settles and goes quiet); on
+    // landing it meets the road wherever the road has got to.
+    void driveGround(int wheel, double contact)
+    {
+        if (wheel < 0 || wheel >= WHEEL_COUNT) return;
+        m_w[wheel].groundIn = std::isfinite(contact) ? std::max(0.0, std::min(1.0, contact)) : 1.0;
+    }
     // The body: vertical acceleration m/s^2, pitch and roll degrees.
     void driveChassis(double accHeaveMs2, double pitchDeg, double rollDeg)
     {
@@ -264,6 +274,9 @@ public:
             height = height || w.heightDriven;
             w.driven = false; w.dx = 0.0;
         }
+        // Ground contact, eased so a corner never steps.
+        const double groundA = std::min(1.0, dtSec / kGroundEaseSec);
+        for (W& w : m_w) { w.groundF += (w.groundIn - w.groundF) * groundA; w.groundIn = 1.0; }
         // Live while the model's own inputs arrive.
         const bool anyDriven = (model == 1) ? (susp || height || m_speedDriven)
                              : (model == 2) ? m_chassisDriven
@@ -367,6 +380,7 @@ private:
         // the random road under this tyre (both models)
         double rBase = 0.0, rShort = 0.0, rPrev = 0.0, rGainL = 1.0, rGainS = 1.0; bool rSeen = false;
         double water = 0.0, floating = 0.0;   // from the Surface tile: water under the tyre, the tyre floating on it
+        double groundIn = 1.0, groundF = 1.0; // touching the ground (driven, eased): 0 in the air
         // suspension model's roughness: its quarter car and output
         double synF = 0.0, dHp = 0.0, dPrev = 0.0;
         QuarterCar qr;
@@ -399,7 +413,7 @@ private:
             {
                 // The roughness through the tyre and the corner: what the
                 // suspension does over it (the wheel against the body).
-                w.synF += (roughAt(i, dtSec, p, wb) - w.synF) * envA;
+                w.synF += (roughAt(i, dtSec, p, wb) - w.synF) * envA * w.groundF;
                 w.qr.step(dtSec, w.synF, k);
                 const double d = w.qr.zu - w.qr.zs;
                 w.dHp = outA * (w.dHp + d - w.dPrev); w.dPrev = d;
@@ -488,7 +502,7 @@ private:
             }
             w.realF += (real - w.realF) * inA;
             const double syn = roughAt(i, dtSec, p, wb);
-            w.zrF += (w.realF + syn - w.zrF) * envA;
+            w.zrF += (w.realF + syn - w.zrF) * envA * w.groundF;
             w.qc.step(dtSec, w.zrF, k);
             // Above cut hz: what the motion cue does not already do.
             w.zsHp = outA * (w.zsHp + w.qc.zs - w.zsPrev); w.zsPrev = w.qc.zs;

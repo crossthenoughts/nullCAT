@@ -71,6 +71,7 @@ namespace surface_k {
     constexpr double kFloatInSec = 0.05, kFloatOutSec = 0.03;
     constexpr double kDefaultWheelbaseM = 2.7;
     constexpr double kMinSpeedMs = 1.0;
+    constexpr double kGroundEaseSec = 0.02;   // a tyre leaving or meeting the ground eases over this
 }
 
 class SurfaceModel
@@ -94,6 +95,14 @@ public:
     // that stops must not keep stones flying).
     void driveSpeed(double speedMs) { m_speed = std::isfinite(speedMs) ? std::max(0.0, speedMs) : 0.0; m_speedDriven = true; }
     void driveGeometry(double wheelbaseM) { if (wheelbaseM > 1.0 && wheelbaseM < 6.0) m_wheelbase = wheelbaseM; }
+    // How far the tyre touches the ground, 0 in the air .. 1 (not driven this
+    // cycle = on the ground): a tyre in the air strikes no stones, crunches
+    // nothing and meets no puddle.
+    void driveGround(int wheel, double contact)
+    {
+        if (wheel < 0 || wheel >= WHEEL_COUNT) return;
+        m_w[wheel].groundIn = std::isfinite(contact) ? std::max(0.0, std::min(1.0, contact)) : 1.0;
+    }
 
     void step(double dtSec, const SurfaceParams& q)
     {
@@ -111,10 +120,13 @@ public:
         {
             W& w = m_w[i];
             double force = 0.0, posMm = 0.0;
+            w.groundF += (w.groundIn - w.groundF) * std::min(1.0, dtSec / kGroundEaseSec);
+            w.groundIn = 1.0;
+            const bool touching = w.groundF >= 0.5;
 
             // Stones: a Poisson stream, so many per metre.
             const double rate = kStonesPerM[w.cls] * v;        // per second
-            if (rate > 0.0 && q.stones > 0.0 && rand01(w.rng) < rate * dtSec)
+            if (touching && rate > 0.0 && q.stones > 0.0 && rand01(w.rng) < rate * dtSec)
             {
                 Stone& s = w.pool[w.next]; w.next = (w.next + 1) % kPool;
                 s.t = 0.0;
@@ -164,7 +176,7 @@ public:
             const double water = std::max(kFilm * w.wet, puddle);
             // Into a puddle: the drag tug, with speed squared, as deep as the
             // puddle is (not its edge, where the tyre crosses in).
-            if (puddle > 0.1 && w.puddlePrev <= 0.1 && v > kMinSpeedMs)
+            if (touching && puddle > 0.1 && w.puddlePrev <= 0.1 && v > kMinSpeedMs)
             {
                 w.tugT = 0.0;
                 w.tugAmp = q.puddles * full * std::min(1.5, (v / kTugRefMs) * (v / kTugRefMs));
@@ -207,8 +219,8 @@ public:
             }
             w.water = water;
 
-            w.out.force = knee(force);
-            w.out.pos   = knee(posMm / kPosFullMm);
+            w.out.force = knee(force) * w.groundF;
+            w.out.pos   = knee(posMm / kPosFullMm) * w.groundF;
             const double a = std::max(std::fabs(w.out.force), std::fabs(w.out.pos));
             w.env = std::max(a, w.env * std::exp(-dtSec / 0.15));
             m_level = std::max(m_level, w.env);
@@ -310,6 +322,7 @@ private:
         double nLp = 0.0, nHp = 0.0, nPrev = 0.0;
         wavesynth::Oscillator studOsc;
         double puddlePrev = 0.0, tugT = -1.0, tugAmp = 0.0, biteT = -1.0, biteAmp = 0.0, floatLvl = 0.0;
+        double groundIn = 1.0, groundF = 1.0;   // touching the ground (driven, eased): 0 in the air
         Out out;
         double env = 0.0;
         uint64_t rng = 1;

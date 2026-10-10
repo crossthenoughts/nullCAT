@@ -911,6 +911,56 @@ int main()
         }
     }
 
+    // ---- I-13: ground contact through the laws ----
+    {
+        using haptics::FxType; using haptics::Part;
+        const double dt = 0.002;
+        haptics::Layer L; haptics::LawsState st;
+        haptics::EffectParams lat; lat.ampPct = 100.0; lat.routes[0] = { 0, 1.0, Part::FL }; lat.routes[1] = { 1, 1.0, Part::FR };
+        L.configureFx(FxType::Skid, lat);
+        haptics::EffectParams kb; kb.ampPct = 100.0; kb.routes[0] = { 2, 1.0, Part::FL };
+        L.configureFx(FxType::Kerb, kb); L.configureKerb(haptics::KerbParams{});
+        haptics::EffectParams wh; wh.ampPct = 100.0; wh.routes[0] = { 3, 1.0, Part::RR };
+        L.configureFx(FxType::Wheels, wh);
+        haptics::WheelsParams wq; wq.balance = 0.0; wq.flat = 0.0; wq.judder = 0.0; L.configureWheels(wq);
+        NcxValues v{}; v.fresh = true;
+        v.have[NcxValues::SpeedKmh] = true; v.val[NcxValues::SpeedKmh] = 100.0;
+        auto setW = [&](int group, double a, double b, double c, double d)
+        { const double x[4] = { a, b, c, d }; for (int w = 0; w < 4; ++w) { v.have[group + w] = true; v.val[group + w] = x[w]; } };
+        setW(NcxValues::SlipAngleFL, 9.0, 9.0, 0.0, 0.0);          // both fronts sliding
+        setW(NcxValues::SurfaceFL, SurfKerb, SurfKerb, SurfTarmac, SurfTarmac);
+        setW(NcxValues::LoadFL, 3000.0, 3000.0, 3000.0, 3000.0);
+        auto run = [&](int n) { for (int i = 0; i < n; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); } };
+        run(1000);
+        check(L.slipWheelLevel(FxType::Skid, WheelFL) > 0.5 && L.kerbWheelLevel(WheelFL) > 0.99,
+              "I-13 ground: FL on the ground slides and rumbles on the kerb");
+        // FL unloaded (in the air): its slip and kerb stop, FR carries on.
+        setW(NcxValues::LoadFL, 0.0, 3000.0, 3000.0, 3000.0);
+        run(200);
+        check(L.slipWheelLevel(FxType::Skid, WheelFL) < 0.01 && L.kerbWheelLevel(WheelFL) < 0.01,
+              "I-13 ground: FL with no load is in the air: no slide, no kerb");
+        check(L.slipWheelLevel(FxType::Skid, WheelFR) > 0.5 && L.kerbWheelLevel(WheelFR) > 0.99,
+              "I-13 ground: FR on the ground carries on");
+        // Hysteresis: a light tyre (5% of its usual load) stays where it was.
+        setW(NcxValues::LoadFL, 150.0, 3000.0, 3000.0, 3000.0);
+        run(100);
+        check(st.air[WheelFL], "I-13 ground: 5% load after the air is still in the air (no flicker)");
+        setW(NcxValues::LoadFL, 400.0, 3000.0, 3000.0, 3000.0);
+        run(100);
+        check(!st.air[WheelFL], "I-13 ground: 13% load is back on the ground");
+        // The sim's own flag wins over the load (AMS2 sends no loads).
+        setW(NcxValues::LoadFL, 3000.0, 3000.0, 3000.0, 3000.0);
+        setW(NcxValues::OnGroundFL, 1.0, 0.0, 1.0, 1.0);
+        run(200);
+        check(L.slipWheelLevel(FxType::Skid, WheelFR) < 0.01 && L.slipWheelLevel(FxType::Skid, WheelFL) > 0.5,
+              "I-13 ground: onGround* wins: FR flagged in the air goes quiet though it carries load");
+        // A punctured tyre thumps on its route.
+        setW(NcxValues::DeflatedFL, 0.0, 0.0, 0.0, 1.0);
+        double pk = 0.0;
+        for (int i = 0; i < 1500; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); if (i > 500) pk = std::max(pk, std::fabs(L.overlayFor(3))); }
+        check(pk > 10.0, "I-13 ground: deflatedRR thumps the RR route (the Wheels tile's puncture)");
+    }
+
     // ---- I-12: the Impacts tile through the laws ----
     {
         using haptics::FxType; using haptics::Part;

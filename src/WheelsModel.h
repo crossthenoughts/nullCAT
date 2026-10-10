@@ -49,6 +49,9 @@ namespace wheels_k {
     constexpr double kFlatMaxMm   = 2.0;     // the deepest flat a tyre takes
     constexpr double kFlatRate    = 0.02;    // mm of flat per metre slid locked (x load share): a 20 m slide = 0.4 mm
     constexpr double kFlatWearM   = 30000.0; // a flat wears towards round over this many metres (1/e)
+    constexpr double kPunctureMm  = 2.0;     // puncture x 1: the dip where the wheel rides on its folded sidewall
+    constexpr double kPunctureRev = 0.25;    // ...spanning this share of a revolution
+    constexpr double kPunctureFold = 0.15;   // ...and an uneven second fold, this share of it, twice a revolution
     constexpr double kLockRatio   = 0.5;     // a wheel at slip ratio -0.5 or below is locked and grinding
     constexpr double kLockMinMs   = 1.0;     // ...while the car is moving
     constexpr double kHeatRate    = 0.001;   // disc heat per (brake 0..1 x m/s) per second: a hard stop from 300 km/h = 0.2
@@ -87,6 +90,20 @@ public:
     }
     // The brake pedal, 0..1.
     void driveBrake(double brake01) { m_brake = std::isfinite(brake01) ? std::max(0.0, std::min(1.0, brake01)) : 0.0; }
+    // How far the tyre touches the ground, 0 in the air .. 1 (not driven this
+    // cycle = on the ground): in the air there is no road for it to roll
+    // over, no braking force to pulse and nothing to grind a flat into.
+    void driveGround(int wheel, double contact)
+    {
+        if (wheel < 0 || wheel >= WHEEL_COUNT) return;
+        m_w[wheel].groundIn = std::isfinite(contact) ? std::max(0.0, std::min(1.0, contact)) : 1.0;
+    }
+    // The tyre punctured (deflated), 0 or 1, as the sim says.
+    void driveDeflated(int wheel, double deflated)
+    {
+        if (wheel < 0 || wheel >= WHEEL_COUNT) return;
+        m_w[wheel].deflated = std::isfinite(deflated) && deflated >= 0.5;
+    }
     // A Test preview: at least this flat on the front left and this disc
     // heat, this cycle only (the tyres' own state is untouched).
     void drivePreview(double flatMm, double heat) { m_prevFlat = std::max(0.0, flatMm); m_prevHeat = std::max(0.0, heat); }
@@ -107,13 +124,15 @@ public:
             W& w = m_w[i];
             const double v = w.driven ? w.v : 0.0;
             w.driven = false;
+            w.groundF += (w.groundIn - w.groundF) * std::min(1.0, dtSec / road_k::kGroundEaseSec);
+            w.groundIn = 1.0;
             // The wheel turning.
             w.rev += v / kCircM * dtSec;
             w.rev -= std::floor(w.rev);
             m_rateHz = std::max(m_rateHz, v / kCircM);
             // Flat-spotting: locked and sliding, the flat where the tread
             // sat on the road when the wheel locked.
-            const bool grinding = (w.ratio <= -kLockRatio) && (w.carMs > kLockMinMs);
+            const bool grinding = (w.ratio <= -kLockRatio) && (w.carMs > kLockMinMs) && (w.groundF >= 0.5);
             if (grinding)
             {
                 if (!w.wasGrinding) w.spotAt = w.rev;
@@ -138,6 +157,17 @@ public:
                 if (std::fabs(d) < 0.5 * kSpotRev)
                     zr -= flatX * flatMm * 0.5 * (1.0 + std::cos(2.0 * wavesynth::kPi * d / kSpotRev));
             }
+            // A puncture: the wheel rides on the folded sidewall, a deep
+            // broad dip once a revolution with an uneven second fold.
+            if (w.deflated && q.puncture > 0.0)
+            {
+                double d = w.rev + kPhase[i]; d -= std::floor(d); if (d > 0.5) d -= 1.0;
+                if (std::fabs(d) < 0.5 * kPunctureRev)
+                    zr -= q.puncture * kPunctureMm * 0.5 * (1.0 + std::cos(2.0 * wavesynth::kPi * d / kPunctureRev));
+                zr -= q.puncture * kPunctureMm * kPunctureFold * (1.0 + std::cos(2.0 * ph + 2.1));
+            }
+            // In the air the wheel rolls over nothing.
+            zr *= w.groundF;
             // The corner starts at rest on whatever the wheel stands on.
             if (!w.seeded) { w.qc.zs = w.qc.zu = w.zsPrev = zr; w.seeded = true; }
             w.qc.step(dtSec, zr, k);
@@ -149,7 +179,7 @@ public:
             const double heat = std::max(w.heat, m_prevHeat);
             const double hot  = std::max(0.0, std::min(1.0, (heat - kHotFrom) / (1.0 - kHotFrom)));
             if (judder > 0.0 && hot > 0.0 && m_brake > kJudderMinBrake && v > kLockMinMs)
-                force += judder * hot * m_brake * std::sin(2.0 * ph + kPhase[i]);
+                force += judder * hot * m_brake * w.groundF * std::sin(2.0 * ph + kPhase[i]);
             w.out.pos   = roadSoftKnee(w.zsHp / kPosFullMm);
             w.out.force = roadSoftKnee(force);
             inst = std::max(inst, std::max(std::fabs(w.out.pos), std::fabs(w.out.force)));
@@ -185,7 +215,8 @@ private:
     struct W
     {
         double v = 0.0, carMs = 0.0, ratio = 0.0, load = 1.0;
-        bool   driven = false, wasGrinding = false, seeded = false;
+        bool   driven = false, wasGrinding = false, seeded = false, deflated = false;
+        double groundIn = 1.0, groundF = 1.0;   // touching the ground (driven, eased): 0 in the air
         double rev = 0.0, spotAt = 0.0, flatMm = 0.0, heat = 0.0;
         QuarterCar qc;
         double zsHp = 0.0, zsPrev = 0.0, asHp = 0.0, asPrev = 0.0;

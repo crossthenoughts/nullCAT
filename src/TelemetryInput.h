@@ -23,7 +23,7 @@ enum class TelemetryPacketType
     Invalid
 };
 
-static constexpr int MAX_NCX_CHANNELS = 64;   // protocol 1.5: every token has a slot
+static constexpr int MAX_NCX_CHANNELS = 96;   // protocol 1.7: every token has a slot, with room to grow
 static constexpr int NCY_STR_LEN      = 48;   // game / car names, NUL-terminated
 // Frozen-stream guard (OFF unless host.json sets ncxFrozenMs): packets
 // still arriving but no numeric value has changed for this long = a

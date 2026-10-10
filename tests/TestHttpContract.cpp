@@ -204,7 +204,7 @@ int main()
     // copy), the wire's slot count and the route parts of the slip tiles.
     check(has(get("/api/haptics/schema"), "\"tokens\":[\"rpm\",\"speedKmh\"")
           && has(get("/api/haptics/schema"), "\"suspVelRR\"")
-          && has(get("/api/haptics/schema"), "\"maxSlots\":64")
+          && has(get("/api/haptics/schema"), "\"maxSlots\":96")
           && has(get("/api/haptics/schema"), "\"parts\":[\"all\",\"front\",\"rear\",\"fl\",\"fr\",\"rl\",\"rr\"]")
           && has(get("/api/haptics/schema"), "\"key\":\"slipLat\"")
           && has(get("/api/haptics/schema"), "\"label\":\"Lateral slip\"")

@@ -58,6 +58,10 @@ struct LawsState
     // How long the stream has been quiet (fresh tyres for the Wheels tile
     // once it has been quiet a while).
     double quietSec = 0.0;
+    // Ground contact: the usual corner load (learned) and which tyres are
+    // in the air (with hysteresis).
+    double loadRef = 0.0;
+    bool   air[WHEEL_COUNT] = {};
 };
 
 namespace laws_k {
@@ -117,6 +121,12 @@ namespace laws_k {
     constexpr double kFilmFillSec      = 60.0;     // heavy rain stands on the road in about a minute
     constexpr double kFilmDrySec       = 240.0;    // ...and takes a few to dry off
     constexpr double kPreviewPhaseSec  = 0.7;      // a Surface Test: gravel, snow, then a wet road (Wheels: balance, flat, judder)
+    // Ground contact from load: in the air below this share of the usual
+    // corner load, back on the ground above that one.
+    constexpr double kAirEnterShare    = 0.03;
+    constexpr double kAirExitShare     = 0.08;
+    constexpr double kLoadRefSec       = 3.0;      // the usual corner load learns this slowly...
+    constexpr double kLoadRefMinShare  = 0.5;      // ...and only while the car carries at least this share of it
     // Wheels laws
     constexpr double kFreshTyresSec    = 30.0;     // the stream quiet this long: fresh tyres, cold discs
     constexpr double kPreviewWheelSpread[WHEEL_COUNT] = { 0.0, 0.004, -0.003, 0.007 };   // a Test: each wheel a touch apart
@@ -217,8 +227,54 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
         L.driveFx(FxType::AbsPulse, previewOr(FxType::AbsPulse, on ? 1.0 : 0.0), 0.0);
     }
 
+    // Ground contact per tyre: the sim's own flag where it sends one
+    // (onGround*), else the tyre's load (load*): a tyre carrying almost
+    // nothing of the usual corner load is in the air (with hysteresis, so a
+    // light tyre does not flicker). Unknown = on the ground. The Road,
+    // Surface and Wheels tiles take it through the layer; slip and kerb
+    // below. A punctured tyre (deflated*) goes to the Wheels tile.
+    double ground[WHEEL_COUNT] = { 1.0, 1.0, 1.0, 1.0 };
+    {
+        bool flags = live, loads = live, defl = live;
+        for (int w = 0; w < WHEEL_COUNT; ++w)
+        {
+            flags = flags && v.have[NcxValues::OnGroundFL + w];
+            loads = loads && v.have[NcxValues::LoadFL + w];
+            defl  = defl  && v.have[NcxValues::DeflatedFL + w];
+        }
+        if (flags)
+        {
+            for (int w = 0; w < WHEEL_COUNT; ++w) st.air[w] = v.val[NcxValues::OnGroundFL + w] < 0.5;
+        }
+        else if (loads)
+        {
+            double mean = 0.0;
+            for (int w = 0; w < WHEEL_COUNT; ++w) mean += std::max(0.0, v.val[NcxValues::LoadFL + w]);
+            mean /= WHEEL_COUNT;
+            // The usual corner load (aero included), learned while the car is
+            // mostly on the ground.
+            if (st.loadRef <= 0.0) st.loadRef = mean;
+            else if (mean > kLoadRefMinShare * st.loadRef)
+                st.loadRef += std::min(1.0, dtSec / kLoadRefSec) * (mean - st.loadRef);
+            for (int w = 0; w < WHEEL_COUNT; ++w)
+            {
+                const double share = (st.loadRef > 0.0) ? std::max(0.0, v.val[NcxValues::LoadFL + w]) / st.loadRef : 1.0;
+                if (st.air[w]) { if (share > kAirExitShare) st.air[w] = false; }
+                else if (share < kAirEnterShare) st.air[w] = true;
+            }
+        }
+        else for (bool& a : st.air) a = false;
+        for (int w = 0; w < WHEEL_COUNT; ++w)
+        {
+            ground[w] = st.air[w] ? 0.0 : 1.0;
+            L.driveGround(w, ground[w]);
+            L.driveDeflated(w, defl ? v.val[NcxValues::DeflatedFL + w] : 0.0);
+        }
+    }
+
     // Per-wheel slip. Raw physics in, severity out; the loaded tyre
     // weighted up when loads arrive; the old single channels as fallback.
+    // A tyre in the air does not slip.
     {
         const auto haveW = [&](int group) -> bool
         {
@@ -291,8 +347,8 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
                 }
                 else if (moving && !haveRatio && !haveWs && live && v.have[NcxValues::Lockup])
                     lock = single;
-                lock = std::min(1.0, lock * loadW[w]);
-                spin = std::min(1.0, spin * loadW[w]);
+                lock = std::min(1.0, lock * loadW[w]) * ground[w];
+                spin = std::min(1.0, spin * loadW[w]) * ground[w];
                 if (preview) { lock = 1.0; spin = 1.0; }
                 L.driveSlip(FxType::Lockup, w, lock, spin);
             }
@@ -346,7 +402,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
                     sev = curve((st.slipF[w] - onsetC) / std::max(1e-6, peakC - onsetC));
                 else if (moving && !perWheel && !combined && live && v.have[NcxValues::Skid])
                     sev = single;
-                sev = std::min(1.0, sev * loadW[w]);
+                sev = std::min(1.0, sev * loadW[w]) * ground[w];
                 if (preview) sev = 1.0;
                 const bool front = (w == WheelFL || w == WheelFR);
                 L.driveSlip(FxType::Skid, w, front ? sev : 0.0, front ? 0.0 : sev);
@@ -373,8 +429,8 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
                         const double wa = aN * aN / (u * u), wk = kN * kN / (u * u);
                         const double uFull = wa * (peak / onsetA) + wk * (lonPeak / kLonOnsetRatio);
                         const double s = curve((u - 1.0) / std::max(1e-6, uFull - 1.0));
-                        lat = std::min(1.0, s * (aN / u) * loadW[w]);
-                        lon = std::min(1.0, s * (kN / u) * loadW[w]);
+                        lat = std::min(1.0, s * (aN / u) * loadW[w]) * ground[w];
+                        lon = std::min(1.0, s * (kN / u) * loadW[w]) * ground[w];
                     }
                     L.driveSlip(FxType::Skid, w, front ? lat : 0.0, front ? 0.0 : lat);
                     L.driveSlip(FxType::Lockup, w, ratioW[w] < 0.0 ? lon : 0.0, ratioW[w] > 0.0 ? lon : 0.0);
@@ -537,7 +593,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
             }
         }
         st.kerbBiasSeen = heights;
-        for (int w = 0; w < WHEEL_COUNT; ++w) L.driveKerb(w, lvl[w]);
+        for (int w = 0; w < WHEEL_COUNT; ++w) L.driveKerb(w, lvl[w] * ground[w]);   // a tyre in the air is on no kerb
     }
 
     // Surface: the water on the road under each tyre: the sim's own per

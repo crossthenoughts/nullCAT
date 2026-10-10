@@ -42,6 +42,9 @@ struct NcxTok
         Rain,                                                   // rain falling, 0..1 (0 dry weather, 1 the heaviest)
         Wet,                                                    // water on the road, 0..1 (0 dry, 1 standing water), where the sim knows it
         WetFL, WetFR, WetRL, WetRR,                             // ...under each tyre, where the sim knows it (wins over wet)
+        // protocol 1.7
+        OnGroundFL, OnGroundFR, OnGroundRL, OnGroundRR,         // 1 the tyre touches the ground, 0 it is in the air
+        DeflatedFL, DeflatedFR, DeflatedRL, DeflatedRR,         // 1 the tyre is punctured (flat), 0 inflated
         TokenCount
     };
 };
@@ -75,6 +78,8 @@ inline const char* ncxTokenName(int t)
         "surfaceFL", "surfaceFR", "surfaceRL", "surfaceRR",
         "accHeave", "pitchDeg", "rollDeg", "wheelbase", "trackWidth",
         "rain", "wet", "wetFL", "wetFR", "wetRL", "wetRR",
+        "onGroundFL", "onGroundFR", "onGroundRL", "onGroundRR",
+        "deflatedFL", "deflatedFR", "deflatedRL", "deflatedRR",
     };
     return (t >= 0 && t < NcxTok::TokenCount) ? kNames[t] : "";
 }

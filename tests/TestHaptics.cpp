@@ -1423,6 +1423,37 @@ int main()
             CHECK(travel(SurfTarmac, 1.0, 0.0) < tar, "road surface: standing water smooths the texture");
             CHECK(travel(SurfTarmac, 1.0, 1.0) < 0.05 * tar, "road surface: a floating tyre has no road under it");
         }
+        // A tyre in the air: no roughness through its corner, no stones; the
+        // other corners carry on; back on the ground it picks the road up.
+        {
+            RoadParams rp; rp.model = 0; rp.rough = 2.0; rp.fullMm = 200.0;
+            RoadModel m; m.driveGeometry(2.5, 1.6);
+            SurfaceModel s; const SurfaceParams sq;
+            std::vector<double> fl, fr;
+            uint64_t stonesAir = 0;
+            for (int i = 0; i < 12000; ++i)
+            {
+                const bool air = (i >= 4000 && i < 8000);   // FL airborne from 2 s to 4 s
+                for (int w = 0; w < 4; ++w)
+                {
+                    m.driveTravel(w, 0.0); m.driveSurface(w, SurfTarmac);
+                    s.driveSurface(w, SurfGravel); s.driveWet(w, 0.0);
+                }
+                if (air) { m.driveGround(WheelFL, 0.0); s.driveGround(WheelFL, 0.0); }
+                m.driveSpeed(25.0); m.step(dt, rp);
+                s.driveSpeed(25.0);
+                const uint64_t before = s.stonesStruck(WheelFL);
+                s.step(dt, sq);
+                if (air && i > 4100) stonesAir += s.stonesStruck(WheelFL) - before;
+                fl.push_back(m.wheelTravelMm(WheelFL)); fr.push_back(m.wheelTravelMm(WheelFR));
+            }
+            auto win = [&](const std::vector<double>& v, size_t a, size_t b) { std::vector<double> x(v.begin() + static_cast<long>(a), v.begin() + static_cast<long>(b)); return rmsOf(x, 0); };
+            const double flGround = win(fl, 1000, 4000), flAir = win(fl, 5500, 8000), flBack = win(fl, 9000, 12000);
+            CHECK(flAir < 0.05 * flGround, "road airborne: a tyre in the air has no road through its corner");
+            CHECK(win(fr, 5500, 8000) > 0.5 * flGround, "road airborne: the corners on the ground carry on");
+            CHECK(flBack > 0.5 * flGround, "road airborne: back on the ground the road returns");
+            CHECK(stonesAir == 0 && s.stonesStruck(WheelFR) > 100, "surface airborne: no stones under a tyre in the air");
+        }
     }
 
     // ================= Wheels: out of round, flat spots, brake judder =================
@@ -1549,6 +1580,45 @@ int main()
             }
             CHECK(m.level() > 0.05, "wheels preview: a flat and hot discs play");
             CHECK(m.flatMm(WheelFL) == 0.0 && m.discHeat(WheelFL) < 0.01, "wheels preview: the tyres' own flat and heat untouched");
+        }
+        // A puncture thumps once a revolution, heavily; a wheel in the air
+        // does nothing (and grinds no flat however locked).
+        {
+            WheelsParams q; q.balance = 0.0; q.flat = 0.0; q.judder = 0.0;   // puncture 1
+            WheelsModel p; std::vector<double> fp, fo;
+            for (int i = 0; i < 8000; ++i)
+            {
+                for (int w = 0; w < 4; ++w) { p.driveWheelSpeed(w, 20.0); p.driveLock(w, 20.0, 0.0, 1.0); }
+                p.driveDeflated(WheelFR, 1.0);
+                p.step(dt, q, rp);
+                fp.push_back(p.outputFor(Part::FR).force); fo.push_back(p.outputFor(Part::FL).force);
+            }
+            std::vector<double> diff; for (size_t i = 4000; i + 200 < fp.size(); ++i) diff.push_back(fp[i] - fp[i + 200]);
+            const double punct = rmsOf(fp, 4000);
+            std::printf("  wheels puncture x1 at 72 km/h: force rms %.3f\n", punct);
+            CHECK(punct > 0.15, "wheels puncture: a punctured tyre is felt clearly");
+            CHECK(rmsOf(diff, 0) < 0.1 * punct, "wheels puncture: once a revolution, every time round");
+            CHECK(rmsOf(fo, 4000) < 1e-9, "wheels puncture: the inflated tyres carry nothing");
+
+            // FL leaves the ground rolling (0.2 s), then locks and punctures
+            // in the air.
+            WheelsParams qa;   // everything on, balance 1, flat 1, judder 0.5
+            WheelsModel a; std::vector<double> fa;
+            for (int i = 0; i < 8000; ++i)
+            {
+                const bool locked = i >= 400;
+                for (int w = 0; w < 4; ++w)
+                {
+                    const bool fl = (w == WheelFL);
+                    a.driveWheelSpeed(w, (fl && locked) ? 0.0 : 30.0);
+                    a.driveLock(w, 30.0, (fl && locked) ? -1.0 : 0.0, 1.0);
+                }
+                a.driveGround(WheelFL, 0.0); a.driveDeflated(WheelFL, locked ? 1.0 : 0.0);
+                a.step(dt, qa, rp);
+                fa.push_back(a.outputFor(Part::FL).force);
+            }
+            CHECK(a.flatMm(WheelFL) == 0.0, "wheels airborne: a locked wheel in the air grinds no flat");
+            CHECK(rmsOf(fa, 2400) < 1e-3, "wheels airborne: a wheel in the air does nothing, punctured or not");
         }
     }
 
