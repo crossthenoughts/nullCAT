@@ -1501,6 +1501,8 @@ bool WebServer::start()
                            : (info.kind == haptics::Kind::Slip)      ? "slip"
                            : (info.kind == haptics::Kind::Road)      ? "road"
                            : (info.kind == haptics::Kind::Kerb)      ? "kerb"
+                           : (info.kind == haptics::Kind::Abs)       ? "abs"
+                           : (info.kind == haptics::Kind::Tc)        ? "tc"
                            : (info.kind == haptics::Kind::Driveline) ? "driveline" : "continuous";
                 if (info.kind != haptics::Kind::Transient) e["fxIdx"] = static_cast<int>(info.fx);
                 // Per-wheel effects: routes carry a part (route editor shows the selector).
@@ -1553,6 +1555,13 @@ bool WebServer::start()
                     const haptics::KerbParams kd;
                     d["pitchCm"] = kd.pitchCm; d["riseMm"] = kd.riseMm; d["ribMm"] = kd.ribMm;
                     d["fullMm"] = kd.fullMm; d["detectMm"] = kd.detectMm;
+                }
+                else if (info.kind == haptics::Kind::Abs || info.kind == haptics::Kind::Tc)
+                {
+                    const AppConfig dc;   // the tiles' defaults (TC has no slow or buzz)
+                    const haptics::PulseParams& q = (info.kind == haptics::Kind::Abs) ? dc.hapticsAbs : dc.hapticsTc;
+                    d["sharp"] = q.sharp; d["spread"] = q.spread;
+                    if (info.kind == haptics::Kind::Abs) { d["slow"] = q.slow; d["buzz"] = q.buzz; d["buzzHz"] = q.buzzHz; }
                 }
                 else if (info.kind == haptics::Kind::Driveline)
                 {

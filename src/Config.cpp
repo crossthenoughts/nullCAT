@@ -271,6 +271,13 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
                 o["pitchCm"] = k.pitchCm; o["riseMm"] = k.riseMm; o["ribMm"] = k.ribMm;
                 o["fullMm"] = k.fullMm; o["detectMm"] = k.detectMm;
             }
+            else if (info.kind == haptics::Kind::Abs || info.kind == haptics::Kind::Tc)
+            {
+                const bool abs = (info.kind == haptics::Kind::Abs);
+                const haptics::PulseParams& q = abs ? c.hapticsAbs : c.hapticsTc;
+                o["sharp"] = q.sharp; o["spread"] = q.spread;
+                if (abs) { o["slow"] = q.slow; o["buzz"] = q.buzz; o["buzzHz"] = q.buzzHz; }
+            }
             else if (info.kind == haptics::Kind::Driveline)
             {
                 const haptics::DrivelineParams& d = c.hapticsDriveline;
@@ -391,6 +398,19 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                 k.ribMm    = o.value("ribMm").toDouble(k.ribMm);
                 k.fullMm   = o.value("fullMm").toDouble(k.fullMm);
                 k.detectMm = o.value("detectMm").toDouble(k.detectMm);
+            }
+            if (info.kind == haptics::Kind::Abs || info.kind == haptics::Kind::Tc)
+            {
+                const bool abs = (info.kind == haptics::Kind::Abs);
+                haptics::PulseParams& q = abs ? c.hapticsAbs : c.hapticsTc;
+                q.sharp  = o.value("sharp").toDouble(q.sharp);
+                q.spread = o.value("spread").toDouble(q.spread);
+                if (abs)
+                {
+                    q.slow   = o.value("slow").toDouble(q.slow);
+                    q.buzz   = o.value("buzz").toDouble(q.buzz);
+                    q.buzzHz = o.value("buzzHz").toDouble(q.buzzHz);
+                }
             }
             if (info.kind == haptics::Kind::Driveline)
             {
@@ -1356,6 +1376,19 @@ std::vector<std::string> AppConfig::validate() const
                 if (k.ribMm < 0.0 || k.ribMm > 20.0)        errors.push_back(pfx + "ribMm out of range [0, 20]");
                 if (k.fullMm < 0.5 || k.fullMm > 50.0)      errors.push_back(pfx + "fullMm out of range [0.5, 50]");
                 if (k.detectMm < 0.0 || k.detectMm > 100.0) errors.push_back(pfx + "detectMm out of range [0, 100]");
+            }
+            if (info.kind == haptics::Kind::Abs || info.kind == haptics::Kind::Tc)
+            {
+                const bool abs = (info.kind == haptics::Kind::Abs);
+                const haptics::PulseParams& q = abs ? hapticsAbs : hapticsTc;
+                if (q.sharp < 0.0 || q.sharp > 1.0)   errors.push_back(pfx + "sharp out of range [0, 1]");
+                if (q.spread < 0.0 || q.spread > 1.0) errors.push_back(pfx + "spread out of range [0, 1]");
+                if (abs)
+                {
+                    if (q.slow < 0.0 || q.slow > 1.0)          errors.push_back(pfx + "slow out of range [0, 1]");
+                    if (q.buzz < 0.0 || q.buzz > 1.0)          errors.push_back(pfx + "buzz out of range [0, 1]");
+                    if (q.buzzHz < 15.0 || q.buzzHz > 120.0)   errors.push_back(pfx + "buzzHz out of range [15, 120]");
+                }
             }
             if (info.kind == haptics::Kind::Slip)
             {

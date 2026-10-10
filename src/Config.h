@@ -272,6 +272,8 @@ struct AppConfig
     haptics::SlipParams   hapticsSlipLon = haptics::effectInfo(haptics::Effect::Lockup).slipDefaults;
     haptics::RoadParams   hapticsRoad;   // the Road tile's model and its settings
     haptics::KerbParams   hapticsKerb;   // the Kerb tile's rumble strip
+    haptics::PulseParams  hapticsAbs;    // the ABS tile's pulse (sharp, spread, slow, buzz)
+    haptics::PulseParams  hapticsTc{ 0.3, 0.5, 0.0, 0.0, 40.0 };   // the TC tile's (sharp, spread; no slow or buzz)
     haptics::DrivelineParams hapticsDriveline;   // clutch judder + lug of the Driveline tile
     double                hapticsMasterGain  = 1.0;   // 0..2, scales every overlay
     // Share of each POSITION axis's maxVelocity / maxAcceleration that haptics

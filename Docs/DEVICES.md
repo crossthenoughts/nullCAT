@@ -275,12 +275,12 @@ effect silent.
 | Detent click | the lever dropping into a gate | none (from the shifter itself) |
 | Gear shift | a thunk on every gear change (one jolt on a position axis) | gear |
 | Engine | the engine running, from idle to the limiter, stuttering when traction control cuts (below) | rpm, throttle, limiter (TC active) |
-| ABS | the brake pressure dumped and rebuilt while ABS works: the deceleration saw-tooths, 8 to 15 times a second | brake, ABS active |
+| ABS | the brake pressure dumped and rebuilt at each corner while ABS works: the car judders and grumbles, slowing towards a stop, with the pump buzzing under it (below) | brake, ABS active (speed) |
 | Longitudinal slip | a wheel locking under braking, or spinning under power, per wheel (below) | per-wheel slip ratio or wheel speeds, road speed; or the single lockup channel |
 | Lateral slip | the tyres sliding sideways: the fronts scrubbing wide, the rears stepping out, per wheel (below) | per-wheel slip angles, or the sim's per-wheel combined slip; or the single skid channel |
 | Road | the road through the tyres and suspension, per corner (below): the sim's suspension movement with the road's fine roughness added, or the body's movement over the road, or the sim's own body movement | road speed, with the road height, surface or suspension per corner; or the body's heave, pitch and roll; or the single road channel |
 | Limiter | an extra hammer while on the rev limiter | limiter |
-| TC pulse | the body surge of each traction-control cut: a sharp loss of drive and a slower recovery (the Engine tile stutters as well) | TC active |
+| TC pulse | the body surge of each traction-control cut: a loss of drive and a recovery, each cut a little different (below; the Engine tile stutters as well) | TC active |
 | Kerb | the rumble strip under a tyre on a kerb: a hum that rises and falls with speed, a thud on and off (below) | the surface under each tyre, or the kerbs channel, or the road height under each tyre |
 | Driveline | a slipping clutch juddering at a launch, the engine lugging at low revs (below) | clutch, rpm, gear (speed, throttle) |
 
@@ -480,6 +480,33 @@ track's camber and banking usually give there. Detect mm is 0 (off) by
 default; around 15 finds raised kerbs. A flat painted kerb cannot be
 found that way. The Test button runs the strip at 80 km/h, on and off.
 
+### ABS and TC
+
+**ABS** works at each corner: the valve dumps the brake pressure and
+rebuilds it, about **freq hz** times a second, so the car's deceleration
+judders. Four settings shape how it feels:
+
+- **sharp**: the dump's edge, 0 a round wave, 1 a hard knock (0.3 by
+  default).
+- **spread**: each corner runs on its own rate and each cycle is a
+  little different, so the four drift in and out of step and the car
+  grumbles rather than beating like a metronome (0.5 by default; 0 = the
+  four in step, one clean pulse).
+- **slow x**: the cycle slows as the car slows, the thump-thump just
+  before a stop (0.5 by default: half rate at a standstill, full from
+  80 km/h; 0 = never).
+- **buzz x / buzz hz**: the pump and valves underneath, a fine rough
+  buzz (0.3 at 40 Hz by default). A seat actuator can barely carry it; it
+  is for a belt or a shaker.
+
+Route ABS with a part like the slip tiles: a post on one corner plays
+that corner's valve; an axle or all plays its corners together, the full
+pulse when they are in step and less as they drift apart, as the car's
+body feels the four wheels' braking added up.
+
+**TC pulse** is the body surge of each traction-control cut: drive lost,
+then back, about **freq hz** times a second, with the same **sharp** and
+**spread** (each cut a little different in timing and depth).
 ### Driveline
 
 What the transmission does when the engine and the wheels disagree.

@@ -102,7 +102,7 @@ namespace laws_k {
     constexpr double kDogKnockDelaySec = 0.06;
     constexpr double kDogKnockScale    = 0.7;
     // Road and kerb laws
-    constexpr double kPreviewKmh       = 80.0;     // the road speed a road or kerb Test preview runs at
+    constexpr double kPreviewKmh       = 80.0;     // the road speed a road, kerb or ABS Test preview runs at
     constexpr double kPreviewKerbOnSec = 0.6;      // kerb preview: on this long...
     constexpr double kPreviewKerbCycle = 1.0;      // ...in every this long
     constexpr double kKerbMinKmh       = 10.0;     // height detection: rolling
@@ -186,9 +186,14 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
 
     // ABS: only while the sim says ABS is cycling AND the brake is applied
     // (some sims flicker the flag at zero brake).
+    // The road speed slows the cycle towards a stop (unknown: full rate; a
+    // Test preview runs at speed).
     {
         const bool on = flag(NcxValues::AbsActive) > 0.5
                         && live && v.have[NcxValues::BrakePct] && v.val[NcxValues::BrakePct] > kAbsMinBrakePct;
+        const bool previewing = st.previewSec[static_cast<int>(FxType::AbsPulse)] > 0.0;
+        L.driveAbsSpeed(previewing ? kPreviewKmh
+                        : (live && v.have[NcxValues::SpeedKmh]) ? std::max(0.0, v.val[NcxValues::SpeedKmh]) : -1.0);
         L.driveFx(FxType::AbsPulse, previewOr(FxType::AbsPulse, on ? 1.0 : 0.0), 0.0);
     }
 

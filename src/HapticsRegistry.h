@@ -29,8 +29,8 @@ static constexpr int EFFECT_COUNT = static_cast<int>(Effect::COUNT);
 // Slip: a per-wheel model (SlipModel.h) whose routes carry a Part. Road:
 // the texture oscillator with a per-corner replay (RoadModel.h) when the
 // sim sends suspension velocities; routes carry a Part too.
-enum class Kind { Transient, Continuous, Engine, Slip, Road, Driveline, Kerb };
-inline bool kindHasParts(Kind k) { return k == Kind::Slip || k == Kind::Road || k == Kind::Kerb; }
+enum class Kind { Transient, Continuous, Engine, Slip, Road, Driveline, Kerb, Abs, Tc };
+inline bool kindHasParts(Kind k) { return k == Kind::Slip || k == Kind::Road || k == Kind::Kerb || k == Kind::Abs; }
 
 // One tunable the UI shows for an effect: config key, label, range, step,
 // and for a choice an options list ("a|b|c", value = index) instead.
@@ -75,9 +75,20 @@ constexpr ParamSpec kTransientParams[] = {
     { "freqHz", "freq hz",   10,  500, 5,    nullptr },
     { "durMs",  "length ms", 5,   100, 1,    nullptr },
 };
-constexpr ParamSpec kPulseParams[] = {          // ABS, TC: periodic, no texture
+constexpr ParamSpec kAbsParams[] = {            // ABS: the corners' valves, the pump
+    { "ampPct", "amp %",     0,   100, 1,    nullptr },
+    { "freqHz", "freq hz",   4,   60,  1,    nullptr },   // the cycle rate at speed
+    { "sharp",  "sharp",     0,   1,   0.05, nullptr },   // the dump's edge: 0 round, 1 a knock
+    { "spread", "spread",    0,   1,   0.05, nullptr },   // each corner its own rate, each cycle a little different
+    { "slow",   "slow x",    0,   1,   0.05, nullptr },   // the cycle slowing towards a stop
+    { "buzz",   "buzz x",    0,   1,   0.05, nullptr },   // the pump and valves
+    { "buzzHz", "buzz hz",   15,  120, 1,    nullptr },
+};
+constexpr ParamSpec kTcParams[] = {             // TC: the cuts' surge
     { "ampPct", "amp %",     0,   100, 1,    nullptr },
     { "freqHz", "freq hz",   4,   60,  1,    nullptr },
+    { "sharp",  "sharp",     0,   1,   0.05, nullptr },   // the cut's edge: 0 round, 1 a knock
+    { "spread", "spread",    0,   1,   0.05, nullptr },   // each cut a little different in timing and depth
 };
 constexpr ParamSpec kSlipLatParams[] = {        // lateral slip: scrub (fronts) + slide (rears)
     { "ampPct",  "amp %",      0,   100, 1,    nullptr },
@@ -196,10 +207,15 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "flutter, scaled by boost when the sim sends it) as the throttle snaps shut up the band; pops is the "
       "fuel-cut crackle on the overrun. Needs rpm (throttle, limiter and boost optional).",
       nullptr, {} },
-    { Effect::Abs,         "abs",         "ABS",          Kind::Continuous, EventType::COUNT, FxType::AbsPulse,
-      { "brakePct", "absActive", nullptr }, { 0.0, 12.0, 0.0, 0.0 }, kPulseParams, 2,
-      "ABS cycling under braking: each cycle the pressure is dumped fast and rebuilt more slowly, so the car's "
-      "deceleration saw-tooths at freq hz (8 to 15 in a real car). Needs the absActive and brakePct channels.",
+    { Effect::Abs,         "abs",         "ABS",          Kind::Abs, EventType::COUNT, FxType::AbsPulse,
+      { "brakePct", "absActive", "~speedKmh", nullptr }, { 0.0, 12.0, 0.0, 0.0 }, kAbsParams, 7,
+      "ABS working under braking: at each corner the valve dumps the brake pressure and rebuilds it, about freq hz "
+      "times a second, so the car's deceleration judders. sharp is the dump's edge (0 round, 1 a hard knock); "
+      "spread lets each corner run on its own rate and each cycle differ, so the four drift in and out of step and "
+      "the car grumbles rather than beating; slow x slows the cycle as the car slows (the thump-thump before a "
+      "stop: 0.5 = half rate at a standstill); buzz x / hz is the pump and valves underneath, best on a belt or "
+      "shaker. Route with a part so a post carries its own corner. Needs the absActive and brakePct channels "
+      "(speed for slow x).",
       nullptr, {} },
     { Effect::Lockup,      "slipLon",     "Longitudinal slip", Kind::Slip, EventType::COUNT, FxType::Lockup,
       { "slipRatio*|wheelSpeed*|lockup", "speedKmh", "~load*", nullptr }, { 0.0, 9.0, 0.0, 0.2 }, kSlipLonParams, 8,
@@ -245,11 +261,12 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "Extra hammer on top of the engine effect while the limiter is in (the engine effect already cuts "
       "bursts of firings for the bounce). Keep it slow, ~10-15 hz. The plugin computes the flag from rpm vs the car max.",
       nullptr, {} },
-    { Effect::Tc,          "tc",          "TC pulse",     Kind::Continuous, EventType::COUNT, FxType::TcPulse,
-      { "tcActive", nullptr }, { 0.0, 15.0, 0.0, 0.0 }, kPulseParams, 2,
+    { Effect::Tc,          "tc",          "TC pulse",     Kind::Tc, EventType::COUNT, FxType::TcPulse,
+      { "tcActive", nullptr }, { 0.0, 15.0, 0.0, 0.0 }, kTcParams, 4,
       "Traction control cutting: the engine effect already stutters (TC drops a share of the firings in irregular "
-      "bursts, more with more throttle); this adds the body surge of each cut, a sharp loss of drive and a slower "
-      "recovery at freq hz. Route it to surge and the belt. Needs the tcActive channel.", nullptr, {} },
+      "bursts, more with more throttle); this adds the body surge of each cut, a loss of drive and a recovery about "
+      "freq hz times a second. sharp is the cut's edge (0 round, 1 a hard knock), spread makes each cut a little "
+      "different in timing and depth. Route it to surge and the belt. Needs the tcActive channel.", nullptr, {} },
     { Effect::Kerb,        "kerb",        "Kerb",         Kind::Kerb, EventType::COUNT, FxType::Kerb,
       { "surface*|curbs|roadHeight*", "speedKmh", nullptr }, { 0.0, 16.0, 0.0, 0.4 }, kKerbParams, 8,
       "A rumble strip under the tyre that is on one: ribs every pitch cm, so they hum at speed / pitch and the hum "

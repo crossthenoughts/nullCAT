@@ -30,6 +30,7 @@
 #include "SlipModel.h"
 #include "RoadModel.h"
 #include "DrivelineModel.h"
+#include "PulseModel.h"
 #include "WaveSynth.h"
 #include <algorithm>
 #include <cstdint>
@@ -299,6 +300,35 @@ public:
                 continue;
             }
 
+            // ABS and TC run the pulse model (PulseModel.h): ABS one channel
+            // per corner, a route playing its part's corners, with the pump
+            // buzz under it; TC one channel. Each derated at its own rate on
+            // a position sink.
+            if (i == static_cast<int>(FxType::AbsPulse) || i == static_cast<int>(FxType::TcPulse))
+            {
+                const bool abs = (i == static_cast<int>(FxType::AbsPulse));
+                PulseModel& pm = abs ? m_absModel : m_tcModel;
+                pm.step(dtSec, f.freqHz, abs ? m_absParams : m_tcParams);
+                const double lvl = p.ampPct * f.level;
+                const double bz = pm.buzz(), bzHz = pm.buzzHz();
+                for (const Route& r : p.routes)
+                {
+                    if (r.gain <= 0.0) continue;
+                    const double pulse = pm.pulseFor(r.part);
+                    if (r.shaker >= 0)
+                    {
+                        toShaker(r, lvl * (pulse + (bzHz > 0.0 ? bz : 0.0)));
+                        continue;
+                    }
+                    if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
+                    const double ask = p.ampPct * r.gain;
+                    double v = lvl * pulse * sinkScale(r.axis, ask, pm.rateHz());
+                    if (bzHz > 0.0) v += lvl * bz * sinkScale(r.axis, ask, bzHz);
+                    m_overlay[r.axis] += v * r.gain;
+                }
+                continue;
+            }
+
             // The two slip slots run the per-wheel model: each route takes
             // the strongest wheel of its part, per component, derated per
             // component carrier on a position sink.
@@ -335,20 +365,13 @@ public:
                 const double r = static_cast<double>(f.rng & 0xFFFF) / 65535.0; // 0..1
                 freq *= 1.0 + p.jitter * (r - 0.5);
             }
-            // ABS and TC are not sines: each cycle is a fast drop and a slower
-            // recovery (brake pressure dumped then rebuilt; drive cut then
-            // restored), so the car's deceleration or push saw-tooths.
-            const double drop = (i == static_cast<int>(FxType::AbsPulse)) ? kAbsDropShare
-                              : (i == static_cast<int>(FxType::TcPulse))  ? kTcDropShare : 0.0;
-            const double s0 = f.osc.step(freq, dtSec);
-            const double v = p.ampPct * f.level * (drop > 0.0 ? dropRecover(f.osc.phase, drop) : s0);
+            const double v = p.ampPct * f.level * f.osc.step(freq, dtSec);
             for (const Route& r : p.routes)
             {
                 if (r.gain <= 0.0) continue;
                 if (r.shaker >= 0)
                 {
-                    const double ph = r.harm * f.osc.phase;
-                    toShaker(r, p.ampPct * f.level * (drop > 0.0 ? dropRecover(ph, drop) : std::sin(ph)));
+                    toShaker(r, p.ampPct * f.level * std::sin(r.harm * f.osc.phase));
                     continue;
                 }
                 if (r.axis >= 0 && r.axis < MAX_HAPTIC_AXES)
@@ -537,6 +560,18 @@ public:
 
     // ---- driveline (clutch judder + lugging wind-up). Config apply for
     // the params; the law drives the two severities per cycle.
+    // ---- ABS and TC (the pulse model). Config apply for the params; the
+    // laws drive the level with driveFx and, for ABS, the road speed.
+    void configurePulse(FxType t, const PulseParams& q)
+    {
+        if (t == FxType::AbsPulse) m_absParams = q;
+        else if (t == FxType::TcPulse) m_tcParams = q;
+    }
+    const PulseParams& pulseParams(FxType t) const { return (t == FxType::TcPulse) ? m_tcParams : m_absParams; }
+    void driveAbsSpeed(double kmh)                 { m_absModel.driveSpeed(kmh); }   // negative = unknown
+    const PulseModel& absModel() const             { return m_absModel; }
+    const PulseModel& tcModel() const              { return m_tcModel; }
+
     void configureDriveline(const DrivelineParams& d) { m_drivelineParams = d; }
     const DrivelineParams& drivelineParams() const   { return m_drivelineParams; }
     void driveDriveline(double judder, double lug)    { m_driveline.drive(judder, lug); }
@@ -630,6 +665,8 @@ public:
         m_kerb.clear();
         m_surfLevel = m_surfTarget = 0.0; m_surfOsc.reset();
         m_driveline.clear();
+        m_absModel.clear();
+        m_tcModel.clear();
         for (double& o : m_overlay) o = 0.0;
         for (double& o : m_shaker)  o = 0.0;
         m_toneLeft = 0.0;
@@ -648,14 +685,10 @@ public:
     // One cycle of the ABS / TC waveform at phase ph (radians): from +1 down
     // to -1 over the first `drop` share of the cycle, back up to +1 over the
     // rest, both halves cosine-shaped so the wave is smooth and averages to
-    // zero (a position axis does not drift).
+    // zero (a position axis does not drift). PulseModel.h's pulseShape.
     static double dropRecover(double ph, double drop)
     {
-        double u = ph / (2.0 * wavesynth::kPi);
-        u -= std::floor(u);
-        drop = std::max(0.05, std::min(0.95, drop));
-        return (u < drop) ? std::cos(wavesynth::kPi * u / drop)
-                          : -std::cos(wavesynth::kPi * (u - drop) / (1.0 - drop));
+        return pulseShape(ph / (2.0 * wavesynth::kPi), drop);
     }
 
 private:
@@ -671,9 +704,6 @@ private:
     // through a seat is a jolt, not a buzz), stretched or shortened with
     // the burst's length scale within these bounds.
     static constexpr double kThudHz = 12.0, kThudMinHz = 6.0, kThudMaxHz = 20.0;
-    // ABS: pressure dumped in a quarter of the cycle, rebuilt over the rest.
-    // TC: drive cut in a third, restored over the rest.
-    static constexpr double kAbsDropShare = 0.25, kTcDropShare = 0.33;
     // The surface grain is always rough: tarmac is not a tone.
     static constexpr double kSurfaceMinJitter = 0.5;
 
@@ -736,6 +766,10 @@ private:
     KerbParams   m_kerbParams;
     DrivelineModel  m_driveline;
     DrivelineParams m_drivelineParams;
+    PulseModel   m_absModel{ WHEEL_COUNT, pulse_k::kAbsDrop };
+    PulseModel   m_tcModel{ 1, pulse_k::kTcDrop };
+    PulseParams  m_absParams;
+    PulseParams  m_tcParams{ 0.3, 0.5, 0.0, 0.0, 40.0 };
     bool         m_roadDriven = false;   // a law drove corners this cycle
     double       m_roadLevel  = 0.0;     // the replay's level this cycle (the texture has its own)
     double       m_surfTarget = 0.0, m_surfLevel = 0.0;   // the surface grain (Road slot)

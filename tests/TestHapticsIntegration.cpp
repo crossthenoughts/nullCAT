@@ -220,6 +220,14 @@ int main()
         check(L.fxLevel(static_cast<int>(haptics::FxType::AbsPulse)) < 0.05, "I-7 ABS flag alone (no brake) stays silent");
         v.val[NcxValues::BrakePct] = 60.0; settle(100);
         check(L.fxLevel(static_cast<int>(haptics::FxType::AbsPulse)) > 0.9,  "I-7 ABS flag + brake drives the pulse");
+        // The road speed slows the ABS cycle (slow x 0.5: half the 12 Hz set
+        // at a standstill, 62.5% at 20 km/h, full from 80).
+        check(std::fabs(L.absModel().rateHz() - 6.0) < 0.01, "I-7 ABS: at a standstill the cycle runs at half rate");
+        v.val[NcxValues::SpeedKmh] = 20.0; settle(5);
+        check(std::fabs(L.absModel().rateHz() - 12.0 * 0.625) < 0.01, "I-7 ABS: at 20 km/h it has slowed to 62.5%");
+        v.val[NcxValues::SpeedKmh] = 100.0; settle(5);
+        check(std::fabs(L.absModel().rateHz() - 12.0) < 0.01, "I-7 ABS: at speed, the rate set");
+        v.val[NcxValues::SpeedKmh] = 0.0;
 
         // Single skid channel (fallback): 50 -> every wheel at 0.5 -> tile
         // level 0.5. Only while rolling: a stationary car's skid value is

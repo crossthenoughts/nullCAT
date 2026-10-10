@@ -1438,6 +1438,7 @@ int main()
             {
                 Layer L; EffectParams p; p.ampPct = 100.0; p.freqHz = 10.0; p.routes[0] = { 0, 1.0 };
                 L.configureFx(t, p);
+                L.configurePulse(t, { 1.0, 0.0, 0.0, 0.0, 40.0 });   // the knock, no spread, no buzz: one clean pulse
                 double sum = 0.0, pk = 0.0, prev = 0.0; int falling = 0, n = 0;
                 for (int i = 0; i < 8000; ++i)
                 {
@@ -1451,6 +1452,79 @@ int main()
                 CHECK(std::fabs(sum / n) < 0.02 * pk, abs ? "abs shape: averages to zero" : "tc shape: averages to zero");
                 approx(share, abs ? 0.25 : 0.33, 0.02, abs ? "abs shape: falls in a quarter of each cycle" : "tc shape: falls in a third of each cycle");
             }
+        }
+
+        // ABS and TC: sharp, spread, slow x, buzz (PulseModel.h).
+        {
+            using haptics::Layer; using haptics::PulseParams; using haptics::Part; using haptics::Route;
+            // Run a pulse tile with one torque route per given part; return
+            // each route's output trace.
+            auto runPulse = [&](FxType t, const PulseParams& q, double kmh, std::vector<Part> parts, int n) {
+                Layer L; EffectParams p; p.ampPct = 100.0; p.freqHz = 10.0;
+                for (size_t k = 0; k < parts.size(); ++k) { Route r; r.axis = static_cast<int>(k); r.gain = 1.0; r.part = parts[k]; p.routes[k] = r; }
+                L.configureFx(t, p); L.configurePulse(t, q);
+                std::vector<std::vector<double>> out(parts.size());
+                for (int i = 0; i < n; ++i)
+                {
+                    L.driveFx(t, 1.0, 0.0); if (t == FxType::AbsPulse) L.driveAbsSpeed(kmh); L.step(DT);
+                    if (i >= 2000) for (size_t k = 0; k < parts.size(); ++k) out[k].push_back(L.overlayFor(static_cast<int>(k)));
+                }
+                return out;
+            };
+            auto fallShare = [](const std::vector<double>& v) {
+                int falling = 0; for (size_t i = 1; i < v.size(); ++i) if (v[i] < v[i - 1]) ++falling;
+                return static_cast<double>(falling) / (v.size() - 1); };
+            auto crossings = [](const std::vector<double>& v) {
+                std::vector<int> at; for (size_t i = 1; i < v.size(); ++i) if (v[i - 1] < 0.0 && v[i] >= 0.0) at.push_back(static_cast<int>(i));
+                return at; };
+            auto mean = [](const std::vector<double>& v) { double s = 0.0; for (double x : v) s += x; return s / v.size(); };
+
+            // sharp: 0 round (falls in half the cycle), 1 the knock.
+            approx(fallShare(runPulse(FxType::AbsPulse, { 0.0, 0.0, 0.0, 0.0, 40.0 }, -1.0, { Part::All }, 10000)[0]), 0.5, 0.02,
+                   "abs sharp 0: a round wave, falling half of each cycle");
+            approx(fallShare(runPulse(FxType::AbsPulse, { 0.5, 0.0, 0.0, 0.0, 40.0 }, -1.0, { Part::All }, 10000)[0]), 0.375, 0.02,
+                   "abs sharp 0.5: between round and the knock");
+            approx(fallShare(runPulse(FxType::TcPulse, { 0.0, 0.0, 0.0, 0.0, 40.0 }, -1.0, { Part::All }, 10000)[0]), 0.5, 0.02,
+                   "tc sharp 0: a round wave too");
+
+            // spread: 0 = every cycle the same length; 1 = they vary.
+            auto cycleVar = [&](double spread) {
+                const auto c = crossings(runPulse(FxType::TcPulse, { 1.0, spread, 0.0, 0.0, 40.0 }, -1.0, { Part::All }, 16000)[0]);
+                std::vector<double> len; for (size_t i = 1; i < c.size(); ++i) len.push_back(c[i] - c[i - 1]);
+                const double m = mean(len); double s = 0.0; for (double x : len) s += (x - m) * (x - m);
+                return std::sqrt(s / len.size()) / m; };
+            CHECK(cycleVar(0.0) < 0.02, "tc spread 0: every cut the same length");
+            CHECK(cycleVar(1.0) > 0.08, "tc spread 1: each cut a little different");
+
+            // ABS corners: spread 0 in step (a corner = the whole car);
+            // spread 1 each on its own rate, so they drift in and out of step.
+            auto corr = [&](const std::vector<double>& a, const std::vector<double>& b) {
+                double ab = 0.0, aa = 0.0, bb = 0.0;
+                for (size_t i = 0; i < a.size(); ++i) { ab += a[i] * b[i]; aa += a[i] * a[i]; bb += b[i] * b[i]; }
+                return ab / std::sqrt(aa * bb); };
+            const auto inStep = runPulse(FxType::AbsPulse, { 1.0, 0.0, 0.0, 0.0, 40.0 }, -1.0, { Part::FL, Part::FR, Part::All }, 10000);
+            const auto apart  = runPulse(FxType::AbsPulse, { 1.0, 1.0, 0.0, 0.0, 40.0 }, -1.0, { Part::FL, Part::FR, Part::All }, 10000);
+            CHECK(corr(inStep[0], inStep[1]) > 0.999 && corr(inStep[0], inStep[2]) > 0.999, "abs spread 0: the corners in step, one pulse");
+            CHECK(std::fabs(corr(apart[0], apart[1])) < 0.5, "abs spread 1: FL and FR drift in and out of step");
+            double pkCorner = 0.0, pkAll = 0.0;
+            for (double x : apart[0]) pkCorner = std::max(pkCorner, std::fabs(x));
+            for (double x : apart[2]) pkAll    = std::max(pkAll,    std::fabs(x));
+            CHECK(pkAll <= 100.0 + 1e-9 && pkCorner > 90.0, "abs: all plays the corners together, never more than one full pulse");
+            CHECK(std::fabs(mean(apart[0])) < 0.03 * pkCorner && std::fabs(mean(apart[2])) < 0.03 * pkCorner,
+                  "abs: each corner and the sum average to zero (a post does not drift)");
+
+            // slow x: the cycle slows towards a stop; unknown speed = full rate.
+            auto rate = [&](double kmh) {
+                return static_cast<double>(crossings(runPulse(FxType::AbsPulse, { 1.0, 0.0, 0.5, 0.0, 40.0 }, kmh, { Part::FL }, 22000)[0]).size()) / 10.0; };
+            approx(rate(100.0), 10.0, 0.3, "abs slow: full rate at speed");
+            approx(rate(20.0), 10.0 * 0.625, 0.3, "abs slow 0.5: 20 km/h runs at 62.5% (half rate at a standstill)");
+            approx(rate(-1.0), 10.0, 0.3, "abs slow: speed unknown, full rate");
+
+            // buzz: the pump and valves under the pulse, at buzz hz.
+            const auto withBuzz = runPulse(FxType::AbsPulse, { 1.0, 0.0, 0.0, 1.0, 40.0 }, -1.0, { Part::All }, 10000);
+            std::vector<double> diff(withBuzz[0].size());
+            for (size_t i = 0; i < diff.size(); ++i) diff[i] = withBuzz[0][i] - inStep[2][i];
+            approx(static_cast<double>(crossings(diff).size()) / 4.0, 40.0, 4.0, "abs buzz: a buzz at buzz hz under the pulse");
         }
 
         // Traction control cuts a share of the engine's firings, more with

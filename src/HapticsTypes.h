@@ -127,6 +127,19 @@ struct KerbParams
     double detectMm = 0.0;    // no surface type from the sim: a tyre this much above its axle mate is on a kerb (0 = off)
 };
 
+// The ABS and TC tiles' pulse (PulseModel.h). Both: sharp (the drop's
+// edge, 0 round to 1 a knock) and spread (each cycle a little different
+// and, for ABS, each corner on its own rate). ABS also slows as the car
+// slows and carries the pump's buzz; TC keeps slow and buzz at 0.
+struct PulseParams
+{
+    double sharp  = 0.3;
+    double spread = 0.5;
+    double slow   = 0.5;    // ABS: how far the cycle slows towards a stop (0 = never, 0.5 = half rate at a standstill)
+    double buzz   = 0.3;    // ABS: the pump and valve buzz mix 0..1
+    double buzzHz = 40.0;   // ...its carrier
+};
+
 // The Driveline tile: clutch judder and lugging wind-up, each a mix and
 // a carrier (the driveline's own resonances).
 struct DrivelineParams

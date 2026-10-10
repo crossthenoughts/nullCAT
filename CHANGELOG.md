@@ -22,6 +22,15 @@ Development branch. Nothing here is in a release yet.
   which way they turn from the suspension. A seat actuator gets the
   movement, a belt or shaker its acceleration. The old surface grain is
   still there but off by default: the roughness does its job.
+- ABS and TC feel more like the real thing. ABS works per corner: each
+  valve on its own rate, each cycle a little different, so the four
+  drift in and out of step and the car grumbles instead of beating
+  (**spread**); the dump's edge from round to a knock (**sharp**); the
+  cycle slowing towards a stop (**slow x**); the pump and valve buzz
+  underneath (**buzz x / hz**). ABS routes take a part, so a post can
+  carry its own corner. TC gets **sharp** and **spread** too. The
+  defaults are softer and less regular than before; sharp 1 and spread
+  0 give the old pulse back.
 - Lateral slip: how a slide comes in is now yours to set. **onset %**
   (where it starts, as a share of peak deg; 40, was a fixed 60), **ease**
   (0 straight up, 1 a light scrub first), **smooth hz** (steadies the

@@ -135,7 +135,7 @@ One object per effect: `detentClick`, `gearShift`, `rpmVibe` (the engine), `abs`
 | `durMs` | double | per effect | Length of a one-shot effect (detent click, gear shift), 5 to 100 ms. |
 | `jitter` | double | per effect | 0 to 1. Roughens the carrier so skid, road and kerb feel like texture rather than a tone. For the engine it is the idle lope (per-revolution unevenness). |
 | `peakPct` | double | `100` | For effects fed by a magnitude channel (`kerb` from `curbs`, `road` from `roadNoise`, the two slip tiles from `skid` / `lockup`, and `slipLat` from the per-wheel combined slip `wheelSlip*`): the channel value that counts as full severity, 1 to 400. A property that peaks at 25 gets 25; on the combined-slip path, where 100 is only the wire's convention for a let-go tyre, a car that reads 140 in a slide gets 140. Present on every effect object; ignored by the others and by the other per-wheel paths (those use `peakDeg`, `peakRatio`, `fullMm`). |
-| `routes` | array | `[]` | Where the effect goes: `[{"axis": <index>, "gain": <number>, "part": <string>}]` or `[{"shaker": <index>, "gain": <number>, "harm": <int>}]`, up to 14 entries, any axis or shaker channel. A shaker route's `gain` is full scale at 100 % amplitude (1 = full, soft-clipped above), `harm` (1 to 8, default 1) the harmonic of the effect's carrier it plays, phase-locked. On a torque axis (belt, device) `gain` is a multiplier, 0 to 2. On a position (CSP) axis `gain` is the offset in mm at 100 % amplitude, 0 to that axis's `hapticsMaxMm`. `part` (the two slip effects, road and kerb only, default `"all"`): which wheels this axis carries, `all`, `front`, `rear`, `fl`, `fr`, `rl`, `rr`; the strongest of them plays. No routes = the effect reaches nothing. |
+| `routes` | array | `[]` | Where the effect goes: `[{"axis": <index>, "gain": <number>, "part": <string>}]` or `[{"shaker": <index>, "gain": <number>, "harm": <int>}]`, up to 14 entries, any axis or shaker channel. A shaker route's `gain` is full scale at 100 % amplitude (1 = full, soft-clipped above), `harm` (1 to 8, default 1) the harmonic of the effect's carrier it plays, phase-locked. On a torque axis (belt, device) `gain` is a multiplier, 0 to 2. On a position (CSP) axis `gain` is the offset in mm at 100 % amplitude, 0 to that axis's `hapticsMaxMm`. `part` (the two slip effects, road, kerb and ABS only, default `"all"`): which wheels this axis carries, `all`, `front`, `rear`, `fl`, `fr`, `rl`, `rr`; the strongest of them plays. No routes = the effect reaches nothing. |
 
 Slip-only fields. Both tiles are per-wheel models with two components, each with a mix (0 to 1) and a carrier; the route's `part` picks the wheels. `freqHz` is kept in the object but unused by these two.
 
@@ -178,6 +178,16 @@ Kerb-only fields (`kerb`). Which tyre is on a kerb: `surface*` = 2, else the `cu
 | `fullMm` | `10` | Kerb movement (mm) that is 100 % on a position axis, 0.5 to 50. A position axis gets the step as a thud on and off (above 3 Hz); a belt or shaker gets the ribs and the step's edges, scaled with speed (full at 80 km/h). |
 | `detectMm` | `0` | 0 to 100, 0 = off. Without a surface type or `curbs` channel, a tyre this far above its axle partner on `roadHeight*`, beyond the axle's usual camber and banking, is on a kerb. |
 
+ABS and TC fields (`abs`, `tc`; `freqHz` is the cycle rate):
+
+| Effect | Field | Default | Notes |
+|---|---|---|---|
+| `abs`, `tc` | `sharp` | `0.3` | The drop's edge, 0 to 1: 0 round (the drop takes half the cycle), 1 a knock (ABS dumps in a quarter of the cycle, TC cuts in a third). |
+| `abs`, `tc` | `spread` | `0.5` | 0 to 1: each cycle up to 30 % longer or shorter and 35 % shallower; for ABS each corner also on its own rate (up to 18 % apart), so the corners drift in and out of step. 0 = one regular pulse. |
+| `abs` | `slow` | `0.5` | 0 to 1: how far the cycle slows towards a stop (rate x (1 - slow x (1 - speed / 80 km/h)) below 80 km/h; speed unknown = full rate). |
+| `abs` | `buzz`, `buzzHz` | `0.3`, `40` | The pump and valve buzz: mix 0 to 1 and carrier 15 to 120 Hz. |
+
+ABS routes take a `part`: one corner plays that corner's valve, an axle or `all` the average of its corners.
 Driveline-only fields (`driveline`):
 
 | Field | Default | Notes |

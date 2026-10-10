@@ -499,6 +499,7 @@ private:
         haptics::SlipParams   slipLat, slipLon;
         haptics::RoadParams   road;
         haptics::KerbParams   kerb;
+        haptics::PulseParams  abs, tc;
         haptics::DrivelineParams driveline;
         double masterGain = 1.0;
         double positionBudget = 0.4;

@@ -388,6 +388,21 @@ private slots:
         cfg.hapticsSlipLat.smoothHz = 0.0; QVERIFY(cfg.validate().empty());
     }
 
+    // ABS and TC: sharp, spread (both), slow, buzz, buzz hz (ABS).
+    void pulse_ranges()
+    {
+        AppConfig cfg = validConfig();
+        QCOMPARE(cfg.hapticsAbs.sharp, 0.3); QCOMPARE(cfg.hapticsAbs.buzz, 0.3);
+        QCOMPARE(cfg.hapticsTc.slow, 0.0);   QCOMPARE(cfg.hapticsTc.buzz, 0.0);
+        const auto refused = [&cfg](const char* key) {
+            for (const auto& e : cfg.validate()) if (e.find(key) != std::string::npos) return true;
+            return false; };
+        cfg.hapticsAbs.sharp = 1.5;  QVERIFY2(refused("sharp"), "abs sharp 1.5 is refused");
+        cfg.hapticsAbs.sharp = 0.5; cfg.hapticsAbs.buzzHz = 10.0; QVERIFY2(refused("buzzHz"), "buzz hz 10 is refused");
+        cfg.hapticsAbs.buzzHz = 40.0; cfg.hapticsTc.spread = -0.1; QVERIFY2(refused("spread"), "tc spread -0.1 is refused");
+        cfg.hapticsTc.spread = 0.5; QVERIFY(cfg.validate().empty());
+    }
+
     // The frozen-stream guard is off by default and only takes a usable window.
     void ncxFrozenMs_range()
     {
