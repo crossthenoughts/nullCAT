@@ -1016,6 +1016,7 @@ private slots:
         TelemetryData td{};
         td.valid = true; td.numPositions = 1;
         td.packetType = TelemetryPacketType::Motion;
+        td.nominalFrameSec = 3.0 * dt;   // a new frame every 3 cycles: the target-velocity estimate is live
         uint32_t rng = 12345u;
         double prev = out.positions[0], prevStep = 0.0, worst = 0.0, worstRev = 0.0;
         bool haveStep = false, online = false;
