@@ -143,7 +143,11 @@ Slip-only fields. Both tiles are per-wheel models with two components, each with
 |---|---|---|---|
 | `slipLat` | `scrub`, `scrubHz` | `1`, `25` | The fronts pushing wide: mix and carrier (8 to 60 Hz). |
 | `slipLat` | `slide`, `slideHz` | `1`, `11` | The rears stepping out: mix and carrier (4 to 30 Hz). |
-| `slipLat` | `peakDeg` | `7` | Slip angle (degrees) at full severity, 2 to 20. Nothing plays below 60 % of it. |
+| `slipLat` | `peakDeg` | `7` | Slip angle (degrees) at full severity, 2 to 20. |
+| `slipLat` | `onsetPct` | `40` | The slide starts at this share of `peakDeg` (and of `peakPct` on the combined-slip path), 0 to 90. |
+| `slipLat` | `ease` | `1` | The way in, 0 to 2: severity = linear rise ^ (1 + ease); 0 linear, 1 squared (a light scrub first), 2 cubed. |
+| `slipLat` | `smoothHz` | `8` | One-pole smoothing of the per-wheel slip angle or combined slip (Hz), 0 to 30, 0 = as sent. |
+| `slipLat` | `attackMs` | `30` | How fast a wheel's slide builds, 2 to 200 ms (the longitudinal tile keeps 8). |
 | `slipLon` | `lock`, `lockHz` | `1`, `9` | A wheel locking under braking: mix and carrier (4 to 30 Hz) at 80 km/h; the carrier follows road speed. |
 | `slipLon` | `spin`, `spinHz` | `1`, `10` | A driven wheel spinning: mix and carrier (4 to 30 Hz), fixed. |
 | `slipLon` | `peakRatio` | `0.8` | Slip ratio at full severity, 0.2 to 2. Nothing plays inside 0.15. |
@@ -152,15 +156,15 @@ Road-only fields. `model` picks how the body's movement is made; when the sim se
 
 | Field | Default | Notes |
 |---|---|---|
-| `model` | `1` | 0 suspension (each corner's suspension travel replayed), 1 tyre (a quarter car per corner over the road under that tyre: `roadHeight*` where sent, else the suspension, plus roughness laid out by distance), 2 chassis (the sim's `accHeave`, `pitchDeg`, `rollDeg`, spread to the corners). |
+| `model` | `0` | 0 suspension (each corner's suspension travel replayed, plus the roughness through the corner: the quarter car's wheel-against-body movement), 1 tyre (a quarter car per corner over the road under that tyre: `roadHeight*` where sent, else the suspension, plus roughness laid out by distance), 2 chassis (the sim's `accHeave`, `pitchDeg`, `rollDeg`, spread to the corners). |
 | `hpHz` | `2` | Cut (Hz), 0.5 to 10: the slow body motion below it is left to the motion cue. All models. |
 | `bodyMm` | `1` | Tyre and chassis: the body movement (mm) that is 100 % amplitude, 0.1 to 20. A belt or shaker gets the matching acceleration (that movement at 8 Hz is 100 %). |
-| `rough` | `2` | Tyre: road roughness, 0 to 20; 1 is a smooth public road (ISO 8608 class A), 0 leaves only the sim's own road. Scaled by the surface under the tyre (`surface*`): bumpy 3 x, gravel 6 x, grass 3 x, dirt 5 x, cobbles 4 x. |
-| `bodyHz` | `3` | Tyre: the body's bounce on its springs (Hz), 0.8 to 8. |
-| `hopHz` | `16` | Tyre: the wheel's hop on its tyre (Hz), 6 to 30; lifted to the lowest a real spring and tyre allow for that body hz. |
-| `damping` | `0.3` | Tyre: suspension damping ratio, 0.05 to 1.5. |
+| `rough` | `2` | Tyre and suspension: road roughness laid out by distance, 0 to 20; 1 is a smooth public road (ISO 8608 class A), 0 leaves only the sim's own road. Its wavelengths under 2 m are scaled by the surface under the tyre (`surface*`), eased over 0.1 s: bumpy 3 x, gravel 6 x, grass 3 x, dirt 5 x, cobbles 4 x. |
+| `bodyHz` | `3` | Tyre, and the suspension model's roughness: the body's bounce on its springs (Hz), 0.8 to 8. |
+| `hopHz` | `16` | Tyre, and the suspension model's roughness: the wheel's hop on its tyre (Hz), 6 to 30; lifted to the lowest a real spring and tyre allow for that body hz. |
+| `damping` | `0.3` | Tyre, and the suspension model's roughness: the bounce's damping ratio, 0.05 to 1.5. |
 | `fullMm` | `25` | Suspension: travel (mm) that is 100 % amplitude, 0.5 to 50. Past 60 % of full, every model bends over a soft knee towards 100 % rather than clipping. |
-| `surface` | `0.2` | Suspension: the tarmac grain under a rolling car, a rough texture at `surfaceHz` whose level rises with road speed, mixed in at this level (0 to 1, 0 = off) on top of the replay or the `roadNoise` texture. |
+| `surface` | `0` | Suspension: the tarmac grain under a rolling car, a rough texture at `surfaceHz` whose level rises with road speed, mixed in at this level (0 to 1, 0 = off) on top of the replay or the `roadNoise` texture. |
 | `surfaceHz` | `12` | The surface texture's carrier (Hz, 4 to 40): its own, so it can sit low enough for a position axis to carry while the `roadNoise` texture keeps `freqHz`. |
 | `surfaceKmh` | `100` | Road speed (km/h, 20 to 300) by which the surface texture is at its full mix; it rises from nothing at a standstill. |
 

@@ -254,7 +254,8 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
             else if (info.kind == haptics::Kind::Slip)
             {
                 const haptics::SlipParams& s = (info.id == haptics::Effect::Skid) ? c.hapticsSlipLat : c.hapticsSlipLon;
-                for (int k = 0; k < 5; ++k) o[info.slipKeys[k]] = haptics::slipField(s, k);
+                for (int k = 0; k < haptics::SLIP_KEY_COUNT; ++k)
+                    if (info.slipKeys[k]) o[info.slipKeys[k]] = haptics::slipField(s, k);
             }
             else if (info.kind == haptics::Kind::Road)
             {
@@ -360,8 +361,9 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
             if (info.kind == haptics::Kind::Slip)
             {
                 haptics::SlipParams& s = (info.id == haptics::Effect::Skid) ? c.hapticsSlipLat : c.hapticsSlipLon;
-                for (int k = 0; k < 5; ++k)
-                    haptics::slipField(s, k) = o.value(info.slipKeys[k]).toDouble(haptics::slipField(s, k));
+                for (int k = 0; k < haptics::SLIP_KEY_COUNT; ++k)
+                    if (info.slipKeys[k])
+                        haptics::slipField(s, k) = o.value(info.slipKeys[k]).toDouble(haptics::slipField(s, k));
                 // Old single-carrier file: its freqHz was the one carrier;
                 // carry it onto the component the old effect was (skid =
                 // texture = scrub, lockup = judder = lock).
@@ -1361,8 +1363,8 @@ std::vector<std::string> AppConfig::validate() const
                 for (int k = 0; k < info.paramCount; ++k)
                 {
                     const haptics::ParamSpec& ps = info.params[k];
-                    for (int f = 0; f < 5; ++f)
-                        if (std::strcmp(ps.key, info.slipKeys[f]) == 0)
+                    for (int f = 0; f < haptics::SLIP_KEY_COUNT; ++f)
+                        if (info.slipKeys[f] && std::strcmp(ps.key, info.slipKeys[f]) == 0)
                         {
                             const double val = haptics::slipField(s, f);
                             if (val < ps.min || val > ps.max)

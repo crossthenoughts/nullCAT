@@ -274,7 +274,10 @@ int main()
         haptics::Layer L;
         haptics::LawsState st;
         haptics::EffectParams p; p.ampPct = 50.0; p.routes[0] = { 0, 1.0 };
-        L.configureFx(FxType::Skid, p);   L.configureSlip(FxType::Skid,   { 1.0, 25.0, 1.0, 11.0, 7.0 });
+        // Lateral: onset 60% of peak, linear, no smoothing, the fast attack:
+        // the mapping itself (the tile's onset, ease, smoothing and attack
+        // have their own checks below).
+        L.configureFx(FxType::Skid, p);   L.configureSlip(FxType::Skid,   { 1.0, 25.0, 1.0, 11.0, 7.0, 60.0, 0.0, 0.0, 8.0 });
         L.configureFx(FxType::Lockup, p); L.configureSlip(FxType::Lockup, { 1.0, 9.0, 1.0, 10.0, 0.8 });
         NcxValues v{}; v.fresh = true;
         const double dt = 0.002;
@@ -309,17 +312,17 @@ int main()
         for (int w = 0; w < 4; ++w) v.have[NcxValues::LoadFL + w] = false;
         setW(NcxValues::SlipAngleFL, 0.0, 0.0, 0.0, 0.0); settle(300);
 
-        // Combined slip per wheel (protocol 1.4, Assetto Corsa's wheelSlip):
-        // the lateral source where no slip angle exists, from a third of
-        // peak % (default 100: 33 = onset, 100 = full). A combined slip
-        // cannot be split, and a locked or spinning tyre is sliding too:
-        // it plays here as well as on the longitudinal tile. Per-wheel
-        // angles win over it when both arrive.
+        // Combined slip per wheel (protocol 1.4, Automobilista 2's slip
+        // speed): the lateral source where no slip angle exists, from onset %
+        // of peak % (here 60 of 100) to full at peak %. A combined slip
+        // cannot be split, and a locked or spinning tyre is sliding too: it
+        // plays here as well as on the longitudinal tile. Per-wheel angles
+        // win over it when both arrive.
         for (int w = 0; w < 4; ++w) v.have[NcxValues::SlipAngleFL + w] = false;
-        setW(NcxValues::WheelSlipFL, 100.0, 66.67, 20.0, 0.0); settle(100);
+        setW(NcxValues::WheelSlipFL, 100.0, 80.0, 50.0, 0.0); settle(100);
         check(lvl(FxType::Skid, WheelFL) > 0.95 && std::fabs(lvl(FxType::Skid, WheelFR) - 0.5) < 0.05
               && lvl(FxType::Skid, WheelRL) < 0.01 && lvl(FxType::Skid, WheelRR) < 0.01,
-              "I-8 combined slip: 100 on FL = full, 66.7 on FR = halfway, 20 (below a third) = nothing");
+              "I-8 combined slip: 100 on FL = full, 80 on FR = halfway, 50 (below the onset) = nothing");
         setW(NcxValues::SlipRatioFL, -0.8, 0.0, 0.0, 0.0); settle(100);   // FL fully locked
         check(lvl(FxType::Lockup, WheelFL) > 0.95 && lvl(FxType::Skid, WheelFL) > 0.95,
               "I-8 combined slip: a locked FL plays as lock AND as a slide (a sliding tyre is sliding)");
@@ -328,6 +331,54 @@ int main()
         check(lvl(FxType::Skid, WheelFL) < 0.01, "I-8 combined slip: slip angles present (and small) win over it");
         for (int w = 0; w < 4; ++w) { v.have[NcxValues::SlipAngleFL + w] = false; v.have[NcxValues::WheelSlipFL + w] = false; }
         settle(300);
+
+        // The Lateral tile's way in: onset %, ease, smooth hz, attack ms.
+        {
+            haptics::Layer T; haptics::LawsState ts;
+            T.configureFx(FxType::Skid, p);
+            NcxValues tv{}; tv.fresh = true;
+            tv.have[NcxValues::SpeedKmh] = true; tv.val[NcxValues::SpeedKmh] = 100.0;
+            auto setA = [&](double fl) { for (int w = 0; w < 4; ++w) { tv.have[NcxValues::SlipAngleFL + w] = true; tv.val[NcxValues::SlipAngleFL + w] = (w == 0) ? fl : 0.0; } };
+            auto runT = [&](int n) { for (int i = 0; i < n; ++i) { haptics::driveLaws(T, ts, tv, dt); T.step(dt); } };
+            auto lv = [&]() { return T.slipWheelLevel(FxType::Skid, WheelFL); };
+            // Onset 40% of 7 deg = 2.8 deg; linear, halfway at 4.9 deg.
+            T.configureSlip(FxType::Skid, { 1.0, 25.0, 1.0, 11.0, 7.0, 40.0, 0.0, 0.0, 8.0 });
+            setA(4.9); runT(100);
+            check(std::fabs(lv() - 0.5) < 0.05, "I-8 onset 40%: halfway from 2.8 to 7 deg is half a slide");
+            setA(2.5); runT(150);
+            check(lv() < 0.01, "I-8 onset 40%: below 2.8 deg nothing");
+            // Ease 1: severity squared, the same angle comes in at a quarter.
+            T.configureSlip(FxType::Skid, { 1.0, 25.0, 1.0, 11.0, 7.0, 40.0, 1.0, 0.0, 8.0 });
+            setA(4.9); runT(100);
+            check(std::fabs(lv() - 0.25) < 0.04, "I-8 ease 1: halfway in is a quarter (a light scrub first)");
+            setA(7.0); runT(100);
+            check(lv() > 0.95, "I-8 ease 1: still full at peak deg");
+            // Smoothing: an angle flickering around the onset (a derived
+            // angle at 60 Hz) reads as its peaks with a fast attack and a slow
+            // release; smoothed it reads as its average.
+            auto flicker = [&](double smoothHz) {
+                T.clearAll(); haptics::LawsState fs; ts = fs;
+                T.configureSlip(FxType::Skid, { 1.0, 25.0, 1.0, 11.0, 7.0, 40.0, 0.0, smoothHz, 8.0 });
+                double sum = 0.0; int n = 0;
+                for (int k = 0; k < 600; ++k)
+                {
+                    setA(((k / 4) % 2) ? 4.6 : 2.0);                    // mean 3.3 deg: linear severity 0.12
+                    haptics::driveLaws(T, ts, tv, dt); T.step(dt);
+                    if (k >= 300) { sum += lv(); ++n; }
+                }
+                return sum / n;
+            };
+            const double raw = flicker(0.0), smooth = flicker(8.0);
+            check(raw > 0.3, "I-8 smooth 0: a flickering angle plays as its peaks (the chunky onset)");
+            check(std::fabs(smooth - 0.12) < 0.05, "I-8 smooth 8 hz: it plays as its average");
+            // Attack: 30 ms to build a full slide.
+            T.configureSlip(FxType::Skid, { 1.0, 25.0, 1.0, 11.0, 7.0, 40.0, 0.0, 0.0, 30.0 });
+            setA(0.0); runT(300);
+            setA(7.0); runT(5);
+            check(lv() > 0.2 && lv() < 0.5, "I-8 attack 30 ms: 10 ms in, still building");
+            runT(15);
+            check(lv() > 0.95, "I-8 attack 30 ms: full by 40 ms");
+        }
 
         // Longitudinal from slip ratio: - locks, + spins; onset 0.15, full at
         // peak 0.8. FL -0.8 = full lock; RR +0.475 = halfway spin.
@@ -537,10 +588,13 @@ int main()
         // Road: per-corner suspension velocities replay the corners and the
         // roadNoise magnitude is ignored; without them roadNoise drives the
         // texture; a stale stream releases the replay.
-        // (Model 0, the suspension replay; the tyre and chassis models below.)
+        // (Model 0, the suspension replay, roughness off: these are about the
+        // sim's travel. The roughness, the tyre and chassis models: below and
+        // in TestHaptics.)
         const auto susp = [](double full, double hp, double surface = 0.2, double kmh = 100.0)
         {
             haptics::RoadParams r; r.fullMm = full; r.hpHz = hp; r.surface = surface; r.surfaceKmh = kmh; r.model = 0;
+            r.rough = 0.0;
             return r;
         };
         haptics::EffectParams rp; rp.ampPct = 100.0; rp.freqHz = 28.0; rp.routes[0] = { 0, 1.0 };

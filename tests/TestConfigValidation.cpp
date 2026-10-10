@@ -355,7 +355,8 @@ private slots:
     void roadModelAndKerb_ranges()
     {
         AppConfig cfg = validConfig();
-        QCOMPARE(cfg.hapticsRoad.model, 1.0);   // tyre by default
+        QCOMPARE(cfg.hapticsRoad.model, 0.0);   // suspension by default
+        QCOMPARE(cfg.hapticsRoad.surface, 0.0); // the old grain off: the roughness moves with the car
         const auto refused = [&cfg](const char* key) {
             for (const auto& e : cfg.validate()) if (e.find(key) != std::string::npos) return true;
             return false; };
@@ -368,6 +369,23 @@ private slots:
         cfg.hapticsKerb.pitchCm = 2.0;  QVERIFY2(refused("pitchCm"), "a 2 cm rib pitch is refused");
         cfg.hapticsKerb.pitchCm = 30.0; cfg.hapticsKerb.detectMm = 150.0; QVERIFY2(refused("detectMm"), "detect mm 150 is refused");
         cfg.hapticsKerb.detectMm = 15.0; QVERIFY(cfg.validate().empty());
+    }
+
+    // The Lateral slip tile's way in: onset %, ease, smooth hz, attack ms.
+    void slipLatWayIn_ranges()
+    {
+        AppConfig cfg = validConfig();
+        QCOMPARE(cfg.hapticsSlipLat.onsetPct, 40.0);
+        QCOMPARE(cfg.hapticsSlipLat.attackMs, 30.0);
+        QCOMPARE(cfg.hapticsSlipLon.attackMs, 8.0);   // Longitudinal keeps the fast attack
+        const auto refused = [&cfg](const char* key) {
+            for (const auto& e : cfg.validate()) if (e.find(key) != std::string::npos) return true;
+            return false; };
+        cfg.hapticsSlipLat.onsetPct = 95.0; QVERIFY2(refused("onsetPct"), "onset 95% is refused");
+        cfg.hapticsSlipLat.onsetPct = 30.0; cfg.hapticsSlipLat.ease = 3.0; QVERIFY2(refused("ease"), "ease 3 is refused");
+        cfg.hapticsSlipLat.ease = 0.5; cfg.hapticsSlipLat.attackMs = 1.0; QVERIFY2(refused("attackMs"), "attack 1 ms is refused");
+        cfg.hapticsSlipLat.attackMs = 50.0; cfg.hapticsSlipLat.smoothHz = 40.0; QVERIFY2(refused("smoothHz"), "smooth 40 hz is refused");
+        cfg.hapticsSlipLat.smoothHz = 0.0; QVERIFY(cfg.validate().empty());
     }
 
     // The frozen-stream guard is off by default and only takes a usable window.

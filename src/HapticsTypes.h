@@ -71,6 +71,17 @@ struct SlipParams
     double bMix = 1.0;
     double bHz  = 11.0;
     double peak = 8.0;
+    // How a slide comes in (the Lateral slip tile's; Longitudinal uses
+    // attackMs only). onsetPct: the slide starts at this share of peak (of
+    // peak deg, or of peak % on the combined-slip path); ease: 0 rises
+    // linearly to full, 1 starts gently (severity squared), 2 gentler
+    // still; smoothHz: the per-wheel slip angle or slip smoothed (sims send
+    // it ~60 times a second, and a derived angle jitters), 0 = off;
+    // attackMs: how fast a wheel's slide builds.
+    double onsetPct = 40.0;
+    double ease     = 1.0;
+    double smoothHz = 8.0;
+    double attackMs = 8.0;
 };
 
 // The Road tile's replay settings (used when per-corner suspension
@@ -81,25 +92,27 @@ struct SlipParams
 // body motion the cue already produces. surface: the tarmac grain under a
 // rolling car, a rough texture on its own carrier (surfaceHz, low enough
 // for a position axis to carry) whose level rises with road speed (full
-// by surfaceKmh) on top of either path, so a moving car is never silent.
+// by surfaceKmh) on top of either path. Off by default since the
+// suspension model's roughness (rough x) moves with the car by itself.
 struct RoadParams
 {
     double fullMm     = 25.0;
     double hpHz       = 2.0;
-    double surface    = 0.2;    // mix 0..1
+    double surface    = 0.0;    // mix 0..1
     double surfaceKmh = 100.0;  // full by this road speed
     double surfaceHz  = 12.0;   // the grain's carrier
     // Which model plays the road (RoadModel.h): 0 suspension (replay the
-    // sim's suspension travel, the 0.9.7 first cut), 1 tyre (a quarter car
-    // per corner on the road under that tyre: the sim's real road where it
-    // gives one, plus roughness laid out by distance), 2 chassis (the sim's
-    // own body heave, pitch and roll in the band the motion cue leaves out).
-    double model      = 1.0;
+    // sim's suspension travel plus the road's fine roughness through the
+    // corner), 1 tyre (a quarter car per corner on the road under that
+    // tyre: the sim's real road where it gives one, plus the roughness),
+    // 2 chassis (the sim's own body heave, pitch and roll in the band the
+    // motion cue leaves out).
+    double model      = 0.0;
     double bodyMm     = 1.0;    // tyre/chassis: body movement that counts as 100%
-    double bodyHz     = 3.0;    // tyre: the car's body bounce (race car 3-5, road car 1-1.5)
-    double hopHz      = 16.0;   // tyre: wheel hop (12-20)
-    double damping    = 0.3;    // tyre: suspension damping ratio
-    double rough      = 2.0;    // tyre: road roughness, 1 = a smooth public road (ISO 8608 class A)
+    double bodyHz     = 3.0;    // tyre, suspension roughness: the car's body bounce (race car 3-5, road car 1-1.5)
+    double hopHz      = 16.0;   // tyre, suspension roughness: wheel hop (12-20)
+    double damping    = 0.3;    // tyre, suspension roughness: the bounce's damping ratio
+    double rough      = 2.0;    // tyre, suspension: road roughness, 1 = a smooth public road (ISO 8608 class A), 0 = none
 };
 
 // The Kerb tile: a rumble strip under the tyre that is on one. Ribs at

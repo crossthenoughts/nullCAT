@@ -1537,7 +1537,8 @@ bool WebServer::start()
                 }
                 else if (info.kind == haptics::Kind::Slip)
                 {
-                    for (int k = 0; k < 5; ++k) d[info.slipKeys[k]] = haptics::slipField(info.slipDefaults, k);
+                    for (int k = 0; k < haptics::SLIP_KEY_COUNT; ++k)
+                        if (info.slipKeys[k]) d[info.slipKeys[k]] = haptics::slipField(info.slipDefaults, k);
                 }
                 else if (info.kind == haptics::Kind::Road)
                 {

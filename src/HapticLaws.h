@@ -47,6 +47,11 @@ struct LawsState
     // (camber, banking), learned off the kerbs, so a tyre stepping up shows.
     double kerbBias[2] = {};
     bool   kerbBiasSeen = false;
+    // Lateral slip: the per-wheel slip angle (or combined slip) smoothed,
+    // and which source it is (0 none, 1 angle, 2 combined) so a change of
+    // source starts the smoothing afresh.
+    double slipF[WHEEL_COUNT] = {};
+    int    slipSrc = 0;
 };
 
 namespace laws_k {
@@ -56,12 +61,8 @@ namespace laws_k {
     constexpr double kPreviewIdleRpm   = 1100.0;   // the canned idle a Test preview runs
     constexpr double kAbsMinBrakePct   = 10.0;     // ABS needs the brake actually applied
     constexpr double kPreviewSec       = 2.0;      // Test preview length
-    // Slip laws
-    constexpr double kSlipOnsetFrac    = 0.6;      // lateral: nothing below this share of peak deg (normal cornering)
-    // Combined slip (Assetto Corsa's wheelSlip, AMS2's slip speed): it is
-    // already zero while the tyre grips, so it starts at a third of peak %
-    // (AC's own scale: sliding from about 2, let go by about 6).
-    constexpr double kCombinedOnsetFrac = 1.0 / 3.0;
+    // Slip laws (the lateral onset, curve and smoothing are the tile's:
+    // SlipParams onsetPct, ease, smoothHz)
     constexpr double kLonOnsetRatio    = 0.15;     // longitudinal: peak grip sits around 0.1-0.2 ratio
     constexpr double kSlipMinSpeedKmh  = 5.0;      // ratios mean nothing at a standstill
     constexpr double kLockHzRefKmh     = 80.0;     // lock judder carrier = set hz at this road speed
@@ -268,37 +269,48 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& v, double dtSec,
             L.setSlipCarrierScale(FxType::Lockup, hzScale, 1.0);
         }
 
-        // Lateral: slip angle (deg) past the onset share of peak deg. Where
-        // the sim has no slip angle but a combined slip per wheel (Assetto
-        // Corsa's wheelSlip, Automobilista 2's slip speed), that, from a
-        // third of peak % up to full at peak %. A combined slip cannot be
-        // split into sideways and along, and a spinning or locked tyre is
-        // sliding too: it plays here as well as on the longitudinal tile
-        // (taking the longitudinal share out cancelled power oversteer on
-        // the bench). Else the single skid channel.
+        // Lateral: slip angle (deg) from onset % of peak deg up to peak deg,
+        // shaped by ease (0 linear; 1 = severity squared, a light scrub
+        // first; 2 cubed). Where the sim has no slip angle but a combined
+        // slip per wheel (Automobilista 2's slip speed), that, from onset %
+        // of peak % up to full at peak %. A combined slip cannot be split
+        // into sideways and along, and a spinning or locked tyre is sliding
+        // too: it plays here as well as on the longitudinal tile (taking
+        // the longitudinal share out cancelled power oversteer on the
+        // bench). Either is smoothed at smooth hz first: it arrives ~60
+        // times a second, and a slip angle worked out from the tyres'
+        // positions (Assetto Corsa) jitters, which near the onset made the
+        // slide flicker in and out. Else the single skid channel.
         {
             const SlipParams& sp = L.slipParams(FxType::Skid);
             const double peak  = std::max(0.5, sp.peak);
-            const double onset = kSlipOnsetFrac * peak;
+            const double onsetFrac = std::max(0.0, std::min(0.9, sp.onsetPct / 100.0));
+            const double onset = onsetFrac * peak;
+            const double ease  = std::max(0.0, std::min(2.0, sp.ease));
             const bool preview = st.previewSec[static_cast<int>(FxType::Skid)] > 0.0;
             const bool perWheel = haveW(NcxValues::SlipAngleFL);
             const bool combined = !perWheel && haveW(NcxValues::WheelSlipFL);
             const double peakC  = std::max(1.0, L.fxParams(FxType::Skid).peakPct);
-            const double onsetC = kCombinedOnsetFrac * peakC;
+            const double onsetC = onsetFrac * peakC;
             const double single = mag(NcxValues::Skid, FxType::Skid);
+            const int src = perWheel ? 1 : (combined ? 2 : 0);
+            const int base = (src == 1) ? NcxValues::SlipAngleFL : NcxValues::WheelSlipFL;
+            const double smA = (sp.smoothHz > 0.0) ? 1.0 - std::exp(-2.0 * wavesynth::kPi * sp.smoothHz * dtSec) : 1.0;
+            if (src != st.slipSrc)
+            {
+                for (int w = 0; w < WHEEL_COUNT; ++w)
+                    st.slipF[w] = (src != 0) ? std::fabs(v.val[base + w]) : 0.0;
+                st.slipSrc = src;
+            }
+            const auto curve = [ease](double lin) { return std::pow(std::max(0.0, std::min(1.0, lin)), 1.0 + ease); };
             for (int w = 0; w < WHEEL_COUNT; ++w)
             {
+                if (src != 0) st.slipF[w] += (std::fabs(v.val[base + w]) - st.slipF[w]) * smA;
                 double sev = 0.0;
                 if (moving && perWheel)
-                {
-                    const double ang = std::fabs(v.val[NcxValues::SlipAngleFL + w]);
-                    sev = std::max(0.0, std::min(1.0, (ang - onset) / std::max(1e-6, peak - onset)));
-                }
+                    sev = curve((st.slipF[w] - onset) / std::max(1e-6, peak - onset));
                 else if (moving && combined)
-                {
-                    const double c = std::fabs(v.val[NcxValues::WheelSlipFL + w]);
-                    sev = std::max(0.0, std::min(1.0, (c - onsetC) / std::max(1e-6, peakC - onsetC)));
-                }
+                    sev = curve((st.slipF[w] - onsetC) / std::max(1e-6, peakC - onsetC));
                 else if (moving && !perWheel && !combined && live && v.have[NcxValues::Skid])
                     sev = single;
                 sev = std::min(1.0, sev * loadW[w]);

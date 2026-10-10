@@ -1136,10 +1136,6 @@ int main()
             { a.driveSpeed(v); a.step(dt, rp); b.driveSpeed(v); b.step(dt, r4); fa.push_back(a.wheelTravelMm(WheelFL)); fb.push_back(b.wheelTravelMm(WheelFL)); }
             approx(rms(fb, 2000) / rms(fa, 2000), 2.0, 0.01, "road tyre: rough x 2 is twice the road");
 
-            RoadModel g; g.driveGeometry(2.5, 1.6); std::vector<double> fg;
-            for (int i = 0; i < 6000; ++i) { g.driveSurface(WheelFL, SurfGravel); g.driveSpeed(v); g.step(dt, rp); fg.push_back(g.wheelTravelMm(WheelFL)); }
-            approx(rms(fg, 2000) / rms(fa, 2000), 6.0, 0.05, "road tyre: gravel under the tyre is six times the tarmac road");
-
             std::vector<double> still; run(m, 0.0, 8000, &still, nullptr);
             CHECK(rms(still, 6000) < 0.01 * rms(fl, 4000), "road tyre: the road stands still with the car");
 
@@ -1148,6 +1144,62 @@ int main()
             Layer F; F.configureFx(haptics::FxType::Road, fp); F.configureRoad(rp);
             for (int i = 0; i < 4000; ++i) { F.driveRoadSpeed(v); F.step(DT); }
             CHECK(F.fxOutputLevel(static_cast<int>(haptics::FxType::Road)) > 0.0, "road tyre: the felt level counts the model, not only the texture");
+        }
+
+        // Suspension model's roughness: the sim's travel plus the road's fine
+        // roughness through the corner (the wheel against the body). rough 0
+        // = the travel alone, exactly; it rises with speed, stops with the
+        // car, reaches the rears a wheelbase later, is rougher on gravel
+        // (the short wavelengths only), and a change of surface does not
+        // thump, in this model or the tyre model.
+        {
+            const double dt = 0.0005;
+            RoadParams sp; sp.model = 0; sp.rough = 2.0; sp.fullMm = 200.0;   // a big full scale: the raw mm are linear
+            auto rough = [&](double speed, double roughX, int surface, int n, std::vector<double>* fl, std::vector<double>* rl) {
+                RoadModel m; m.driveGeometry(2.5, 1.6); RoadParams q = sp; q.rough = roughX;
+                for (int i = 0; i < n; ++i)
+                {
+                    for (int w = 0; w < 4; ++w) { m.driveTravel(w, 0.0); m.driveSurface(w, surface); }
+                    m.driveSpeed(speed); m.step(dt, q);
+                    if (fl) fl->push_back(m.wheelTravelMm(WheelFL));
+                    if (rl) rl->push_back(m.wheelTravelMm(WheelRL));
+                }
+            };
+            std::vector<double> none, slow, fast, fastRl, gravel, stopped;
+            rough(25.0, 0.0, SurfTarmac, 6000, &none, nullptr);
+            rough(8.0,  2.0, SurfTarmac, 8000, &slow, nullptr);
+            rough(25.0, 2.0, SurfTarmac, 8000, &fast, &fastRl);
+            rough(25.0, 2.0, SurfGravel, 8000, &gravel, nullptr);
+            rough(0.0,  2.0, SurfTarmac, 6000, &stopped, nullptr);
+            double noneMax = 0.0; for (double x : none) noneMax = std::max(noneMax, std::fabs(x));
+            CHECK(noneMax == 0.0, "road suspension: rough x 0 = the sim's travel alone, nothing added");
+            CHECK(rms(fast, 3000) > 0.05, "road suspension: the road's roughness moves the suspension at speed");
+            CHECK(rms(fast, 3000) > 1.5 * rms(slow, 3000), "road suspension: rougher with speed");
+            CHECK(rms(stopped, 2000) < 1e-9, "road suspension: nothing from the road while the car stands still");
+            CHECK(rms(gravel, 3000) > 1.5 * rms(fast, 3000), "road suspension: gravel under the tyre is clearly rougher");
+            int bestLag = -1; double bestErr = 1e18;
+            for (int lag = 150; lag < 250; ++lag)
+            { double e = 0.0; for (size_t i = 4000; i < 7900; ++i) e += std::fabs(fastRl[i] - fast[i - lag]); if (e < bestErr) { bestErr = e; bestLag = lag; } }
+            approx(bestLag * dt, 2.5 / 25.0, 0.002, "road suspension: the rears meet the fronts' roughness a wheelbase / speed later");
+
+            // Onto gravel at speed: no thump at the change, in either model.
+            for (int model : { 0, 1 })
+            {
+                RoadParams q = sp; q.model = model; q.bodyMm = 200.0;
+                RoadModel m; m.driveGeometry(2.5, 1.6);
+                double atChange = 0.0, onGravel = 0.0;
+                for (int i = 0; i < 16000; ++i)
+                {
+                    const int s = (i >= 8000) ? SurfGravel : SurfTarmac;
+                    for (int w = 0; w < 4; ++w) { m.driveTravel(w, 0.0); m.driveSurface(w, s); }
+                    m.driveSpeed(25.0); m.step(dt, q);
+                    const double a = std::fabs(m.wheelTravelMm(WheelFL));
+                    if (i >= 8000 && i < 8600) atChange = std::max(atChange, a);
+                    if (i >= 10000) onGravel = std::max(onGravel, a);
+                }
+                CHECK(atChange <= 1.5 * onGravel, model == 0 ? "road suspension: onto gravel without a thump"
+                                                             : "road tyre: onto gravel without a thump");
+            }
         }
 
         // Tyre model, the sim's road: a 10 mm step under FL lifts the FL

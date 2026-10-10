@@ -278,7 +278,7 @@ effect silent.
 | ABS | the brake pressure dumped and rebuilt while ABS works: the deceleration saw-tooths, 8 to 15 times a second | brake, ABS active |
 | Longitudinal slip | a wheel locking under braking, or spinning under power, per wheel (below) | per-wheel slip ratio or wheel speeds, road speed; or the single lockup channel |
 | Lateral slip | the tyres sliding sideways: the fronts scrubbing wide, the rears stepping out, per wheel (below) | per-wheel slip angles, or the sim's per-wheel combined slip; or the single skid channel |
-| Road | the road as the car's body feels it, per corner (below): each tyre and spring running over the road, or the sim's own body movement, or the suspension replayed | road speed, with the road height, surface or suspension per corner; or the body's heave, pitch and roll; or the single road channel |
+| Road | the road through the tyres and suspension, per corner (below): the sim's suspension movement with the road's fine roughness added, or the body's movement over the road, or the sim's own body movement | road speed, with the road height, surface or suspension per corner; or the body's heave, pitch and roll; or the single road channel |
 | Limiter | an extra hammer while on the rev limiter | limiter |
 | TC pulse | the body surge of each traction-control cut: a sharp loss of drive and a slower recovery (the Engine tile stutters as well) | TC active |
 | Kerb | the rumble strip under a tyre on a kerb: a hum that rises and falls with speed, a thud on and off (below) | the surface under each tyre, or the kerbs channel, or the road height under each tyre |
@@ -324,10 +324,16 @@ still carry; a belt or shaker takes a finer one). The rears give
 **slide**: an irregular, slower chatter as the back steps out. Each has
 its own mix and carrier. **peak deg** is the slip angle at which a tyre is
 fully gone (7 for most cars; lower for slicks, higher for road tyres);
-nothing plays below about 60 % of it, which is normal cornering. As slip
-grows the carrier slows and roughens on its own (squeal, moan, shudder)
-and the onset is abrupt, because that is what a tyre letting go feels
-like.
+the slide starts at **onset %** of it (40 by default; below that is
+normal cornering). **ease** shapes the way in: 0 rises straight up to a
+full slide at peak deg, 1 (the default) starts as a light scrub and
+builds, 2 starts lighter still. **smooth hz** steadies the slip angle the
+sim sends (8 by default; 0 = as sent): it arrives about 60 times a
+second, and Assetto Corsa's is worked out from the tyres' positions, so
+unsmoothed it flickers around the onset and plays in lumps. **attack
+ms** is how fast a slide builds (30 by default; lower for a snappier
+break-away). As slip grows the carrier slows and roughens on its own
+(squeal, moan, shudder).
 
 **Longitudinal slip** is the tread slipping along the road. **lock** is a
 wheel turning slower than the car under braking: a heavy judder whose
@@ -341,13 +347,13 @@ nothing plays inside the first 0.15, where the tyre is still gripping.
 When the sim sends wheel loads, the loaded tyre's slip is weighted up and
 the unloaded one's down, so the outside tyre in a corner shakes harder.
 
-Where the sim has no slip angle but a combined slip per wheel (Assetto
-Corsa's wheel slip, Automobilista 2's tyre slip speed), Lateral slip
-takes that instead. A combined slip cannot be split into sideways and
+Where the sim has no slip angle but a combined slip per wheel
+(Automobilista 2's tyre slip speed; Assetto Corsa's wheel slip where its
+slip angle is not available), Lateral slip takes that instead. A combined slip cannot be split into sideways and
 along, and a spinning or locked tyre is sliding too, so on that path the
 Lateral tile plays for any sliding tyre (power oversteer, a lock-up) and
-the Longitudinal tile adds its judder or tramp on top. It starts at a
-third of `peak %` and is full at `peak %`; the plugin scales Assetto
+the Longitudinal tile adds its judder or tramp on top. It starts at
+**onset %** of `peak %` and is full at `peak %`; the plugin scales Assetto
 Corsa's value so that a clear slide (about 6 on the game's own scale)
 reads 100. Cars differ, so drive a few hard laps, read the peak on the
 tile's chip (`wheelSlip* 12/140`), and set `peak %` near that peak (up to
@@ -395,65 +401,60 @@ setting to see why. Drive, read the peak, set the trim, Save.
 
 ### Road
 
-What you feel of the road in a real car is the body moving: the road
-lifts each wheel, the tyre swallows anything shorter than its contact
-patch, the spring and damper pass part of the wheel's movement on to the
-body, and the body's weight smooths the rest. The Road tile plays that
-movement, above the band the motion cue already covers, per corner.
-Route it with a part like the slip tiles: on a four-post rig each
-actuator plays its own corner, so a bump under the right-front arrives
-at the right-front and, a wheelbase later, at the right-rear. A seat
-actuator is moved by the body's movement (how far); a belt or shaker
-pushes with its acceleration (how hard).
+What you feel of the road in a real car comes through the tyres and the
+suspension: the road lifts each wheel, the tyre swallows anything
+shorter than its contact patch, the spring and damper work, and the body
+above moves with what they pass on. The Road tile plays that, above the
+band the motion cue already covers, per corner. Route it with a part
+like the slip tiles: on a four-post rig each actuator plays its own
+corner, so a bump under the right-front arrives at the right-front and,
+a wheelbase later, at the right-rear.
 
-**model** picks how the movement is made. Try them; choose whichever
-feels more like the car.
+**model** picks how it is made. Try them; choose whichever feels more
+like the car.
 
-- **tyre** (the default): a model of each corner, the tyre, the spring
-  and damper and the body above, running over the road under that tyre.
-  The road is the sim's own where it sends one (Assetto Corsa: the height
-  of the road under each tyre, with the hills taken out), else the sim's
-  suspension movement, plus a fine random roughness laid out along the
-  road, so its pitch rises with speed by itself and it stops when the car
-  does. **rough x** sets that roughness (1 is a smooth public road, 2 by
-  default; more for a bumpy track); where the sim says what is under the
-  tyre (Automobilista 2) it is three to six times rougher on bumpy
-  tarmac, cobbles, grass, dirt and gravel. **body hz** is how fast the
-  body bounces on its springs (3 by default, a race car; 1 to 1.5 for a
-  road car), **hop hz** how fast the wheel hops on its tyre (16 by
-  default), **damping** how quickly a bounce dies away (0.3 by default;
-  lower is floatier).
+- **suspension** (the default): each corner's suspension movement from
+  the sim, replayed, plus the road's fine roughness that a sim's physics
+  does not model: a random road laid out along the track, run through
+  the tyre and the corner's spring and damper, so it rises with speed by
+  itself, reaches the rears a wheelbase after the fronts and stops when
+  the car does. **full mm** is the suspension movement that counts as
+  100 % (25 by default). **rough x** sets the roughness (1 is a smooth
+  public road, 2 by default, more for a bumpy track, 0 for the sim's
+  movement alone); where the sim says what is under the tyre
+  (Automobilista 2) it is rougher on bumpy tarmac, cobbles, grass, dirt
+  and gravel. **body hz** (how fast the body bounces on its springs: 3
+  by default for a race car, 1 to 1.5 for a road car), **hop hz** (how
+  fast the wheel hops on its tyre, 16) and **damping** (how quickly a
+  bounce dies away, 0.3) shape how the corner passes the roughness on.
+- **tyre**: the same model of each corner, but playing the body's
+  movement over the road under that tyre: the sim's own road where it
+  sends one (Assetto Corsa: the height of the road under each tyre, with
+  the hills taken out), else its suspension movement, plus the same
+  roughness.
 - **chassis**: the sim's own body movement, its vertical acceleration,
   pitch and roll, in the same band, spread to the corners by the car's
   wheelbase and track. Which way the sim's pitch and roll turn is learned
   from the suspension in the first few seconds of driving; until then it
   plays the up and down alone, the same at every corner.
-- **suspension**: the first version, kept: each corner's suspension
-  travel replayed directly, **full mm** being the travel that counts as
-  100 % (25 by default), with the surface grain on top (below). The most
-  direct of the three, and the sharpest over kerbs and edges.
 
-For tyre and chassis, **body mm** is the body movement that counts as
-100 % (1 by default). With a seat actuator routed at a gain of G mm and
-amp at 100 %, a body mm of G plays the body's movement one to one; lower
-it to exaggerate. **cut hz** is where the slow motion is cut (2 by
-default; raise it if the seat follows body roll the cue is already
-doing, lower it to let longer undulations through). Movements past about
-60 % of full bend over a soft knee towards 100 % instead of clipping, so
-a big hit lands as a thump rather than a snap. The per-wheel line shows
-each corner's movement and its peak in mm.
+A seat actuator is moved by the movement (how far); a belt or shaker
+pushes with its acceleration (how hard). For tyre and chassis, **body
+mm** is the body movement that counts as 100 % (1 by default): with a
+seat actuator routed at a gain of G mm and amp at 100 %, a body mm of G
+plays the body's movement one to one. **cut hz** is where the slow
+motion is cut (2 by default; raise it if the seat follows body roll the
+cue is already doing, lower it to let longer undulations through).
+Movements past about 60 % of full bend over a soft knee towards 100 %
+instead of clipping, so a big hit lands as a thump rather than a snap.
+The per-wheel line shows each corner's movement and its peak in mm.
 
 Where the sim sends nothing the chosen model can use, the tile plays the
 single `road` channel's texture instead, at **freq hz**, full at **peak
-%**. With the suspension model the tile also plays the **surface**: the
-grain of the tarmac under a rolling car, a rough texture on its own
-carrier,
-**surface hz** (12 by default, low enough for a seat actuator to carry),
-whose level rises with road speed and is full by **surface km/h** (100
-by default), at the **surface x** mix (0.2 by default; 0 turns it off).
-It is what tells you the car is moving on a smooth straight, where the
-replay alone would be silent; keep it low, it is a background, not a
-cue. (The tyre model needs no grain: its own road already has it.)
+%**. The suspension model also keeps the older **surface** grain: a rough
+texture on its own carrier, **surface hz** (12 by default), rising with
+road speed to full by **surface km/h** (100), at the **surface x** mix.
+It is off by default (0), since the roughness now does its job.
 
 ### Kerb
 

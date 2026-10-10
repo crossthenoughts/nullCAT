@@ -21,8 +21,9 @@
 // Severity staging, from the real thing: as slip grows past the limit the
 // stick-slip chatter slows and roughens (squeal, moan, shudder). The
 // carrier falls by kStageDrop at full severity and the jitter grows. The
-// onset is abrupt (kAttackSec) because a tyre lets go in milliseconds;
-// the release is the usual fade.
+// attack is the tile's attack ms (Longitudinal: 8, a tyre lets go in
+// milliseconds; Lateral: 30 by default, a softer way in); the release is
+// the usual fade.
 //
 // RT-safe: fixed arrays, no allocation, pure arithmetic.
 // ============================================================
@@ -36,7 +37,7 @@
 namespace haptics {
 
 namespace slip_k {
-    constexpr double kAttackSec  = 0.008;   // a tyre lets go in ~5-10 ms
+    constexpr double kAttackSec  = 0.008;   // the default attack (SlipParams::attackMs): a tyre lets go in ~5-10 ms
     constexpr double kReleaseSec = 0.120;
     constexpr double kStageDrop  = 0.35;    // carrier at full severity = (1 - this) x set hz
     constexpr double kStageRough = 0.6;     // jitter grows by this share at full severity
@@ -74,10 +75,13 @@ public:
 
     void step(double dtSec, const EffectParams& p, const SlipParams& s)
     {
+        // How fast a slide builds: the tile's attack ms (Longitudinal keeps
+        // the default, a tyre letting go in milliseconds).
+        const double attack = std::max(0.001, s.attackMs / 1000.0);
         for (W& w : m_w)
         {
-            ramp(w.lA, w.tA, dtSec);
-            ramp(w.lB, w.tB, dtSec);
+            ramp(w.lA, w.tA, dtSec, attack);
+            ramp(w.lB, w.tB, dtSec, attack);
             w.tA = w.tB = 0.0;    // a law that stops driving = release
         }
         // One oscillator per axle and component, staged by the axle's
@@ -177,10 +181,10 @@ private:
     };
     static int axleOf(int wheel) { return (wheel == WheelFL || wheel == WheelFR) ? 0 : 1; }
 
-    static void ramp(double& level, double target, double dtSec)
+    static void ramp(double& level, double target, double dtSec, double attackSec)
     {
         using namespace slip_k;
-        const double rate = (target > level) ? dtSec / kAttackSec : dtSec / kReleaseSec;
+        const double rate = (target > level) ? dtSec / attackSec : dtSec / kReleaseSec;
         level += std::max(-rate, std::min(rate, target - level));
     }
 

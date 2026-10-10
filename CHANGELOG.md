@@ -9,19 +9,24 @@ middle number carries breaking changes and the last carries fixes.
 Development branch. Nothing here is in a release yet.
 
 ### Added
-- Road **model**: the road as the car's body feels it. **tyre** (the new
-  default) runs a model of each corner (tyre, spring and damper, the
-  body above: `body hz`, `hop hz`, `damping`) over the road under that
-  tyre: the sim's own road where it sends one (Assetto Corsa), else its
-  suspension, plus a fine roughness laid out along the road (`rough x`),
-  so its pitch follows speed and the rears meet each bump a wheelbase
-  after the fronts, rougher on gravel, grass and cobbles where the sim
-  says what is under the tyre (Automobilista 2). **chassis** plays the
-  sim's own body heave, pitch and roll, learning which way they turn
-  from the suspension. **suspension** is the replay below, kept. A seat
-  actuator gets the body's movement (`body mm` is 100 %), a belt or
-  shaker its acceleration. Existing users: the Road tile moves to the
-  tyre model; set model to suspension to keep the old replay.
+- Road **model**. **suspension** (the default) replays each corner's
+  suspension movement from the sim and adds the road's fine roughness a
+  sim does not model: a random road laid out along the track (`rough
+  x`), run through the tyre and the corner's spring and damper (`body
+  hz`, `hop hz`, `damping`), so it rises with speed, reaches the rears a
+  wheelbase after the fronts and is rougher on gravel, grass and cobbles
+  where the sim says what is under the tyre (Automobilista 2). **tyre**
+  plays the body's movement over the road under each tyre (the sim's own
+  road where it sends one, Assetto Corsa) with the same roughness;
+  **chassis** plays the sim's own body heave, pitch and roll, learning
+  which way they turn from the suspension. A seat actuator gets the
+  movement, a belt or shaker its acceleration. The old surface grain is
+  still there but off by default: the roughness does its job.
+- Lateral slip: how a slide comes in is now yours to set. **onset %**
+  (where it starts, as a share of peak deg; 40, was a fixed 60), **ease**
+  (0 straight up, 1 a light scrub first), **smooth hz** (steadies the
+  slip angle the sim sends, which flickered around the onset and played
+  in lumps) and **attack ms** (how fast a slide builds; 30, was 8).
 - **Kerb** is a rumble strip: ribs every `pitch cm` humming at speed
   over the pitch, a thud on and off on a seat actuator, the ribs and a
   kick on and off on a belt or shaker, per corner (routes take a part
@@ -184,6 +189,16 @@ Development branch. Nothing here is in a release yet.
   seconds in the pits. The SimHub plugin goes quiet on pause by itself.
 
 ### Fixed
+- Haptics on the seat actuators with motion off: unparking with no
+  motion data from the sim but its channels still arriving made the
+  verticals run wild (the haptic movement built up on itself every
+  cycle), and the next unpark after a park could fault the drives with
+  an excessive position step. The hold no longer includes the haptics,
+  the haptics guard starts fresh every time an axis goes live, the
+  command can never move faster than the axis's maximum velocity or
+  reverse faster than its acceleration allows, and a last check before
+  every command holds it to that and logs it if anything upstream ever
+  lets a bigger step through.
 - The Driveline tile's wave stayed "live" after its first shunt knock
   (Test, or any fast throttle crossing): a finished knock kept counting
   towards the tile's level for ever. The output itself was right; the

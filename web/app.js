@@ -1125,7 +1125,7 @@ const HAP_FLAG_TOKENS=['absActive','limiter','tcActive','pitLimiter'];
 function hapWheelSet(k){ return k==='slipLat'?0:k==='slipLon'?1:k==='road'?2:k==='kerb'?3:-1; }
 // Road: the settings each model reads (the rest are dimmed), and the
 // roadNoise texture's, live only while the model has nothing to run on.
-const HAP_ROAD_MODEL_KEYS=[['fullMm','surface','surfaceHz','surfaceKmh'],
+const HAP_ROAD_MODEL_KEYS=[['fullMm','surface','surfaceHz','surfaceKmh','rough','bodyHz','hopHz','damping'],
   ['bodyMm','rough','bodyHz','hopHz','damping'],['bodyMm']];
 const HAP_ROAD_ALL_KEYS=['fullMm','surface','surfaceHz','surfaceKmh','bodyMm','rough','bodyHz','hopHz','damping'];
 const HAP_ROAD_TEX_KEYS=['freqHz','jitter','peakPct'];

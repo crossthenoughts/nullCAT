@@ -13,8 +13,13 @@
 // the road; one that replays suspension travel directly turns every sharp
 // edge into a pop (felt acceleration grows with frequency squared).
 //
-//   0 SUSPENSION  the first cut, kept: each corner's suspension travel (or
-//                 velocity, integrated), high-passed at cut hz, /fullMm.
+//   0 SUSPENSION  each corner's suspension travel (or velocity,
+//                 integrated), high-passed at cut hz, /fullMm, plus the
+//                 road's fine roughness the sim does not model: the same
+//                 random road as model 1, laid out by distance, through the
+//                 tyre's envelope and a quarter car, its SUSPENSION movement
+//                 (wheel against body) added to the sim's. rough x 0 = the
+//                 sim's travel alone.
 //   1 TYRE        a quarter car per corner (sprung mass, spring, damper,
 //                 unsprung mass, tyre: body hz, hop hz, damping) driven by
 //                 the road under that tyre: the sim's real road where it
@@ -73,8 +78,12 @@ namespace road_k {
     constexpr double kForceRefHz   = 8.0;   // a force sink's 100% = full scale moved at this rate
     constexpr double kInputLpHz    = 25.0;  // sim values arrive ~60 times a second, held: smooth the steps
     // Roughness per surface class (tarmac, bumpy, kerb, gravel, grass, dirt,
-    // cobbles), x the tarmac road. Kerb ribs are the Kerb tile's.
+    // cobbles), x the tarmac road's SHORT wavelengths (under kSurfWaveM: the
+    // surface, not the undulations a car rides over anyway). Kerb ribs are
+    // the Kerb tile's. A change of surface eases in over kSurfEaseSec.
     constexpr double kSurfGain[SURFACE_CLASS_COUNT] = { 1.0, 3.0, 1.0, 6.0, 3.0, 5.0, 4.0 };
+    constexpr double kSurfWaveM   = 2.0;
+    constexpr double kSurfEaseSec = 0.1;
     // Chassis model.
     constexpr double kLearnSec   = 5.0;     // sign learning memory
     constexpr double kLearnCorr  = 0.3;     // correlation that sets a sign
@@ -249,7 +258,7 @@ public:
 
         if (model == 1)      stepTyre(dtSec, p, hp);
         else if (model == 2) stepChassis(dtSec, p, hp, leak);
-        else                 stepSuspension(dtSec, p);
+        else                 stepSuspension(dtSec, p, hp);
 
         // Gate: on while anything drives the model, fading when it stops.
         for (W& w : m_w)
@@ -342,33 +351,96 @@ private:
         double zrF = 0.0;                                        // after the tyre's envelope
         QuarterCar qc;
         double zsHp = 0.0, zsPrev = 0.0, asHp = 0.0, asPrev = 0.0;
+        // the random road under this tyre (both models)
+        double rBase = 0.0, rShort = 0.0, rPrev = 0.0, rGain = 1.0; bool rSeen = false;
+        // suspension model's roughness: its quarter car and output
+        double synF = 0.0, dHp = 0.0, dPrev = 0.0;
+        QuarterCar qr;
         // out
         RoadOut out;
         double mm = 0.0, gate = 0.0;
     };
 
-    void stepSuspension(double dtSec, const RoadParams& p)
+    void stepSuspension(double dtSec, const RoadParams& p, double hpHz)
     {
         using namespace road_k;
         const double full = std::max(kMinFullMm, p.fullMm);
         const double smooth = 1.0 - std::exp(-2.0 * wavesynth::kPi * kSmoothHz * dtSec);
-        for (W& w : m_w)
+        const bool rough = p.rough > 0.0;
+        double envA = 0.0, outA = 0.0, wb = 0.0;
+        QuarterCar::K k;
+        if (rough)
         {
-            w.y += (softKnee(w.x / full) - w.y) * smooth;
-            w.out.pos = w.out.force = w.y;
-            w.mm = w.x;
+            advanceRoad(dtSec);
+            wb   = (m_wheelbase > 0.0) ? m_wheelbase : kDefaultWheelbaseM;
+            envA = 1.0 - std::exp(-2.0 * wavesynth::kPi * envelopeHz(dtSec) * dtSec);
+            outA = std::exp(-2.0 * wavesynth::kPi * hpHz * dtSec);
+            k    = QuarterCar::params(p.bodyHz, p.hopHz, p.damping);
         }
+        for (int i = 0; i < WHEEL_COUNT; ++i)
+        {
+            W& w = m_w[i];
+            double add = 0.0;
+            if (rough)
+            {
+                // The roughness through the tyre and the corner: what the
+                // suspension does over it (the wheel against the body).
+                w.synF += (roughAt(i, dtSec, p, wb) - w.synF) * envA;
+                w.qr.step(dtSec, w.synF, k);
+                const double d = w.qr.zu - w.qr.zs;
+                w.dHp = outA * (w.dHp + d - w.dPrev); w.dPrev = d;
+                add = w.dHp;
+            }
+            const double total = w.x + add;
+            w.y += (softKnee(total / full) - w.y) * smooth;
+            w.out.pos = w.out.force = w.y;
+            w.mm = total;
+        }
+    }
+
+    // The random road moves under the car with the distance it covers.
+    void advanceRoad(double dtSec)
+    {
+        using namespace road_k;
+        if (m_speed > kMinSpeedMs) { m_dist += m_speed * dtSec; generateTo(m_dist); }
+        else if (m_genIdx < 0) generateTo(m_dist);
+    }
+    // The tyre envelopes bumps shorter than its contact patch.
+    double envelopeHz(double dtSec) const
+    {
+        using namespace road_k;
+        return std::max(5.0, std::min(0.45 / dtSec, m_speed / kPatchM));
+    }
+
+    // The random road under wheel i this cycle, mm: the profile at its
+    // distance (the rears a wheelbase behind), drift off, x rough x, its
+    // short wavelengths x the surface class's gain (eased). Scaling the
+    // whole profile by surface stepped the road by tens of mm at a change of
+    // surface; the long undulations are the same road on any surface.
+    double roughAt(int i, double dtSec, const RoadParams& p, double wb)
+    {
+        using namespace road_k;
+        W& w = m_w[i];
+        const bool front = (i == WheelFL || i == WheelFR);
+        const int  side  = (i == WheelFL || i == WheelRL) ? 0 : 1;
+        const double raw = profileAt(side, front ? m_dist : m_dist - wb);
+        const double gTarget = kSurfGain[w.surface];
+        if (!w.rSeen) { w.rPrev = raw; w.rBase = w.rShort = 0.0; w.rGain = gTarget; w.rSeen = true; }
+        const double baseA  = std::exp(-2.0 * wavesynth::kPi * kRoadHpHz * dtSec);
+        const double shortA = std::exp(-2.0 * wavesynth::kPi * std::max(kRoadHpHz, m_speed / kSurfWaveM) * dtSec);
+        const double dRaw = raw - w.rPrev; w.rPrev = raw;
+        w.rBase  = baseA  * (w.rBase  + dRaw);
+        w.rShort = shortA * (w.rShort + dRaw);
+        w.rGain += (gTarget - w.rGain) * std::min(1.0, dtSec / kSurfEaseSec);
+        return std::max(0.0, p.rough) * (w.rBase + (w.rGain - 1.0) * w.rShort);
     }
 
     void stepTyre(double dtSec, const RoadParams& p, double hpHz)
     {
         using namespace road_k;
-        // The random road moves under the car with the distance it covers.
-        const double v = m_speed;
-        if (v > kMinSpeedMs) { m_dist += v * dtSec; generateTo(m_dist); }
-        else if (m_genIdx < 0) generateTo(m_dist);
+        advanceRoad(dtSec);
         const double wb = (m_wheelbase > 0.0) ? m_wheelbase : kDefaultWheelbaseM;
-        const double fc = std::max(5.0, std::min(0.45 / dtSec, v / kPatchM));
+        const double fc = envelopeHz(dtSec);
         const double envA  = 1.0 - std::exp(-2.0 * wavesynth::kPi * fc * dtSec);
         const double roadA = std::exp(-2.0 * wavesynth::kPi * kRoadHpHz * dtSec);
         const double outA  = std::exp(-2.0 * wavesynth::kPi * hpHz * dtSec);
@@ -394,10 +466,7 @@ private:
                 real = w.x;
             }
             w.realF += (real - w.realF) * inA;
-            const bool front = (i == WheelFL || i == WheelFR);
-            const int  side  = (i == WheelFL || i == WheelRL) ? 0 : 1;
-            const double syn = profileAt(side, front ? m_dist : m_dist - wb)
-                             * std::max(0.0, p.rough) * kSurfGain[w.surface];
+            const double syn = roughAt(i, dtSec, p, wb);
             w.zrF += (w.realF + syn - w.zrF) * envA;
             w.qc.step(dtSec, w.zrF, k);
             // Above cut hz: what the motion cue does not already do.

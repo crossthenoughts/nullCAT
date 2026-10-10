@@ -59,11 +59,14 @@ struct EffectInfo
     const ParamSpec* params;
     int          paramCount;
     const char*  tip;
-    // Slip only: the config keys of SlipParams {aMix, aHz, bMix, bHz, peak}
-    // and the tile's defaults for them; nullptr / unused otherwise.
+    // Slip only: the config keys of SlipParams by slipField index
+    // (SLIP_KEY_COUNT of them, a null key = not this tile's) and the tile's
+    // defaults for them; nullptr / unused otherwise.
     const char* const* slipKeys;
     SlipParams   slipDefaults;
 };
+
+constexpr int SLIP_KEY_COUNT = 9;   // SlipParams fields with a config key (slipField)
 
 namespace registry_detail {
 
@@ -83,6 +86,10 @@ constexpr ParamSpec kSlipLatParams[] = {        // lateral slip: scrub (fronts) 
     { "slide",   "slide x",    0,   1,   0.1,  nullptr },
     { "slideHz", "slide hz",   4,   30,  1,    nullptr },
     { "peakDeg", "peak deg",   2,   20,  0.5,  nullptr },
+    { "onsetPct","onset %",    0,   90,  5,    nullptr },   // the slide starts at this share of peak
+    { "ease",    "ease",       0,   2,   0.1,  nullptr },   // 0 linear, 1 a gentle start, 2 gentler
+    { "smoothHz","smooth hz",  0,   30,  1,    nullptr },   // slip angle smoothing, 0 off
+    { "attackMs","attack ms",  2,   200, 1,    nullptr },   // how fast a slide builds
     { "jitter",  "jitter",     0,   1,   0.05, nullptr },
     { "peakPct", "peak %",     1,   400, 1,    nullptr },   // combined-slip and skid-channel paths
 };
@@ -96,17 +103,21 @@ constexpr ParamSpec kSlipLonParams[] = {        // longitudinal slip: lock judde
     { "jitter",    "jitter",     0,   1,   0.05, nullptr },
     { "peakPct",   "peak %",     1,   400, 1,    nullptr },   // lockup channel fallback only
 };
-constexpr const char* kSlipLatKeys[5] = { "scrub", "scrubHz", "slide", "slideHz", "peakDeg" };
-constexpr const char* kSlipLonKeys[5] = { "lock", "lockHz", "spin", "spinHz", "peakRatio" };
+// SlipParams fields by index (slipField). A null key = that tile does not
+// carry the field (Longitudinal keeps its fixed onset and curve).
+constexpr const char* kSlipLatKeys[SLIP_KEY_COUNT] = { "scrub", "scrubHz", "slide", "slideHz", "peakDeg",
+                                                       "onsetPct", "ease", "smoothHz", "attackMs" };
+constexpr const char* kSlipLonKeys[SLIP_KEY_COUNT] = { "lock", "lockHz", "spin", "spinHz", "peakRatio",
+                                                       nullptr, nullptr, nullptr, nullptr };
 constexpr ParamSpec kRoadParams[] = {           // road: the model, its settings, the texture fallback
     { "ampPct",     "amp %",       0,   100, 1,    nullptr },
     { "model",      "model",       0,   2,   1,    "suspension|tyre|chassis" },
     { "bodyMm",     "body mm",     0.1, 20,  0.1,  nullptr },   // tyre, chassis: body movement = 100%
     { "hpHz",       "cut hz",      0.5, 10,  0.5,  nullptr },
-    { "rough",      "rough x",     0,   20,  0.1,  nullptr },   // tyre: road roughness
-    { "bodyHz",     "body hz",     0.8, 8,   0.1,  nullptr },   // tyre: the car's body bounce
-    { "hopHz",      "hop hz",      6,   30,  0.5,  nullptr },   // tyre: wheel hop
-    { "damping",    "damping",     0.05, 1.5, 0.05, nullptr },  // tyre: damping ratio
+    { "rough",      "rough x",     0,   20,  0.1,  nullptr },   // tyre, suspension: road roughness
+    { "bodyHz",     "body hz",     0.8, 8,   0.1,  nullptr },   // tyre, suspension roughness: the car's body bounce
+    { "hopHz",      "hop hz",      6,   30,  0.5,  nullptr },   // tyre, suspension roughness: wheel hop
+    { "damping",    "damping",     0.05, 1.5, 0.05, nullptr },  // tyre, suspension roughness: damping ratio
     { "fullMm",     "full mm",     0.5, 50,  0.5,  nullptr },   // suspension: travel = 100%
     { "surface",    "surface x",   0,   1,   0.05, nullptr },   // suspension: tarmac grain rising with road speed
     { "surfaceHz",  "surface hz",  4,   40,  1,    nullptr },   // ...on its own carrier
@@ -202,16 +213,17 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "slide on that path).",
       kSlipLonKeys, { 1.0, 9.0, 1.0, 16.0, 0.8 } },
     { Effect::Skid,        "slipLat",     "Lateral slip", Kind::Slip, EventType::COUNT, FxType::Skid,
-      { "slipAngle*|wheelSlip*|skid", "speedKmh", "~load*", nullptr }, { 0.0, 20.0, 0.0, 0.5 }, kSlipLatParams, 8,
+      { "slipAngle*|wheelSlip*|skid", "speedKmh", "~load*", nullptr }, { 0.0, 20.0, 0.0, 0.5 }, kSlipLatParams, 12,
       "The tyres sliding, per wheel. Scrub: the fronts pushing wide, a fine texture. Slide: the rears stepping "
-      "out, an irregular slower chatter. Severity rises from the slip angle past the tyre's limit up to peak "
-      "deg; the carrier slows and roughens as it goes (squeal, moan, shudder) and the onset is abrupt. The loaded "
-      "tyre is weighted up when wheel loads arrive; the two wheels of an axle move together. Route with a part "
-      "(a corner, an axle, all). Needs per-wheel slip angles; else the per-wheel combined slip (Assetto Corsa, "
-      "Automobilista 2: any sliding tyre, spinning and locking included), from a third of peak % up to full at "
-      "peak % (the chip shows the value arriving and its peak); else the single skid channel. Nothing at a "
-      "standstill.",
-      kSlipLatKeys, { 1.0, 20.0, 1.0, 11.0, 7.0 } },
+      "out, an irregular slower chatter. A slide starts at onset % of peak deg and is full at peak deg; ease "
+      "shapes the way in (0 straight up, 1 a light scrub first, 2 lighter still), smooth hz steadies the slip "
+      "angle the sim sends, attack ms is how fast a slide builds. The carrier slows and roughens as the slide "
+      "grows (squeal, moan, shudder). The loaded tyre is weighted up when wheel loads arrive; the two wheels of "
+      "an axle move together. Route with a part (a corner, an axle, all). Needs per-wheel slip angles; else the "
+      "per-wheel combined slip (Automobilista 2: any sliding tyre, spinning and locking included), from onset % "
+      "of peak % up to full at peak % (the chip shows the value arriving and its peak); else the single skid "
+      "channel. Nothing at a standstill.",
+      kSlipLatKeys, { 1.0, 20.0, 1.0, 11.0, 7.0, 40.0, 1.0, 8.0, 30.0 } },
     { Effect::Road,        "road",        "Road",         Kind::Road, EventType::COUNT, FxType::Road,
       { "roadHeight*|suspVel*|suspTravel*|roadNoise", "speedKmh", "~surface*", "~accHeave", nullptr },
       { 0.0, 16.0, 0.0, 0.6 }, kRoadParams, 15,
@@ -222,9 +234,11 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "out by distance (rough x, more on bumpy roads, gravel, grass), so it rises in pitch with speed and the "
       "rears meet each bump a wheelbase after the fronts. Model CHASSIS: the sim's own body heave, pitch and roll "
       "in that band, spread to the corners. body mm is the body movement that counts as 100% (set it to your "
-      "route gain to play the body 1:1). Model SUSPENSION: the first cut, the suspension travel itself, full at "
-      "full mm, with the surface grain (surface x, hz, km/h). Without per-corner data, a texture at freq hz from "
-      "the roadNoise channel, full at peak %.",
+      "route gain to play the body 1:1). Model SUSPENSION (the default): the sim's suspension travel itself, full "
+      "at full mm, plus the road's fine roughness the sim does not model (rough x, through the tyre and the "
+      "corner's spring and damper: body hz, hop hz, damping), rising with speed, rougher on gravel, grass and "
+      "cobbles; rough x 0 = the sim's travel alone. The old surface grain (surface x, hz, km/h) is still there, "
+      "off by default. Without per-corner data, a texture at freq hz from the roadNoise channel, full at peak %.",
       nullptr, {} },
     { Effect::Limiter,     "limiter",     "Limiter",      Kind::Continuous, EventType::COUNT, FxType::Limiter,
       { "limiter", nullptr }, { 0.0, 12.0, 0.0, 0.15 }, kTextureParams, 3,
@@ -309,6 +323,10 @@ inline double& slipField(SlipParams& s, int i)
         case 1: return s.aHz;
         case 2: return s.bMix;
         case 3: return s.bHz;
+        case 5: return s.onsetPct;
+        case 6: return s.ease;
+        case 7: return s.smoothHz;
+        case 8: return s.attackMs;
         default: return s.peak;
     }
 }
