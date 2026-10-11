@@ -125,9 +125,10 @@ log "Installing packages (toolchain + RT kernel)"
 sudo apt-get update -qq
 sudo apt-get install -y --no-install-recommends \
     build-essential cmake git pkg-config ethtool libcap2-bin curl \
-    qt6-base-dev libgpiod-dev linux-image-rpi-v8-rt libasound2
+    qt6-base-dev libgpiod-dev linux-image-rpi-v8-rt libasound2 alsa-utils
 # libasound2: ALSA for the shaker outputs (a USB sound card), loaded at run
-# time by the audio backend, so only the shared library is needed.
+# time by the audio backend, so only the shared library is needed;
+# alsa-utils: amixer, which nullCAT uses to put the shaker card at full line level.
 # linux-image-rpi-v8-rt: the stock Raspberry Pi PREEMPT_RT kernel. The
 # bootloader prefers it once installed; verify after reboot with uname -r.
 # qt6-base-dev: build-time only (Config JSON + the Qt Test suites).
@@ -355,6 +356,7 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable nullcat-irq-affinity.service >/dev/null 2>&1
 ok "nullcat-irq-affinity.service installed (housekeeping cores ${IRQ_HK_CPUS})"
+
 
 # ----------------------------------------------------------------------------
 # 10. Versioned install layout (/opt/nullcat) -- the click-updater's home

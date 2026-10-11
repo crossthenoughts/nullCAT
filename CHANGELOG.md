@@ -251,6 +251,20 @@ Development branch. Nothing here is in a release yet.
   seconds in the pits. The SimHub plugin goes quiet on pause by itself.
 
 ### Fixed
+- Shakers on the Pi were near silent, the back channels quieter still, and
+  late. nullCAT opened the sound card through the system's shared stereo
+  layer (it lists the card under several names), squeezing the eight
+  shaker channels into two with a buffer of 60 ms and more. It now opens
+  the card directly: every channel its own, about 15 ms of buffer (if
+  another program holds the card it falls back and says so; the log names
+  the device it opened). It also sets that card's output to full line
+  level, since many USB boxes start at about -24 dB; set the shaker volume
+  on the amps and the route gains.
+- Shaker routes vanished: every reload of the page (a car preset applied,
+  a profile loaded) dropped them from its copy of the settings, and the
+  next Save wrote the haptics back without them. A route drawer left open
+  across a reload also kept editing the old copy, so edits never reached
+  Save. Both fixed.
 - Pi: re-running the installer from a clone after a version change kept
   the previous version's stamp in an existing build folder, so the new
   build installed under the old version's name. A version change now

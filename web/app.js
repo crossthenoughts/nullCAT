@@ -1340,6 +1340,10 @@ function hapDrawerRender(fx){
   // visit, not two (it used to close on the first change, dropping the
   // field being typed into). The tile's chip mirrors the routes in place.
   dr.querySelectorAll('input,select').forEach(inp=>{ inp.onchange=()=>{
+    // Write to the config the page holds NOW: a reload under an open drawer
+    // (a car preset applied, a profile loaded) replaces it, and edits made
+    // to the old one never reached Save.
+    const cur=(cfgObj&&cfgObj.haptics&&cfgObj.haptics[fx.k])||dv;
     const routes=[];
     dr.querySelectorAll('input[data-axis]').forEach(x=>{
       const g=+x.value; if(!(isFinite(g)&&g>0)) return;
@@ -1351,8 +1355,8 @@ function hapDrawerRender(fx){
       const g=+x.value; if(!(isFinite(g)&&g>0)) return;
       const hs=dr.querySelector('select[data-harm="'+x.dataset.shaker+'"]');
       routes.push({shaker:+x.dataset.shaker,gain:Math.min(2,g),harm:hs?(+hs.value||1):1}); });
-    dv.routes=routes.slice(0,14);
-    const t=hapTiles[fx.k]; if(t){ const c=t.tile.querySelector('.hap-routechip'); if(c) c.textContent=hapChipText(dv); }
+    cur.routes=routes.slice(0,14);
+    const t=hapTiles[fx.k]; if(t){ const c=t.tile.querySelector('.hap-routechip'); if(c) c.textContent=hapChipText(cur); }
     refreshDirtyUI();
   }; });
 }
@@ -1624,12 +1628,14 @@ function hapInit(){
     for(const p in HAP_DEF[k]) if(cur[p]===undefined)
       cur[p]=Array.isArray(HAP_DEF[k][p])?HAP_DEF[k][p].slice():HAP_DEF[k][p];
   }
-  // Routes are explicit axis indices only; drop anything else (early
+  // Routes are an axis index or a shaker channel; drop anything else (early
   // 0.9.6 configs carried a since-removed "own axis" -2 default - the
-  // server does the same on read).
+  // server does the same on read). Shaker routes have no axis: filtering on
+  // the axis alone dropped them on every reload, and the next Save wrote
+  // the haptics back without them.
   for(const k in cfgObj.haptics)
     if(Array.isArray(cfgObj.haptics[k].routes))
-      cfgObj.haptics[k].routes=cfgObj.haptics[k].routes.filter(r=>r&&r.axis>=0);
+      cfgObj.haptics[k].routes=cfgObj.haptics[k].routes.filter(r=>r&&(r.axis>=0||r.shaker>=0));
   if(typeof cfgObj.haptics.masterGain!=='number') cfgObj.haptics.masterGain=1;
   if(typeof cfgObj.haptics.positionBudget!=='number') cfgObj.haptics.positionBudget=0.4;
   if(typeof cfgObj.haptics.axisDelayMs!=='number') cfgObj.haptics.axisDelayMs=0;
@@ -1836,6 +1842,8 @@ function hapInit(){
     strip.appendChild(tile);
   }
   hapCarRefresh();   // the car line and the Engine tile's notes, once the tiles exist
+  // A route drawer open across a rebuild shows the config as it is now.
+  if(hapOpenDrawer&&hapTiles[hapOpenDrawer]){ const k=hapOpenDrawer; hapOpenDrawer=null; hapDrawerRender(hapTiles[k].fx); }
 }
 
 function devInit(){

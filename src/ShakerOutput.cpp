@@ -39,6 +39,7 @@
 #endif
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 
 #include <cstring>
 
@@ -85,11 +86,39 @@ void ShakerOutput::dataCallback(void* device, void* out, const void* /*in*/, uns
     self->m_dsp.render(static_cast<float*>(out), static_cast<int>(frames));
 }
 
+#if defined(__linux__)
+// A shaker card plays at full line level: the volume belongs on the amps and
+// the route gains, and many USB boxes come up at about -24 dB (a bench rig's
+// shakers were near silent). Output controls only, playback direction only:
+// Mic and Line also have a playback path (input monitoring) and are left
+// alone. Runs once per open, never on the RT path; a card without one of
+// these controls (or no amixer) is simply left as it is.
+static void fullLineLevel(const std::string& alsaId)
+{
+    // hw:CARD=NAME,DEV=0 or hw:0,0 -> the card name or number.
+    const size_t colon = alsaId.find(':');
+    if (colon == std::string::npos) return;
+    std::string card = alsaId.substr(colon + 1);
+    if (card.rfind("CARD=", 0) == 0) card = card.substr(5);
+    card = card.substr(0, card.find(','));
+    if (card.empty() || card.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-") != std::string::npos)
+        return;   // only plain names reach the shell
+    static const char* const kOutputs[] = { "Master", "Speaker", "PCM", "Headphone", "Front",
+                                            "Surround", "Center", "LFE", "Side", "Rear" };
+    for (const char* c : kOutputs)
+    {
+        const std::string cmd = "amixer -q -c '" + card + "' sset '" + c + "' playback 100% unmute >/dev/null 2>&1";
+        (void)std::system(cmd.c_str());
+    }
+}
+#endif
+
 bool ShakerOutput::open(const std::string& deviceName, int channels, double controlHz, int sampleRate)
 {
     close();
     std::lock_guard<std::mutex> lk(m_mx);
     m_error.clear();
+    std::string fallbackReason;   // why a shared device was opened instead of the raw one (empty = it was not)
     if (!m_impl->contextOk) { m_error = "no audio backend available"; return false; }
     channels = std::max(1, std::min(MAX_SHAKERS, channels));
 
@@ -103,8 +132,16 @@ bool ShakerOutput::open(const std::string& deviceName, int channels, double cont
     cfg.periods            = 3;
 
     // Device by name (substring, case-insensitive), "" = default, "null" = the null backend.
+    // On ALSA one card is listed under several names with the same
+    // description (hw:, plughw:, default:, sysdefault:, front:, surroundNN:).
+    // The shared ones (default: is dmix) carry two channels and a large
+    // buffer: eight shaker channels squeezed into stereo, 60+ ms late. Prefer
+    // the raw hw: device (every channel, the periods asked for), then
+    // plughw:, then whatever else matched; a busy hw: falls back below.
     ma_device_id chosen; bool haveId = false;
+    ma_device_id fallback; bool haveFallback = false;
     const bool wantNull = (deviceName == "null");
+    const bool alsa = (m_impl->context.backend == ma_backend_alsa);
     if (!deviceName.empty() && !wantNull)
     {
         ma_device_info* playback = nullptr; ma_uint32 count = 0;
@@ -112,11 +149,21 @@ bool ShakerOutput::open(const std::string& deviceName, int channels, double cont
         {
             std::string want = deviceName;
             for (char& c : want) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            for (ma_uint32 i = 0; i < count && !haveId; ++i)
+            int bestRank = 99, nextRank = 99;
+            for (ma_uint32 i = 0; i < count; ++i)
             {
                 std::string have = playback[i].name;
                 for (char& c : have) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                if (have.find(want) != std::string::npos) { chosen = playback[i].id; haveId = true; }
+                std::string id = alsa ? std::string(playback[i].id.alsa) : std::string();
+                for (char& c : id) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                if (have.find(want) == std::string::npos && (id.empty() || id.find(want) == std::string::npos)) continue;
+                const int rank = !alsa ? 2 : (id.rfind("hw:", 0) == 0) ? 0 : (id.rfind("plughw:", 0) == 0) ? 1 : 2;
+                if (rank < bestRank)
+                {
+                    if (haveId) { fallback = chosen; haveFallback = true; nextRank = bestRank; }
+                    chosen = playback[i].id; haveId = true; bestRank = rank;
+                }
+                else if (rank < nextRank) { fallback = playback[i].id; haveFallback = true; nextRank = rank; }
             }
         }
         if (!haveId) { m_error = "audio device not found: " + deviceName; return false; }
@@ -136,7 +183,17 @@ bool ShakerOutput::open(const std::string& deviceName, int channels, double cont
         r = ma_device_init(&nullCtx, &cfg, &m_impl->device);
     }
     else
+    {
         r = ma_device_init(&m_impl->context, &cfg, &m_impl->device);
+        // The raw device busy (another program holds the card): the next
+        // best name for it, with the reason kept for the status line.
+        if (r != MA_SUCCESS && haveFallback)
+        {
+            fallbackReason = std::string("raw device unavailable (") + ma_result_description(r) + "), using a shared one";
+            cfg.playback.pDeviceID = &fallback;
+            r = ma_device_init(&m_impl->context, &cfg, &m_impl->device);
+        }
+    }
     if (r != MA_SUCCESS) { m_error = std::string("audio device open failed: ") + ma_result_description(r); return false; }
     m_impl->deviceOk = true;
 
@@ -147,6 +204,16 @@ bool ShakerOutput::open(const std::string& deviceName, int channels, double cont
     m_bufferMs = 1000.0 * static_cast<double>(m_impl->device.playback.internalPeriodSizeInFrames)
                * static_cast<double>(m_impl->device.playback.internalPeriods) / std::max(1, m_sampleRate);
     m_deviceName = m_impl->device.playback.name;
+    // On ALSA, which of the card's names it is (hw: = every channel, raw),
+    // and the card at full line level.
+    if (alsa && cfg.playback.pDeviceID)
+    {
+        m_deviceName += std::string(" [") + cfg.playback.pDeviceID->alsa + "]";
+#if defined(__linux__)
+        fullLineLevel(cfg.playback.pDeviceID->alsa);
+#endif
+    }
+    if (!fallbackReason.empty()) m_deviceName += " - " + fallbackReason;
 
     if (ma_device_start(&m_impl->device) != MA_SUCCESS)
     {
