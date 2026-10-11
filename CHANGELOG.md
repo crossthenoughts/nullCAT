@@ -302,6 +302,17 @@ Development branch. Nothing here is in a release yet.
   Boost now counts only for an engine set as turbo, so a sim that reports
   a naturally aspirated car's manifold pressure (about 1 bar) no longer
   makes its firings heavier either.
+- ABS in Assetto Corsa came through chopped: the game raises its ABS
+  flag in blips, about every other sample through a stop, and the ABS
+  tile started and stopped its valve cycle with every blip. The flag is
+  now held over gaps of up to 150 ms, so a stop plays one steady pulse
+  and lets go just after the last blip. Brake pressure still sets how
+  hard it pulses.
+- Automobilista 2's marbles (the loose rubber off the racing line) read
+  as dirt, so running slightly off line struck stones. They read as bumpy
+  tarmac now (update the SimHub plugin).
+- A Test press set the tiles' session peaks to full, hiding what the sim
+  had done. Peaks now skip a Test and the moment it takes to fade.
 - With the grip budget on, a slide straight along (wheelspin, a lock-up)
   took the Lateral tile's `ease` curve as well: at ease 2 a 50% wheelspin
   played at a few %. The ease shapes the sideways part only now.

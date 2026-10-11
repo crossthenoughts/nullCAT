@@ -750,20 +750,35 @@ void MotionController::trackHapticPeaks()
         for (auto& set : m_hapWheelPk) for (double& p : set) p = 0.0;
         for (double& p : m_ncxPk) p = 0.0;
     }
+    // A Test preview drives its tile at full, which is no peak from the sim:
+    // skip it, and the half second its level takes to fall away after.
+    constexpr double kPreviewPeakTailSec = 0.5;
+    bool testing[haptics::FX_TYPE_COUNT] = {};
     for (int i = 0; i < haptics::FX_TYPE_COUNT; ++i)
-        m_hapInPk[i] = std::max(m_hapInPk[i], m_haptics.fxLevel(i));
+    {
+        double& q = m_hapPreviewQuiet[i];
+        q = (m_hapLaws.previewSec[i] > 0.0) ? kPreviewPeakTailSec : std::max(0.0, q - m_cycleTimeSec);
+        testing[i] = q > 0.0;
+    }
+    const auto live = [&](haptics::FxType t) { return !testing[static_cast<int>(t)]; };
+    for (int i = 0; i < haptics::FX_TYPE_COUNT; ++i)
+        if (!testing[i]) m_hapInPk[i] = std::max(m_hapInPk[i], m_haptics.fxLevel(i));
     for (int w = 0; w < 4; ++w)
     {
-        m_hapWheelPk[0][w] = std::max(m_hapWheelPk[0][w], m_haptics.slipWheelLevel(haptics::FxType::Skid, w));
-        m_hapWheelPk[1][w] = std::max(m_hapWheelPk[1][w], m_haptics.slipWheelLevel(haptics::FxType::Lockup, w));
-        m_hapWheelPk[2][w] = std::max(m_hapWheelPk[2][w], std::fabs(m_haptics.roadWheelTravelMm(w)));
-        m_hapWheelPk[3][w] = std::max(m_hapWheelPk[3][w], m_haptics.kerbWheelLevel(w));
-        m_hapWheelPk[4][w] = std::max(m_hapWheelPk[4][w], m_haptics.wheelFlatMm(w));
-        m_hapWheelPk[5][w] = std::max(m_hapWheelPk[5][w], m_haptics.impactModel().ringLevel(w));
+        using haptics::FxType;
+        if (live(FxType::Skid))    m_hapWheelPk[0][w] = std::max(m_hapWheelPk[0][w], m_haptics.slipWheelLevel(FxType::Skid, w));
+        if (live(FxType::Lockup))  m_hapWheelPk[1][w] = std::max(m_hapWheelPk[1][w], m_haptics.slipWheelLevel(FxType::Lockup, w));
+        if (live(FxType::Road))    m_hapWheelPk[2][w] = std::max(m_hapWheelPk[2][w], std::fabs(m_haptics.roadWheelTravelMm(w)));
+        if (live(FxType::Kerb))    m_hapWheelPk[3][w] = std::max(m_hapWheelPk[3][w], m_haptics.kerbWheelLevel(w));
+        if (live(FxType::Wheels))  m_hapWheelPk[4][w] = std::max(m_hapWheelPk[4][w], m_haptics.wheelFlatMm(w));
+        if (live(FxType::Impacts)) m_hapWheelPk[5][w] = std::max(m_hapWheelPk[5][w], m_haptics.impactModel().ringLevel(w));
         m_hapWheelPk[6][w] = std::max(m_hapWheelPk[6][w], 1.0 - m_haptics.groundContact(w));   // been in the air
         m_hapWheelPk[7][w] = m_haptics.surfaceModel().surfaceClass(w);                           // (no peak: as now)
-        m_hapWheelPk[8][w] = std::max(m_hapWheelPk[8][w], m_haptics.surfaceModel().water(w));
-        m_hapWheelPk[9][w] = std::max(m_hapWheelPk[9][w], m_haptics.surfaceModel().floating(w));
+        if (live(FxType::Surface))
+        {
+            m_hapWheelPk[8][w] = std::max(m_hapWheelPk[8][w], m_haptics.surfaceModel().water(w));
+            m_hapWheelPk[9][w] = std::max(m_hapWheelPk[9][w], m_haptics.surfaceModel().floating(w));
+        }
     }
     // A slip channel means nothing at a standstill (a stationary car's slip
     // is a division by almost zero: billions on the wire), so its session

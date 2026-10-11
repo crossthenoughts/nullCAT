@@ -606,5 +606,6 @@ private:
     double           m_ncxPk          [NcxValues::TokenCount] = {};
     double           m_hapInPk   [haptics::FX_TYPE_COUNT]    = {};
     double           m_hapWheelPk[MotionStatus::HAP_WHEEL_SETS][4] = {};
+    double           m_hapPreviewQuiet[haptics::FX_TYPE_COUNT] = {};   // a Test preview and its tail: no peaks
     std::atomic<bool> m_hapPeakReset{false};
 };

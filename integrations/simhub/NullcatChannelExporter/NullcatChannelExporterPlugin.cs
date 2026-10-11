@@ -488,11 +488,11 @@ namespace NullcatChannelExporter
         {
             switch (t)
             {
-                case 2: case 3: case 4: case 11: case 35: case 36: return 1;          // bumpy roads, drains, damaged, train track
+                case 2: case 3: case 4: case 5: case 11: case 35: case 36: return 1;  // bumpy roads, marbles (loose rubber off line), drains, damaged, train track
                 case 10: case 25: case 40: case 41: return 2;                         // rumble strips, exit rumble strips, B1/B2 rumbles
                 case 8: case 9: return 3;                                             // gravel, bumpy gravel
                 case 6: case 7: case 24: case 26: case 27: case 28: case 32: return 4; // grass, verges, grasscrete, astroturf
-                case 5: case 17: case 18: case 19: case 20: case 22: case 31: return 5; // marbles, dirt, dirt roads, dirt bank, baked clay
+                case 17: case 18: case 19: case 20: case 22: case 31: return 5;       // dirt, dirt roads, dirt bank, baked clay
                 case 23: case 29: case 37: return 6;                                  // wood, cobbles
                 case 33: case 34: case 44: return 7;                                  // snow half, snow full, snow walls
                 case 45: return 8;                                                    // ice road

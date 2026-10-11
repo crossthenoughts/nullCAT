@@ -233,6 +233,21 @@ int main()
             always.brakeFull = 80.0; L.configurePulse(haptics::FxType::AbsPulse, always);
             v.val[NcxValues::BrakePct] = 85.0; settle(100);
         }
+        // Assetto Corsa blips the flag, about every other sample through a
+        // stop: held over the gaps, the pulse runs on as one.
+        {
+            double lo = 1.0;
+            for (int i = 0; i < 300; ++i)
+            {
+                v.val[NcxValues::AbsActive] = ((i / 8) % 2 == 0) ? 1.0 : 0.0;   // 16 ms on, 16 ms off
+                haptics::driveLaws(L, st, v, dt); L.step(dt);
+                if (i > 20) lo = std::min(lo, L.fxLevel(static_cast<int>(haptics::FxType::AbsPulse)));
+            }
+            check(lo > 0.99, "I-7 ABS: a flag blipping every other sample holds one steady pulse");
+            v.val[NcxValues::AbsActive] = 0.0; settle(150);
+            check(L.fxLevel(static_cast<int>(haptics::FxType::AbsPulse)) < 0.05, "I-7 ABS: the flag gone for good, it lets go");
+            v.val[NcxValues::AbsActive] = 1.0; settle(10);
+        }
         // The road speed slows the ABS cycle (slow x 0.5: half the 12 Hz set
         // at a standstill, 62.5% at 20 km/h, full from 80).
         check(std::fabs(L.absModel().rateHz() - 6.0) < 0.01, "I-7 ABS: at a standstill the cycle runs at half rate");
@@ -1035,6 +1050,26 @@ int main()
               "I-14 pulse: as strong as the front's slide");
         check(L.slipWheelScreech(WheelFL) > 0.85, "I-14 screech: near full near the peak");
         check(L.slipWheelScreech(WheelRL) == 0.0 && L.slipWheelPulse(WheelRL) == 0.0, "I-14: the rears neither screech nor pulse (their slide is the slide)");
+    }
+
+    // ---- I-16: a Test preview is no session peak ----
+    {
+        MotionController mc;
+        mc.configure(makeBeltConfig(50.0, 1.0));
+        mc.setEmergencyStop(false);
+        tensionBelt(mc);
+        run(mc, frame(0.0, true), 400, 1);           // ONLINE, the skid channel at 0
+        mc.requestHapticPeakReset();
+        MotionCommand t; t.type = MotionCommand::Type::HapticsTest; t.intVal = static_cast<int>(haptics::Effect::Skid);
+        mc.enqueueCommand(t);
+        run(mc, frame(0.0, true), 8000, 1);          // the preview, and well past it
+        const int fx = static_cast<int>(haptics::FxType::Skid);
+        MotionStatus ms = mc.getMotionStatus();
+        check(ms.hapticsInPk[fx] < 0.01 && ms.hapticsWheelPk[0][WheelFL] < 0.01,
+              "I-16: a Test preview leaves the session peaks alone");
+        run(mc, frame(40.0, true), 600, 1);          // the sim's own slide
+        ms = mc.getMotionStatus();
+        check(ms.hapticsInPk[fx] > 0.3, "I-16: the sim's own slide still sets the peak");
     }
 
     // ---- I-15: what the sim sends that cannot be true ----
