@@ -181,8 +181,9 @@ int main(int argc, char* argv[])
         for (const haptics::ShakerBank::Info& i : shakers.info())
         {
             if (i.open)
-                LOG_INFO(strf("Shakers %d-%d: '%s', %d channel(s) at %d Hz, buffer %.1f ms.",
-                              i.firstShaker + 1, i.firstShaker + i.channels, i.name.c_str(), i.channels, i.sampleRate, i.bufferMs));
+                LOG_INFO(strf("Shakers %d-%d: '%s', %d channel(s) at %d Hz, latency %.1f ms (card buffer %.1f ms).",
+                              i.firstShaker + 1, i.firstShaker + i.channels, i.name.c_str(), i.channels, i.sampleRate,
+                              i.latencyMs, i.bufferMs));
             else
                 LOG_WARNING(strf("Shakers %d-%d: %s -- those routes stay silent.",
                                  i.firstShaker + 1, i.firstShaker + i.channels, i.error.c_str()));

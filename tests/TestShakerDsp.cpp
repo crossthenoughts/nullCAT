@@ -11,7 +11,9 @@
 //   S-4  a producer that floods never blocks and never corrupts (oldest
 //        dropped), the ring stays bounded;
 //   S-5  a constant input is blocked to zero (DC block); overdrive soft
-//        clips below 1.0; per-channel gain; channels are independent.
+//        clips below 1.0; per-channel gain; channels are independent;
+//   S-6  the ring is held at ~12 ms (and at least 2.5 device periods), not
+//        half its size: a pushed edge reaches the output that soon.
 #include "../src/ShakerDsp.h"
 #include <cmath>
 #include <cstdio>
@@ -96,8 +98,8 @@ static double maxStep(const std::vector<double>& v) { double m = 0; for (size_t 
 
 int main()
 {
-    // Prime: half a ring of silence so the servo starts centred.
-    auto prime = [](Harness& h) { double z[haptics::MAX_SHAKERS] = {}; for (int i = 0; i < haptics::SHAKER_RING / 2; ++i) h.dsp.push(z, h.dsp.channels()); };
+    // Prime: the target's worth of silence so the servo starts there.
+    auto prime = [](Harness& h) { double z[haptics::MAX_SHAKERS] = {}; for (int i = 0; i < h.dsp.target(); ++i) h.dsp.push(z, h.dsp.channels()); };
 
     // ---- S-1 ----
     {
@@ -117,24 +119,26 @@ int main()
     {
         // The harness pushes in blocks of 10 and reads the fill at the low
         // point of that ripple, so the exact-rate run is the baseline the
-        // drifted runs are judged against (not the half-ring mark).
+        // drifted runs are judged against (not the target itself).
         Harness exact(2000.0, 48000.0, 1, 1.0); prime(exact);
         exact.run(48000 * 20, [](double t, double* s) { s[0] = 0.5 * std::sin(2 * kPi * 30.0 * t); });
         const double baseFill = exact.fillSum / exact.samples, baseTrim = exact.trimSum / exact.samples;
         Harness fast(2000.0, 48000.0, 1, 1.0 + 100e-6); prime(fast);
         fast.run(48000 * 20, [](double t, double* s) { s[0] = 0.5 * std::sin(2 * kPi * 30.0 * t); });
         // Proportional servo: a fast producer parks the ring a little ABOVE
-        // half (the offset that makes the trim positive); the per-block
+        // the target (the offset that makes the trim positive: 100 ppm of
+        // 0.5% full trim = 2% of the target, half a sample); the per-block
         // producer ripple (10 samples) is larger than that offset, so judge
         // by the averages over the run, not the last sample.
+        const int tgt = exact.dsp.target();
         const double fastFill = fast.fillSum / fast.samples, fastTrim = fast.trimSum / fast.samples;
-        check(fastFill > haptics::SHAKER_RING / 4 && fastFill < 3 * haptics::SHAKER_RING / 4, "S-2 a 100 ppm fast producer: the ring stays near half over 20 s");
-        check(fastTrim > baseTrim && fastFill > baseFill + 1.0, "S-2 the servo trimmed the step up to match it (ring parked higher than at the exact rate)");
+        check(fastFill > tgt / 2.0 && fastFill < 2.0 * tgt, "S-2 a 100 ppm fast producer: the ring stays near its target over 20 s");
+        check(fastTrim > baseTrim && fastFill > baseFill + 0.2, "S-2 the servo trimmed the step up to match it (ring parked higher than at the exact rate)");
         Harness slow(2000.0, 48000.0, 1, 1.0 - 100e-6); prime(slow);
         slow.run(48000 * 20, [](double t, double* s) { s[0] = 0.5 * std::sin(2 * kPi * 30.0 * t); });
         const double slowFill = slow.fillSum / slow.samples, slowTrim = slow.trimSum / slow.samples;
-        check(slowFill > haptics::SHAKER_RING / 4 && slowFill < 3 * haptics::SHAKER_RING / 4, "S-2 a 100 ppm slow producer: the ring stays near half over 20 s");
-        check(slowTrim < baseTrim && slowFill < baseFill - 1.0, "S-2 the servo trimmed the step down to match it (ring parked lower than at the exact rate)");
+        check(slowFill > tgt / 2.0 && slowFill < 2.0 * tgt, "S-2 a 100 ppm slow producer: the ring stays near its target over 20 s");
+        check(slowTrim < baseTrim && slowFill < baseFill - 0.2, "S-2 the servo trimmed the step down to match it (ring parked lower than at the exact rate)");
         check(exact.dsp.underruns() == 0, "S-2 an exact producer never underruns");
         check(fast.dsp.underruns() == 0 && slow.dsp.underruns() == 0, "S-2 neither drift causes an underrun");
         // A 500 Hz control loop (PC) works the same.
@@ -148,9 +152,9 @@ int main()
         Harness h(2000.0, 48000.0, 1); prime(h);
         h.run(24000, [](double t, double* s) { s[0] = 0.7 * std::sin(2 * kPi * 25.0 * t); });
         h.run(24000, [](double, double* s) { s[0] = 0.0; }, false);   // producer stops
-        // Half a ring (128 samples at 2 kHz = 64 ms = 3072 frames) drains
-        // first, then the 4 ms fade, then the 5 Hz DC block's own tail
-        // (~32 ms time constant) rings down: silence by ~250 ms after the stop.
+        // The ring (its ~12 ms target) drains first, then the 4 ms fade,
+        // then the 5 Hz DC block's own tail (~32 ms time constant) rings
+        // down: silence by ~250 ms after the stop.
         const auto gap = h.chan(0, 24000 + 12000, 48000);
         check(peak(gap) < 1e-3, "S-3 an underrun fades to silence");
         check(h.dsp.underruns() == 1, "S-3 one underrun counted for one stall");
@@ -183,6 +187,30 @@ int main()
         const double p2 = peak(h.chan(2, 72000, 96000));
         check(p2 <= 1.0 + 1e-9 && p2 > 0.98, "S-5 an overdriven input soft-clips at full scale, never above");
         approx(mean(h.chan(2, 72000, 96000)), 0.0, 0.01, "S-5 the clipped channel carries no DC");
+    }
+
+    // ---- S-6 ----
+    {
+        // The target: ~12 ms at 2 kHz (24-25 samples), at least 2.5 device
+        // periods (a 10 ms period: 25 ms), and the same in time at 500 Hz.
+        ShakerDsp d; d.configure(2000.0, 48000.0, 1); d.setPeriodFrames(240);
+        check(d.target() >= 24 && d.target() <= 26, "S-6 2 kHz, 5 ms periods: the ring is held at ~12 ms (24-26 samples)");
+        d.setPeriodFrames(480);
+        approx(d.targetMs(), 25.0, 0.6, "S-6 10 ms periods: at least 2.5 of them");
+        ShakerDsp p; p.configure(500.0, 48000.0, 1); p.setPeriodFrames(240);
+        check(p.targetMs() >= 12.0 && p.targetMs() <= 14.5, "S-6 500 Hz: the same ~12 ms");
+        // An edge pushed into a settled chain reaches the output within the
+        // target plus the filters, not 64 ms later.
+        Harness h(2000.0, 48000.0, 1); h.dsp.setPeriodFrames(240); prime(h);
+        h.run(48000, [](double, double* s) { s[0] = 0.0; });   // settle on silence
+        const double edgeAt = h.tCtrl;
+        h.run(4800, [&](double t, double* s) { s[0] = (t >= edgeAt) ? 0.5 : 0.0; });
+        const auto v = h.chan(0, 48000, 48000 + 4800);
+        size_t first = v.size();
+        for (size_t i = 0; i < v.size(); ++i) if (std::fabs(v[i]) > 0.1) { first = i; break; }
+        const double delayMs = 1000.0 * first / 48000.0;
+        std::printf("  S-6 edge delay through the ring and filters: %.1f ms (target %.1f ms)\n", delayMs, h.dsp.targetMs());
+        check(delayMs < 16.0, "S-6 a pushed edge reaches the output within ~15 ms");
     }
 
     std::printf("\nTestShakerDsp: %d passed, %d failed\n", g_pass, g_fail);

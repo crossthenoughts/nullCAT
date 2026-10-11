@@ -70,6 +70,9 @@ public:
     float    level(int channel) const { return m_dsp.lastOut(channel); }
     // Latency the backend reports for its buffering, ms (0 when unknown).
     double   bufferMs() const      { return m_bufferMs; }
+    // The whole delay from the control loop to the card's output, ms: the
+    // ring's target plus the card's buffer.
+    double   latencyMs() const     { return m_dsp.targetMs() + m_bufferMs; }
 
 private:
     struct Impl;

@@ -31,9 +31,19 @@
 #endif
 
 #include <cstdint>
+#include <cstdlib>
 
 namespace PlatformRT
 {
+
+// A test program (ctest sets NULLCAT_NO_RT=1) never takes the RT loop's
+// priority or its core: run beside a live loop on the same machine it
+// would starve the loop. Set and not "0" = off.
+inline bool rtDisabled()
+{
+    const char* e = std::getenv("NULLCAT_NO_RT");
+    return e && e[0] && !(e[0] == '0' && e[1] == '\0');
+}
 
 // ---- Opaque handle for platform thread state ----
 #ifdef _WIN32
@@ -81,6 +91,14 @@ inline int64_t qpfTicks()
 inline RtHandle threadSetup(int coreIndex = 3)
 {
     RtHandle h;
+    if (rtDisabled())
+    {
+#ifdef _WIN32
+        h.hThread = GetCurrentThread();
+#endif
+        LOG_INFO("PlatformRT: NULLCAT_NO_RT set (a test run): normal priority, no core pinning.");
+        return h;
+    }
 
 #ifdef _WIN32
     h.hThread = GetCurrentThread();

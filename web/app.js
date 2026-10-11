@@ -1078,7 +1078,7 @@ async function hapLoadSchema(){
     HAP_FX=(j.effects||[]).map(e=>({
       k:e.key, label:e.label, transient:e.kind==='transient', slip:e.kind==='slip', parts:!!e.parts, fxIdx:e.fxIdx,
       chan:e.channels||[], tip:e.tip||'',
-      params:(e.params||[]).map(p=>[p.key,p.label,p.min,p.max,p.step,p.opts])}));
+      params:(e.params||[]).map(p=>[p.key,p.label,p.min,p.max,p.step,p.opts,p.help||''])}));
     HAP_DEF={};
     for(const e of j.effects||[]) HAP_DEF[e.key]=Object.assign({routes:[]},e.defaults||{});
     NCX_TOKENS=j.tokens||[];
@@ -1128,9 +1128,9 @@ function hapWheelSet(k){ return k==='slipLat'?0:k==='slipLon'?1:k==='road'?2:k==
 const HAP_SURF_NAMES=['tarmac','bumpy','kerb','gravel','grass','dirt','cobbles','snow','ice','sand','mud','water'];
 // Road: the settings each model reads (the rest are dimmed), and the
 // roadNoise texture's, live only while the model has nothing to run on.
-const HAP_ROAD_MODEL_KEYS=[['fullMm','surface','surfaceHz','surfaceKmh','rough','bodyHz','hopHz','damping'],
-  ['bodyMm','rough','bodyHz','hopHz','damping'],['bodyMm']];
-const HAP_ROAD_ALL_KEYS=['fullMm','surface','surfaceHz','surfaceKmh','bodyMm','rough','bodyHz','hopHz','damping'];
+const HAP_ROAD_MODEL_KEYS=[['fullMm','surface','surfaceHz','surfaceKmh','rough','suspPct','suspHz','bodyHz','hopHz','damping'],
+  ['bodyMm','rough','suspPct','suspHz','bodyHz','hopHz','damping'],['bodyMm']];
+const HAP_ROAD_ALL_KEYS=['fullMm','surface','surfaceHz','surfaceKmh','bodyMm','rough','suspPct','suspHz','bodyHz','hopHz','damping'];
 const HAP_ROAD_TEX_KEYS=['freqHz','jitter','peakPct'];
 // The dimmed settings of the Road and Kerb tiles with the reason, from the
 // chosen model and what is arriving (null = the generic path trims).
@@ -1305,7 +1305,7 @@ function shakerStatus(s){
     el.innerHTML='<span id="shakerLine"></span> '+Array.from({length:k.channels||0},(_,c)=>'<button class="btn btn-sm" type="button" data-shtest="'+c+'" title="40 Hz for a second on this channel">test '+(c+1)+'</button>').join(' ');
     el.querySelectorAll('[data-shtest]').forEach(b=>{ b.onclick=async()=>{ try{ await fetch(API+'/api/shakers/test',{method:'POST',body:JSON.stringify({channel:+b.dataset.shtest})}); }catch(_){} }; });
   }
-  const line=$('shakerLine'); if(line) line.textContent='Shakers: '+(k.devices||[]).map(d=>(d.open?(d.name+' ('+(d.first+1)+'-'+(d.first+d.channels)+') '+d.rate+' Hz, buffer '+d.bufferMs+' ms, underruns '+d.underruns+', levels '+(d.levels||[]).map(v=>(+v).toFixed(2)).join(' ')):((d.name||'(default)')+': '+(d.error||'not open')))).join(' | ')+'.';
+  const line=$('shakerLine'); if(line) line.textContent='Shakers: '+(k.devices||[]).map(d=>(d.open?(d.name+' ('+(d.first+1)+'-'+(d.first+d.channels)+') '+d.rate+' Hz, latency '+(d.latencyMs!=null?d.latencyMs:d.bufferMs)+' ms (card '+d.bufferMs+' ms), underruns '+d.underruns+', levels '+(d.levels||[]).map(v=>(+v).toFixed(2)).join(' ')):((d.name||'(default)')+': '+(d.error||'not open')))).join(' | ')+'.';
 }
 
 let hapOpenDrawer=null;
@@ -1551,12 +1551,14 @@ function hapLive(s){
       ch.classList.toggle('bad',!allOk);
       // Only the trim that acts on the live path reads as live.
       const special=hapDimFor(k,t.dv,s.ncxHave);
+      // A dimmed setting says why first, then what it does.
+      const titled=(row,why)=>{ const help=row.dataset.help||''; row.title=why?(why+(help?'\n\n'+help:'')):help; };
       t.tile.querySelectorAll('[data-pk]').forEach(row=>{
         const key=row.dataset.pk;
-        if(special){ row.classList.toggle('dim',!!special[key]); row.title=special[key]||''; return; }
+        if(special){ row.classList.toggle('dim',!!special[key]); titled(row,special[key]||''); return; }
         const dim=(wheelLive&&HAP_TRIM_MAG.includes(key))||(magLive&&!wheelLive&&HAP_TRIM_WHEEL.includes(key));
         row.classList.toggle('dim',dim);
-        row.title=dim?(wheelLive?'Per-wheel data is live: this trim applies to the single-channel fallback only':'The single channel is live: this trim applies to per-wheel data only'):'';
+        titled(row,dim?(wheelLive?'Per-wheel data is live: this trim applies to the single-channel fallback only':'The single channel is live: this trim applies to per-wheel data only'):'');
       });
     }
     // Per-wheel readout: now/peak per corner from the matching status set.
@@ -1577,9 +1579,21 @@ function hapLive(s){
     if(sl&&Array.isArray(s.hapWheels)&&s.hapWheels.length>9){
       const g=s.hapWheels[6]||[], c=s.hapWheels[7]||[], wa=s.hapWheels[8]||[], fl=s.hapWheels[9]||[];
       const cells=sl.children;
-      ['FL','FR','RL','RR'].forEach((n,i)=>{ if(!cells[i]) return;
-        const txt=(+g[i]<0.5)?'air':(HAP_SURF_NAMES[Math.round(+c[i])]||'tarmac')+((+fl[i]>0.5)?' float':(+wa[i]>0.3)?' wet':'');
+      // Only what the game says: with no surface type arriving the tile
+      // has no surface to read (tarmac is nullCAT's assumption, not data),
+      // and with no rain or wetness either it has nothing to play.
+      const tokOn=(nm)=>{ const i=NCX_TOKENS.indexOf(nm); return i>=0&&Array.isArray(s.ncxHave)&&!!s.ncxHave[i]; };
+      const corners=['FL','FR','RL','RR'];
+      const surfIn=corners.every(n=>tokOn('surface'+n));
+      const wetIn=tokOn('rain')||tokOn('wet')||corners.every(n=>tokOn('wet'+n));
+      corners.forEach((n,i)=>{ if(!cells[i]) return;
+        const what=surfIn?(HAP_SURF_NAMES[Math.round(+c[i])]||'tarmac'):'';
+        const water=(+fl[i]>0.5)?'float':(+wa[i]>0.3)?'wet':'';
+        const txt=(+g[i]<0.5)?'air':((what+' '+water).trim()||'-');
         cells[i].textContent=n+' '+txt; });
+      sl.title=(surfIn||wetIn)
+        ?'What each tyre is on, as nullCAT reads it: the surface, wet or floating, or in the air'
+        :'This game sends no surface type and no rain or wetness: the Surface tile has nothing to play here (the Road tile treats it all as tarmac)';
     }
     if(t.fx.transient){
       if(firedEdge&&t.dv.ampPct>0&&!t.anim){
@@ -1806,6 +1820,11 @@ function hapInit(){
     h+='<div class="hb"><button class="hap-routechip" type="button">'+hapChipText(dv)+'</button>'
       +'<button class="btn btn-sm btn-action" type="button" data-test="1">Test</button></div>';
     tile.innerHTML=h;
+    // Each setting's hover text: what it does, a range, starting points.
+    for(const [key,,,,,,help] of fx.params){
+      if(!help) continue;
+      const row=tile.querySelector('[data-pk="'+key+'"]'); if(row){ row.dataset.help=help; row.title=help; }
+    }
     const svg=tile.querySelector('svg'); hapWave(svg,fx,dv);
     tile.querySelectorAll('input,select').forEach(inp=>{ inp.onchange=()=>{
       const box=(inp.type==='checkbox');

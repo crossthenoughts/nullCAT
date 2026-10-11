@@ -78,12 +78,33 @@ Development branch. Nothing here is in a release yet.
   corner's valve shapes that wheel's slip tiles: the lock texture held at
   the edge of locking and surging with every cycle (`lock x`), the
   lateral slip easing after each dump (`scrub x`). Works with ABS's own
-  amp at 0. On/off settings on the tiles are tickboxes now (turbo too).- Slip **grip budget** (on by default, a tickbox on Lateral slip): a
+  amp at 0. On/off settings on the tiles are tickboxes now (turbo too).
+- Slip **grip budget** (on by default, a tickbox on Lateral slip): a
   tyre's grip is one budget shared between cornering and braking or
   driving. Where the sim sends a slip angle and a slip ratio or wheel
   speeds, a wheel slides when the two together reach its limit (trail
   braking, power out of a corner), on whichever tile matches its
   direction; pure cornering or braking is unchanged.
+- Lateral slip **screech** and **pulse**, on the front tyres. Screech:
+  the tyres starting to squeal before they let go, a fine texture on its
+  own carrier coming in from `screech %` of the peak (`screech x`,
+  `screech hz`). Pulse: past the limit, the slow stick-slip shove of a
+  scrubbing tyre, a few times a second and never quite regular, as strong
+  as the slide itself (`pulse x`, `pulse hz`). Both on by default (0.3 and
+  0.6); 0 turns either off.
+- ABS plays as hard as you brake: light trail braking is a light pulse,
+  full by **full at brake %** (80 by default; 10 = always full, as
+  before). ABS never plays below 10 % brake, whatever the sim's flag says.
+- Road **susp %** and **susp cut hz** (suspension and tyre models): how
+  much of the sim's own movement plays beside the roughness, and a steep
+  cut on that movement alone. Set the cut above the car's body bounce
+  (3 to 4 Hz for a road car, 5 to 7 for a GT3, 7 to 9 for a single-seater)
+  and the body's slow dive, roll and crests, which the motion already
+  gives you, drop away while the track's bumps and the roughness stay. Off
+  by default (100 %, 0 Hz: as before).
+- Hover help on every haptic setting: what it does, a sensible range, and
+  starting points for a road car, a GT3 car and a single-seater. A dimmed
+  setting says why first.
 - Lateral slip: how a slide comes in is now yours to set. **onset %**
   (where it starts, as a share of peak deg; 40, was a fixed 60), **ease**
   (0 straight up, 1 a light scrub first), **smooth hz** (steadies the
@@ -251,6 +272,51 @@ Development branch. Nothing here is in a release yet.
   seconds in the pits. The SimHub plugin goes quiet on pause by itself.
 
 ### Fixed
+- Hard judder from the Wheels and slip tiles ("square wheels"), seen in
+  Automobilista 2. A jump in the sim's road speed no car can make (a
+  return to the pits, a reset) read as all four wheels locked at speed and
+  ground full flat spots into every tyre in under a second; the speed is
+  now ignored for half a second after such a jump, and a flat needs a
+  lock-up of at least a tenth of a second. Pausing the sim in the middle
+  of a lock-up kept grinding the flats (and heating the discs) for the
+  whole pause; it no longer does. Automobilista 2's tyre slip now and then
+  reads in the billions, which held the Lateral slip tile at a full slide
+  for seconds through its smoothing; slip values are capped before they
+  are smoothed. A body acceleration past 30 g is ignored too, and so is a
+  gear outside -1 to 12 (a sim sent 150 once: two gear-shift knocks).
+- Longitudinal slip from wheel speeds could read a wheel as spinning or
+  locked for many seconds after a spin: with the pedals off in a spin,
+  nullCAT learned each wheel's size from the stopped wheels. It now learns
+  only while each axle's two wheels turn together and no tyre is sliding,
+  over seconds, and no single moment can pull it far off. A car rolling
+  backwards after a spin read as four locked wheels (grinding flat spots);
+  it reads as rolling now.
+- Kerbs from the road heights (`detect mm`) never played in Assetto
+  Corsa with the kerb slot bound in the Sim channels map: the plugin sends
+  that slot as 0, and the 0 shut the detection out (all you felt was the
+  Road tile's suspension going over the kerb). The detection now always
+  runs when `detect mm` is set; where the game sends its own kerb channel
+  too (Competizione, EVO), the stronger of the two plays.
+- Naturally aspirated engines never gave their lift-off pop: the SimHub
+  plugin sends a boost of 0 for them, and the pop was scaled by the boost.
+  Boost now counts only for an engine set as turbo, so a sim that reports
+  a naturally aspirated car's manifold pressure (about 1 bar) no longer
+  makes its firings heavier either.
+- With the grip budget on, a slide straight along (wheelspin, a lock-up)
+  took the Lateral tile's `ease` curve as well: at ease 2 a 50% wheelspin
+  played at a few %. The ease shapes the sideways part only now.
+- Shakers lagged the motion by about 80 ms: the hand-off between the
+  control loop and the sound card kept 64 ms of samples waiting. It now
+  keeps about 12 ms, so the shakers land about 28 ms after the motion. The
+  shaker status line and the log show the whole delay, not only the
+  card's buffer.
+- The Surface tile showed `tarmac` under every tyre in games that send no
+  surface (Assetto Corsa), as if it were reading the track. It shows `-`
+  now, and its hover says the tile has nothing to play in that game.
+- Pi: running the test suite on a rig with the control loop live could
+  stall the loop and fault the drives, because the tests ran at the
+  loop's priority on its processor core. They never do now, and the
+  installer refuses to run while the loop is live (Deinitialize first).
 - Shakers on the Pi were near silent, the back channels quieter still, and
   late. nullCAT opened the sound card through the system's shared stereo
   layer (it lists the card under several names), squeezing the eight

@@ -100,6 +100,16 @@ if [ "$(id -u)" -eq 0 ]; then
     echo "Run as your normal user, not root -- the script calls sudo where needed." >&2
     exit 1
 fi
+# Never under a live rig: the build, the tests and the restart below all
+# compete with a running control loop, which can stall it and fault the
+# drives. Stop it first (Deinitialize in the web UI). A web UI this script
+# cannot reach (another port or address) is not checked.
+WEB_PORT="$(grep -o '"webPort"[^,}]*' /opt/nullcat/current/host.json 2>/dev/null | tr -dc '0-9' || true)"
+LIVE_STATUS="$(curl -fsS --max-time 2 "http://127.0.0.1:${WEB_PORT:-8080}/api/status" 2>/dev/null || true)"
+if [[ "${LIVE_STATUS}" =~ \"loopRunning\":\ *true ]]; then
+    echo "nullCAT's control loop is running. Stop it first (Deinitialize in the web UI), then run this again." >&2
+    exit 1
+fi
 if [ "$(uname -m)" != "aarch64" ]; then
     echo "This needs 64-bit Raspberry Pi OS (aarch64). Reflash with the 64-bit Lite image." >&2
     exit 1

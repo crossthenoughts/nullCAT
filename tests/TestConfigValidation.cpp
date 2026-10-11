@@ -366,6 +366,10 @@ private slots:
         cfg.hapticsRoad.hopHz = 40.0; QVERIFY2(refused("hopHz"), "hop hz 40 is refused");
         cfg.hapticsRoad.hopHz = 18.0; cfg.hapticsRoad.rough = -1.0; QVERIFY2(refused("rough"), "negative roughness is refused");
         cfg.hapticsRoad.rough = 3.0;  QVERIFY(cfg.validate().empty());
+        QCOMPARE(cfg.hapticsRoad.suspPct, 100.0); QCOMPARE(cfg.hapticsRoad.suspHz, 0.0);   // all of it, no steep cut: as before
+        cfg.hapticsRoad.suspPct = 120.0; QVERIFY2(refused("suspPct"), "susp % 120 is refused");
+        cfg.hapticsRoad.suspPct = 70.0;  cfg.hapticsRoad.suspHz = 20.0; QVERIFY2(refused("suspHz"), "susp cut 20 Hz is refused");
+        cfg.hapticsRoad.suspHz = 6.0;    QVERIFY(cfg.validate().empty());
         cfg.hapticsKerb.pitchCm = 2.0;  QVERIFY2(refused("pitchCm"), "a 2 cm rib pitch is refused");
         cfg.hapticsKerb.pitchCm = 30.0; cfg.hapticsKerb.detectMm = 150.0; QVERIFY2(refused("detectMm"), "detect mm 150 is refused");
         cfg.hapticsKerb.detectMm = 15.0; QVERIFY(cfg.validate().empty());
@@ -401,7 +405,8 @@ private slots:
         cfg.hapticsAbs.sharp = 1.5;  QVERIFY2(refused("sharp"), "abs sharp 1.5 is refused");
         cfg.hapticsAbs.sharp = 0.5; cfg.hapticsAbs.buzzHz = 10.0; QVERIFY2(refused("buzzHz"), "buzz hz 10 is refused");
         cfg.hapticsAbs.buzzHz = 40.0; cfg.hapticsAbs.slipLink = 0.5; QVERIFY2(refused("slipLink"), "slip link 0.5 is refused (off or on)");
-        cfg.hapticsAbs.slipLink = 1.0; cfg.hapticsTc.spread = -0.1; QVERIFY2(refused("spread"), "tc spread -0.1 is refused");
+        cfg.hapticsAbs.slipLink = 1.0; cfg.hapticsAbs.brakeFull = 5.0; QVERIFY2(refused("brakeFull"), "full at brake 5% is refused (the gate is 10%)");
+        cfg.hapticsAbs.brakeFull = 60.0; cfg.hapticsTc.spread = -0.1; QVERIFY2(refused("spread"), "tc spread -0.1 is refused");
         cfg.hapticsTc.spread = 0.5; QVERIFY(cfg.validate().empty());
     }
 

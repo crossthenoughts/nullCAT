@@ -42,6 +42,12 @@ namespace slip_k {
     constexpr double kStageDrop  = 0.35;    // carrier at full severity = (1 - this) x set hz
     constexpr double kStageRough = 0.6;     // jitter grows by this share at full severity
     constexpr double kMinHz      = 2.0;
+    // The front tyres' screech and pulse (the Lateral tile's).
+    constexpr double kScreechRough = 0.6;   // screech is always a rough texture, never a tone
+    constexpr double kPulseSpread  = 0.25;  // each pulse cycle up to this much longer or shorter
+    constexpr double kPulseDepthVar = 0.3;  // ...and up to this much shallower
+    constexpr double kPulse2nd     = 0.3;   // a lopsided shove: this much second harmonic
+    constexpr double kPulseNorm    = 1.0 / 1.25; // ...scaled back to a peak of about 1
 }
 
 class SlipModel
@@ -53,6 +59,8 @@ public:
         double aHz = 0.0, bHz = 0.0;      // carriers (unjittered) for sink derating
         double aEnv = 0.0, bEnv = 0.0;    // the non-oscillatory part (level x mix)
         double aPhase = 0.0, bPhase = 0.0;// oscillator phase, radians: a shaker plays sin(harm x phase)
+        // The fronts' screech (c) and pulse (d), where the law drives them.
+        double c = 0.0, d = 0.0, cHz = 0.0, dHz = 0.0, cEnv = 0.0, cPhase = 0.0;
     };
 
     // Per wheel, per cycle, BEFORE step(): component severities 0..1.
@@ -63,6 +71,16 @@ public:
         W& w = m_w[wheel];
         w.tA = std::max(0.0, std::min(1.0, a));
         w.tB = std::max(0.0, std::min(1.0, b));
+    }
+
+    // Per wheel, per cycle, after drive(): the screech and pulse levels 0..1
+    // (the Lateral tile's fronts; never driven = none).
+    void driveExtra(int wheel, double screech, double pulse)
+    {
+        if (wheel < 0 || wheel >= WHEEL_COUNT) return;
+        W& w = m_w[wheel];
+        w.tC = std::max(0.0, std::min(1.0, screech));
+        w.tD = std::max(0.0, std::min(1.0, pulse));
     }
 
     // Reshape a wheel's driven severities after drive() and before step()
@@ -93,7 +111,9 @@ public:
         {
             ramp(w.lA, w.tA, dtSec, attack);
             ramp(w.lB, w.tB, dtSec, attack);
-            w.tA = w.tB = 0.0;    // a law that stops driving = release
+            ramp(w.lC, w.tC, dtSec, attack);
+            ramp(w.lD, w.tD, dtSec, attack);
+            w.tA = w.tB = w.tC = w.tD = 0.0;    // a law that stops driving = release
         }
         // One oscillator per axle and component, staged by the axle's
         // stronger wheel; each wheel scales the shared waveform by its own
@@ -105,6 +125,8 @@ public:
             const W& w1 = m_w[2 * a + 1];
             x.uA = unit(std::max(w0.lA, w1.lA), s.aHz * m_aScale, s.aMix, p.jitter, x.oscA, x.rng, dtSec, x.hzA);
             x.uB = unit(std::max(w0.lB, w1.lB), s.bHz * m_bScale, s.bMix, p.jitter, x.oscB, x.rng, dtSec, x.hzB);
+            x.uC = unit(std::max(w0.lC, w1.lC), s.screechHz, s.screech, std::max(p.jitter, slip_k::kScreechRough), x.oscC, x.rng, dtSec, x.hzC, 0.0);
+            x.uD = pulseUnit(x, std::max(w0.lD, w1.lD), s.pulseHz, s.pulse, dtSec);
         }
         for (int i = 0; i < WHEEL_COUNT; ++i)
         {
@@ -116,6 +138,11 @@ public:
             w.sB  = (w.hzB > 0.0) ? x.uB * w.lB * s.bMix : 0.0;
             w.envA = (w.hzA > 0.0) ? w.lA * s.aMix : 0.0;
             w.envB = (w.hzB > 0.0) ? w.lB * s.bMix : 0.0;
+            w.hzC = (w.lC >= 1e-4) ? x.hzC : 0.0;
+            w.hzD = (w.lD >= 1e-4) ? x.hzD : 0.0;
+            w.sC  = (w.hzC > 0.0) ? x.uC * w.lC * s.screech : 0.0;
+            w.sD  = (w.hzD > 0.0) ? x.uD * w.lD * s.pulse : 0.0;
+            w.envC = (w.hzC > 0.0) ? w.lC * s.screech : 0.0;
         }
     }
 
@@ -134,13 +161,15 @@ public:
             default: break;
         }
         Out o;
-        double bestA = 0.0, bestB = 0.0;
+        double bestA = 0.0, bestB = 0.0, bestC = 0.0, bestD = 0.0;
         for (int i = first; i <= last; ++i)
         {
             const W& w = m_w[i];
             const Axle& x = m_axle[axleOf(i)];
             if (w.lA > bestA) { bestA = w.lA; o.a = w.sA; o.aHz = w.hzA; o.aEnv = w.envA; o.aPhase = x.oscA.phase; }
             if (w.lB > bestB) { bestB = w.lB; o.b = w.sB; o.bHz = w.hzB; o.bEnv = w.envB; o.bPhase = x.oscB.phase; }
+            if (w.lC > bestC) { bestC = w.lC; o.c = w.sC; o.cHz = w.hzC; o.cEnv = w.envC; o.cPhase = x.oscC.phase; }
+            if (w.lD > bestD) { bestD = w.lD; o.d = w.sD; o.dHz = w.hzD; }
         }
         return o;
     }
@@ -150,13 +179,16 @@ public:
     double wheelSampleA(int wheel) const { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_w[wheel].sA : 0.0; }
     double wheelSampleB(int wheel) const { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_w[wheel].sB : 0.0; }
 
-    // Highest smoothed severity anywhere (status / wave).
+    // Highest smoothed level anywhere, screech and pulse included (status /
+    // wave; the layer renders nothing below it).
     double level() const
     {
         double m = 0.0;
-        for (const W& w : m_w) m = std::max(m, std::max(w.lA, w.lB));
+        for (const W& w : m_w) m = std::max(m, std::max(std::max(w.lA, w.lB), std::max(w.lC, w.lD)));
         return m;
     }
+    double wheelScreech(int wheel) const { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_w[wheel].lC : 0.0; }
+    double wheelPulse(int wheel) const   { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_w[wheel].lD : 0.0; }
 
     double wheelLevel(int wheel) const
     {
@@ -173,11 +205,11 @@ public:
 private:
     struct W
     {
-        double tA = 0.0, tB = 0.0;    // driven this cycle
-        double lA = 0.0, lB = 0.0;    // smoothed severity
-        double sA = 0.0, sB = 0.0;    // this cycle's samples
-        double hzA = 0.0, hzB = 0.0;  // this cycle's carriers
-        double envA = 0.0, envB = 0.0;// this cycle's envelopes (level x mix)
+        double tA = 0.0, tB = 0.0, tC = 0.0, tD = 0.0;   // driven this cycle (C screech, D pulse)
+        double lA = 0.0, lB = 0.0, lC = 0.0, lD = 0.0;   // smoothed
+        double sA = 0.0, sB = 0.0, sC = 0.0, sD = 0.0;   // this cycle's samples
+        double hzA = 0.0, hzB = 0.0, hzC = 0.0, hzD = 0.0; // this cycle's carriers
+        double envA = 0.0, envB = 0.0, envC = 0.0;       // this cycle's envelopes (level x mix)
     };
     // Front axle (FL, FR) and rear axle (RL, RR): one oscillator per
     // component, its unit sample and carrier this cycle.
@@ -189,6 +221,10 @@ private:
         double uA = 0.0, uB = 0.0;
         double hzA = 0.0, hzB = 0.0;
         uint64_t rng = 0x9E3779B97F4A7C15ull;
+        // Screech oscillator; the pulse's phase, this cycle's rate and depth.
+        wavesynth::Oscillator oscC;
+        double uC = 0.0, uD = 0.0, hzC = 0.0, hzD = 0.0;
+        double dPhase = 0.0, dRate = 1.0, dDepth = 1.0;
     };
     static int axleOf(int wheel) { return (wheel == WheelFL || wheel == WheelFR) ? 0 : 1; }
 
@@ -201,12 +237,13 @@ private:
 
     // The axle's waveform at unit amplitude, staged by its stronger wheel.
     static double unit(double level, double setHz, double mix, double jitter,
-                       wavesynth::Oscillator& osc, uint64_t& rng, double dtSec, double& hzOut)
+                       wavesynth::Oscillator& osc, uint64_t& rng, double dtSec, double& hzOut,
+                       double stageDrop = slip_k::kStageDrop)
     {
         using namespace slip_k;
         hzOut = 0.0;
         if (level < 1e-4 || mix <= 0.0 || setHz <= 0.0) return 0.0;
-        const double carrier = std::max(kMinHz, setHz * (1.0 - kStageDrop * level));
+        const double carrier = std::max(kMinHz, setHz * (1.0 - stageDrop * level));
         hzOut = carrier;
         double f = carrier;
         const double jit = jitter * (1.0 + kStageRough * level);
@@ -219,8 +256,30 @@ private:
         return osc.step(f, dtSec);
     }
 
+    // The pulse: a slow, lopsided shove, each cycle a little longer or
+    // shorter and shallower than the last, so it never reads as a metronome.
+    static double pulseUnit(Axle& x, double level, double hz, double mix, double dtSec)
+    {
+        using namespace slip_k;
+        x.hzD = 0.0;
+        if (level < 1e-4 || mix <= 0.0 || hz <= 0.0) { x.dPhase = 0.0; return 0.0; }
+        x.hzD = hz * x.dRate;
+        x.dPhase += 2.0 * wavesynth::kPi * x.hzD * dtSec;
+        if (x.dPhase >= 2.0 * wavesynth::kPi)
+        {
+            x.dPhase -= 2.0 * wavesynth::kPi;
+            x.rng ^= x.rng << 13; x.rng ^= x.rng >> 7; x.rng ^= x.rng << 17;
+            const double r1 = static_cast<double>(x.rng & 0xFFFF) / 65535.0;
+            const double r2 = static_cast<double>((x.rng >> 16) & 0xFFFF) / 65535.0;
+            x.dRate  = 1.0 + kPulseSpread * (2.0 * r1 - 1.0);
+            x.dDepth = 1.0 - kPulseDepthVar * r2;
+        }
+        return x.dDepth * kPulseNorm * (std::sin(x.dPhase) + kPulse2nd * std::sin(2.0 * x.dPhase));
+    }
+
     W      m_w[WHEEL_COUNT];
-    Axle   m_axle[kAxles] = { Axle{ {}, {}, 0.0, 0.0, 0.0, 0.0, kSeeds[0] }, Axle{ {}, {}, 0.0, 0.0, 0.0, 0.0, kSeeds[1] } };
+    Axle   m_axle[kAxles] = { makeAxle(kSeeds[0]), makeAxle(kSeeds[1]) };
+    static Axle makeAxle(uint64_t seed) { Axle x; x.rng = seed; return x; }
     double m_aScale = 1.0, m_bScale = 1.0;
 };
 

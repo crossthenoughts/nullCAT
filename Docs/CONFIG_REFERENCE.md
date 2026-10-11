@@ -149,6 +149,8 @@ Slip-only fields. Both tiles are per-wheel models with two components, each with
 | `slipLat` | `smoothHz` | `8` | One-pole smoothing of the per-wheel slip angle or combined slip (Hz), 0 to 30, 0 = as sent. |
 | `slipLat` | `budget` | `1` | Grip budget (0 off, 1 on; it drives both slip tiles): where a wheel has both a slip angle and a slip ratio, u = sqrt((angle / onset angle)^2 + (ratio / 0.15)^2); the slide grows from u = 1 to the full point blended by direction (peakDeg / onset, peakRatio / 0.15), shaped by `ease`, and splits into Lateral and Longitudinal by direction. |
 | `slipLat` | `attackMs` | `30` | How fast a wheel's slide builds, 2 to 200 ms (the longitudinal tile keeps 8). |
+| `slipLat` | `screech`, `screechPct`, `screechHz` | `0.3`, `50`, `30` | The front tyres starting to squeal before they let go: mix 0 to 1, from this share of `peakDeg` (and of `peakPct` on the combined-slip path, 0 to 95) up to full at the peak, eased in (smoothstep), on its own carrier (10 to 120 Hz). The loaded tyre is weighted up. |
+| `slipLat` | `pulse`, `pulseHz` | `0.6`, `6` | The fronts past the limit: the slow stick-slip shove of a scrubbing tyre, as strong as the slide itself; mix 0 to 1, about this many shoves a second (2 to 15), each a little different. |
 | `slipLon` | `lock`, `lockHz` | `1`, `9` | A wheel locking under braking: mix and carrier (4 to 30 Hz) at 80 km/h; the carrier follows road speed. |
 | `slipLon` | `spin`, `spinHz` | `1`, `10` | A driven wheel spinning: mix and carrier (4 to 30 Hz), fixed. |
 | `slipLon` | `peakRatio` | `0.8` | Slip ratio at full severity, 0.2 to 2. Nothing plays inside 0.15. |
@@ -161,6 +163,8 @@ Road-only fields. `model` picks how the body's movement is made; when the sim se
 | `hpHz` | `2` | Cut (Hz), 0.5 to 10: the slow body motion below it is left to the motion cue. All models. |
 | `bodyMm` | `1` | Tyre and chassis: the body movement (mm) that is 100 % amplitude, 0.1 to 20. A belt or shaker gets the matching acceleration (that movement at 8 Hz is 100 %). |
 | `rough` | `2` | Tyre and suspension: road roughness laid out by distance, 0 to 20; 1 is a smooth public road (ISO 8608 class A), 0 leaves only the sim's own road. Its wavelengths under 2 m are scaled by the surface under the tyre (`surface*`), eased over 0.1 s: bumpy 3 x, gravel 6 x, grass 3 x, dirt 5 x, cobbles 4 x. |
+| `suspPct` | `100` | Suspension and tyre: how much of the sim's own movement plays (the suspension model's suspension travel, the tyre model's road under the tyre), 0 to 100; the roughness (`rough`) is not affected. 0 = the roughness alone. |
+| `suspHz` | `0` | Suspension and tyre: a steep (second-order) cut on the sim's own movement alone, 0 to 15 Hz, on top of `hpHz`; 0 = off. Body movement well below it (dive, roll, crests: the motion cue's job) drops away fast (a third of the cut: about a tenth left), bumps above it pass. |
 | `bodyHz` | `3` | Tyre, and the suspension model's roughness: the body's bounce on its springs (Hz), 0.8 to 8. |
 | `hopHz` | `16` | Tyre, and the suspension model's roughness: the wheel's hop on its tyre (Hz), 6 to 30; lifted to the lowest a real spring and tyre allow for that body hz. |
 | `damping` | `0.3` | Tyre, and the suspension model's roughness: the bounce's damping ratio, 0.05 to 1.5. |
@@ -169,7 +173,7 @@ Road-only fields. `model` picks how the body's movement is made; when the sim se
 | `surfaceHz` | `12` | The surface texture's carrier (Hz, 4 to 40): its own, so it can sit low enough for a position axis to carry while the `roadNoise` texture keeps `freqHz`. |
 | `surfaceKmh` | `100` | Road speed (km/h, 20 to 300) by which the surface texture is at its full mix; it rises from nothing at a standstill. |
 
-Kerb-only fields (`kerb`). Which tyre is on a kerb: `surface*` = 2, else the `curbs` channel (all wheels, full at `peakPct`), else with `detectMm` set the road heights. `freqHz` is kept in the object but unused.
+Kerb-only fields (`kerb`). Which tyre is on a kerb: `surface*` = 2, else the stronger of the `curbs` channel (all wheels, full at `peakPct`) and, with `detectMm` set, the road heights. `freqHz` is kept in the object but unused.
 
 | Field | Default | Notes |
 |---|---|---|
@@ -177,7 +181,7 @@ Kerb-only fields (`kerb`). Which tyre is on a kerb: `surface*` = 2, else the `cu
 | `riseMm` | `8` | The step up onto the kerb (mm), 0 to 50. |
 | `ribMm` | `3` | Rib height (mm), 0 to 20. |
 | `fullMm` | `10` | Kerb movement (mm) that is 100 % on a position axis, 0.5 to 50. A position axis gets the step as a thud on and off (above 3 Hz); a belt or shaker gets the ribs and the step's edges, scaled with speed (full at 80 km/h). |
-| `detectMm` | `0` | 0 to 100, 0 = off. Without a surface type or `curbs` channel, a tyre this far above its axle partner on `roadHeight*`, beyond the axle's usual camber and banking, is on a kerb. |
+| `detectMm` | `0` | 0 to 100, 0 = off. Without a surface type, a tyre this far above its axle partner on `roadHeight*`, beyond the axle's usual camber and banking, is on a kerb (from half of it, full at it); a `curbs` channel too, the stronger plays. |
 
 ABS and TC fields (`abs`, `tc`; `freqHz` is the cycle rate):
 
@@ -187,6 +191,7 @@ ABS and TC fields (`abs`, `tc`; `freqHz` is the cycle rate):
 | `abs`, `tc` | `spread` | `0.5` | 0 to 1: each cycle up to 30 % longer or shorter and 35 % shallower; for ABS each corner also on its own rate (up to 18 % apart), so the corners drift in and out of step. 0 = one regular pulse. |
 | `abs` | `slow` | `0.5` | 0 to 1: how far the cycle slows towards a stop (rate x (1 - slow x (1 - speed / 80 km/h)) below 80 km/h; speed unknown = full rate). |
 | `abs` | `buzz`, `buzzHz` | `0.3`, `40` | The pump and valve buzz: mix 0 to 1 and carrier 15 to 120 Hz. |
+| `abs` | `brakeFull` | `80` | ABS plays as hard as the driver brakes: from nothing at 10 % brake up to full at this brake %, 10 to 100 (10 = always full). ABS never plays below 10 % brake. |
 | `abs` | `slipLink`, `lockLink`, `scrubLink` | `0`, `0.7`, `0.3` | Slip link (0 off, 1 on): while ABS works each corner's valve cycle shapes that wheel's slip tiles. The lock texture is held between 0.5 x the ABS level and 0.6 (never locked) and scaled by 1 - lockLink x (1 - m), m running from 1 with the pressure on to 0 just after the dump; lateral slip by 1 - scrubLink x (1 - m). Spin is untouched. Works with the ABS tile's amp at 0. |
 
 ABS routes take a `part`: one corner plays that corner's valve, an axle or `all` the average of its corners.

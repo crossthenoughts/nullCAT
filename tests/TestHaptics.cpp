@@ -625,6 +625,48 @@ int main()
         double zk = 0.0;
         for (int i = 0; i < 200; ++i) { Z.driveSlip(FxType::Skid, WheelFL, 1.0, 1.0); Z.step(DT); zk = std::max(zk, std::fabs(Z.overlayFor(0))); }
         CHECK(zk < 1e-9 && Z.fxLevel(static_cast<int>(FxType::Skid)) == 0.0, "slip: amp 0 plays nothing and reports level 0");
+
+        // The fronts' screech and pulse. Screech: a rough texture at its own
+        // fixed pitch. Pulse: a slow shove around pulse hz, each cycle a
+        // little different. Neither exists where its mix is 0 (Longitudinal).
+        {
+            SlipParams sq = sp; sq.screech = 1.0; sq.screechHz = 30.0; sq.pulse = 1.0; sq.pulseHz = 6.0;
+            auto run = [&](const SlipParams& prm, FxType t, double screech, double pulse, std::vector<double>& out) {
+                Layer X; X.configureFx(t, p); X.configureSlip(t, prm);
+                for (int i = 0; i < 8000; ++i)
+                {
+                    X.driveSlip(t, WheelFL, 0.0, 0.0); X.driveSlipExtra(t, WheelFL, screech, pulse);
+                    X.step(DT); if (i >= 1000) out.push_back(X.overlayFor(0));
+                }
+            };
+            auto rms = [](const std::vector<double>& v, size_t from) {
+                double s = 0.0; size_t n = 0; for (size_t i = from; i < v.size(); ++i) { s += v[i] * v[i]; ++n; } return n ? std::sqrt(s / n) : 0.0; };
+            auto hzOf = [DT](const std::vector<double>& v) {
+                int xr = 0; for (size_t i = 1; i < v.size(); ++i) if ((v[i] >= 0.0) != (v[i - 1] >= 0.0)) ++xr;
+                return xr / 2.0 / (v.size() * DT); };
+            std::vector<double> sc; run(sq, FxType::Skid, 1.0, 0.0, sc);
+            approx(hzOf(sc), 30.0, 3.0, "slip screech: at its own pitch, not slowed by the slide");
+            CHECK(rms(sc, 0) > 40.0, "slip screech: plays on the FL route");
+            std::vector<double> pu; run(sq, FxType::Skid, 0.0, 1.0, pu);
+            approx(hzOf(pu), 6.0, 0.6, "slip pulse: a slow shove around pulse hz");
+            // Irregular: the time between rising zero crossings varies.
+            std::vector<double> per; size_t last = 0;
+            for (size_t i = 1; i < pu.size(); ++i) if (pu[i - 1] < 0.0 && pu[i] >= 0.0) { if (last) per.push_back((i - last) * DT); last = i; }
+            double mean = 0.0; for (double x : per) mean += x; mean /= std::max<size_t>(1, per.size());
+            double var = 0.0; for (double x : per) var += (x - mean) * (x - mean); var /= std::max<size_t>(1, per.size());
+            std::printf("  slip pulse: %zu cycles, mean %.4f s, sd %.4f s\n", per.size(), mean, std::sqrt(var));
+            CHECK(per.size() >= 15 && std::sqrt(var) > 0.05 * mean, "slip pulse: each cycle a little different (not a metronome)");
+            std::vector<double> lon; run(sp, FxType::Lockup, 1.0, 1.0, lon);
+            CHECK(rms(lon, 0) < 1e-9, "slip: no screech or pulse where their mix is 0 (Longitudinal)");
+            // On a position axis the pulse, slow, gets far more travel than
+            // the scrub at its staged carrier (0.08 mm above).
+            Layer Q; Q.setSinkKind(0, SinkKind::Position); Q.setPositionLimits(0, 80.0, 800.0, 3.0);
+            EffectParams r2; r2.ampPct = 100.0; r2.jitter = 0.0; r2.routes[0] = { 0, 2.0, Part::All };
+            Q.configureFx(FxType::Skid, r2); Q.configureSlip(FxType::Skid, sq);
+            double qmm = 0.0;
+            for (int i = 0; i < 4000; ++i) { Q.driveSlip(FxType::Skid, WheelFL, 0.0, 0.0); Q.driveSlipExtra(FxType::Skid, WheelFL, 0.0, 1.0); Q.step(DT); qmm = std::max(qmm, std::fabs(Q.overlayFor(0)) / 100.0); }
+            CHECK(qmm > 0.3, "slip pulse: a seat actuator carries the slow pulse far better than the scrub");
+        }
     }
 
     // ================= engine: lift-off, inertia, boost, pops =================
@@ -673,6 +715,13 @@ int main()
         CHECK(rms(th, 2000, 2200) > 2.0 && rms(th, 3000, 3400) < 1e-9, "engine: NA lift-off is one pop, then silence (thumps off)");
         th.clear(); bz.clear();
         CHECK(run(na, false, -1.0, th, bz) == 0 && rms(th, 2000, 2400) < 1e-9, "engine: no lift, no pop");
+        // A sim sends 0 boost for a naturally aspirated car: the pop is the
+        // same as with no boost at all (it used to be silenced).
+        {
+            std::vector<double> thU, bzU, th0, bz0;
+            run(na, true, -1.0, thU, bzU); run(na, true, 0.0, th0, bz0);
+            approx(rms(th0, 2000, 2200), rms(thU, 2000, 2200), 1e-9, "engine: NA lift-off pop with 0 boost reported = with none");
+        }
         // Turbo: the whoosh plus a flutter train lasting ~0.4 s, heavier than the pop.
         th.clear(); bz.clear();
         EngineParams tb = na; tb.turbo = 1.0;
@@ -686,14 +735,16 @@ int main()
 
         // Boost makes each firing heavier on throttle: at 1500 rpm (where the
         // thumps are still resolved) 1 bar reads 1.6x the no-boost hit.
-        auto thumpRms = [&](double boost) {
+        auto thumpRms = [&](double boost, double turbo) {
             EngineModel m; uint64_t rng = 3;
             EffectParams p; p.ampPct = 100.0; p.freqHz = 30.0; p.jitter = 0.0;
-            EngineParams bt; bt.inertia = 0.0; bt.liftoff = 0.0; bt.cylinders = 8.0; bt.litres = 5.0; bt.maxRpm = 7000.0;
+            EngineParams bt; bt.inertia = 0.0; bt.liftoff = 0.0; bt.cylinders = 8.0; bt.litres = 5.0; bt.maxRpm = 7000.0; bt.turbo = turbo;
             std::vector<double> v;
             for (int i = 0; i < 4000; ++i) { m.drive(1500.0 / 60.0 * 4.0, 1.0, false, boost); v.push_back(m.step(DT, p, bt, 1.0, rng).thumps); }
             return rms(v, 1000, 4000); };
-        approx(thumpRms(1.0) / std::max(1e-9, thumpRms(0.0)), 1.6, 0.1, "engine: 1 bar of boost = 1.6x heavier firings");
+        approx(thumpRms(1.0, 1.0) / std::max(1e-9, thumpRms(0.0, 1.0)), 1.6, 0.1, "engine: 1 bar of boost = 1.6x heavier firings (turbo)");
+        approx(thumpRms(1.0, 0.0) / std::max(1e-9, thumpRms(0.0, 0.0)), 1.0, 1e-9,
+               "engine: a naturally aspirated car's reported ~1 bar (manifold pressure) changes nothing");
 
         // Pops: with pops on, the overrun carries sparse pulses; on throttle none extra.
         EngineParams pp; pp.inertia = 0.0; pp.liftoff = 0.0; pp.thump = 0.0; pp.pops = 1.0;
@@ -1080,6 +1131,46 @@ int main()
         double zk = 0.0;
         for (int i = 0; i < 200; ++i) { for (int w = 0; w < 4; ++w) Z.driveRoad(w, 400.0); Z.step(DT); zk = std::max(zk, std::fabs(Z.overlayFor(0))); }
         CHECK(zk < 1e-9 && Z.fxLevel(static_cast<int>(FxType::Road)) == 0.0, "road: amp 0 plays nothing");
+    }
+
+    // ================= road: the sim's own movement apart (susp %, susp cut hz) =================
+    {
+        using haptics::RoadModel; using haptics::RoadParams;
+        const double PI = 3.14159265358979, dt = 0.0005;
+        // FL's suspension travel a 10 mm sine at f (the others still), at
+        // 25 m/s; FL's played mm, rms once settled.
+        auto played = [&](const RoadParams& q, double f, double amp) {
+            RoadModel m; m.driveGeometry(2.5, 1.6); double s = 0.0; int n = 0; const int N = static_cast<int>(8.0 / dt);
+            for (int i = 0; i < N; ++i)
+            {
+                for (int w = 0; w < 4; ++w) m.driveTravel(w, w == WheelFL ? amp * std::sin(2.0 * PI * f * i * dt) : 0.0);
+                m.driveSpeed(25.0);
+                m.step(dt, q);
+                if (i > N / 2) { s += m.wheelTravelMm(WheelFL) * m.wheelTravelMm(WheelFL); ++n; }
+            }
+            return std::sqrt(s / n); };
+        RoadParams base; base.model = 0; base.rough = 0.0; base.hpHz = 2.0;   // the sim's travel alone, cut 2 Hz
+        RoadParams steep = base; steep.suspHz = 6.0;
+        const double b1 = played(base, 1.0, 10.0), s1 = played(steep, 1.0, 10.0);
+        const double b12 = played(base, 12.0, 10.0), s12 = played(steep, 12.0, 10.0);
+        std::printf("  road susp cut 6 Hz: 1 Hz body %.2f -> %.2f mm rms, 12 Hz bumps %.2f -> %.2f\n", b1, s1, b12, s12);
+        CHECK(s1 < 0.1 * b1, "road susp cut 6 Hz: a 1 Hz body movement drops to under a tenth");
+        CHECK(s12 > 0.85 * b12, "road susp cut 6 Hz: 12 Hz bumps pass (over 85%)");
+        RoadParams half = base; half.suspPct = 50.0;
+        approx(played(half, 12.0, 10.0) / b12, 0.5, 0.02, "road susp %: 50 plays half the sim's movement");
+        RoadParams none = base; none.suspPct = 0.0;
+        CHECK(played(none, 12.0, 10.0) < 1e-9, "road susp %: 0 plays none of it");
+        // The roughness is not the sim's movement: susp % 0 leaves it whole.
+        RoadParams tex = base; tex.rough = 2.0;
+        RoadParams texOnly = tex; texOnly.suspPct = 0.0;
+        const double withSim = played(texOnly, 12.0, 10.0), alone = played(tex, 12.0, 0.0);
+        approx(withSim, alone, 1e-9, "road susp %: 0 leaves the roughness exactly as it was");
+        CHECK(alone > 0.01, "road susp %: ...and the roughness plays");
+        // The tyre model: the steep cut acts on its road input the same way.
+        RoadParams tyre; tyre.model = 1; tyre.rough = 0.0; tyre.bodyMm = 50.0;
+        RoadParams tyreSteep = tyre; tyreSteep.suspHz = 6.0;
+        const double t2 = played(tyre, 2.0, 10.0), t2s = played(tyreSteep, 2.0, 10.0);
+        CHECK(t2s < 0.25 * t2, "road susp cut, tyre model: a 2 Hz road movement drops away");
     }
 
     // ================= road: the tyre and chassis models; the kerb =================
@@ -1524,8 +1615,9 @@ int main()
                 for (int w = 0; w < 4; ++w) { m.driveWheelSpeed(w, w == WheelFL ? 0.0 : 20.0); m.driveLock(w, 20.0, w == WheelFL ? -1.0 : 0.0, 1.0); }
                 m.step(dt, q, rp);
             }
-            approx(m.flatMm(WheelFL), 0.02 * 20.0, 0.01, "wheels flat: 1 s locked at 20 m/s grinds 0.4 mm");
+            approx(m.flatMm(WheelFL), 0.02 * 20.0 * 0.9, 0.01, "wheels flat: 1 s locked at 20 m/s grinds 0.36 mm (from 0.1 s locked)");
             CHECK(m.flatMm(WheelFR) == 0.0, "wheels flat: only the locked wheel");
+            const double flat0 = m.flatMm(WheelFL);
             std::vector<double> f, fr; WheelsModel* pm = &m;
             for (int i = 0; i < 8000; ++i)
             {
@@ -1533,7 +1625,7 @@ int main()
                 pm->step(dt, q, rp);
                 f.push_back(pm->outputFor(Part::FL).force); fr.push_back(pm->outputFor(Part::FR).force);
             }
-            approx(m.flatMm(WheelFL), 0.4, 0.01, "wheels flat: rolling on does not deepen it");
+            approx(m.flatMm(WheelFL), flat0, 0.01, "wheels flat: rolling on does not deepen it");
             // Once a revolution: at 20 m/s a 2 m tyre turns every 0.1 s (200 samples).
             std::vector<double> diff; for (size_t i = 4000; i + 200 < f.size(); ++i) diff.push_back(f[i] - f[i + 200]);
             const double flatRms = rmsOf(f, 4000);
@@ -1550,6 +1642,30 @@ int main()
                 abs.step(dt, q, rp);
             }
             CHECK(abs.flatMm(WheelFL) == 0.0, "wheels flat: a wheel kept at the edge of locking grinds no flat");
+
+            // A bad sample or two (a jump to the pits read as four locked
+            // wheels: 50 ms) grinds nothing; a stream that stops mid lock-up
+            // (the sim paused under braking) grinds nothing more while it is
+            // gone, and the brake it last sent heats no disc.
+            WheelsModel blip;
+            for (int i = 0; i < 4000; ++i)
+            {
+                const bool bad = i >= 1000 && i < 1100;
+                for (int w = 0; w < 4; ++w) { blip.driveWheelSpeed(w, 20.0); blip.driveLock(w, bad ? 160.0 : 20.0, bad ? -0.9 : 0.0, 1.0); }
+                blip.step(dt, q, rp);
+            }
+            CHECK(blip.flatMm(WheelFL) == 0.0 && blip.flatMm(WheelRR) == 0.0, "wheels flat: 50 ms of four locked wheels (a glitch) grinds nothing");
+            WheelsModel stop;
+            for (int i = 0; i < 1000; ++i)   // 0.5 s locked, braking hard
+            {
+                for (int w = 0; w < 4; ++w) { stop.driveWheelSpeed(w, w == WheelFL ? 0.0 : 20.0); stop.driveLock(w, 20.0, w == WheelFL ? -1.0 : 0.0, 1.0); }
+                stop.driveBrake(1.0);
+                stop.step(dt, q, rp);
+            }
+            const double flatAtStop = stop.flatMm(WheelFL), heatAtStop = stop.discHeat(WheelFL);
+            for (int i = 0; i < 20000; ++i) stop.step(dt, q, rp);   // 10 s with nothing arriving
+            approx(stop.flatMm(WheelFL), flatAtStop, 1e-9, "wheels flat: a stream stopped mid lock-up grinds nothing more");
+            CHECK(stop.discHeat(WheelFL) <= heatAtStop, "wheels heat: a stream stopped under braking heats nothing more");
         }
         // Brake judder: only with hot discs, only under braking, twice a
         // revolution.

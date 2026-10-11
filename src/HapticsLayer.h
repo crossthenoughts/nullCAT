@@ -441,13 +441,18 @@ public:
                     const SlipModel::Out o = sm->outputFor(r.part);
                     if (r.shaker >= 0)
                     {
-                        toShaker(r, p.ampPct * (o.aEnv * std::sin(r.harm * o.aPhase) + o.bEnv * std::sin(r.harm * o.bPhase)));
+                        toShaker(r, p.ampPct * (o.aEnv * std::sin(r.harm * o.aPhase) + o.bEnv * std::sin(r.harm * o.bPhase)
+                                              + o.cEnv * std::sin(r.harm * o.cPhase) + o.d));
                         continue;
                     }
                     if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
                     const double ask = p.ampPct * r.gain;
+                    // Each layer derated at its own carrier: the slow pulse is
+                    // what a seat actuator carries best.
                     const double v = p.ampPct * (o.a * sinkScale(r.axis, ask, o.aHz)
-                                               + o.b * sinkScale(r.axis, ask, o.bHz));
+                                               + o.b * sinkScale(r.axis, ask, o.bHz)
+                                               + o.c * sinkScale(r.axis, ask, o.cHz)
+                                               + o.d * sinkScale(r.axis, ask, o.dHz));
                     if (v != 0.0) m_overlay[r.axis] += v * r.gain;
                 }
                 continue;
@@ -602,6 +607,13 @@ public:
     {
         if (SlipModel* sm = slipFor(t)) sm->drive(wheel, a, b);
     }
+    // The fronts' screech and pulse levels (Lateral), after driveSlip.
+    void driveSlipExtra(FxType t, int wheel, double screech, double pulse)
+    {
+        if (SlipModel* sm = slipFor(t)) sm->driveExtra(wheel, screech, pulse);
+    }
+    double slipWheelScreech(int wheel) const { return m_slipLat.wheelScreech(wheel); }
+    double slipWheelPulse(int wheel) const   { return m_slipLat.wheelPulse(wheel); }
     void setSlipCarrierScale(FxType t, double aScale, double bScale)
     {
         if (SlipModel* sm = slipFor(t)) sm->setCarrierScale(aScale, bScale);

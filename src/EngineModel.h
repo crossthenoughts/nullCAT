@@ -353,8 +353,12 @@ public:
                 }
                 else if (!cut && !tcDrop)
                 {
-                    // Boost: more air per firing = a heavier hit, on top of load.
-                    const double boostUp = (m_boost > 0.0) ? std::min(kBoostHitMax, 1.0 + kBoostGain * m_boost / kBoostRefBar) : 1.0;
+                    // Boost: more air per firing = a heavier hit, on top of
+                    // load. A turbo engine's only: what a sim reports for a
+                    // naturally aspirated car (0, or its manifold pressure
+                    // near 1 bar) changes nothing.
+                    const double boostUp = (e.turbo >= 0.5 && m_boost > 0.0)
+                        ? std::min(kBoostHitMax, 1.0 + kBoostGain * m_boost / kBoostRefBar) : 1.0;
                     // Closed throttle: in gear the wheels pump the engine
                     // (heavier), in neutral it freewheels (lighter).
                     const double floorHit = (m_inGearOverrun ? kOverrunHit : kCoastHit);
@@ -384,8 +388,10 @@ public:
         // Lift-off: the throttle snapping shut at high rpm. Naturally
         // aspirated: one soft pop as combustion stops. Turbo: the boost
         // dumping (a longer, heavier whoosh) followed by the compressor
-        // flutter, each scaled by the boost the sim reports or, without
-        // it, by how far up the band the lift happened.
+        // flutter, scaled by the boost the sim reports; the pop (and a
+        // turbo whose sim reports none) by how far up the band the lift
+        // happened. (A sim sends 0 boost for every naturally aspirated car,
+        // which used to silence the pop.)
         {
             if (m_load >= kLiftFrom) m_hiLoadAgo = 0.0; else m_hiLoadAgo += dtSec;
             if (m_liftHoldoff > 0.0) m_liftHoldoff -= dtSec;
@@ -396,7 +402,7 @@ public:
                 ++m_liftOffs;
                 m_liftHoldoff = kLiftHoldoffSec;
                 m_hiLoadAgo   = 1e9;
-                const double how = (m_boost >= 0.0) ? std::min(1.0, m_boost / kBoostRefBar) : x;
+                const double how = (e.turbo >= 0.5 && m_boost >= 0.0) ? std::min(1.0, m_boost / kBoostRefBar) : x;
                 const double base = p.ampPct * level * kThumpMix * heavy * std::min(2.0, e.liftoff) * how;
                 if (e.turbo >= 0.5)
                 {

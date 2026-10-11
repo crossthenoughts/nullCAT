@@ -264,6 +264,7 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
                 o["surfaceHz"] = c.hapticsRoad.surfaceHz;
                 o["model"] = c.hapticsRoad.model; o["bodyMm"] = c.hapticsRoad.bodyMm; o["bodyHz"] = c.hapticsRoad.bodyHz;
                 o["hopHz"] = c.hapticsRoad.hopHz; o["damping"] = c.hapticsRoad.damping; o["rough"] = c.hapticsRoad.rough;
+                o["suspPct"] = c.hapticsRoad.suspPct; o["suspHz"] = c.hapticsRoad.suspHz;
             }
             else if (info.kind == haptics::Kind::Kerb)
             {
@@ -296,6 +297,7 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
                 {
                     o["slow"] = q.slow; o["buzz"] = q.buzz; o["buzzHz"] = q.buzzHz;
                     o["slipLink"] = q.slipLink; o["lockLink"] = q.lockLink; o["scrubLink"] = q.scrubLink;
+                    o["brakeFull"] = q.brakeFull;
                 }
             }
             else if (info.kind == haptics::Kind::Driveline)
@@ -409,6 +411,8 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                 c.hapticsRoad.hopHz      = o.value("hopHz").toDouble(c.hapticsRoad.hopHz);
                 c.hapticsRoad.damping    = o.value("damping").toDouble(c.hapticsRoad.damping);
                 c.hapticsRoad.rough      = o.value("rough").toDouble(c.hapticsRoad.rough);
+                c.hapticsRoad.suspPct    = o.value("suspPct").toDouble(c.hapticsRoad.suspPct);
+                c.hapticsRoad.suspHz     = o.value("suspHz").toDouble(c.hapticsRoad.suspHz);
             }
             if (info.kind == haptics::Kind::Kerb)
             {
@@ -458,6 +462,7 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                     q.slipLink  = o.value("slipLink").toDouble(q.slipLink);
                     q.lockLink  = o.value("lockLink").toDouble(q.lockLink);
                     q.scrubLink = o.value("scrubLink").toDouble(q.scrubLink);
+                    q.brakeFull = o.value("brakeFull").toDouble(q.brakeFull);
                 }
             }
             if (info.kind == haptics::Kind::Driveline)
@@ -1415,6 +1420,10 @@ std::vector<std::string> AppConfig::validate() const
                     errors.push_back(pfx + "damping out of range [0.05, 1.5]");
                 if (hapticsRoad.rough < 0.0 || hapticsRoad.rough > 20.0)
                     errors.push_back(pfx + "rough out of range [0, 20]");
+                if (hapticsRoad.suspPct < 0.0 || hapticsRoad.suspPct > 100.0)
+                    errors.push_back(pfx + "suspPct out of range [0, 100]");
+                if (hapticsRoad.suspHz < 0.0 || hapticsRoad.suspHz > 15.0)
+                    errors.push_back(pfx + "suspHz out of range [0, 15] (0 = off)");
             }
             if (info.kind == haptics::Kind::Kerb)
             {
@@ -1468,6 +1477,7 @@ std::vector<std::string> AppConfig::validate() const
                     if (q.slipLink != 0.0 && q.slipLink != 1.0) errors.push_back(pfx + "slipLink must be 0 (off) or 1 (on)");
                     if (q.lockLink < 0.0 || q.lockLink > 1.0)   errors.push_back(pfx + "lockLink out of range [0, 1]");
                     if (q.scrubLink < 0.0 || q.scrubLink > 1.0) errors.push_back(pfx + "scrubLink out of range [0, 1]");
+                    if (q.brakeFull < 10.0 || q.brakeFull > 100.0) errors.push_back(pfx + "brakeFull out of range [10, 100]");
                 }
             }
             if (info.kind == haptics::Kind::Slip)

@@ -70,7 +70,7 @@ struct EffectInfo
     SlipParams   slipDefaults;
 };
 
-constexpr int SLIP_KEY_COUNT = 10;  // SlipParams fields with a config key (slipField)
+constexpr int SLIP_KEY_COUNT = 15;  // SlipParams fields with a config key (slipField)
 
 namespace registry_detail {
 
@@ -87,6 +87,7 @@ constexpr ParamSpec kAbsParams[] = {            // ABS: the corners' valves, the
     { "slow",   "slow x",    0,   1,   0.05, nullptr },   // the cycle slowing towards a stop
     { "buzz",   "buzz x",    0,   1,   0.05, nullptr },   // the pump and valves
     { "buzzHz", "buzz hz",   15,  120, 1,    nullptr },
+    { "brakeFull", "full at brake %", 10, 100, 5, nullptr }, // light braking, a light pulse; full by this pedal
     { "slipLink",  "slip link", 0, 1,  1,    "off|on" },  // the corners' valves shape the slip tiles
     { "lockLink",  "lock x",    0, 1,  0.05, nullptr },   // ...the lock texture surging with each cycle
     { "scrubLink", "scrub x",   0, 1,  0.05, nullptr },   // ...the lateral slip easing after each dump
@@ -101,6 +102,11 @@ constexpr ParamSpec kSlipLatParams[] = {        // lateral slip: scrub (fronts) 
     { "ampPct",  "amp %",      0,   100, 1,    nullptr },
     { "scrub",   "scrub x",    0,   1,   0.1,  nullptr },
     { "scrubHz", "scrub hz",   8,   60,  1,    nullptr },
+    { "screech",   "screech x",   0,  1,   0.05, nullptr },   // fronts: the tyres starting to squeal, before they let go
+    { "screechPct","screech %",   0,  95,  5,    nullptr },   // ...from this share of peak deg
+    { "screechHz", "screech hz",  10, 120, 1,    nullptr },   // ...on its own carrier
+    { "pulse",     "pulse x",     0,  1,   0.05, nullptr },   // fronts past the limit: the slow stick-slip shove
+    { "pulseHz",   "pulse hz",    2,  15,  0.5,  nullptr },
     { "slide",   "slide x",    0,   1,   0.1,  nullptr },
     { "slideHz", "slide hz",   4,   30,  1,    nullptr },
     { "peakDeg", "peak deg",   2,   20,  0.5,  nullptr },
@@ -125,8 +131,10 @@ constexpr ParamSpec kSlipLonParams[] = {        // longitudinal slip: lock judde
 // SlipParams fields by index (slipField). A null key = that tile does not
 // carry the field (Longitudinal keeps its fixed onset and curve).
 constexpr const char* kSlipLatKeys[SLIP_KEY_COUNT] = { "scrub", "scrubHz", "slide", "slideHz", "peakDeg",
-                                                       "onsetPct", "ease", "smoothHz", "attackMs", "budget" };
+                                                       "onsetPct", "ease", "smoothHz", "attackMs", "budget",
+                                                       "screech", "screechPct", "screechHz", "pulse", "pulseHz" };
 constexpr const char* kSlipLonKeys[SLIP_KEY_COUNT] = { "lock", "lockHz", "spin", "spinHz", "peakRatio",
+                                                       nullptr, nullptr, nullptr, nullptr, nullptr,
                                                        nullptr, nullptr, nullptr, nullptr, nullptr };
 constexpr ParamSpec kRoadParams[] = {           // road: the model, its settings, the texture fallback
     { "ampPct",     "amp %",       0,   100, 1,    nullptr },
@@ -134,6 +142,8 @@ constexpr ParamSpec kRoadParams[] = {           // road: the model, its settings
     { "bodyMm",     "body mm",     0.1, 20,  0.1,  nullptr },   // tyre, chassis: body movement = 100%
     { "hpHz",       "cut hz",      0.5, 10,  0.5,  nullptr },
     { "rough",      "rough x",     0,   20,  0.1,  nullptr },   // tyre, suspension: road roughness
+    { "suspPct",    "susp %",      0,   100, 5,    nullptr },   // tyre, suspension: the game's own movement
+    { "suspHz",     "susp cut hz", 0,   15,  0.5,  nullptr },   // ...its steep cut (0 = off)
     { "bodyHz",     "body hz",     0.8, 8,   0.1,  nullptr },   // tyre, suspension roughness: the car's body bounce
     { "hopHz",      "hop hz",      6,   30,  0.5,  nullptr },   // tyre, suspension roughness: wheel hop
     { "damping",    "damping",     0.05, 1.5, 0.05, nullptr },  // tyre, suspension roughness: damping ratio
@@ -239,13 +249,14 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "fuel-cut crackle on the overrun. Needs rpm (throttle, limiter and boost optional).",
       nullptr, {} },
     { Effect::Abs,         "abs",         "ABS",          Kind::Abs, EventType::COUNT, FxType::AbsPulse,
-      { "brakePct", "absActive", "~speedKmh", nullptr }, { 0.0, 12.0, 0.0, 0.0 }, kAbsParams, 10,
+      { "brakePct", "absActive", "~speedKmh", nullptr }, { 0.0, 12.0, 0.0, 0.0 }, kAbsParams, 11,
       "ABS working under braking: at each corner the valve dumps the brake pressure and rebuilds it, about freq hz "
       "times a second, so the car's deceleration judders. sharp is the dump's edge (0 round, 1 a hard knock); "
       "spread lets each corner run on its own rate and each cycle differ, so the four drift in and out of step and "
       "the car grumbles rather than beating; slow x slows the cycle as the car slows (the thump-thump before a "
       "stop: 0.5 = half rate at a standstill); buzz x / hz is the pump and valves underneath, best on a belt or "
-      "shaker. Route with a part so a post carries its own corner. Slip link on: while ABS works each corner's "
+      "shaker. It pulses as hard as you brake: light trail braking a light pulse, full at full at brake % (10 = "
+      "always full). Route with a part so a post carries its own corner. Slip link on: while ABS works each corner's "
       "valve shapes that wheel's slip tiles, the lock texture held at the edge of locking and surging with each "
       "cycle (lock x), the lateral slip easing after each dump (scrub x); this works with ABS's own amp at 0 too. "
       "Needs the absActive and brakePct channels (speed for slow x).",
@@ -262,8 +273,11 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "slide on that path).",
       kSlipLonKeys, { 1.0, 9.0, 1.0, 16.0, 0.8 } },
     { Effect::Skid,        "slipLat",     "Lateral slip", Kind::Slip, EventType::COUNT, FxType::Skid,
-      { "slipAngle*|wheelSlip*|skid", "speedKmh", "~load*", nullptr }, { 0.0, 20.0, 0.0, 0.5 }, kSlipLatParams, 13,
-      "The tyres sliding, per wheel. Scrub: the fronts pushing wide, a fine texture. Slide: the rears stepping "
+      { "slipAngle*|wheelSlip*|skid", "speedKmh", "~load*", nullptr }, { 0.0, 20.0, 0.0, 0.5 }, kSlipLatParams, 18,
+      "The tyres sliding, per wheel. Scrub: the fronts pushing wide, a fine texture. Screech: the fronts starting "
+      "to squeal before they let go, a light texture from screech % of peak deg, full at peak deg, on its own "
+      "carrier (screech hz). Pulse: fronts past the limit sticking and slipping in a slow, irregular shove at "
+      "pulse hz, as strong as the scrub; slow enough for a seat actuator to carry. Slide: the rears stepping "
       "out, an irregular slower chatter. A slide starts at onset % of peak deg and is full at peak deg; ease "
       "shapes the way in (0 straight up, 1 a light scrub first, 2 lighter still), smooth hz steadies the slip "
       "angle the sim sends, attack ms is how fast a slide builds. Grip budget on: a tyre has one grip for "
@@ -275,10 +289,10 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "per-wheel combined slip (Automobilista 2: any sliding tyre, spinning and locking included), from onset % "
       "of peak % up to full at peak % (the chip shows the value arriving and its peak); else the single skid "
       "channel. Nothing at a standstill.",
-      kSlipLatKeys, { 1.0, 20.0, 1.0, 11.0, 7.0, 40.0, 1.0, 8.0, 30.0, 1.0 } },
+      kSlipLatKeys, { 1.0, 20.0, 1.0, 11.0, 7.0, 40.0, 1.0, 8.0, 30.0, 1.0, 0.3, 50.0, 30.0, 0.6, 6.0 } },
     { Effect::Road,        "road",        "Road",         Kind::Road, EventType::COUNT, FxType::Road,
       { "roadHeight*|suspVel*|suspTravel*|roadNoise", "speedKmh", "~surface*", "~accHeave", nullptr },
-      { 0.0, 16.0, 0.0, 0.6 }, kRoadParams, 15,
+      { 0.0, 16.0, 0.0, 0.6 }, kRoadParams, 17,
       "The road as the car's body feels it, above the band the motion cue covers (cut hz), per corner: route with "
       "a part so each post plays its own corner. A post moves the body's movement, a belt or shaker pushes with "
       "its acceleration. Model TYRE: a quarter car at each corner (body hz, hop hz, damping) running over the "
@@ -289,7 +303,10 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "route gain to play the body 1:1). Model SUSPENSION (the default): the sim's suspension travel itself, full "
       "at full mm, plus the road's fine roughness the sim does not model (rough x, through the tyre and the "
       "corner's spring and damper: body hz, hop hz, damping), rising with speed, rougher on gravel, grass and "
-      "cobbles; rough x 0 = the sim's travel alone. The old surface grain (surface x, hz, km/h) is still there, "
+      "cobbles; rough x 0 = the sim's travel alone. Both: susp % is how much of the sim's own movement plays "
+      "(its suspension, or its road under the tyre) beside the roughness, and susp cut hz a steep cut on that "
+      "alone (0 = off): the body's slow movement the motion already gives drops away, the road's bumps stay. "
+      "The old surface grain (surface x, hz, km/h) is still there, "
       "off by default. Without per-corner data, a texture at freq hz from the roadNoise channel, full at peak %.",
       nullptr, {} },
     { Effect::Limiter,     "limiter",     "Limiter",      Kind::Continuous, EventType::COUNT, FxType::Limiter,
@@ -309,9 +326,9 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "follows speed, each rib a little different (jitter), and the step up onto the kerb (rise mm). A post gets "
       "the kerb's height (a thud on and off; it cannot carry the hum), a belt or shaker the ribs and a kick on and "
       "off, stronger with speed. Route with a part so the corner on the kerb rumbles. Which tyre is on a kerb comes "
-      "from the sim's surface type (Automobilista 2), else the curbs channel (Competizione, EVO: the game's own; "
-      "full at peak %, all wheels), else, with detect mm set, a tyre riding that far above its axle mate on a "
-      "real road profile (Assetto Corsa).",
+      "from the sim's surface type (Automobilista 2), else the stronger of the curbs channel (Competizione, "
+      "EVO: the game's own; full at peak %, all wheels) and, with detect mm set, a tyre riding that far above its "
+      "axle mate on a real road profile (Assetto Corsa).",
       nullptr, {} },
     { Effect::Driveline,   "driveline",   "Driveline",    Kind::Driveline, EventType::COUNT, FxType::Driveline,
       { "clutchPct", "rpm", "gear", "~speedKmh", "~throttlePct" }, { 0.0, 10.0, 0.0, 0.2 }, kDrivelineParams, 10,
@@ -415,6 +432,11 @@ inline double& slipField(SlipParams& s, int i)
         case 7: return s.smoothHz;
         case 8: return s.attackMs;
         case 9: return s.budget;
+        case 10: return s.screech;
+        case 11: return s.screechPct;
+        case 12: return s.screechHz;
+        case 13: return s.pulse;
+        case 14: return s.pulseHz;
         default: return s.peak;
     }
 }

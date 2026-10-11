@@ -15,6 +15,7 @@
 #include "TelemetryInput.h"
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <thread>
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN
@@ -43,13 +44,18 @@ public:
         m_thread = std::thread([this]()
         {
             // Elevated but below the RT loop: SCHED_FIFO 10 on Linux (the
-            // service has rtprio), HIGHEST on Windows. Absolute-time sleeps
-            // keep the long-run rate exact; the shaker servo absorbs jitter.
+            // service has rtprio), HIGHEST on Windows; not in a test run
+            // (NULLCAT_NO_RT). Absolute-time sleeps keep the long-run rate
+            // exact; the shaker servo absorbs jitter.
+            const char* noRt = std::getenv("NULLCAT_NO_RT");
+            if (!(noRt && noRt[0] && !(noRt[0] == '0' && noRt[1] == '\0')))
+            {
 #ifdef _WIN32
-            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+                SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 #else
-            { sched_param sp{}; sp.sched_priority = 10; pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp); }
+                sched_param sp{}; sp.sched_priority = 10; pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
 #endif
+            }
             auto next = std::chrono::steady_clock::now();
             while (m_running.load(std::memory_order_relaxed))
             {

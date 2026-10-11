@@ -14,7 +14,8 @@
 // edge into a pop (felt acceleration grows with frequency squared).
 //
 //   0 SUSPENSION  each corner's suspension travel (or velocity,
-//                 integrated), high-passed at cut hz, /fullMm, plus the
+//                 integrated), high-passed at cut hz (x susp %, and with
+//                 susp cut hz set, a steep cut there too), /fullMm, plus the
 //                 road's fine roughness the sim does not model: the same
 //                 random road as model 1, laid out by distance, through the
 //                 tyre's envelope and a quarter car, its SUSPENSION movement
@@ -24,7 +25,8 @@
 //                 unsprung mass, tyre: body hz, hop hz, damping) driven by
 //                 the road under that tyre: the sim's real road where it
 //                 sends one (roadHeight*, high-passed to drop the hills),
-//                 else the suspension travel as the road input; plus a
+//                 else the suspension travel as the road input (either x
+//                 susp %, through the steep susp cut when set); plus a
 //                 random road laid out by DISTANCE (ISO 8608 roughness, x
 //                 rough, x the surface class under the tyre), so its
 //                 frequency follows speed by itself and the rear wheels
@@ -175,6 +177,27 @@ struct QuarterCar
             vs += as * h; vu += au * h;
             zs += vs * h; zu += vu * h;
         }
+    }
+};
+
+// A second-order (Butterworth) high-pass, for the susp cut: 12 dB an octave
+// against the cut hz's 6, so a movement a third of the corner is down to a
+// tenth while one twice the corner is barely touched. Starts on whatever it
+// is given first, so switching it on does not step.
+struct HighPass2
+{
+    double x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0;
+    bool   seen = false;
+    double step(double x, double hz, double dt)
+    {
+        if (!seen) { x1 = x2 = x; y1 = y2 = 0.0; seen = true; }
+        const double w0 = 2.0 * wavesynth::kPi * std::min(hz, 0.45 / dt) * dt;
+        const double c = std::cos(w0), al = std::sin(w0) / (2.0 * 0.70710678118654752);
+        const double a0 = 1.0 + al;
+        const double b0 = 0.5 * (1.0 + c) / a0, b1 = -(1.0 + c) / a0, a1 = -2.0 * c / a0, a2 = (1.0 - al) / a0;
+        const double y = b0 * (x + x2) + b1 * x1 - a1 * y1 - a2 * y2;
+        x2 = x1; x1 = x; y2 = y1; y1 = y;
+        return y;
     }
 };
 
@@ -384,6 +407,8 @@ private:
         // suspension model's roughness: its quarter car and output
         double synF = 0.0, dHp = 0.0, dPrev = 0.0;
         QuarterCar qr;
+        // the game's own movement's steep cut (susp cut hz)
+        HighPass2 simHp;
         // out
         RoadOut out;
         double mm = 0.0, gate = 0.0;
@@ -419,11 +444,22 @@ private:
                 w.dHp = outA * (w.dHp + d - w.dPrev); w.dPrev = d;
                 add = w.dHp;
             }
-            const double total = w.x + add;
+            const double total = simPart(w, w.x, dtSec, p) + add;
             w.y += (softKnee(total / full) - w.y) * smooth;
             w.out.pos = w.out.force = w.y;
             w.mm = total;
         }
+    }
+
+    // The game's own movement as the tile plays it (the suspension model's
+    // suspension travel, the tyre model's road under the tyre): x susp %,
+    // through the steep susp cut first when that is set. The roughness the
+    // models add is not touched.
+    static double simPart(W& w, double x, double dtSec, const RoadParams& p)
+    {
+        if (p.suspHz > 0.0) x = w.simHp.step(x, p.suspHz, dtSec);
+        else                w.simHp.seen = false;
+        return x * std::max(0.0, std::min(100.0, p.suspPct)) / 100.0;
     }
 
     // The random road moves under the car with the distance it covers.
@@ -500,6 +536,7 @@ private:
                 w.hpHSeen = false;
                 real = w.x;
             }
+            real = simPart(w, real, dtSec, p);
             w.realF += (real - w.realF) * inA;
             const double syn = roughAt(i, dtSec, p, wb);
             w.zrF += (w.realF + syn - w.zrF) * envA * w.groundF;

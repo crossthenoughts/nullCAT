@@ -5,7 +5,7 @@
 // ShakerDsp - the path from the haptics layer to a sound card, minus the
 // sound card. The RT loop pushes ONE sample per channel per control cycle
 // (a lock-free ring each); the audio thread renders 48 kHz frames from
-// them: a fill-level servo keeps the ring half full by trimming the
+// them: a fill-level servo keeps the ring at its target by trimming the
 // resample step a fraction of a percent (the EtherCAT clock and the USB
 // crystal drift tens of ppm against each other), linear interpolation
 // between control-rate samples, a second-order low-pass to take the
@@ -29,9 +29,16 @@
 namespace haptics {
 
 static constexpr int MAX_SHAKERS   = 8;
-static constexpr int SHAKER_RING   = 256;     // control-rate samples per channel (~128 ms at 2 kHz)
+static constexpr int SHAKER_RING   = 256;     // control-rate samples per channel (~128 ms at 2 kHz): room, not latency
 
 namespace shaker_k {
+    // The ring is held this full: enough to ride out the audio thread
+    // taking a period's samples in one go and waking a little late, and no
+    // more, since every sample waiting in it is latency. At least this
+    // long, and at least this many device periods.
+    constexpr double kTargetSec     = 0.012;
+    constexpr double kTargetPeriods = 2.5;
+    constexpr int    kMinTarget     = 4;
     constexpr double kLpfHz        = 300.0;   // takes the stair-steps off a 2 kHz feed
     constexpr double kDcHz         = 5.0;     // DC block corner
     // Fill servo: PROPORTIONAL only. The ring level already integrates the
@@ -64,10 +71,16 @@ public:
         m_a1 = -2.0 * cw / a0;        m_a2 = (1.0 - alpha) / a0;
         m_dcR = 1.0 - 2.0 * 3.14159265358979 * shaker_k::kDcHz / m_outHz;
         m_fadeStep = 1.0 / (shaker_k::kFadeSec * m_outHz);
+        retarget();
     }
+    // The device's period, frames per callback (0 = unknown): the ring is
+    // held at least kTargetPeriods of them.
+    void setPeriodFrames(int frames) { m_periodFrames = std::max(0, frames); retarget(); }
 
     int    channels() const  { return m_channels; }
     double controlHz() const { return m_controlHz; }
+    int    target() const    { return m_target; }                        // control samples the ring is held at
+    double targetMs() const  { return 1000.0 * m_target / m_controlHz; } // ...as time: the ring's share of the latency
     void   setGain(int c, double g) { if (c >= 0 && c < MAX_SHAKERS) m_gain[c] = static_cast<float>(std::max(0.0, std::min(4.0, g))); }
 
     // RT side: one sample per channel (-1..1 nominal), never blocks.
@@ -90,6 +103,13 @@ public:
     float    lastOut(int c) const   { return (c >= 0 && c < MAX_SHAKERS) ? m_st[c].lastOut : 0.0f; }
 
 private:
+    void retarget()
+    {
+        using namespace shaker_k;
+        const double want = std::max(kTargetSec * m_controlHz, kTargetPeriods * m_periodFrames * m_stepNom);
+        m_target = std::max(kMinTarget, std::min(SHAKER_RING / 2, static_cast<int>(std::ceil(want))));
+    }
+
     // Single-producer single-consumer ring of floats.
     struct Ring
     {
@@ -134,10 +154,10 @@ private:
         for (int i = 0; i < frames; ++i)
         {
             // Servo on channel 0 (all channels are pushed together): aim for
-            // half a ring; trim the step within +-kServoMaxTrim.
+            // the target; trim the step within +-kServoMaxTrim.
             if (c == 0)
             {
-                const double err = (r.size() - SHAKER_RING / 2) / static_cast<double>(SHAKER_RING / 2);
+                const double err = (r.size() - m_target) / static_cast<double>(m_target);
                 m_trim = std::max(-kServoMaxTrim, std::min(kServoMaxTrim, kServoMaxTrim * err));
             }
             const double step = m_stepNom * (1.0 + m_trim);
@@ -177,6 +197,7 @@ private:
 
     double m_controlHz = 2000.0, m_outHz = 48000.0, m_stepNom = 2000.0 / 48000.0;
     int    m_channels = 2;
+    int    m_periodFrames = 0, m_target = 24;
     double m_trim = 0.0;
     double m_b0 = 0, m_b1 = 0, m_b2 = 0, m_a1 = 0, m_a2 = 0, m_dcR = 0.999, m_fadeStep = 0.005;
     float  m_gain[MAX_SHAKERS] = { 1, 1, 1, 1, 1, 1, 1, 1 };

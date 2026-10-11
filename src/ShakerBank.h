@@ -71,7 +71,7 @@ public:
         std::string wanted, name, error;
         bool   open = false;
         int    firstShaker = 0, channels = 0, sampleRate = 0;
-        double bufferMs = 0.0;
+        double bufferMs = 0.0, latencyMs = 0.0;   // the card's buffer; the whole delay to the output
         uint64_t underruns = 0;
         int    fill = 0;
         std::vector<float> levels;
@@ -87,7 +87,7 @@ public:
             {
                 i.open = s.ok && s.out->isOpen();
                 i.name = s.out->deviceName(); i.error = s.out->error();
-                i.sampleRate = s.out->sampleRate(); i.bufferMs = s.out->bufferMs();
+                i.sampleRate = s.out->sampleRate(); i.bufferMs = s.out->bufferMs(); i.latencyMs = s.out->latencyMs();
                 i.underruns = s.out->underruns(); i.fill = s.out->fill();
                 for (int c = 0; c < s.want; ++c) i.levels.push_back(i.open ? s.out->level(c) : 0.0f);
             }

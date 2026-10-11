@@ -39,6 +39,7 @@
 #endif
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 
 #include <cstring>
@@ -57,6 +58,10 @@ ShakerOutput::ShakerOutput() : m_impl(new Impl)
 {
     ma_backend backends[] = { ma_backend_wasapi, ma_backend_alsa, ma_backend_null };
     ma_context_config cfg = ma_context_config_init();
+    // A test run (NULLCAT_NO_RT) keeps the audio thread at normal priority,
+    // like every other thread it starts.
+    const char* noRt = std::getenv("NULLCAT_NO_RT");
+    if (noRt && noRt[0] && !(noRt[0] == '0' && noRt[1] == '\0')) cfg.threadPriority = ma_thread_priority_normal;
     m_impl->contextOk = (ma_context_init(backends, 3, &cfg, &m_impl->context) == MA_SUCCESS);
 }
 
@@ -199,10 +204,18 @@ bool ShakerOutput::open(const std::string& deviceName, int channels, double cont
 
     m_sampleRate = static_cast<int>(m_impl->device.sampleRate);
     m_dsp.configure(controlHz, m_sampleRate, static_cast<int>(m_impl->device.playback.channels));
-    // Prime half a ring of silence so the servo starts centred.
-    { double z[MAX_SHAKERS] = {}; for (int i = 0; i < SHAKER_RING / 2; ++i) m_dsp.push(z, MAX_SHAKERS); }
-    m_bufferMs = 1000.0 * static_cast<double>(m_impl->device.playback.internalPeriodSizeInFrames)
-               * static_cast<double>(m_impl->device.playback.internalPeriods) / std::max(1, m_sampleRate);
+    const int periodFrames = static_cast<int>(m_impl->device.playback.internalPeriodSizeInFrames);
+    const int bufferFrames = periodFrames * static_cast<int>(m_impl->device.playback.internalPeriods);
+    m_dsp.setPeriodFrames(periodFrames);
+    // Prime silence so the servo starts at its target once the device has
+    // filled its own buffer at the start.
+    {
+        const int prime = std::min(SHAKER_RING, m_dsp.target()
+                        + static_cast<int>(std::ceil(bufferFrames * m_dsp.controlHz() / std::max(1, m_sampleRate))));
+        double z[MAX_SHAKERS] = {};
+        for (int i = 0; i < prime; ++i) m_dsp.push(z, MAX_SHAKERS);
+    }
+    m_bufferMs = 1000.0 * static_cast<double>(bufferFrames) / std::max(1, m_sampleRate);
     m_deviceName = m_impl->device.playback.name;
     // On ALSA, how the card is held (direct = every channel, low latency),
     // and the card at full line level.

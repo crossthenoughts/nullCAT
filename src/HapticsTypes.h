@@ -87,6 +87,16 @@ struct SlipParams
     // driving, so a wheel with both a slip angle and a slip ratio slides
     // when the two together reach its limit, not each on its own.
     double budget   = 0.0;
+    // The front tyres' early and late cues (the Lateral tile's; 0 = off, so
+    // Longitudinal has neither). Screech: the tyres starting to squeal before
+    // they let go, a light fine texture from screechPct of peak deg, full at
+    // peak, on its own carrier. Pulse: past the limit the fronts stick and
+    // slip in a slow irregular cycle at pulseHz, as strong as the scrub.
+    double screech    = 0.0;
+    double screechPct = 50.0;
+    double screechHz  = 30.0;
+    double pulse      = 0.0;
+    double pulseHz    = 6.0;
 };
 
 // The Road tile's replay settings (used when per-corner suspension
@@ -118,6 +128,13 @@ struct RoadParams
     double hopHz      = 16.0;   // tyre, suspension roughness: wheel hop (12-20)
     double damping    = 0.3;    // tyre, suspension roughness: the bounce's damping ratio
     double rough      = 2.0;    // tyre, suspension: road roughness, 1 = a smooth public road (ISO 8608 class A), 0 = none
+    // The game's own movement apart from the roughness (suspension: the
+    // sim's suspension travel; tyre: the sim's road under the tyre): how
+    // much of it plays, and a steep (second-order) cut on it alone, so the
+    // body's slow movement (the motion's job) drops away while the road's
+    // bumps pass. 0 hz = off (cut hz alone, as before).
+    double suspPct    = 100.0;
+    double suspHz     = 0.0;
 };
 
 // The Kerb tile: a rumble strip under the tyre that is on one. Ribs at
@@ -150,6 +167,9 @@ struct PulseParams
     double slipLink  = 0.0;
     double lockLink  = 0.7;
     double scrubLink = 0.3;
+    // ABS: how hard it pulses follows the brake pedal, from nothing at the
+    // 10% the law needs up to full at this brake % (10 = always full).
+    double brakeFull = 80.0;
 };
 
 // The Surface tile (SurfaceModel.h): stones, snow crunch, studs, puddles.

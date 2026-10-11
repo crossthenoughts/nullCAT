@@ -219,14 +219,28 @@ int main()
         // ABS flag with no brake: nothing. With brake: pulses.
         v.val[NcxValues::AbsActive] = 1.0; v.val[NcxValues::BrakePct] = 0.0;  settle(100);
         check(L.fxLevel(static_cast<int>(haptics::FxType::AbsPulse)) < 0.05, "I-7 ABS flag alone (no brake) stays silent");
-        v.val[NcxValues::BrakePct] = 60.0; settle(100);
-        check(L.fxLevel(static_cast<int>(haptics::FxType::AbsPulse)) > 0.9,  "I-7 ABS flag + brake drives the pulse");
+        // As hard as the driver brakes: from nothing at 10% to full at full at
+        // brake % (80 by default).
+        v.val[NcxValues::BrakePct] = 45.0; settle(100);
+        check(std::fabs(L.fxLevel(static_cast<int>(haptics::FxType::AbsPulse)) - 0.5) < 0.02, "I-7 ABS at 45% brake pulses at half strength");
+        v.val[NcxValues::BrakePct] = 85.0; settle(100);
+        check(L.fxLevel(static_cast<int>(haptics::FxType::AbsPulse)) > 0.99,  "I-7 ABS flag + firm brake drives the full pulse");
+        {
+            haptics::PulseParams always = L.pulseParams(haptics::FxType::AbsPulse); always.brakeFull = 10.0;
+            L.configurePulse(haptics::FxType::AbsPulse, always);
+            v.val[NcxValues::BrakePct] = 20.0; settle(100);
+            check(L.fxLevel(static_cast<int>(haptics::FxType::AbsPulse)) > 0.99, "I-7 ABS full at brake % 10: full strength whatever the pedal");
+            always.brakeFull = 80.0; L.configurePulse(haptics::FxType::AbsPulse, always);
+            v.val[NcxValues::BrakePct] = 85.0; settle(100);
+        }
         // The road speed slows the ABS cycle (slow x 0.5: half the 12 Hz set
         // at a standstill, 62.5% at 20 km/h, full from 80).
         check(std::fabs(L.absModel().rateHz() - 6.0) < 0.01, "I-7 ABS: at a standstill the cycle runs at half rate");
         v.val[NcxValues::SpeedKmh] = 20.0; settle(5);
         check(std::fabs(L.absModel().rateHz() - 12.0 * 0.625) < 0.01, "I-7 ABS: at 20 km/h it has slowed to 62.5%");
-        v.val[NcxValues::SpeedKmh] = 100.0; settle(5);
+        // (Settled past the half second a speed jump no car can make, 20 to
+        // 100 in a sample, leaves the speed untrusted.)
+        v.val[NcxValues::SpeedKmh] = 100.0; settle(300);
         check(std::fabs(L.absModel().rateHz() - 12.0) < 0.01, "I-7 ABS: at speed, the rate set");
         v.val[NcxValues::SpeedKmh] = 0.0;
 
@@ -235,7 +249,7 @@ int main()
         // noise (the dev bench read a held value at a standstill).
         v.val[NcxValues::Skid] = 50.0; settle(200);
         check(L.fxLevel(static_cast<int>(haptics::FxType::Skid)) < 0.01, "I-7 skid at a standstill is silent");
-        v.val[NcxValues::SpeedKmh] = 60.0; settle(200);
+        v.val[NcxValues::SpeedKmh] = 60.0; settle(450);   // past the speed jump's hold
         check(std::fabs(L.fxLevel(static_cast<int>(haptics::FxType::Skid)) - 0.5) < 0.05, "I-7 skid 50 drives level 0.5");
         check(std::fabs(L.slipWheelLevel(haptics::FxType::Skid, WheelRR) - 0.5) < 0.05, "I-7 single skid channel reaches every wheel");
         // peak %: the channel value that counts as a full slide. 25 ->
@@ -393,10 +407,10 @@ int main()
         // when the two together reach its limit. Onset 40% of 7 deg = 2.8 deg,
         // the ratio's limit 0.15; linear ease, no smoothing, fast attack.
         {
-            auto budgetRun = [&](double budget, double angle, double ratio, double& lat, double& lon) {
+            auto budgetRun = [&](double budget, double angle, double ratio, double& lat, double& lon, double ease = 0.0) {
                 haptics::Layer B; haptics::LawsState bs;
                 B.configureFx(FxType::Skid, p); B.configureFx(FxType::Lockup, p);
-                haptics::SlipParams lp{ 1.0, 25.0, 1.0, 11.0, 7.0, 40.0, 0.0, 0.0, 8.0 }; lp.budget = budget;
+                haptics::SlipParams lp{ 1.0, 25.0, 1.0, 11.0, 7.0, 40.0, ease, 0.0, 8.0 }; lp.budget = budget;
                 B.configureSlip(FxType::Skid, lp); B.configureSlip(FxType::Lockup, { 1.0, 9.0, 1.0, 10.0, 0.8 });
                 NcxValues bv{}; bv.fresh = true;
                 bv.have[NcxValues::SpeedKmh] = true; bv.val[NcxValues::SpeedKmh] = 100.0;
@@ -417,6 +431,12 @@ int main()
             check(std::fabs(lat - 0.5) < 0.05 && lon < 0.01, "I-8 budget on: pure sideways is the Lateral tile as before");
             budgetRun(1.0, 0.0, -0.475, lat, lon);
             check(lat < 0.01 && std::fabs(lon - 0.5) < 0.05, "I-8 budget on: pure braking is the Longitudinal tile as before");
+            // The Lateral tile's ease (2: cubed) shapes sideways only: a
+            // slide straight along stays the Longitudinal tile's straight line.
+            budgetRun(1.0, 0.0, -0.475, lat, lon, 2.0);
+            check(std::fabs(lon - 0.5) < 0.05, "I-8 budget on, ease 2: pure braking is still the Longitudinal tile's 0.5");
+            budgetRun(1.0, 4.9, 0.0, lat, lon, 2.0);
+            check(std::fabs(lat - 0.125) < 0.03, "I-8 budget on, ease 2: pure sideways is cubed, as the Lateral tile");
         }
 
         // Longitudinal from slip ratio: - locks, + spins; onset 0.15, full at
@@ -777,6 +797,15 @@ int main()
         heights(30.0, 0.0, 30.0, 25.0);
         for (int i = 0; i < 50; ++i) { haptics::driveLaws(K, ks, kv, dt); K.step(dt); }
         check(K.kerbWheelLevel(WheelRR) > 0.99 && K.kerbWheelLevel(WheelFL) == 0.0, "I-9 kerb detect: RR stepping up 25 mm is on a kerb");
+        // A numbered line pads its kerb channel with 0 (Assetto Corsa sends
+        // none): that 0 must not shut the detector out.
+        kv.have[NcxValues::Curbs] = true; kv.val[NcxValues::Curbs] = 0.0;
+        heights(30.0, 0.0, 30.0, 0.0);
+        for (int i = 0; i < 50; ++i) { haptics::driveLaws(K, ks, kv, dt); K.step(dt); }
+        heights(60.0, 0.0, 30.0, 0.0);
+        for (int i = 0; i < 50; ++i) { haptics::driveLaws(K, ks, kv, dt); K.step(dt); }
+        check(K.kerbWheelLevel(WheelFL) > 0.99, "I-9 kerb detect: a kerb channel stuck at 0 does not shut the detector out");
+        kv.have[NcxValues::Curbs] = false;
 
         // Preview with no sim: the strip at 80 km/h, on 0.6 s in every 1 s.
         {
@@ -870,8 +899,8 @@ int main()
         // FL locked for a second: a flat ground into FL alone.
         ratios(-1.0, -0.1, -0.1, -0.1);
         for (int i = 0; i < 500; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
-        check(std::fabs(L.wheelFlatMm(WheelFL) - 0.4) < 0.01 && L.wheelFlatMm(WheelFR) == 0.0,
-              "I-11 wheels: a second locked at 72 km/h grinds a 0.4 mm flat into FL alone");
+        check(std::fabs(L.wheelFlatMm(WheelFL) - 0.36) < 0.01 && L.wheelFlatMm(WheelFR) == 0.0,
+              "I-11 wheels: a second locked at 72 km/h grinds a 0.36 mm flat into FL alone (from 0.1 s locked)");
         // Rolling on: FL's route thumps once a revolution, FR's is silent.
         ratios(0.0, 0.0, 0.0, 0.0); v.val[NcxValues::BrakePct] = 0.0;
         double pk0 = 0.0, pk1 = 0.0;
@@ -886,10 +915,10 @@ int main()
         // sim naming the car it was already in.
         v.fresh = false;
         for (int i = 0; i < 30000; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
-        check(L.wheelFlatMm(WheelFL) > 0.35, "I-11 wheels: a minute's pause keeps the flat");
+        check(L.wheelFlatMm(WheelFL) > 0.3, "I-11 wheels: a minute's pause keeps the flat");
         v.fresh = true; std::strcpy(v.car, "Car A");
         for (int i = 0; i < 100; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
-        check(L.wheelFlatMm(WheelFL) > 0.35, "I-11 wheels: the sim naming the car keeps the flat");
+        check(L.wheelFlatMm(WheelFL) > 0.3, "I-11 wheels: the sim naming the car keeps the flat");
         // A different car: fresh tyres, and the per-car learning starts over.
         st.rollKnown[WheelFL] = true; st.loadRef = 1234.0;
         std::strcpy(v.car, "Car B");
@@ -977,6 +1006,127 @@ int main()
         double pk = 0.0;
         for (int i = 0; i < 1500; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); if (i > 500) pk = std::max(pk, std::fabs(L.overlayFor(3))); }
         check(pk > 10.0, "I-13 ground: deflatedRR thumps the RR route (the Wheels tile's puncture)");
+    }
+
+    // ---- I-14: the fronts' screech and pulse through the laws ----
+    {
+        using haptics::FxType; using haptics::Part;
+        const double dt = 0.002;
+        haptics::Layer L; haptics::LawsState st;
+        haptics::EffectParams lat; lat.ampPct = 100.0; lat.routes[0] = { 0, 1.0, Part::FL };
+        L.configureFx(FxType::Skid, lat);
+        haptics::SlipParams sp = haptics::effectInfo(haptics::Effect::Skid).slipDefaults;
+        sp.peak = 8.0; sp.onsetPct = 40.0; sp.ease = 1.0; sp.smoothHz = 0.0; sp.attackMs = 2.0; sp.budget = 0.0;
+        sp.screech = 1.0; sp.screechPct = 20.0; sp.pulse = 1.0;
+        L.configureSlip(FxType::Skid, sp);
+        NcxValues v{}; v.fresh = true;
+        v.have[NcxValues::SpeedKmh] = true; v.val[NcxValues::SpeedKmh] = 100.0;
+        auto ang = [&](double fl, double rl)
+        { const double a[4] = { fl, 0.0, rl, 0.0 }; for (int w = 0; w < 4; ++w) { v.have[NcxValues::SlipAngleFL + w] = true; v.val[NcxValues::SlipAngleFL + w] = a[w]; } };
+        auto run = [&](int n) { for (int i = 0; i < n; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); } };
+        // 2.5 deg: past screech % (1.6) but short of the onset (3.2): the
+        // tyre squeals, nothing slides yet.
+        ang(2.5, 0.0); run(200);
+        check(L.slipWheelScreech(WheelFL) > 0.02 && L.slipWheelLevel(FxType::Skid, WheelFL) < 1e-6 && L.slipWheelPulse(WheelFL) < 1e-6,
+              "I-14 screech: the front squeals before it slides");
+        // 7 deg: sliding; the pulse follows the slide, the screech near full.
+        ang(7.0, 7.0); run(200);
+        check(std::fabs(L.slipWheelPulse(WheelFL) - L.slipWheelLevel(FxType::Skid, WheelFL)) < 0.05 && L.slipWheelPulse(WheelFL) > 0.4,
+              "I-14 pulse: as strong as the front's slide");
+        check(L.slipWheelScreech(WheelFL) > 0.85, "I-14 screech: near full near the peak");
+        check(L.slipWheelScreech(WheelRL) == 0.0 && L.slipWheelPulse(WheelRL) == 0.0, "I-14: the rears neither screech nor pulse (their slide is the slide)");
+    }
+
+    // ---- I-15: what the sim sends that cannot be true ----
+    {
+        using haptics::FxType; using haptics::Part;
+        const double dt = 0.0005;
+        haptics::Layer L; haptics::LawsState st;
+        haptics::EffectParams fx; fx.ampPct = 100.0; fx.routes[0] = { 0, 1.0, Part::FL };
+        L.configureFx(FxType::Lockup, fx); L.configureFx(FxType::Skid, fx); L.configureFx(FxType::Wheels, fx);
+        haptics::WheelsParams wq; wq.balance = 0.0; wq.judder = 0.0; L.configureWheels(wq);   // flat 1
+        haptics::SlipParams sp = haptics::effectInfo(haptics::Effect::Skid).slipDefaults;
+        sp.onsetPct = 0.0; sp.ease = 0.0; sp.smoothHz = 1.0; sp.budget = 0.0;
+        L.configureSlip(FxType::Skid, sp);
+        NcxValues v{}; v.fresh = true;
+        auto setW = [&](int group, double x) { for (int w = 0; w < 4; ++w) { v.have[group + w] = true; v.val[group + w] = x; } };
+        v.have[NcxValues::SpeedKmh] = true; v.val[NcxValues::SpeedKmh] = 120.0;
+        v.have[NcxValues::BrakePct] = true; v.val[NcxValues::BrakePct] = 0.0;
+        v.have[NcxValues::ThrottlePct] = true; v.val[NcxValues::ThrottlePct] = 0.0;
+        setW(NcxValues::WheelSpeedFL, 104.0);   // rad/s at 120 km/h (Automobilista 2: wheel speeds, no ratio)
+        setW(NcxValues::WheelSlipFL, 10.0);     // a little combined slip
+        // Samples 1/60 s apart, held between.
+        auto run = [&](double secs) { const int n = static_cast<int>(secs / dt); for (int i = 0; i < n; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); } };
+        run(2.0);   // cruising: the rolling factor learned
+        const double k0 = st.rollK[WheelFL];
+        check(st.rollKnown[WheelFL] && L.slipWheelLevel(FxType::Lockup, WheelFL) < 1e-6, "I-15: cruising learns the rolling factor, nothing locked");
+        // A jump to the pits: one sample at 579 km/h, then back.
+        v.val[NcxValues::SpeedKmh] = 579.0; run(1.0 / 60.0);
+        double lockPk = L.slipWheelLevel(FxType::Lockup, WheelFL);
+        v.val[NcxValues::SpeedKmh] = 120.0;
+        for (int i = 0; i < 400; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); lockPk = std::max(lockPk, L.slipWheelLevel(FxType::Lockup, WheelFL)); }
+        check(st.glitchSec > 0.0, "I-15: a road speed jump no car can make leaves the speed untrusted a moment");
+        check(lockPk < 1e-6 && L.wheelFlatMm(WheelFL) == 0.0 && L.wheelFlatMm(WheelRR) == 0.0,
+              "I-15: the jump is no lock-up on any wheel and grinds no flat");
+        check(std::fabs(st.rollK[WheelFL] - k0) < 1e-9, "I-15: nor does it teach the rolling factor");
+        run(1.0);
+        check(st.glitchSec == 0.0, "I-15: trusted again half a second later");
+        // A real lock-up still grinds a flat.
+        setW(NcxValues::WheelSpeedFL, 0.0); v.val[NcxValues::BrakePct] = 100.0;
+        run(0.5);
+        check(L.slipWheelLevel(FxType::Lockup, WheelFL) > 0.5 && L.wheelFlatMm(WheelFL) > 0.1, "I-15: a real lock-up still locks and grinds");
+        setW(NcxValues::WheelSpeedFL, 104.0); v.val[NcxValues::BrakePct] = 0.0;
+        run(1.0);
+        // A spin with the pedals off: the car still doing 80 km/h, every
+        // wheel nearly stopped. It must not teach the rolling factor (it
+        // did, and back on the straight the rears read as spinning for
+        // seconds).
+        v.val[NcxValues::SpeedKmh] = 80.0; setW(NcxValues::WheelSpeedFL, 2.0);
+        run(1.0);
+        check(std::fabs(st.rollK[WheelRL] / k0 - 1.0) < 0.03, "I-15: a spin with the pedals off teaches the rolling factor nothing");
+        v.val[NcxValues::SpeedKmh] = 120.0; setW(NcxValues::WheelSpeedFL, 104.0); v.val[NcxValues::ThrottlePct] = 100.0;
+        // From 0.75 s on (the spin's own lock-up faded; the speed jump's
+        // hold over): it used to read as spinning for many seconds.
+        double after = 0.0;
+        for (int i = 0; i < 6000; ++i)
+        {
+            haptics::driveLaws(L, st, v, dt); L.step(dt);
+            if (i >= 1500) for (int w = 0; w < 4; ++w) after = std::max(after, L.slipWheelLevel(FxType::Lockup, w));
+        }
+        check(after < 0.01, "I-15: ...so back on the straight at full throttle nothing reads as spinning");
+        v.val[NcxValues::ThrottlePct] = 0.0;
+        // Spun round and rolling backwards: the wheels turn backwards with
+        // the car. Rolling, not locked: no slip, no flat.
+        const double flatBefore = L.wheelFlatMm(WheelRL);
+        setW(NcxValues::WheelSpeedFL, -70.0); v.val[NcxValues::SpeedKmh] = 80.0;
+        double back = 0.0;
+        for (int i = 0; i < 2000; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); for (int w = 0; w < 4; ++w) back = std::max(back, L.slipWheelLevel(FxType::Lockup, w)); }
+        check(back < 0.01 && L.wheelFlatMm(WheelRL) <= flatBefore + 1e-9, "I-15: rolling backwards is rolling, not four locked wheels");
+        setW(NcxValues::WheelSpeedFL, 104.0); v.val[NcxValues::SpeedKmh] = 120.0;
+        run(1.0);
+        // A garbage gear (150, seen once) is dropped: no shift thunks.
+        haptics::EffectParams gp; gp.ampPct = 100.0; gp.freqHz = 20.0; gp.durMs = 60.0; gp.routes[0] = { 2, 1.0, Part::All };
+        L.configure(haptics::EventType::GearShift, gp);
+        v.have[NcxValues::Gear] = true; v.val[NcxValues::Gear] = 4.0; run(0.2);
+        const uint64_t shifts0 = L.fireCount(haptics::EventType::GearShift);
+        v.val[NcxValues::Gear] = 150.0; run(1.0 / 60.0);
+        v.val[NcxValues::Gear] = 4.0;   run(0.2);
+        check(L.fireCount(haptics::EventType::GearShift) == shifts0, "I-15: a garbage gear (150) fires no shift");
+        // One combined-slip sample of three billion (Automobilista 2's slip
+        // speed, now and then): capped, it cannot hold the slide on.
+        v.val[NcxValues::WheelSlipFL] = 3.0e9; run(1.0 / 60.0);
+        v.val[NcxValues::WheelSlipFL] = 10.0; run(0.3);
+        std::printf("  I-15 lateral 0.3 s after a 3e9 slip sample: %.3f\n", L.slipWheelLevel(FxType::Skid, WheelFL));
+        check(L.slipWheelLevel(FxType::Skid, WheelFL) < 0.25, "I-15: a single absurd slip sample does not hold a slide on");
+        // A body acceleration of 290 g (one sample) knocks nothing.
+        haptics::EffectParams ip; ip.ampPct = 100.0; ip.freqHz = 40.0; ip.durMs = 50.0; ip.routes[0] = { 1, 1.0, Part::FL };
+        L.configureFx(FxType::Impacts, ip);
+        v.have[NcxValues::AccHeave] = true; v.val[NcxValues::AccHeave] = 9.8; run(0.2);
+        v.val[NcxValues::AccHeave] = 2880.0; run(1.0 / 60.0);
+        v.val[NcxValues::AccHeave] = 9.8;
+        double ipk = 0.0;
+        for (int i = 0; i < 400; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); ipk = std::max(ipk, std::fabs(L.overlayFor(1))); }
+        check(ipk < 1e-9, "I-15: a 290 g body acceleration sample knocks nothing");
     }
 
     // ---- I-12: the Impacts tile through the laws ----

@@ -472,6 +472,17 @@ seat actuator routed at a gain of G mm and amp at 100 %, a body mm of G
 plays the body's movement one to one. **cut hz** is where the slow
 motion is cut (2 by default; raise it if the seat follows body roll the
 cue is already doing, lower it to let longer undulations through).
+
+For suspension and tyre, the sim's own movement (its suspension, or its
+road under the tyre) and the roughness can be set apart. **susp %** is
+how much of the sim's movement plays (100 by default; 0 leaves the
+roughness alone). **susp cut hz** is a steep cut on the sim's movement
+only (0, off, by default): set it above the car's body bounce (3 to 4
+for a road car, 5 to 7 for a GT3, 7 to 9 for a single-seater) and the
+body's slow dive, roll and crests, which the motion already gives you,
+drop away while the track's bumps and the roughness stay. Cut hz is a
+gentle cut on everything; susp cut hz removes far more of the slow
+movement for the same effect on the bumps.
 Movements past about 60 % of full bend over a soft knee towards 100 %
 instead of clipping, so a big hit lands as a thump rather than a snap.
 The per-wheel line shows each corner's movement and its peak in mm.

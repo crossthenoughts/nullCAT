@@ -1045,3 +1045,11 @@ if(MSVC)
         endif()
     endforeach()
 endif()
+
+# Test programs never take the RT loop's priority or its core (PlatformRT,
+# the haptics idle clock and the audio thread read NULLCAT_NO_RT): run on a
+# machine whose loop is live, they would starve it.
+get_property(_nullcat_tests DIRECTORY PROPERTY TESTS)
+if(_nullcat_tests)
+    set_property(TEST ${_nullcat_tests} APPEND PROPERTY ENVIRONMENT "NULLCAT_NO_RT=1")
+endif()

@@ -20,6 +20,7 @@
 #include "A6FaultCodes.h"  // decoded fault names on the drive cards
 #include "CommissioningMode.h"  // test-mode plan builders (/api/test/*)
 #include "AxisKind.h"           // axis classification authority
+#include "HapticsHelp.h"        // each haptic setting's hover text (schema "help")
 #include <QJsonDocument>   // /api/test/start body parsing
 #include <QJsonObject>
 #include <QJsonArray>
@@ -462,6 +463,7 @@ std::string WebServer::buildStatusJson() const
                     s += "\"channels\":" + jsonInt(i.channels) + ",";
                     s += "\"rate\":" + jsonInt(i.sampleRate) + ",";
                     s += "\"bufferMs\":" + jsonDouble(i.bufferMs, 1) + ",";
+                    s += "\"latencyMs\":" + jsonDouble(i.latencyMs, 1) + ",";
                     s += "\"underruns\":" + std::to_string(i.underruns) + ",";
                     s += "\"fill\":" + jsonInt(i.fill) + ",";
                     s += "\"levels\":[";
@@ -1520,6 +1522,7 @@ bool WebServer::start()
                     QJsonObject p;
                     p["key"] = ps.key; p["label"] = ps.label;
                     p["min"] = ps.min; p["max"] = ps.max; p["step"] = ps.step;
+                    if (const char* help = haptics::paramHelp(info.key, ps.key)) p["help"] = help;
                     if (ps.opts)
                     {
                         QJsonArray opts;
@@ -1552,6 +1555,7 @@ bool WebServer::start()
                     d["surface"] = rd.surface; d["surfaceKmh"] = rd.surfaceKmh; d["surfaceHz"] = rd.surfaceHz;
                     d["model"] = rd.model; d["bodyMm"] = rd.bodyMm; d["bodyHz"] = rd.bodyHz;
                     d["hopHz"] = rd.hopHz; d["damping"] = rd.damping; d["rough"] = rd.rough;
+                    d["suspPct"] = rd.suspPct; d["suspHz"] = rd.suspHz;
                 }
                 else if (info.kind == haptics::Kind::Kerb)
                 {
@@ -1584,6 +1588,7 @@ bool WebServer::start()
                     {
                         d["slow"] = q.slow; d["buzz"] = q.buzz; d["buzzHz"] = q.buzzHz;
                         d["slipLink"] = q.slipLink; d["lockLink"] = q.lockLink; d["scrubLink"] = q.scrubLink;
+                        d["brakeFull"] = q.brakeFull;
                     }
                 }
                 else if (info.kind == haptics::Kind::Driveline)

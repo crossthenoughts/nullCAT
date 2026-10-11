@@ -54,6 +54,7 @@ namespace wheels_k {
     constexpr double kPunctureFold = 0.15;   // ...and an uneven second fold, this share of it, twice a revolution
     constexpr double kLockRatio   = 0.5;     // a wheel at slip ratio -0.5 or below is locked and grinding
     constexpr double kLockMinMs   = 1.0;     // ...while the car is moving
+    constexpr double kLockHoldSec = 0.1;     // ...for this long (a single bad sample is no lock-up)
     constexpr double kHeatRate    = 0.001;   // disc heat per (brake 0..1 x m/s) per second: a hard stop from 300 km/h = 0.2
     constexpr double kCoolSec     = 40.0;    // cooling: heat x (0.2 + speed / 30 m/s) / this per second
     constexpr double kHotFrom     = 0.3;     // discs judder above this heat, full by 1
@@ -80,6 +81,8 @@ public:
     }
     // For flat-spotting: the car's speed (m/s), the wheel's slip ratio
     // (negative = locking) and its load share (1 = an average corner).
+    // This cycle only, like the brake below: not driven = not known (the
+    // stream stopped mid lock-up grinds nothing in).
     void driveLock(int wheel, double carMs, double slipRatio, double loadShare)
     {
         if (wheel < 0 || wheel >= WHEEL_COUNT) return;
@@ -88,7 +91,7 @@ public:
         w.ratio = std::isfinite(slipRatio) ? slipRatio : 0.0;
         w.load  = std::isfinite(loadShare) ? std::max(0.0, std::min(2.0, loadShare)) : 1.0;
     }
-    // The brake pedal, 0..1.
+    // The brake pedal, 0..1, this cycle.
     void driveBrake(double brake01) { m_brake = std::isfinite(brake01) ? std::max(0.0, std::min(1.0, brake01)) : 0.0; }
     // How far the tyre touches the ground, 0 in the air .. 1 (not driven this
     // cycle = on the ground): in the air there is no road for it to roll
@@ -130,9 +133,11 @@ public:
             w.rev += v / kCircM * dtSec;
             w.rev -= std::floor(w.rev);
             m_rateHz = std::max(m_rateHz, v / kCircM);
-            // Flat-spotting: locked and sliding, the flat where the tread
-            // sat on the road when the wheel locked.
-            const bool grinding = (w.ratio <= -kLockRatio) && (w.carMs > kLockMinMs) && (w.groundF >= 0.5);
+            // Flat-spotting: locked and sliding a moment, the flat where the
+            // tread sat on the road when the wheel locked.
+            const bool locked = (w.ratio <= -kLockRatio) && (w.carMs > kLockMinMs) && (w.groundF >= 0.5);
+            w.lockSec = locked ? w.lockSec + dtSec : 0.0;
+            const bool grinding = w.lockSec >= kLockHoldSec;
             if (grinding)
             {
                 if (!w.wasGrinding) w.spotAt = w.rev;
@@ -143,6 +148,7 @@ public:
             // Disc heat: in with the brake and the speed, out faster at speed.
             w.heat += dtSec * (kHeatRate * m_brake * w.carMs - w.heat * (0.2 + w.carMs / 30.0) / kCoolSec);
             w.heat = std::max(0.0, std::min(1.0, w.heat));
+            w.carMs = 0.0; w.ratio = 0.0; w.load = 1.0;   // this cycle's, used
 
             // The road this wheel makes as it turns (mm): the imbalance's
             // force on the hub (offset x wheel rate squared), out of round.
@@ -185,7 +191,7 @@ public:
             inst = std::max(inst, std::max(std::fabs(w.out.pos), std::fabs(w.out.force)));
         }
         m_level = std::max(inst, m_level * std::exp(-dtSec / kLevelSec));
-        m_prevFlat = m_prevHeat = 0.0;
+        m_prevFlat = m_prevHeat = m_brake = 0.0;
     }
 
     // The part's corners together: their mean, as the body feels them.
@@ -217,7 +223,7 @@ private:
         double v = 0.0, carMs = 0.0, ratio = 0.0, load = 1.0;
         bool   driven = false, wasGrinding = false, seeded = false, deflated = false;
         double groundIn = 1.0, groundF = 1.0;   // touching the ground (driven, eased): 0 in the air
-        double rev = 0.0, spotAt = 0.0, flatMm = 0.0, heat = 0.0;
+        double rev = 0.0, spotAt = 0.0, flatMm = 0.0, heat = 0.0, lockSec = 0.0;
         QuarterCar qc;
         double zsHp = 0.0, zsPrev = 0.0, asHp = 0.0, asPrev = 0.0;
         RoadOut out;
