@@ -164,12 +164,17 @@ Every effect's route editor then lists **Shaker 1..N** below the axes.
 A shaker route has a gain (1 = full scale at 100 % amplitude; the output
 soft-clips, never clips hard) and a **harmonic**: x1 plays the effect's
 carrier as it is, x2 doubles it, and so on, phase-locked to the same
-oscillator. That is how a 9 Hz belt effect lands on a shaker at 18 Hz
-where the shaker has output, while the belt keeps the 9 Hz. Pulses
-(thumps, clicks) and the road replay play as they are.
+oscillator. That is how a 9 Hz belt effect (or a 12 Hz ABS cycle) lands
+on a shaker at 18 Hz (36 Hz at x3) where the shaker has output, while
+the belt keeps its own rate. Road, Kerb, Surface, Wheels and Impacts
+have no single carrier to multiply: their shaker routes play as they
+are (the editor shows "as is"). On a per-corner tile a shaker route also
+takes a part, like an axis route: give each shaker its own corner, an
+axle, or all of them.
 
-The shaker path is a few milliseconds behind the belts (the card's
-buffer, 15 to 25 ms on most cards). **axis delay ms** on the Master tile
+The shaker path is a little behind the belts (the card's buffer plus
+the hand-off, about 28 ms on a typical USB card; the shaker line shows
+it). **axis delay ms** on the Master tile
 holds the axis effects back by that much so everything lands together;
 the motion cue itself is never delayed. Shakers keep playing with the
 control loop stopped and on a rig with no drives at all, so a shaker

@@ -96,8 +96,10 @@ public:
                 ch.periodK = 1.0 / (1.0 + spread * kPeriodVar * (2.0 * rand01(ch.rng) - 1.0));
                 ch.depth   = 1.0 - spread * kDepthVar * rand01(ch.rng);
             }
-            ch.out = ch.depth * pulseShape(ch.u + ((m_n > 1) ? spread * kCornerPhase[c] : 0.0), drop);
+            ch.shapeU = ch.u + ((m_n > 1) ? spread * kCornerPhase[c] : 0.0);
+            ch.out = ch.depth * pulseShape(ch.shapeU, drop);
         }
+        m_drop = drop;
         // The pump and valves: a rough buzz at buzz hz.
         m_buzzHz = 0.0; m_buzzOut = 0.0;
         if (q.buzz > 0.0 && q.buzzHz > 0.0)
@@ -110,9 +112,13 @@ public:
 
     // The pulse for a route's part (ABS: the corners of the part averaged;
     // a single corner plays its own; TC: its one channel).
-    double pulseFor(Part part) const
+    // harm > 1: the same cycles at that multiple of their rate, locked to
+    // them (a shaker's harmonic: a 12 Hz ABS cycle at 36 Hz with harm 3).
+    double pulseFor(Part part, int harm = 1) const
     {
-        if (m_n == 1) return m_ch[0].out;
+        const auto at = [&](int c) {
+            return (harm <= 1) ? m_ch[c].out : m_ch[c].depth * pulseShape(harm * m_ch[c].shapeU, m_drop); };
+        if (m_n == 1) return at(0);
         int first = 0, last = WHEEL_COUNT - 1;
         switch (part)
         {
@@ -125,7 +131,7 @@ public:
             default: break;
         }
         double sum = 0.0;
-        for (int c = first; c <= last; ++c) sum += m_ch[c].out;
+        for (int c = first; c <= last; ++c) sum += at(c);
         return sum / static_cast<double>(last - first + 1);
     }
     double channel(int c) const { return (c >= 0 && c < m_n) ? m_ch[c].out : 0.0; }
@@ -148,10 +154,10 @@ private:
         r ^= r << 13; r ^= r >> 7; r ^= r << 17;
         return static_cast<double>(r & 0xFFFFFF) / 16777215.0;
     }
-    struct Ch { double u = 0.0, periodK = 1.0, depth = 1.0, out = 0.0; uint64_t rng = 1; };
+    struct Ch { double u = 0.0, periodK = 1.0, depth = 1.0, out = 0.0, shapeU = 0.0; uint64_t rng = 1; };
     Ch     m_ch[WHEEL_COUNT];
     int    m_n;
-    double m_knockDrop;
+    double m_knockDrop, m_drop = 0.5;
     double m_kmh = -1.0, m_rateHz = 0.0;
     wavesynth::Oscillator m_buzzOsc;
     uint64_t m_buzzRng = 0x2545F4914F6CDD1Dull;

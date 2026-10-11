@@ -323,6 +323,13 @@ Development branch. Nothing here is in a release yet.
   tarmac now (update the SimHub plugin).
 - A Test press set the tiles' session peaks to full, hiding what the sim
   had done. Peaks now skip a Test and the moment it takes to fade.
+- Shaker routes: the **x** harmonic did nothing on ABS, TC and the
+  Lateral slip pulse (a 12 Hz ABS cycle stayed at 12 Hz); it now plays
+  them at that multiple, locked to the cycle. Road, Kerb, Surface, Wheels
+  and Impacts have no single carrier to multiply, so their shaker routes
+  no longer offer it (they show "as is"). A shaker route on a per-corner
+  tile now takes a part like an axis route: a corner per shaker, an axle,
+  or all.
 - The Road tile's tyre and chassis models sat at their limits most of the
   time ("a ball between two paddles"): their full scale, **body mm**, was
   1 mm while the car's body moves several mm over a road. It is 12 by

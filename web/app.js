@@ -1309,6 +1309,9 @@ function shakerStatus(s){
 }
 
 let hapOpenDrawer=null;
+// Tiles whose shaker output is a modelled signal with no single carrier
+// (the order selector would do nothing there).
+const HAP_NO_HARM=['kerb','surface','wheels','impacts'];
 function hapDrawerRender(fx){
   const dr=$('hapDrawer'); if(!dr) return;
   if(hapOpenDrawer===fx.k){ dr.hidden=true; hapOpenDrawer=null; return; }
@@ -1324,15 +1327,23 @@ function hapDrawerRender(fx){
       +HAP_PARTS.map(pk=>'<option value="'+pk+'"'+(pk===part(a.i)?' selected':'')+'>'+pk.toUpperCase()+'</option>').join('')+'</select>':'';
     h+='<label>'+a.name+' <input type="number" min="0" max="'+a.max+'" step="'+a.step+'" data-axis="'+a.i+'" data-max="'+a.max+'" value="'+gain(a.i)+'"> '+a.unit+sel+hint+'</label>';
   }
-  // Shaker channels (when the host has them): gain plus the harmonic of
-  // the effect's carrier to play (x2 puts a 9 Hz belt effect at 18 Hz on
-  // a shaker, phase-locked), per route.
+  // Shaker channels (when the host has them): gain, the harmonic of the
+  // effect's carrier to play (x2 puts a 9 Hz belt effect at 18 Hz on a
+  // shaker, phase-locked) where the effect has one carrier, and for the
+  // per-wheel effects which wheels the shaker carries (a corner per
+  // shaker, an axle, or all).
   const nsh=hapShakerCount();
+  const harmOk=!HAP_NO_HARM.includes(fx.k);
   for(let c=0;c<nsh;c++){
     const e=(dv.routes||[]).find(r=>r.shaker===c);
-    h+='<label>Shaker '+(c+1)+' <input type="number" min="0" max="2" step="0.1" data-shaker="'+c+'" value="'+(e?e.gain:0)+'"> x'
-      +' <select data-harm="'+c+'" title="Harmonic of the carrier this shaker plays: 1 = as is, 2 = double, ...">'
-      +[1,2,3,4,6,8].map(k=>'<option value="'+k+'"'+((e?(e.harm||1):1)===k?' selected':'')+'>x'+k+'</option>').join('')+'</select></label>';
+    const ePart=(e&&e.part)||'all';
+    const hsel=harmOk
+      ?' <select data-harm="'+c+'" title="Harmonic of the carrier this shaker plays: 1 = as is, 2 = double, ...'+(fx.k==='road'?' (the tarmac grain only: the road itself has no single carrier)':'')+'">'
+        +[1,2,3,4,6,8].map(k=>'<option value="'+k+'"'+((e?(e.harm||1):1)===k?' selected':'')+'>x'+k+'</option>').join('')+'</select>'
+      :' <span class="hk" title="This effect has no single carrier to multiply: it plays on a shaker as it is">as is</span>';
+    const psel=fx.parts?' <select data-shpart="'+c+'" title="Which wheels this shaker carries: one corner, an axle, or all">'
+      +HAP_PARTS.map(pk=>'<option value="'+pk+'"'+(pk===ePart?' selected':'')+'>'+pk.toUpperCase()+'</option>').join('')+'</select>':'';
+    h+='<label>Shaker '+(c+1)+' <input type="number" min="0" max="2" step="0.1" data-shaker="'+c+'" value="'+(e?e.gain:0)+'"> x'+hsel+psel+'</label>';
   }
   h+='<span class="fldtip" id="hapRouteMsg"></span>';
   dr.className='hap-drawer'; dr.innerHTML=h; dr.hidden=false;
@@ -1354,7 +1365,10 @@ function hapDrawerRender(fx){
     dr.querySelectorAll('input[data-shaker]').forEach(x=>{
       const g=+x.value; if(!(isFinite(g)&&g>0)) return;
       const hs=dr.querySelector('select[data-harm="'+x.dataset.shaker+'"]');
-      routes.push({shaker:+x.dataset.shaker,gain:Math.min(2,g),harm:hs?(+hs.value||1):1}); });
+      const r={shaker:+x.dataset.shaker,gain:Math.min(2,g),harm:hs?(+hs.value||1):1};
+      const ps=dr.querySelector('select[data-shpart="'+x.dataset.shaker+'"]');
+      if(ps&&ps.value&&ps.value!=='all') r.part=ps.value;
+      routes.push(r); });
     cur.routes=routes.slice(0,14);
     const t=hapTiles[fx.k]; if(t){ const c=t.tile.querySelector('.hap-routechip'); if(c) c.textContent=hapChipText(cur); }
     refreshDirtyUI();

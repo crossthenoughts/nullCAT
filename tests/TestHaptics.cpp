@@ -1012,6 +1012,58 @@ int main()
             approx(hzOf(a, DT), 13.33, 1.0, "shaker: engine rock at harm 1 is the crank rate");
             approx(hzOf(b, DT), 26.67, 1.5, "shaker: engine rock at harm 2 is twice the crank rate");
         }
+        // ABS on a shaker at harm 3: its 12 Hz cycle at 36 Hz, locked to it
+        // (it played 12 Hz whatever the selector said).
+        {
+            EffectParams a; a.ampPct = 100.0; a.freqHz = 12.0; a.jitter = 0.0;
+            Route r1; r1.shaker = 0; r1.gain = 1.0; r1.harm = 1; a.routes[0] = r1;
+            Route r3; r3.shaker = 1; r3.gain = 1.0; r3.harm = 3; a.routes[1] = r3;
+            haptics::PulseParams q; q.sharp = 0.0; q.spread = 0.0; q.slow = 0.0; q.buzz = 0.0;
+            Layer B; B.configureFx(FxType::AbsPulse, a); B.configurePulse(FxType::AbsPulse, q);
+            std::vector<double> x1, x3;
+            for (int i = 0; i < 4000; ++i)
+            {
+                B.driveAbsSpeed(-1.0); B.driveFx(FxType::AbsPulse, 1.0, 0.0); B.step(DT);
+                if (i >= 400) { x1.push_back(B.shakerSample(0)); x3.push_back(B.shakerSample(1)); }
+            }
+            approx(hzOf(x1, DT), 12.0, 0.6, "shaker: ABS at harm 1 plays its cycle rate");
+            approx(hzOf(x3, DT), 36.0, 1.5, "shaker: ABS at harm 3 plays three times it");
+        }
+        // The Lateral slip pulse (the slow stick-slip shove) on a shaker at
+        // harm 2: twice its rate (it played as is).
+        {
+            EffectParams q; q.ampPct = 100.0; q.jitter = 0.0;
+            Route r1; r1.shaker = 0; r1.gain = 1.0; r1.harm = 1; r1.part = haptics::Part::Front; q.routes[0] = r1;
+            Route r2 = r1; r2.shaker = 1; r2.harm = 2; q.routes[1] = r2;
+            haptics::SlipParams sp = haptics::effectInfo(haptics::Effect::Skid).slipDefaults;
+            sp.aMix = 0.0; sp.bMix = 0.0; sp.screech = 0.0; sp.pulse = 1.0; sp.pulseHz = 6.0;
+            Layer S; S.configureFx(FxType::Skid, q); S.configureSlip(FxType::Skid, sp);
+            std::vector<double> a, b;
+            for (int i = 0; i < 8000; ++i)
+            {
+                S.driveSlip(FxType::Skid, WheelFL, 0.0, 0.0); S.driveSlipExtra(FxType::Skid, WheelFL, 0.0, 1.0); S.step(DT);
+                if (i >= 400) { a.push_back(S.shakerSample(0)); b.push_back(S.shakerSample(1)); }
+            }
+            const double h1 = hzOf(a, DT), h2 = hzOf(b, DT);
+            std::printf("  shaker slip pulse: harm 1 %.2f Hz, harm 2 %.2f Hz\n", h1, h2);
+            CHECK(h1 > 3.0 && std::fabs(h2 / h1 - 2.0) < 0.15, "shaker: the slip pulse plays at its harmonic too (x2 = twice its rate)");
+        }
+        // A corner per shaker: a kerb under FL alone plays on FL's shaker,
+        // not FR's; a shaker on ALL carries it too.
+        {
+            EffectParams k; k.ampPct = 100.0; k.jitter = 0.0;
+            Route a; a.shaker = 0; a.gain = 1.0; a.part = haptics::Part::FL; k.routes[0] = a;
+            Route b = a; b.shaker = 1; b.part = haptics::Part::FR; k.routes[1] = b;
+            Route c = a; c.shaker = 2; c.part = haptics::Part::All; k.routes[2] = c;
+            Layer K; K.configureFx(FxType::Kerb, k); K.configureKerb(haptics::KerbParams{});
+            std::vector<double> fl, fr, all;
+            for (int i = 0; i < 4000; ++i)
+            {
+                K.driveKerbSpeed(25.0); for (int w = 0; w < 4; ++w) K.driveKerb(w, w == WheelFL ? 1.0 : 0.0); K.step(DT);
+                if (i >= 400) { fl.push_back(K.shakerSample(0)); fr.push_back(K.shakerSample(1)); all.push_back(K.shakerSample(2)); }
+            }
+            CHECK(pk(fl) > 0.05 && pk(fr) < 1e-9 && pk(all) > 0.05, "shaker: a corner per shaker (FL's kerb on FL's shaker only; ALL carries it too)");
+        }
         // Tone test: 40 Hz at 0.5 on one channel for the asked time, then gone.
         {
             Layer T; std::vector<double> o;

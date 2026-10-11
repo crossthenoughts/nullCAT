@@ -396,7 +396,8 @@ public:
                     const double pulse = pm.pulseFor(r.part);
                     if (r.shaker >= 0)
                     {
-                        toShaker(r, lvl * (pulse + (bzHz > 0.0 ? bz : 0.0)));
+                        // At the route's harmonic: a 12 Hz cycle sits low for a shaker.
+                        toShaker(r, lvl * (pm.pulseFor(r.part, r.harm) + (bzHz > 0.0 ? bz : 0.0)));
                         continue;
                     }
                     if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
@@ -442,7 +443,8 @@ public:
                     if (r.shaker >= 0)
                     {
                         toShaker(r, p.ampPct * (o.aEnv * std::sin(r.harm * o.aPhase) + o.bEnv * std::sin(r.harm * o.bPhase)
-                                              + o.cEnv * std::sin(r.harm * o.cPhase) + o.d));
+                                              + o.cEnv * std::sin(r.harm * o.cPhase)
+                                              + o.dEnv * (std::sin(r.harm * o.dPhase) + slip_k::kPulse2nd * std::sin(2.0 * r.harm * o.dPhase))));
                         continue;
                     }
                     if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;

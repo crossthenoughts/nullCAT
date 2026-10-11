@@ -61,6 +61,7 @@ public:
         double aPhase = 0.0, bPhase = 0.0;// oscillator phase, radians: a shaker plays sin(harm x phase)
         // The fronts' screech (c) and pulse (d), where the law drives them.
         double c = 0.0, d = 0.0, cHz = 0.0, dHz = 0.0, cEnv = 0.0, cPhase = 0.0;
+        double dEnv = 0.0, dPhase = 0.0;  // the pulse's envelope and phase: a shaker plays it at its harmonic
     };
 
     // Per wheel, per cycle, BEFORE step(): component severities 0..1.
@@ -143,6 +144,7 @@ public:
             w.sC  = (w.hzC > 0.0) ? x.uC * w.lC * s.screech : 0.0;
             w.sD  = (w.hzD > 0.0) ? x.uD * w.lD * s.pulse : 0.0;
             w.envC = (w.hzC > 0.0) ? w.lC * s.screech : 0.0;
+            w.envD = (w.hzD > 0.0) ? w.lD * s.pulse * x.dDepth * slip_k::kPulseNorm : 0.0;
         }
     }
 
@@ -169,7 +171,7 @@ public:
             if (w.lA > bestA) { bestA = w.lA; o.a = w.sA; o.aHz = w.hzA; o.aEnv = w.envA; o.aPhase = x.oscA.phase; }
             if (w.lB > bestB) { bestB = w.lB; o.b = w.sB; o.bHz = w.hzB; o.bEnv = w.envB; o.bPhase = x.oscB.phase; }
             if (w.lC > bestC) { bestC = w.lC; o.c = w.sC; o.cHz = w.hzC; o.cEnv = w.envC; o.cPhase = x.oscC.phase; }
-            if (w.lD > bestD) { bestD = w.lD; o.d = w.sD; o.dHz = w.hzD; }
+            if (w.lD > bestD) { bestD = w.lD; o.d = w.sD; o.dHz = w.hzD; o.dEnv = w.envD; o.dPhase = x.dPhase; }
         }
         return o;
     }
@@ -209,7 +211,7 @@ private:
         double lA = 0.0, lB = 0.0, lC = 0.0, lD = 0.0;   // smoothed
         double sA = 0.0, sB = 0.0, sC = 0.0, sD = 0.0;   // this cycle's samples
         double hzA = 0.0, hzB = 0.0, hzC = 0.0, hzD = 0.0; // this cycle's carriers
-        double envA = 0.0, envB = 0.0, envC = 0.0;       // this cycle's envelopes (level x mix)
+        double envA = 0.0, envB = 0.0, envC = 0.0, envD = 0.0;   // this cycle's envelopes (level x mix)
     };
     // Front axle (FL, FR) and rear axle (RL, RR): one oscillator per
     // component, its unit sample and carrier this cycle.
