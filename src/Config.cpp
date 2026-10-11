@@ -250,6 +250,7 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
                 o["maxRpm"] = e.maxRpm; o["rock"] = e.rock; o["thump"] = e.thump; o["buzz"] = e.buzz;
                 o["order"] = e.order; o["limHit"] = e.limHit; o["limHz"] = e.limHz; o["limJit"] = e.limJit;
                 o["inertia"] = e.inertia; o["turbo"] = e.turbo; o["liftoff"] = e.liftoff; o["pops"] = e.pops;
+                o["tcCut"] = e.tcCut;
             }
             else if (info.kind == haptics::Kind::Slip)
             {
@@ -292,7 +293,7 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
             {
                 const bool abs = (info.kind == haptics::Kind::Abs);
                 const haptics::PulseParams& q = abs ? c.hapticsAbs : c.hapticsTc;
-                o["sharp"] = q.sharp; o["spread"] = q.spread;
+                o["sharp"] = q.sharp; o["spread"] = q.spread; o["holdMs"] = q.holdMs;
                 if (abs)
                 {
                     o["slow"] = q.slow; o["buzz"] = q.buzz; o["buzzHz"] = q.buzzHz;
@@ -454,6 +455,7 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                 haptics::PulseParams& q = abs ? c.hapticsAbs : c.hapticsTc;
                 q.sharp  = o.value("sharp").toDouble(q.sharp);
                 q.spread = o.value("spread").toDouble(q.spread);
+                q.holdMs = o.value("holdMs").toDouble(q.holdMs);
                 if (abs)
                 {
                     q.slow   = o.value("slow").toDouble(q.slow);
@@ -495,6 +497,7 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                 e.turbo     = o.value("turbo").toDouble(e.turbo);
                 e.liftoff   = o.value("liftoff").toDouble(e.liftoff);
                 e.pops      = o.value("pops").toDouble(e.pops);
+                e.tcCut     = o.value("tcCut").toDouble(e.tcCut);
             }
         }
         if (h.contains("masterGain"))  c.hapticsMasterGain = h.value("masterGain").toDouble(1.0);
@@ -1469,6 +1472,7 @@ std::vector<std::string> AppConfig::validate() const
                 const haptics::PulseParams& q = abs ? hapticsAbs : hapticsTc;
                 if (q.sharp < 0.0 || q.sharp > 1.0)   errors.push_back(pfx + "sharp out of range [0, 1]");
                 if (q.spread < 0.0 || q.spread > 1.0) errors.push_back(pfx + "spread out of range [0, 1]");
+                if (q.holdMs < 0.0 || q.holdMs > 500.0) errors.push_back(pfx + "holdMs out of range [0, 500] (0 = off)");
                 if (abs)
                 {
                     if (q.slow < 0.0 || q.slow > 1.0)          errors.push_back(pfx + "slow out of range [0, 1]");
@@ -1524,6 +1528,8 @@ std::vector<std::string> AppConfig::validate() const
                 errors.push_back(pfx + "turbo out of range [0, 1] (no, yes)");
             if (e.liftoff < 0.0 || e.liftoff > 2.0)
                 errors.push_back(pfx + "liftoff out of range [0, 2]");
+            if (e.tcCut < 0.0 || e.tcCut > 1.0)
+                errors.push_back(pfx + "tcCut out of range [0, 1]");
         }
         if (hapticsMasterGain < 0.0 || hapticsMasterGain > 2.0)
             errors.push_back("haptics.masterGain out of range [0, 2]");

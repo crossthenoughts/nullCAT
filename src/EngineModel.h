@@ -53,6 +53,7 @@ struct EngineParams
     double turbo     = 0.0;   // 0 no, 1 yes: the lift-off burst is a blow-off whoosh + flutter
     double liftoff   = 1.0;   // lift-off transient strength 0..2
     double pops      = 0.0;   // overrun pops 0..1 (fuel-cut crackle; 0 for a road car)
+    double tcCut     = 0.0;   // traction control dropping firings 0..1 (0 = the engine ignores it: a modern TC trims torque smoothly)
 };
 
 namespace engine_k {
@@ -312,10 +313,12 @@ public:
         const double limHit = std::max(0.0, std::min(2.0, e.limHit));
 
         // Traction control: bursts at an irregular rate, and within a burst
-        // each firing dropped with a probability that rises with throttle.
-        // The limiter, when it is in, already cuts everything.
+        // each firing dropped with a probability that rises with throttle,
+        // x tc cut (0: the engine ignores TC; an ignition-cut TC, rally or
+        // an older car, toward 1). The limiter, when it is in, already cuts
+        // everything.
         bool tcInCut = false;
-        const double tcDepth = kTcDepthMin + (kTcDepthMax - kTcDepthMin) * m_load;
+        const double tcDepth = (kTcDepthMin + (kTcDepthMax - kTcDepthMin) * m_load) * std::max(0.0, std::min(1.0, e.tcCut));
         if (m_tc && !m_limiter && m_fireHz >= 0.5 && !electric)
         {
             m_tcPhase += m_tcRate * dtSec;

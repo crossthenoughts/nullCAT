@@ -132,6 +132,7 @@ private slots:
         c.hapticsKerb    = { 30.0, 10.0, 4.0, 12.0, 15.0 };
         c.hapticsAbs     = { 0.6, 0.8, 0.4, 0.5, 55.0, 1.0, 0.45, 0.2, 65.0 };
         c.hapticsTc      = { 0.2, 0.9, 0.0, 0.0, 40.0 };
+        c.hapticsAbs.holdMs = 120.0; c.hapticsTc.holdMs = 0.0;   // the TC hold off
         c.hapticsSurface = { 0.4, 0.8, 1.0, 0.3, 110.0, 0.5 };
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Surface)].routes[0].part = haptics::Part::RL;
         c.hapticsWheels  = { 2.5, 0.5, 0.8, 1.5 };
@@ -142,6 +143,7 @@ private slots:
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Road)].routes[0].part = haptics::Part::RR;
         c.hapticsDriveline = { 0.8, 9.0, 0.6, 6.5, 1.0, 0.7, 0.4, 55.0 };
         c.hapticsEngine.inertia = 0.3; c.hapticsEngine.turbo = 1; c.hapticsEngine.liftoff = 1.5; c.hapticsEngine.pops = 0.4;
+        c.hapticsEngine.tcCut = 0.6;
         // Route parts on the per-wheel tiles survive; "all" is the default.
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)].routes[0].part   = haptics::Part::FL;
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Lockup)].routes[1].part = haptics::Part::Rear;
@@ -195,6 +197,7 @@ private slots:
         QCOMPARE(r.hapticsAbs.buzz, 0.5);  QCOMPARE(r.hapticsAbs.buzzHz, 55.0);
         QCOMPARE(r.hapticsAbs.slipLink, 1.0); QCOMPARE(r.hapticsAbs.lockLink, 0.45); QCOMPARE(r.hapticsAbs.scrubLink, 0.2);
         QCOMPARE(r.hapticsAbs.brakeFull, 65.0);
+        QCOMPARE(r.hapticsAbs.holdMs, 120.0); QCOMPARE(r.hapticsTc.holdMs, 0.0);
         QCOMPARE(r.hapticsSlipLat.screech, 0.45); QCOMPARE(r.hapticsSlipLat.screechPct, 60.0); QCOMPARE(r.hapticsSlipLat.screechHz, 40.0);
         QCOMPARE(r.hapticsSlipLat.pulse, 0.8);    QCOMPARE(r.hapticsSlipLat.pulseHz, 7.5);
         QCOMPARE(r.hapticsTc.sharp, 0.2);  QCOMPARE(r.hapticsTc.spread, 0.9);
@@ -213,6 +216,7 @@ private slots:
         QCOMPARE(r.hapticsDriveline.shunt, 0.4);   QCOMPARE(r.hapticsDriveline.shuntHz, 55.0);
         QCOMPARE(r.hapticsEngine.inertia, 0.3);   QCOMPARE(r.hapticsEngine.turbo, 1.0);
         QCOMPARE(r.hapticsEngine.liftoff, 1.5);   QCOMPARE(r.hapticsEngine.pops, 0.4);
+        QCOMPARE(r.hapticsEngine.tcCut, 0.6);
 
         // The file carries the tiles under their current keys with the
         // readable slip fields, and the old keys are gone.

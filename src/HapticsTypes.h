@@ -170,6 +170,10 @@ struct PulseParams
     // ABS: how hard it pulses follows the brake pedal, from nothing at the
     // 10% the law needs up to full at this brake % (10 = always full).
     double brakeFull = 80.0;
+    // Both: the sim's flag held over gaps this long (ms; 0 = off). A sim
+    // that blips its ABS flag (Assetto Corsa) or flickers its TC flag
+    // chopped the cycle into fragments.
+    double holdMs = 150.0;
 };
 
 // The Surface tile (SurfaceModel.h): stones, snow crunch, studs, puddles.

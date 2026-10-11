@@ -208,6 +208,7 @@ public:
     double rateHz() const             { return m_rateHz; }   // the fastest wheel's revolutions per second
     double flatMm(int wheel) const    { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_w[wheel].flatMm : 0.0; }
     double discHeat(int wheel) const  { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_w[wheel].heat : 0.0; }
+    bool   punctured(int wheel) const { return wheel >= 0 && wheel < WHEEL_COUNT && m_w[wheel].deflated; }
     double revolution(int wheel) const{ return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_w[wheel].rev : 0.0; }
 
     // New tyres and cold discs.

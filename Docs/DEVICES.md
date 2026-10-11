@@ -713,12 +713,14 @@ around 12 Hz so it lands in time with the cuts. The pit limiter cuts
 the same way when the sim sends its flag, without touching the learned
 redline.
 
-**Traction control** is the same mechanism, shallower: while the sim
-says TC is cutting, the engine drops a share of its firings in
-irregular bursts (about 15 a second), more of them the harder you are
-on the throttle, and catches each time a burst ends. That stutter is
-what a race car's TC feels like; the **TC pulse** tile adds the body
-surge of each cut on top (route it to surge and the belt).
+**Traction control** can work the same way, shallower: with **TC cut
+x** above 0, while the sim says TC is cutting, the engine drops a share
+of its firings in irregular bursts (about 15 a second), more of them the
+harder you are on the throttle, and catches each time a burst ends. That
+stutter is what an ignition-cut TC feels like (rally, older cars); a
+modern TC trims the torque smoothly, so TC cut x is 0 by default. The
+**TC pulse** tile plays the drive easing with each cut either way (route
+it to surge and the belt).
 
 **Lifting off.** When the throttle snaps shut up the band the combustion
 stops but the engine keeps shaking: that is **inertia x**, the pistons

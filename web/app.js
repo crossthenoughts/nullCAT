@@ -1573,6 +1573,22 @@ function hapLive(s){
       ['FL','FR','RL','RR'].forEach((n,i)=>{ if(cells[i]) cells[i].textContent=n+' '+((k===2&&ground[i]!==undefined&&+ground[i]<0.5)?'air':f(now[i])+'/'+f(pk[i])); });
       wl.classList.toggle('hot',pk.some(v=>+v>0.05));
     }
+    // Wheels: the tyres' state at a glance (flat spots, hot discs, a
+    // puncture), amber or red while anything is there.
+    const ws=t.tile.querySelector('[data-wstate]');
+    if(ws&&Array.isArray(s.hapWheels)&&s.hapWheels.length>11){
+      const n=['FL','FR','RL','RR'], flat=s.hapWheels[4]||[], heat=s.hapWheels[10]||[], pun=s.hapWheels[11]||[];
+      const parts=[]; let lvl=0;
+      const flats=n.map((w,i)=>(+flat[i]>0.05)?w+' '+(+flat[i]).toFixed(2):'').filter(x=>x);
+      if(flats.length){ parts.push('flat '+flats.join(', ')+' mm'); lvl=1; }
+      const hot=n.filter((w,i)=>+heat[i]>0.3);
+      if(hot.length){ parts.push('hot discs '+hot.join(' ')); lvl=1; }
+      const punct=n.filter((w,i)=>+pun[i]>0.5);
+      if(punct.length){ parts.push('puncture '+punct.join(' ')); lvl=2; }
+      const on=+t.dv.ampPct>0;
+      ws.textContent=on?(parts.length?parts.join(' | '):'tyres OK'):'off (fresh tyres when on)';
+      ws.classList.toggle('warn',on&&lvl===1); ws.classList.toggle('bad',on&&lvl===2);
+    }
     // Surface: what each tyre is on as nullCAT reads it (class, wet,
     // floating, or in the air).
     const sl=t.tile.querySelector('[data-surf]');
@@ -1801,6 +1817,7 @@ function hapInit(){
       :(wset===2)?'Per wheel: road travel mm now/peak since Reset peaks; "air" while that tyre is off the ground'
       :'Per wheel: now/peak since Reset peaks (Test = 1.00 on every wheel)';
     if(wset>=0) h+='<div class="hk hwheels" data-wheels="'+wset+'" title="'+wtitle+'"><span>FL -</span><span>FR -</span><span>RL -</span><span>RR -</span></div>';
+    if(fx.k==='wheels') h+='<div class="hk hwstate" data-wstate="1" title="The tyres right now: flat spots (mm, from lock-ups), brake discs hot enough to judder, a puncture. Amber or red while there is anything. Switching the tile off and on gives fresh tyres.">tyres -</div>';
     else if(fx.k==='surface') h+='<div class="hk hwheels" data-surf="1" title="What each tyre is on, as nullCAT reads it: the surface, wet or floating, or in the air"><span>FL -</span><span>FR -</span><span>RL -</span><span>RR -</span></div>';
     else if(!fx.transient&&fx.fxIdx!==undefined) h+='<div class="hk hwheels" data-in="1" title="What this effect is driven with: now/peak since Reset peaks (Test = 1.00)">in -</div>';
     h+='<div class="hrows">';

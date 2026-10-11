@@ -408,6 +408,9 @@ private slots:
         cfg.hapticsAbs.slipLink = 1.0; cfg.hapticsAbs.brakeFull = 5.0; QVERIFY2(refused("brakeFull"), "full at brake 5% is refused (the gate is 10%)");
         cfg.hapticsAbs.brakeFull = 60.0; cfg.hapticsTc.spread = -0.1; QVERIFY2(refused("spread"), "tc spread -0.1 is refused");
         cfg.hapticsTc.spread = 0.5; QVERIFY(cfg.validate().empty());
+        QCOMPARE(cfg.hapticsAbs.holdMs, 150.0); QCOMPARE(cfg.hapticsTc.holdMs, 150.0);   // the flags held by default
+        cfg.hapticsTc.holdMs = 600.0; QVERIFY2(refused("holdMs"), "a 600 ms hold is refused");
+        cfg.hapticsTc.holdMs = 0.0;   QVERIFY(cfg.validate().empty());                    // 0 = off is fine
     }
 
     // Surface: stones, crunch, puddles, smooth 0..1; studs off/on; aqua km/h.

@@ -127,8 +127,9 @@ struct MotionStatus
     // 0 lateral, 1 longitudinal, 2 road mm, 3 on a kerb, 4 flat spot mm,
     // 5 impact ring (peak = hardest knock), 6 ground contact 1/0 (peak = 1
     // once the tyre has been in the air), 7 surface class, 8 water 0..1,
-    // 9 floating 0..1.
-    static constexpr int HAP_WHEEL_SETS = 10;
+    // 9 floating 0..1, 10 brake disc heat 0..1, 11 punctured 1/0 (the
+    // Wheels tile's tyre state; 0 while that tile is off).
+    static constexpr int HAP_WHEEL_SETS = 12;
     double          hapticsIn     [haptics::FX_TYPE_COUNT] = {};
     double          hapticsInPk   [haptics::FX_TYPE_COUNT] = {};
     double          hapticsWheel  [HAP_WHEEL_SETS][4]      = {};

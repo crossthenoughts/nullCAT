@@ -1542,6 +1542,7 @@ bool WebServer::start()
                     d["maxRpm"] = ed.maxRpm; d["rock"] = ed.rock; d["thump"] = ed.thump; d["buzz"] = ed.buzz;
                     d["order"] = ed.order; d["limHit"] = ed.limHit; d["limHz"] = ed.limHz; d["limJit"] = ed.limJit;
                     d["inertia"] = ed.inertia; d["turbo"] = ed.turbo; d["liftoff"] = ed.liftoff; d["pops"] = ed.pops;
+                    d["tcCut"] = ed.tcCut;
                 }
                 else if (info.kind == haptics::Kind::Slip)
                 {
@@ -1583,7 +1584,7 @@ bool WebServer::start()
                 {
                     const AppConfig dc;   // the tiles' defaults (TC has no slow or buzz)
                     const haptics::PulseParams& q = (info.kind == haptics::Kind::Abs) ? dc.hapticsAbs : dc.hapticsTc;
-                    d["sharp"] = q.sharp; d["spread"] = q.spread;
+                    d["sharp"] = q.sharp; d["spread"] = q.spread; d["holdMs"] = q.holdMs;
                     if (info.kind == haptics::Kind::Abs)
                     {
                         d["slow"] = q.slow; d["buzz"] = q.buzz; d["buzzHz"] = q.buzzHz;

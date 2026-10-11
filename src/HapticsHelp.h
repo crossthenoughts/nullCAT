@@ -91,6 +91,10 @@ constexpr ParamHelp kHelp[] = {
       "0.6. GT3: 0.8 to 1.2. Single-seater: 0.6 to 1." },
     { "rpmVibe", "pops",
       "The crackle on the overrun, 0 to 1. Road car: 0 to 0.2. GT3: 0.4 to 0.8. Single-seater: 0.2 to 0.5." },
+    { "rpmVibe", "tcCut",
+      "How hard the engine stutters while the sim's traction control cuts, 0 to 1 (0 = not at all). A modern "
+      "TC trims torque smoothly; an ignition-cut TC stutters. Road car: 0. GT3: 0 to 0.3. Single-seater: 0. "
+      "Rally or an older car with a cut-based TC: 0.4 to 0.8. The TC tile plays the drive easing either way." },
     { "rpmVibe", "freqHz",
       "The weight of each firing thump, 10 to 80 Hz: lower is heavier. Road car: 30 to 40. GT3: 22 to 30. "
       "Single-seater: 30 to 45." },
@@ -119,6 +123,10 @@ constexpr ParamHelp kHelp[] = {
     { "abs", "brakeFull",
       "ABS pulses as hard as you brake: nothing at 10% pedal, full at this brake %, 10 to 100 (10 = always "
       "full). 70 to 85 for most; lower it if light trail braking should still be clearly felt." },
+    { "abs", "holdMs",
+      "Keeps the sim's ABS flag on over gaps this short, 0 to 500 ms (0 = off, the flag as sent). Some sims "
+      "(Assetto Corsa) blip the flag through a stop, which chops the pulse into fragments; 100 to 200 joins "
+      "them into one steady cycle. The same for any car: it depends on the sim." },
     { "abs", "slipLink",
       "While ABS works, each corner's valve shapes that wheel's slip tiles (the lock texture held at the edge "
       "of locking, the lateral slip easing after each dump). Works with ABS's own amp at 0." },
@@ -243,6 +251,10 @@ constexpr ParamHelp kHelp[] = {
       "Each cut's edge, 0 to 1: 0 a round surge, 1 a hard knock. Road car: 0.1 to 0.3. GT3: 0.3 to 0.5." },
     { "tc", "spread",
       "Each cut a little different in timing and depth, 0 to 1. 0.3 to 0.6 for most." },
+    { "tc", "holdMs",
+      "Keeps the sim's TC flag on over gaps this short, 0 to 500 ms (0 = off, the flag as sent). The flag "
+      "flickers as traction control cuts in and out, which plays as a stutter; 100 to 200 makes TC working "
+      "one continuous effect. The same for any car: it depends on the sim." },
 
     // ---- kerb ----
     { "kerb", "pitchCm",

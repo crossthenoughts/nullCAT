@@ -189,6 +189,7 @@ ABS and TC fields (`abs`, `tc`; `freqHz` is the cycle rate):
 |---|---|---|---|
 | `abs`, `tc` | `sharp` | `0.3` | The drop's edge, 0 to 1: 0 round (the drop takes half the cycle), 1 a knock (ABS dumps in a quarter of the cycle, TC cuts in a third). |
 | `abs`, `tc` | `spread` | `0.5` | 0 to 1: each cycle up to 30 % longer or shorter and 35 % shallower; for ABS each corner also on its own rate (up to 18 % apart), so the corners drift in and out of step. 0 = one regular pulse. |
+| `abs`, `tc` | `holdMs` | `150` | 0 to 500 ms, 0 = off: the sim's ABS / TC flag is held on over gaps this short, so a flag the sim blips or flickers plays as one effect. |
 | `abs` | `slow` | `0.5` | 0 to 1: how far the cycle slows towards a stop (rate x (1 - slow x (1 - speed / 80 km/h)) below 80 km/h; speed unknown = full rate). |
 | `abs` | `buzz`, `buzzHz` | `0.3`, `40` | The pump and valve buzz: mix 0 to 1 and carrier 15 to 120 Hz. |
 | `abs` | `brakeFull` | `80` | ABS plays as hard as the driver brakes: from nothing at 10 % brake up to full at this brake %, 10 to 100 (10 = always full). ABS never plays below 10 % brake. |
@@ -257,6 +258,7 @@ Engine-only fields (`rpmVibe`):
 | `turbo` | `0` | 0 no, 1 yes. Shapes the lift-off event: a pop, or the blow-off whoosh and compressor flutter. |
 | `liftoff` | `1` | Lift-off event strength (0 to 2), scaled by `boost` when the sim sends it. |
 | `pops` | `0` | Overrun pops (0 to 1): fuel-cut crackle on a shut throttle above 30 % of the redline. |
+| `tcCut` | `0` | Traction control dropping firings (0 to 1): while the sim's TC cuts, bursts of dropped firings, deeper with throttle, x this. 0 = the engine ignores TC (a modern TC trims torque smoothly); toward 1 for an ignition-cut TC. |
 
 ### axes[] (one object per drive)
 

@@ -88,6 +88,7 @@ constexpr ParamSpec kAbsParams[] = {            // ABS: the corners' valves, the
     { "buzz",   "buzz x",    0,   1,   0.05, nullptr },   // the pump and valves
     { "buzzHz", "buzz hz",   15,  120, 1,    nullptr },
     { "brakeFull", "full at brake %", 10, 100, 5, nullptr }, // light braking, a light pulse; full by this pedal
+    { "holdMs",    "hold ms",   0, 500, 10,   nullptr },  // the sim's flag held over gaps this long (0 off)
     { "slipLink",  "slip link", 0, 1,  1,    "off|on" },  // the corners' valves shape the slip tiles
     { "lockLink",  "lock x",    0, 1,  0.05, nullptr },   // ...the lock texture surging with each cycle
     { "scrubLink", "scrub x",   0, 1,  0.05, nullptr },   // ...the lateral slip easing after each dump
@@ -97,6 +98,7 @@ constexpr ParamSpec kTcParams[] = {             // TC: the cuts' surge
     { "freqHz", "freq hz",   4,   60,  1,    nullptr },
     { "sharp",  "sharp",     0,   1,   0.05, nullptr },   // the cut's edge: 0 round, 1 a knock
     { "spread", "spread",    0,   1,   0.05, nullptr },   // each cut a little different in timing and depth
+    { "holdMs", "hold ms",   0,   500, 10,   nullptr },   // the sim's flag held over gaps this long (0 off)
 };
 constexpr ParamSpec kSlipLatParams[] = {        // lateral slip: scrub (fronts) + slide (rears)
     { "ampPct",  "amp %",      0,   100, 1,    nullptr },
@@ -222,6 +224,7 @@ constexpr ParamSpec kEngineParams[] = {    { "ampPct",    "amp %",              
     { "turbo",     "turbo",                 0,   1,     1,    "no|yes" },
     { "liftoff",   "lift-off x",            0,   2,     0.1,  nullptr },
     { "pops",      "pops x",                0,   1,     0.1,  nullptr },
+    { "tcCut",     "TC cut x",              0,   1,     0.1,  nullptr },   // traction control dropping firings (0 = ignore TC)
     { "freqHz",    "thump hz",              10,  80,    1,    nullptr },
     { "jitter",    "lope",                  0,   1,     0.05, nullptr },
 };
@@ -237,7 +240,7 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "one jolt (about 12 hz, longer for a synchro clunk, shorter for a dog knock) on a position axis, which cannot "
       "carry a buzz. Needs the gear channel.", nullptr, {} },
     { Effect::Engine,      "rpmVibe",     "Engine",       Kind::Engine, EventType::COUNT, FxType::RpmVibe,
-      { "rpm", "~throttlePct", "~limiter", "~boost" }, { 0.0, 30.0, 0.0, 0.15 }, kEngineParams, 18,
+      { "rpm", "~throttlePct", "~limiter", "~boost" }, { 0.0, 30.0, 0.0, 0.15 }, kEngineParams, 19,
       "Engine: the block rocking at crank rate at idle (lumpy, fades out by ~2500 rpm) with each firing as a "
       "low thump on top. Above idle the rock hands over to the buzz: the firing-order vibration with pitch "
       "rising with rpm, kept at an order the actuator can carry; level grows with rpm and throttle up to the "
@@ -246,17 +249,20 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "firings for the bounce, with its own strength, rate and roughness. Inertia is the rpm-squared shake that stays "
       "when you lift and fades as the revs fall; lift-off is the pop (or, with turbo, the blow-off whoosh and "
       "flutter, scaled by boost when the sim sends it) as the throttle snaps shut up the band; pops is the "
-      "fuel-cut crackle on the overrun. Needs rpm (throttle, limiter and boost optional).",
+      "fuel-cut crackle on the overrun; TC cut is how hard the engine stutters while the sim's traction "
+      "control cuts (0, the default: not at all, as a modern TC trims torque smoothly; toward 1 for an "
+      "ignition-cut TC). Needs rpm (throttle, limiter and boost optional).",
       nullptr, {} },
     { Effect::Abs,         "abs",         "ABS",          Kind::Abs, EventType::COUNT, FxType::AbsPulse,
-      { "brakePct", "absActive", "~speedKmh", nullptr }, { 0.0, 12.0, 0.0, 0.0 }, kAbsParams, 11,
+      { "brakePct", "absActive", "~speedKmh", nullptr }, { 0.0, 12.0, 0.0, 0.0 }, kAbsParams, 12,
       "ABS working under braking: at each corner the valve dumps the brake pressure and rebuilds it, about freq hz "
       "times a second, so the car's deceleration judders. sharp is the dump's edge (0 round, 1 a hard knock); "
       "spread lets each corner run on its own rate and each cycle differ, so the four drift in and out of step and "
       "the car grumbles rather than beating; slow x slows the cycle as the car slows (the thump-thump before a "
       "stop: 0.5 = half rate at a standstill); buzz x / hz is the pump and valves underneath, best on a belt or "
       "shaker. It pulses as hard as you brake: light trail braking a light pulse, full at full at brake % (10 = "
-      "always full). Route with a part so a post carries its own corner. Slip link on: while ABS works each corner's "
+      "always full). hold ms keeps the sim's ABS flag on over gaps that short (some sims blip it), so a stop "
+      "plays one steady cycle (0 = off). Route with a part so a post carries its own corner. Slip link on: while ABS works each corner's "
       "valve shapes that wheel's slip tiles, the lock texture held at the edge of locking and surging with each "
       "cycle (lock x), the lateral slip easing after each dump (scrub x); this works with ABS's own amp at 0 too. "
       "Needs the absActive and brakePct channels (speed for slow x).",
@@ -315,11 +321,12 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "bursts of firings for the bounce). Keep it slow, ~10-15 hz. The plugin computes the flag from rpm vs the car max.",
       nullptr, {} },
     { Effect::Tc,          "tc",          "TC pulse",     Kind::Tc, EventType::COUNT, FxType::TcPulse,
-      { "tcActive", nullptr }, { 0.0, 15.0, 0.0, 0.0 }, kTcParams, 4,
-      "Traction control cutting: the engine effect already stutters (TC drops a share of the firings in irregular "
-      "bursts, more with more throttle); this adds the body surge of each cut, a loss of drive and a recovery about "
-      "freq hz times a second. sharp is the cut's edge (0 round, 1 a hard knock), spread makes each cut a little "
-      "different in timing and depth. Route it to surge and the belt. Needs the tcActive channel.", nullptr, {} },
+      { "tcActive", nullptr }, { 0.0, 15.0, 0.0, 0.0 }, kTcParams, 5,
+      "Traction control cutting: the body surge of each cut, a loss of drive and a recovery about freq hz times a "
+      "second (the Engine tile's TC cut x adds an ignition-cut stutter if you want one). sharp is the cut's edge "
+      "(0 round, 1 a hard knock), spread makes each cut a little different in timing and depth; hold ms keeps the "
+      "sim's TC flag on over gaps that short (it flickers as TC cuts in and out), so TC working plays as one "
+      "(0 = off). Route it to surge and the belt. Needs the tcActive channel.", nullptr, {} },
     { Effect::Kerb,        "kerb",        "Kerb",         Kind::Kerb, EventType::COUNT, FxType::Kerb,
       { "surface*|curbs|roadHeight*", "speedKmh", nullptr }, { 0.0, 16.0, 0.0, 0.4 }, kKerbParams, 8,
       "A rumble strip under the tyre that is on one: ribs every pitch cm, so they hum at speed / pitch and the hum "

@@ -286,6 +286,33 @@ int main()
         // Flag channel: TC.
         v.val[NcxValues::TcActive] = 1.0; settle(100);
         check(L.fxLevel(static_cast<int>(haptics::FxType::TcPulse)) > 0.9, "I-7 tcActive drives the TC pulse");
+        // The TC flag flickers as traction control cuts in and out: held
+        // over the gaps, one steady pulse; gone for good, it lets go.
+        {
+            double lo = 1.0;
+            for (int i = 0; i < 300; ++i)
+            {
+                v.val[NcxValues::TcActive] = ((i / 8) % 2 == 0) ? 1.0 : 0.0;   // 16 ms on, 16 ms off
+                haptics::driveLaws(L, st, v, dt); L.step(dt);
+                if (i > 20) lo = std::min(lo, L.fxLevel(static_cast<int>(haptics::FxType::TcPulse)));
+            }
+            check(lo > 0.99, "I-7 TC: a flickering flag holds one steady pulse");
+            v.val[NcxValues::TcActive] = 0.0; settle(150);
+            check(L.fxLevel(static_cast<int>(haptics::FxType::TcPulse)) < 0.05, "I-7 TC: the flag gone for good, it lets go");
+            // hold ms 0: the flag as the sim sends it.
+            haptics::PulseParams raw = L.pulseParams(haptics::FxType::TcPulse); raw.holdMs = 0.0;
+            L.configurePulse(haptics::FxType::TcPulse, raw);
+            double lo0 = 1.0;
+            for (int i = 0; i < 300; ++i)
+            {
+                v.val[NcxValues::TcActive] = ((i / 8) % 2 == 0) ? 1.0 : 0.0;
+                haptics::driveLaws(L, st, v, dt); L.step(dt);
+                if (i > 20) lo0 = std::min(lo0, L.fxLevel(static_cast<int>(haptics::FxType::TcPulse)));
+            }
+            check(lo0 < 0.5, "I-7 TC: hold ms 0 plays the flag as sent (flickering)");
+            raw.holdMs = 150.0; L.configurePulse(haptics::FxType::TcPulse, raw);
+            v.val[NcxValues::TcActive] = 1.0; settle(10);
+        }
 
         // Gear edge: a change fires ONE transient; a steady gear fires none;
         // the first sighting after staleness never fires.

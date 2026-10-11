@@ -728,6 +728,8 @@ void MotionController::publishHapticsStatusLocked()
         m_statusSnapshot.hapticsWheel[7][w] = m_haptics.surfaceModel().surfaceClass(w);
         m_statusSnapshot.hapticsWheel[8][w] = m_haptics.surfaceModel().water(w);
         m_statusSnapshot.hapticsWheel[9][w] = m_haptics.surfaceModel().floating(w);
+        m_statusSnapshot.hapticsWheel[10][w] = m_haptics.wheelsModel().discHeat(w);
+        m_statusSnapshot.hapticsWheel[11][w] = m_haptics.wheelsModel().punctured(w) ? 1.0 : 0.0;
         for (int s = 0; s < MotionStatus::HAP_WHEEL_SETS; ++s)
             m_statusSnapshot.hapticsWheelPk[s][w] = m_hapWheelPk[s][w];
     }
@@ -770,7 +772,12 @@ void MotionController::trackHapticPeaks()
         if (live(FxType::Lockup))  m_hapWheelPk[1][w] = std::max(m_hapWheelPk[1][w], m_haptics.slipWheelLevel(FxType::Lockup, w));
         if (live(FxType::Road))    m_hapWheelPk[2][w] = std::max(m_hapWheelPk[2][w], std::fabs(m_haptics.roadWheelTravelMm(w)));
         if (live(FxType::Kerb))    m_hapWheelPk[3][w] = std::max(m_hapWheelPk[3][w], m_haptics.kerbWheelLevel(w));
-        if (live(FxType::Wheels))  m_hapWheelPk[4][w] = std::max(m_hapWheelPk[4][w], m_haptics.wheelFlatMm(w));
+        if (live(FxType::Wheels))
+        {
+            m_hapWheelPk[4][w]  = std::max(m_hapWheelPk[4][w], m_haptics.wheelFlatMm(w));
+            m_hapWheelPk[10][w] = std::max(m_hapWheelPk[10][w], m_haptics.wheelsModel().discHeat(w));
+            m_hapWheelPk[11][w] = std::max(m_hapWheelPk[11][w], m_haptics.wheelsModel().punctured(w) ? 1.0 : 0.0);
+        }
         if (live(FxType::Impacts)) m_hapWheelPk[5][w] = std::max(m_hapWheelPk[5][w], m_haptics.impactModel().ringLevel(w));
         m_hapWheelPk[6][w] = std::max(m_hapWheelPk[6][w], 1.0 - m_haptics.groundContact(w));   // been in the air
         m_hapWheelPk[7][w] = m_haptics.surfaceModel().surfaceClass(w);                           // (no peak: as now)

@@ -102,6 +102,9 @@ Development branch. Nothing here is in a release yet.
   and the body's slow dive, roll and crests, which the motion already
   gives you, drop away while the track's bumps and the roughness stay. Off
   by default (100 %, 0 Hz: as before).
+- The Wheels tile shows the tyres' state at a glance: flat spots (which
+  wheel, how deep), brake discs hot enough to judder and a puncture, in
+  amber or red while there is anything, `tyres OK` otherwise.
 - Hover help on every haptic setting: what it does, a sensible range, and
   starting points for a road car, a GT3 car and a single-seater. A dimmed
   setting says why first.
@@ -305,9 +308,16 @@ Development branch. Nothing here is in a release yet.
 - ABS in Assetto Corsa came through chopped: the game raises its ABS
   flag in blips, about every other sample through a stop, and the ABS
   tile started and stopped its valve cycle with every blip. The flag is
-  now held over gaps of up to 150 ms, so a stop plays one steady pulse
-  and lets go just after the last blip. Brake pressure still sets how
-  hard it pulses.
+  now held over short gaps (**hold ms** on the ABS tile, 150 by default,
+  0 = off), so a stop plays one steady pulse and lets go just after the
+  last blip. Brake pressure still sets how hard it pulses.
+- Traction control stuttered in a way that felt like a fault in the rig:
+  the Engine tile dropped bursts of firings whenever the sim's TC flag
+  was on, and that flag flickers as TC cuts in and out. The engine's
+  stutter is now **TC cut x** on the Engine tile, 0 by default (a modern
+  TC trims torque smoothly; raise it for a rally or older car with an
+  ignition-cut TC, saved per car), and the TC tile gets **hold ms** like
+  ABS, so TC working plays as one effect.
 - Automobilista 2's marbles (the loose rubber off the racing line) read
   as dirt, so running slightly off line struck stones. They read as bumpy
   tarmac now (update the SimHub plugin).

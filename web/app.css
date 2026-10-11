@@ -314,6 +314,11 @@ body[data-view="setup"] .vw-op{ display:none !important; }
   display:grid; grid-template-columns:1fr 1fr; column-gap:6px; row-gap:1px; }
 .hwheels span{ white-space:nowrap; overflow:hidden; text-overflow:clip; }
 .hwheels.hot{ color:var(--ink); }
+/* Wheels tile: the tyres' state line, amber (flat, hot discs) or red (puncture). */
+.hwstate{ font-family:var(--mono); font-size:.58rem; letter-spacing:.02em; color:var(--ink-soft);
+  margin:0 0 2px; white-space:normal; }
+.hwstate.warn{ color:var(--warn); font-weight:700; }
+.hwstate.bad{ color:var(--danger); font-weight:700; }
 .hr.dim{ opacity:.4; }
 .hrows{ display:flex; flex-direction:column; gap:3px; }
 .hr{ display:flex; align-items:center; justify-content:space-between; gap:8px; }

@@ -746,6 +746,17 @@ int main()
         approx(thumpRms(1.0, 0.0) / std::max(1e-9, thumpRms(0.0, 0.0)), 1.0, 1e-9,
                "engine: a naturally aspirated car's reported ~1 bar (manifold pressure) changes nothing");
 
+        // TC cut x: 0 (the default) leaves the engine alone while the sim's
+        // TC cuts (it felt like a fault in the rig); 1 drops firings in bursts.
+        auto tcDrops = [&](double cut) {
+            EngineModel m; uint64_t rng = 5;
+            EffectParams p; p.ampPct = 100.0; p.freqHz = 30.0; p.jitter = 0.0;
+            EngineParams te; te.inertia = 0.0; te.liftoff = 0.0; te.maxRpm = 7000.0; te.tcCut = cut;
+            for (int i = 0; i < 4000; ++i) { m.drive(4000.0 / 60.0 * 2.0, 1.0, false, -1.0, false, false, true); m.step(DT, p, te, 1.0, rng); }
+            return m.tcDropCount(); };
+        CHECK(EngineParams{}.tcCut == 0.0 && tcDrops(0.0) == 0, "engine: TC cut 0 (the default): the sim's TC leaves the engine alone");
+        CHECK(tcDrops(1.0) > 20, "engine: TC cut 1: TC drops firings in bursts");
+
         // Pops: with pops on, the overrun carries sparse pulses; on throttle none extra.
         EngineParams pp; pp.inertia = 0.0; pp.liftoff = 0.0; pp.thump = 0.0; pp.pops = 1.0;
         th.clear(); bz.clear(); run(pp, true, -1.0, th, bz);
@@ -2096,12 +2107,12 @@ int main()
             CHECK(hi(lk0) < 1e-9 && lo(sc0) > 0.95, "abs slip link off: the slip tiles are the sim's alone");
         }
 
-        // Traction control cuts a share of the engine's firings, more with
-        // throttle; nothing without it.
+        // Traction control (TC cut x 1, an ignition-cut TC) cuts a share of
+        // the engine's firings, more with throttle; nothing without it.
         {
             auto drops = [&](bool tc, double load) {
                 Layer L; EffectParams e; e.ampPct = 100.0; e.freqHz = 30.0; e.routes[0] = { 0, 1.0 };
-                haptics::EngineParams ep; ep.cylinders = 4; ep.maxRpm = 8000;
+                haptics::EngineParams ep; ep.cylinders = 4; ep.maxRpm = 8000; ep.tcCut = 1.0;
                 L.configureFx(FxType::RpmVibe, e); L.configureEngine(ep);
                 for (int i = 0; i < 4000; ++i) { L.driveEngine(1.0, 200.0, load, false, -1.0, false, false, tc); L.step(DT); }
                 return static_cast<double>(L.engineTcDrops());

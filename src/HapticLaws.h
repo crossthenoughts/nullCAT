@@ -74,8 +74,8 @@ struct LawsState
     // untrusted after a jump no car can make.
     double lastSpeedKmh = 0.0, speedAgeSec = 0.0, glitchSec = 0.0;
     bool   speedSeen = false;
-    // The sim's ABS flag, held over its short gaps.
-    double absHoldSec = 0.0;
+    // The sim's ABS and TC flags, held over their short gaps.
+    double absHoldSec = 0.0, tcHoldSec = 0.0;
 };
 
 namespace laws_k {
@@ -84,7 +84,6 @@ namespace laws_k {
     constexpr double kOverrunMinKmh    = 10.0;     // in gear and rolling: the wheels drive the engine
     constexpr double kPreviewIdleRpm   = 1100.0;   // the canned idle a Test preview runs
     constexpr double kAbsMinBrakePct   = 10.0;     // ABS needs the brake actually applied
-    constexpr double kAbsHoldSec       = 0.15;     // the ABS flag held over gaps this short (Assetto Corsa blips it)
     constexpr double kPreviewSec       = 2.0;      // Test preview length
     // Slip laws (the lateral onset, curve and smoothing are the tile's:
     // SlipParams onsetPct, ease, smoothHz)
@@ -266,6 +265,14 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
     };
     const auto flag = [&](NcxValues::Token t) -> double
     { return (live && v.have[t] && v.val[t] > 0.5) ? 1.0 : 0.0; };
+    // The sim's TC flag, held over gaps up to the TC tile's hold ms, like
+    // ABS's below: it flickers as traction control cuts in and out, and
+    // each flicker restarted the engine's cut and the TC tile's pulse (a
+    // stutter that felt like the rig). Hold 0: the flag as sent.
+    const bool tcFlag = flag(NcxValues::TcActive) > 0.5;
+    if (tcFlag) st.tcHoldSec = std::max(0.0, L.pulseParams(FxType::TcPulse).holdMs) / 1000.0;
+    else        st.tcHoldSec = std::max(0.0, st.tcHoldSec - dtSec);
+    const double tcOn = (tcFlag || st.tcHoldSec > 0.0) ? 1.0 : 0.0;
 
     // Engine: firing rate from rpm and the engine description; throttle is
     // the load; the limiter flag drives the cut gate. A preview with no sim
@@ -305,7 +312,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         }
         // Traction control cutting: the engine drops a share of its firings
         // (the TC tile adds the body surge on top).
-        const bool tcCut = flag(NcxValues::TcActive) > 0.5;
+        const bool tcCut = tcOn > 0.5;
         L.driveEngine(lv, fireHz, load, lim, boost, pitLim, inGearOverrun, tcCut);
     }
 
@@ -315,14 +322,15 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
     // pressure, so light trail braking is a light pulse, full by full at
     // brake % (10 = always full).
     // The road speed slows the cycle towards a stop (unknown: full rate; a
-    // Test preview runs at speed). The flag is held over gaps of up to
-    // kAbsHoldSec: Assetto Corsa raises it in blips, about every other
+    // Test preview runs at speed). The flag is held over gaps of up to the
+    // tile's hold ms: Assetto Corsa raises it in blips, about every other
     // sample through an ABS stop, which chopped the valve cycle into
-    // fragments instead of one steady pulse.
+    // fragments instead of one steady pulse. Hold 0: the flag as sent.
     {
-        if (flag(NcxValues::AbsActive) > 0.5) st.absHoldSec = kAbsHoldSec;
-        else st.absHoldSec = std::max(0.0, st.absHoldSec - dtSec);
-        const bool on = st.absHoldSec > 0.0
+        const bool absFlag = flag(NcxValues::AbsActive) > 0.5;
+        if (absFlag) st.absHoldSec = std::max(0.0, L.pulseParams(FxType::AbsPulse).holdMs) / 1000.0;
+        else         st.absHoldSec = std::max(0.0, st.absHoldSec - dtSec);
+        const bool on = (absFlag || st.absHoldSec > 0.0)
                         && live && v.have[NcxValues::BrakePct] && v.val[NcxValues::BrakePct] > kAbsMinBrakePct;
         double level = 0.0;
         if (on)
@@ -940,7 +948,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
 
     // Flag-driven pulses (0/1 on the wire).
     L.driveFx(FxType::Limiter, previewOr(FxType::Limiter, flag(NcxValues::Limiter)),  0.0);
-    L.driveFx(FxType::TcPulse, previewOr(FxType::TcPulse, flag(NcxValues::TcActive)), 0.0);
+    L.driveFx(FxType::TcPulse, previewOr(FxType::TcPulse, tcOn), 0.0);
 
     // Gear-shift thunk: a transient on every gear-channel CHANGE (up or
     // down). Edge state seeds on first sight and clears on staleness, so a
