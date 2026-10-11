@@ -132,14 +132,11 @@ bool ShakerOutput::open(const std::string& deviceName, int channels, double cont
     cfg.periods            = 3;
 
     // Device by name (substring, case-insensitive), "" = default, "null" = the null backend.
-    // On ALSA one card is listed under several names with the same
-    // description (hw:, plughw:, default:, sysdefault:, front:, surroundNN:).
-    // The shared ones (default: is dmix) carry two channels and a large
-    // buffer: eight shaker channels squeezed into stereo, 60+ ms late. Prefer
-    // the raw hw: device (every channel, the periods asked for), then
-    // plughw:, then whatever else matched; a busy hw: falls back below.
+    // On ALSA the card itself is miniaudio's ":card,dev" id (or "hw:..."),
+    // listed beside shared names with the same description (default:,
+    // sysdefault:, front:, ...): prefer the card itself, then plughw:, then
+    // whatever else matched.
     ma_device_id chosen; bool haveId = false;
-    ma_device_id fallback; bool haveFallback = false;
     const bool wantNull = (deviceName == "null");
     const bool alsa = (m_impl->context.backend == ma_backend_alsa);
     if (!deviceName.empty() && !wantNull)
@@ -149,7 +146,7 @@ bool ShakerOutput::open(const std::string& deviceName, int channels, double cont
         {
             std::string want = deviceName;
             for (char& c : want) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            int bestRank = 99, nextRank = 99;
+            int bestRank = 99;
             for (ma_uint32 i = 0; i < count; ++i)
             {
                 std::string have = playback[i].name;
@@ -157,18 +154,20 @@ bool ShakerOutput::open(const std::string& deviceName, int channels, double cont
                 std::string id = alsa ? std::string(playback[i].id.alsa) : std::string();
                 for (char& c : id) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
                 if (have.find(want) == std::string::npos && (id.empty() || id.find(want) == std::string::npos)) continue;
-                const int rank = !alsa ? 2 : (id.rfind("hw:", 0) == 0) ? 0 : (id.rfind("plughw:", 0) == 0) ? 1 : 2;
-                if (rank < bestRank)
-                {
-                    if (haveId) { fallback = chosen; haveFallback = true; nextRank = bestRank; }
-                    chosen = playback[i].id; haveId = true; bestRank = rank;
-                }
-                else if (rank < nextRank) { fallback = playback[i].id; haveFallback = true; nextRank = rank; }
+                const int rank = !alsa ? 2 : (id.rfind(":", 0) == 0 || id.rfind("hw:", 0) == 0) ? 0
+                               : (id.rfind("plughw:", 0) == 0) ? 1 : 2;
+                if (rank < bestRank) { chosen = playback[i].id; haveId = true; bestRank = rank; }
             }
         }
         if (!haveId) { m_error = "audio device not found: " + deviceName; return false; }
         cfg.playback.pDeviceID = &chosen;
     }
+    // On ALSA ask for the card exclusively: in shared mode miniaudio opens
+    // its "dmix" layer first (two channels, a 16384-frame buffer: eight
+    // shakers squeezed into stereo and 60 ms or more late; found on the
+    // bench), exclusively the card itself ("hw": every channel, the periods
+    // asked for). A card another program holds falls back to shared below.
+    if (alsa && !wantNull) cfg.playback.shareMode = ma_share_mode_exclusive;
 
     ma_result r;
     if (wantNull)
@@ -185,12 +184,13 @@ bool ShakerOutput::open(const std::string& deviceName, int channels, double cont
     else
     {
         r = ma_device_init(&m_impl->context, &cfg, &m_impl->device);
-        // The raw device busy (another program holds the card): the next
-        // best name for it, with the reason kept for the status line.
-        if (r != MA_SUCCESS && haveFallback)
+        // The card busy (another program holds it): the shared layer, with
+        // the reason kept for the status line.
+        if (r != MA_SUCCESS && cfg.playback.shareMode == ma_share_mode_exclusive)
         {
-            fallbackReason = std::string("raw device unavailable (") + ma_result_description(r) + "), using a shared one";
-            cfg.playback.pDeviceID = &fallback;
+            fallbackReason = std::string("card not available on its own (") + ma_result_description(r)
+                           + "), shared: 2 channels, high latency";
+            cfg.playback.shareMode = ma_share_mode_shared;
             r = ma_device_init(&m_impl->context, &cfg, &m_impl->device);
         }
     }
@@ -204,11 +204,11 @@ bool ShakerOutput::open(const std::string& deviceName, int channels, double cont
     m_bufferMs = 1000.0 * static_cast<double>(m_impl->device.playback.internalPeriodSizeInFrames)
                * static_cast<double>(m_impl->device.playback.internalPeriods) / std::max(1, m_sampleRate);
     m_deviceName = m_impl->device.playback.name;
-    // On ALSA, which of the card's names it is (hw: = every channel, raw),
+    // On ALSA, how the card is held (direct = every channel, low latency),
     // and the card at full line level.
     if (alsa && cfg.playback.pDeviceID)
     {
-        m_deviceName += std::string(" [") + cfg.playback.pDeviceID->alsa + "]";
+        m_deviceName += (cfg.playback.shareMode == ma_share_mode_exclusive) ? " [direct]" : " [shared]";
 #if defined(__linux__)
         fullLineLevel(cfg.playback.pDeviceID->alsa);
 #endif
