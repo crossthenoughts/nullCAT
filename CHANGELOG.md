@@ -323,6 +323,18 @@ Development branch. Nothing here is in a release yet.
   tarmac now (update the SimHub plugin).
 - A Test press set the tiles' session peaks to full, hiding what the sim
   had done. Peaks now skip a Test and the moment it takes to fade.
+- The Road tile's tyre and chassis models sat at their limits most of the
+  time ("a ball between two paddles"): their full scale, **body mm**, was
+  1 mm while the car's body moves several mm over a road. It is 12 by
+  default now (up to 50); set it on a saved rig, which keeps the old 1.
+  Chassis: the body's slow roll into a corner and dive under braking now
+  go through a steep cut (about half what came through before), and the
+  body's angles jumping more than a car can turn between two samples
+  (a reset) are ignored for a moment like a speed jump. Tyre: the sim's
+  samples are joined by straight lines instead of steps, and the sim's
+  own road is taken only as finely as its rate carries (a quarter of it:
+  15 Hz from a 60 Hz feed), the roughness filling in the rest, so a
+  faster telemetry feed brings more of the real road by itself.
 - With the grip budget on, a slide straight along (wheelspin, a lock-up)
   took the Lateral tile's `ease` curve as well: at ease 2 a 50% wheelspin
   played at a few %. The ease shapes the sideways part only now.

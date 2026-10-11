@@ -1189,6 +1189,16 @@ int main()
         double ipk = 0.0;
         for (int i = 0; i < 400; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); ipk = std::max(ipk, std::fabs(L.overlayFor(1))); }
         check(ipk < 1e-9, "I-15: a 290 g body acceleration sample knocks nothing");
+        // The body's angles jumping 20 deg in one sample (a reset) are a
+        // glitch: speed and body untrusted a moment, then back.
+        v.have[NcxValues::PitchDeg] = v.have[NcxValues::RollDeg] = true;
+        v.val[NcxValues::PitchDeg] = 1.0; v.val[NcxValues::RollDeg] = 0.5; run(0.6);
+        check(st.glitchSec == 0.0, "I-15: steady angles are no glitch");
+        v.val[NcxValues::PitchDeg] = 21.0; run(1.0 / 60.0);
+        check(st.glitchSec > 0.0, "I-15: pitch jumping 20 deg in a sample is a glitch");
+        v.val[NcxValues::PitchDeg] = 1.0; run(1.0);
+        check(st.glitchSec == 0.0, "I-15: ...trusted again after the hold");
+        v.have[NcxValues::PitchDeg] = v.have[NcxValues::RollDeg] = false;
     }
 
     // ---- I-12: the Impacts tile through the laws ----

@@ -31,10 +31,14 @@
 //                 rough, x the surface class under the tyre), so its
 //                 frequency follows speed by itself and the rear wheels
 //                 meet the fronts' bumps again wheelbase / speed later. The
+//                 sim's samples are joined by straight lines and its road
+//                 cut at a quarter of the rate they arrive at (a faster
+//                 feed passes more of it). The
 //                 tyre envelopes bumps shorter than its patch (a low-pass at
 //                 speed / patch). Out: the body's motion above cut hz.
 //   2 CHASSIS     the sim's own body: heave acceleration integrated twice,
-//                 pitch and roll, above cut hz, spread to the corners by
+//                 pitch and roll (through a steep second-order cut), above
+//                 cut hz, spread to the corners by
 //                 the car's wheelbase and track (rigid body). The signs of
 //                 pitch and roll against the corners are LEARNED from the
 //                 per-wheel suspension (no rig geometry asked of anyone):
@@ -67,6 +71,8 @@ namespace road_k {
     constexpr double kSmoothHz   = 20.0;    // one-pole low-pass on the suspension replay
     // Tyre model.
     constexpr double kRoadHpHz   = 0.5;     // hills off the real road profile
+    constexpr double kRealRateShare = 0.25; // the real road (or suspension) cut at this share of its sample rate...
+    constexpr double kRealMinHz  = 5.0, kRealMaxHz = 200.0;   // ...within these
     constexpr double kPatchM     = 0.15;    // contact patch length: envelops shorter bumps
     constexpr double kMassRatio  = 0.15;    // unsprung / sprung mass
     constexpr double kSubStepSec = 0.001;   // quarter-car integration step ceiling
@@ -201,6 +207,31 @@ struct HighPass2
     }
 };
 
+// A held sample stream (the value changes only when a sample arrives, ~60
+// a second from SimHub) as straight lines between its samples, and the
+// rate they arrive at: a staircase becomes a ramp, one interval late; a
+// faster stream passes nearly as it is.
+struct SampleRamp
+{
+    double out = 0.0, from = 0.0, t = 1.0, since = 0.0, interval = 1.0 / 60.0;
+    bool   seen = false;
+    // in: the value held now; fresh: a new sample arrived this cycle.
+    double step(double in, bool fresh, double dt)
+    {
+        if (!seen) { out = from = in; t = 1.0; since = 0.0; seen = true; return out; }
+        since += dt;
+        if (fresh)
+        {
+            interval += (std::max(0.001, std::min(0.1, since)) - interval) * 0.1;
+            from = out; t = 0.0; since = 0.0;
+        }
+        t = std::min(1.0, t + dt / interval);
+        out = from + (in - from) * t;
+        return out;
+    }
+    double rateHz() const { return 1.0 / interval; }
+};
+
 class RoadModel
 {
 public:
@@ -290,6 +321,9 @@ public:
         bool susp = false, height = false;
         for (W& w : m_w)
         {
+            // A new suspension sample: travel moved, or the velocity changed.
+            w.fresh = w.driven && (w.haveTravel ? (w.dx != 0.0) : (w.v != w.vPrev));
+            w.vPrev = w.v;
             if (w.driven) w.x = w.x * leak + w.v * dtSec + w.dx;
             else        { w.x *= leak; w.haveTravel = false; }
             w.suspDriven = w.driven;
@@ -360,7 +394,7 @@ public:
         m_speed = 0.0; m_speedDriven = m_chassisDriven = false;
         m_vh = m_zh = m_aHp = m_aPrev = 0.0;
         m_accF = m_pitchF = m_rollF = 0.0;
-        m_rollHp = m_rollPrev = m_pitchHp = m_pitchPrev = 0.0;
+        m_rollHp = m_pitchHp = 0.0; m_rollCut = HighPass2{}; m_pitchCut = HighPass2{};
         m_cH = m_eH = m_eM = m_cR = m_eR = m_eLR = m_cP = m_eP = m_eFB = 0.0;
         m_signH = 1; m_signR = m_signP = 0; m_pol = 0;
         m_chassisSeen = false;
@@ -396,7 +430,9 @@ private:
         double x = 0.0, y = 0.0;
         // tyre model
         double hpH = 0.0, hpHPrev = 0.0; bool hpHSeen = false;   // the real road, hills off
-        double realF = 0.0;                                      // ...its held samples smoothed
+        double realF = 0.0;                                      // ...its samples joined and smoothed
+        SampleRamp hR, xR;                                       // ...the road height's / the suspension's samples
+        double hLast = 0.0, vPrev = 0.0; bool fresh = false;     // a new sample this cycle
         double zrF = 0.0;                                        // after the tyre's envelope
         QuarterCar qc;
         double zsHp = 0.0, zsPrev = 0.0, asHp = 0.0, asPrev = 0.0;
@@ -515,29 +551,40 @@ private:
         const double envA  = 1.0 - std::exp(-2.0 * wavesynth::kPi * fc * dtSec);
         const double roadA = std::exp(-2.0 * wavesynth::kPi * kRoadHpHz * dtSec);
         const double outA  = std::exp(-2.0 * wavesynth::kPi * hpHz * dtSec);
-        const double inA   = 1.0 - std::exp(-2.0 * wavesynth::kPi * kInputLpHz * dtSec);
         const QuarterCar::K k = QuarterCar::params(p.bodyHz, p.hopHz, p.damping);
         const double bodyMm = std::max(0.05, p.bodyMm);
         const double aFull  = bodyMm * std::pow(2.0 * wavesynth::kPi * kForceRefHz, 2.0);
         for (int i = 0; i < WHEEL_COUNT; ++i)
         {
             W& w = m_w[i];
-            // The real road where the sim sends one, else the suspension.
-            double real = 0.0;
+            // The real road where the sim sends one, else the suspension:
+            // its samples joined by straight lines (a ~60 Hz staircase
+            // jolted the corner at every step), then cut at a share of the
+            // rate they arrive at, since finer detail than that cannot be
+            // in them (the roughness fills it in). A faster feed passes
+            // more of the real road by itself.
+            double real = 0.0, rate = 60.0;
             if (w.heightDriven)
             {
-                if (!w.hpHSeen) { w.hpHPrev = w.h; w.hpH = 0.0; w.hpHSeen = true; }
-                w.hpH = roadA * (w.hpH + w.h - w.hpHPrev);
-                w.hpHPrev = w.h;
+                const double h = w.hR.step(w.h, w.h != w.hLast, dtSec);
+                w.hLast = w.h; rate = w.hR.rateHz();
+                if (!w.hpHSeen) { w.hpHPrev = h; w.hpH = 0.0; w.hpHSeen = true; }
+                w.hpH = roadA * (w.hpH + h - w.hpHPrev);
+                w.hpHPrev = h;
                 real = w.hpH;
             }
             else
             {
-                w.hpHSeen = false;
-                real = w.x;
+                w.hpHSeen = false; w.hR.seen = false;
+                // Travel arrives in steps (ramped); a velocity is already
+                // integrated smoothly (its rate still sets the cut).
+                const double xr = w.xR.step(w.x, w.fresh, dtSec);
+                rate = w.xR.rateHz();
+                real = w.haveTravel ? xr : w.x;
             }
             real = simPart(w, real, dtSec, p);
-            w.realF += (real - w.realF) * inA;
+            const double inHz = std::max(kRealMinHz, std::min(kRealMaxHz, kRealRateShare * rate));
+            w.realF += (real - w.realF) * (1.0 - std::exp(-2.0 * wavesynth::kPi * inHz * dtSec));
             const double syn = roughAt(i, dtSec, p, wb);
             w.zrF += (w.realF + syn - w.zrF) * envA * w.groundF;
             w.qc.step(dtSec, w.zrF, k);
@@ -553,7 +600,6 @@ private:
     void stepChassis(double dtSec, const RoadParams& p, double hpHz, double leak)
     {
         using namespace road_k;
-        const double outA = std::exp(-2.0 * wavesynth::kPi * hpHz * dtSec);
         const double accA = std::exp(-2.0 * wavesynth::kPi * 0.5 * hpHz * dtSec);
         const double bodyMm = std::max(0.05, p.bodyMm);
         const double aFull  = bodyMm * std::pow(2.0 * wavesynth::kPi * kForceRefHz, 2.0);
@@ -566,18 +612,21 @@ private:
             m_rollF  += (m_roll  - m_rollF)  * inA;
             m_pitchF += (m_pitch - m_pitchF) * inA;
             const double a = m_accF * 1000.0;   // mm/s^2
-            if (!m_chassisSeen) { m_aPrev = a; m_rollPrev = m_rollF; m_pitchPrev = m_pitchF; m_chassisSeen = true; }
+            if (!m_chassisSeen) { m_aPrev = a; m_chassisSeen = true; }
             // Heave: gravity and drift off, then integrated twice (each
             // integral leaking at cut hz, so only the band above stays).
             m_aHp = accA * (m_aHp + a - m_aPrev); m_aPrev = a;
             m_vh = m_vh * leak + m_aHp * dtSec;
             m_zh = m_zh * leak + m_vh * dtSec;
-            m_rollHp  = outA * (m_rollHp  + m_rollF  - m_rollPrev);  m_rollPrev  = m_rollF;
-            m_pitchHp = outA * (m_pitchHp + m_pitchF - m_pitchPrev); m_pitchPrev = m_pitchF;
+            // Roll and pitch through a steep (second-order) cut: a gentle
+            // one let the body's slow roll into a corner and dive under
+            // braking (degrees, tens of mm at a corner) slam the posts.
+            m_rollHp  = m_rollCut.step(m_rollF, hpHz, dtSec);
+            m_pitchHp = m_pitchCut.step(m_pitchF, hpHz, dtSec);
         }
         else
         {
-            m_chassisSeen = false;
+            m_chassisSeen = false; m_rollCut.seen = m_pitchCut.seen = false;
             m_vh *= leak; m_zh *= leak; m_aHp *= leak; m_rollHp *= leak; m_pitchHp *= leak;
         }
         learnSigns(dtSec);
@@ -684,7 +733,8 @@ private:
     double m_accF = 0.0, m_pitchF = 0.0, m_rollF = 0.0;
     bool   m_chassisDriven = false, m_chassisSeen = false;
     double m_aHp = 0.0, m_aPrev = 0.0, m_vh = 0.0, m_zh = 0.0;
-    double m_rollHp = 0.0, m_rollPrev = 0.0, m_pitchHp = 0.0, m_pitchPrev = 0.0;
+    double m_rollHp = 0.0, m_pitchHp = 0.0;
+    HighPass2 m_rollCut, m_pitchCut;
     double m_cH = 0.0, m_eH = 0.0, m_eM = 0.0, m_cR = 0.0, m_eR = 0.0, m_eLR = 0.0, m_cP = 0.0, m_eP = 0.0, m_eFB = 0.0;
     int    m_signH = 1, m_signR = 0, m_signP = 0;
     int    m_pol = 0;   // the suspension against the body: -1 compression positive, +1 extension positive, 0 unknown

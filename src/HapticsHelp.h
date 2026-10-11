@@ -205,8 +205,9 @@ constexpr ParamHelp kHelp[] = {
       "roughness; tyre runs a model of each corner over the road; chassis plays the sim's own body movement. "
       "Suspension suits most sims." },
     { "road", "bodyMm",
-      "Tyre and chassis models: the body movement (mm) that counts as 100%, 0.1 to 20. 0.5 to 1.5 for most; "
-      "set it to your route gain to play the body 1:1." },
+      "Tyre and chassis models: the body movement (mm) that counts as 100%, 0.1 to 50. The body moves several "
+      "mm over a road while a seat post's haptic range is about a mm, so this scales it down. 8 to 15 for the "
+      "tyre model, 10 to 20 for chassis; raise it if the posts sit at their limits." },
     { "road", "hpHz",
       "Cut: road movement slower than this is left to the motion cue, 0.5 to 10 Hz. 1.5 to 3 for most; higher "
       "if the haptics fight your motion software." },

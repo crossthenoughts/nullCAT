@@ -1374,6 +1374,98 @@ int main()
             CHECK(pol == 1 && roll == 1, "road chassis: extension-positive suspension: the same roll sign");
             learn(1.0, -1.0, pol, roll, d);
             CHECK(pol == -1 && roll == -1, "road chassis: a sim whose roll is right-up positive is turned round");
+
+            // A real braking dive (1.5 deg building over a quarter second)
+            // through the steep cut: the front corner moves a few mm, about
+            // half of what the old gentle cut let through, and at the
+            // default body mm (12) it stays under the knee.
+            {
+                RoadModel c; RoadParams cp; cp.model = 2; cp.hpHz = 2.0;   // body mm: the default
+                const double w5 = 2.0 * PI * 5.0, w3 = 2.0 * PI * 3.0;
+                auto ss = [](double x) { x = std::max(0.0, std::min(1.0, x)); return x * x * (3.0 - 2.0 * x); };
+                double pkMm = 0.0, pkPos = 0.0, gentle = 0.0, gPrev = 0.0, gpk = 0.0;
+                const double ga = std::exp(-2.0 * PI * cp.hpHz * dt);
+                for (int i = 0; i < 40000; ++i)
+                {
+                    const double t = i * dt;
+                    // 12 s learning the signs (heave 5 Hz, pitch 3 Hz, nose down
+                    // positive), then the dive at 13 s.
+                    const bool learning = t < 12.0;
+                    const double z = learning ? 1.0 * std::sin(w5 * t) : 0.0;
+                    const double q = learning ? 0.3 * std::sin(w3 * t) : 1.5 * ss((t - 13.0) / 0.25);
+                    const double end = q * PI / 180.0 * 1250.0;                  // front corner down, mm
+                    const double comp[4] = { -(z - end), -(z - end), -(z + end), -(z + end) };
+                    for (int w = 0; w < 4; ++w) c.driveTravel(w, comp[w]);
+                    c.driveChassis(learning ? -w5 * w5 * z / 1000.0 : 0.0, q, 0.0);
+                    c.step(dt, cp);
+                    if (t > 12.5)
+                    {
+                        pkMm  = std::max(pkMm, std::fabs(c.wheelTravelMm(WheelFL)));
+                        pkPos = std::max(pkPos, std::fabs(c.outputFor(Part::FL).pos));
+                        gentle = ga * (gentle + end - gPrev); gPrev = end; gpk = std::max(gpk, std::fabs(gentle));
+                    }
+                    else gPrev = end;
+                }
+                std::printf("  chassis braking dive at FL: steep cut %.2f mm (gentle %.2f mm), post %.2f of full\n", pkMm, gpk, pkPos);
+                CHECK(pkMm > 1.0 && pkMm < 0.65 * gpk, "road chassis: a braking dive is cut steeply (about half the gentle cut's)");
+                CHECK(pkPos < 0.6, "road chassis: at the default body mm the dive stays under the knee");
+            }
+            // The body's bounce (0.15 g at 1.5 Hz, 0.1 g at 5 Hz, held at
+            // 60 Hz) at the default body mm: never past the knee.
+            {
+                RoadModel c; RoadParams cp; cp.model = 2;
+                double held = 0.0, next = 0.0; int past = 0, n = 0;
+                for (int i = 0; i < 24000; ++i)
+                {
+                    const double t = i * dt;
+                    if (t >= next) { held = 9.81 + 0.15 * 9.81 * std::sin(2.0 * PI * 1.5 * t) + 0.1 * 9.81 * std::sin(2.0 * PI * 5.0 * t); next += 1.0 / 60.0; }
+                    c.driveChassis(held, 0.0, 0.0); c.step(dt, cp);
+                    if (t > 3.0) { ++n; if (std::fabs(c.outputFor(Part::FL).pos) > 0.6) ++past; }
+                }
+                CHECK(past == 0, "road chassis: a body's ordinary bounce sits under the knee at the default body mm");
+            }
+        }
+
+        // Tyre model at the default body mm (12): over a rough-2 road the
+        // body moves several mm, mostly under the knee (at 1 mm it sat at
+        // full 80 to 90 % of the time).
+        {
+            const double dt = 0.0005;
+            auto pastKnee = [&](double kmh) {
+                RoadParams rp; rp.model = 1;
+                RoadModel m; m.driveGeometry(2.5, 1.6); int past = 0, n = 0;
+                for (int i = 0; i < 24000; ++i)
+                {
+                    m.driveSpeed(kmh / 3.6); m.step(dt, rp);
+                    if (i > 6000) { ++n; if (std::fabs(m.outputFor(Part::FL).pos) > 0.6) ++past; }
+                }
+                return 100.0 * past / n; };
+            const double k54 = pastKnee(54.0), k108 = pastKnee(108.0);
+            std::printf("  road tyre, default body mm, rough 2: past the knee %.1f%% at 54 km/h, %.1f%% at 108 km/h\n", k54, k108);
+            CHECK(k54 < 5.0 && k108 < 25.0, "road tyre: at the default body mm the road plays mostly under the knee");
+        }
+
+        // The sim's samples joined by straight lines: a 60 Hz staircase
+        // becomes a ramp (no jolt at each step) and its rate is known; a
+        // 333 Hz feed reads as 333 Hz (its road passes four times finer).
+        {
+            using haptics::SampleRamp;
+            const double dt = 0.0005;
+            auto feed = [&](double fs, double& maxStep, double& rate) {
+                SampleRamp r; double held = 0.0, next = 0.0, prev = 0.0; maxStep = 0.0;
+                for (int i = 0; i < 8000; ++i)
+                {
+                    const double t = i * dt; bool fresh = false;
+                    if (t >= next) { held = 10.0 * std::sin(2.0 * PI * 2.0 * t); next += 1.0 / fs; fresh = true; }
+                    const double o = r.step(held, fresh, dt);
+                    if (i > 100) maxStep = std::max(maxStep, std::fabs(o - prev));
+                    prev = o;
+                }
+                rate = r.rateHz(); };
+            double s60 = 0.0, r60 = 0.0, s333 = 0.0, r333 = 0.0;
+            feed(60.0, s60, r60); feed(333.0, s333, r333);
+            CHECK(std::fabs(r60 - 60.0) < 3.0 && std::fabs(r333 - 333.0) < 20.0, "road tyre: the sample rate is measured (60 Hz, 333 Hz)");
+            CHECK(s60 < 0.1, "road tyre: a 60 Hz staircase (steps up to 2 mm) is joined by a ramp");
         }
 
         // Kerb: ribs every pitch hum at speed / pitch on a force sink; on

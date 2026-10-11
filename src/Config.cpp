@@ -1413,8 +1413,8 @@ std::vector<std::string> AppConfig::validate() const
                 const double m = hapticsRoad.model;
                 if (m < 0.0 || m > 2.0 || m != std::floor(m))
                     errors.push_back(pfx + "model must be 0 (suspension), 1 (tyre) or 2 (chassis)");
-                if (hapticsRoad.bodyMm < 0.1 || hapticsRoad.bodyMm > 20.0)
-                    errors.push_back(pfx + "bodyMm out of range [0.1, 20]");
+                if (hapticsRoad.bodyMm < 0.1 || hapticsRoad.bodyMm > 50.0)
+                    errors.push_back(pfx + "bodyMm out of range [0.1, 50]");
                 if (hapticsRoad.bodyHz < 0.8 || hapticsRoad.bodyHz > 8.0)
                     errors.push_back(pfx + "bodyHz out of range [0.8, 8]");
                 if (hapticsRoad.hopHz < 6.0 || hapticsRoad.hopHz > 30.0)

@@ -123,7 +123,7 @@ struct RoadParams
     // 2 chassis (the sim's own body heave, pitch and roll in the band the
     // motion cue leaves out).
     double model      = 0.0;
-    double bodyMm     = 1.0;    // tyre/chassis: body movement that counts as 100%
+    double bodyMm     = 12.0;   // tyre/chassis: body movement that counts as 100% (it moves several mm on a road; 1 pinned both at full)
     double bodyHz     = 3.0;    // tyre, suspension roughness: the car's body bounce (race car 3-5, road car 1-1.5)
     double hopHz      = 16.0;   // tyre, suspension roughness: wheel hop (12-20)
     double damping    = 0.3;    // tyre, suspension roughness: the bounce's damping ratio

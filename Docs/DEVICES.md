@@ -467,9 +467,15 @@ like the car.
 
 A seat actuator is moved by the movement (how far); a belt or shaker
 pushes with its acceleration (how hard). For tyre and chassis, **body
-mm** is the body movement that counts as 100 % (1 by default): with a
-seat actuator routed at a gain of G mm and amp at 100 %, a body mm of G
-plays the body's movement one to one. **cut hz** is where the slow
+mm** is the body movement that counts as 100 % (12 by default). The
+body moves several mm over a road while a seat actuator's haptic range
+is about a mm, so this scales it down; raise it if the posts sit at
+their limits (with a seat actuator routed at a gain of G mm and amp at
+100 %, a body mm of G would play the body's movement one to one).
+The tyre model joins the sim's samples with straight lines and takes as
+much of the sim's own road as their rate can carry (about a quarter of
+it: 15 Hz from a 60 Hz feed), the roughness filling in the rest, so a
+faster telemetry feed brings more of the real road by itself. **cut hz** is where the slow
 motion is cut (2 by default; raise it if the seat follows body roll the
 cue is already doing, lower it to let longer undulations through).
 

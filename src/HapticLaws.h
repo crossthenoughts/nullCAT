@@ -74,6 +74,8 @@ struct LawsState
     // untrusted after a jump no car can make.
     double lastSpeedKmh = 0.0, speedAgeSec = 0.0, glitchSec = 0.0;
     bool   speedSeen = false;
+    double lastPitch = 0.0, lastRoll = 0.0;   // ...and the body's angles a moment ago
+    bool   anglesSeen = false;
     // The sim's ABS and TC flags, held over their short gaps.
     double absHoldSec = 0.0, tcHoldSec = 0.0;
 };
@@ -163,6 +165,7 @@ namespace laws_k {
     constexpr double kCombinedMaxX     = 4.0;
     constexpr double kRatioMin         = -1.0, kRatioMax = 3.0;
     constexpr double kGearMin          = -1.0, kGearMax = 12.0;   // a gear outside this is a garbage frame
+    constexpr double kAngleJumpDeg     = 8.0;      // pitch or roll jumping this far between two samples: a glitch
     // Wheels laws
     constexpr double kFreshTyresSec    = 600.0;    // a different car brings fresh tyres; failing that, the stream quiet this long (a pause in the pits is not a new session)
     constexpr double kPreviewWheelSpread[WHEEL_COUNT] = { 0.0, 0.004, -0.003, 0.007 };   // a Test: each wheel a touch apart
@@ -227,7 +230,20 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             }
         }
         else st.speedSeen = false;
-        if (st.glitchSec > 0.0) v.have[NcxValues::SpeedKmh] = false;
+        // The body's angles jumping further than a car turns between two
+        // samples (a reset, a jump to the pits) are the same kind of glitch.
+        if (live && v.have[NcxValues::PitchDeg] && v.have[NcxValues::RollDeg])
+        {
+            const double p = v.val[NcxValues::PitchDeg], r = v.val[NcxValues::RollDeg];
+            if (st.anglesSeen && (std::fabs(p - st.lastPitch) > kAngleJumpDeg || std::fabs(r - st.lastRoll) > kAngleJumpDeg))
+                st.glitchSec = kGlitchHoldSec;
+            st.lastPitch = p; st.lastRoll = r; st.anglesSeen = true;
+        }
+        else st.anglesSeen = false;
+        // While untrusted: no speed, and no body (heave, pitch, roll).
+        if (st.glitchSec > 0.0)
+            for (NcxValues::Token t : { NcxValues::SpeedKmh, NcxValues::AccHeave, NcxValues::PitchDeg, NcxValues::RollDeg })
+                v.have[t] = false;
     }
 
     // A different car: what was learned about the last one starts over.

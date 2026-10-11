@@ -141,7 +141,7 @@ constexpr const char* kSlipLonKeys[SLIP_KEY_COUNT] = { "lock", "lockHz", "spin",
 constexpr ParamSpec kRoadParams[] = {           // road: the model, its settings, the texture fallback
     { "ampPct",     "amp %",       0,   100, 1,    nullptr },
     { "model",      "model",       0,   2,   1,    "suspension|tyre|chassis" },
-    { "bodyMm",     "body mm",     0.1, 20,  0.1,  nullptr },   // tyre, chassis: body movement = 100%
+    { "bodyMm",     "body mm",     0.1, 50,  0.5,  nullptr },   // tyre, chassis: body movement = 100%
     { "hpHz",       "cut hz",      0.5, 10,  0.5,  nullptr },
     { "rough",      "rough x",     0,   20,  0.1,  nullptr },   // tyre, suspension: road roughness
     { "suspPct",    "susp %",      0,   100, 5,    nullptr },   // tyre, suspension: the game's own movement
