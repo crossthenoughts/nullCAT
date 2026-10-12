@@ -329,7 +329,10 @@ namespace NullcatChannelExporter
             if (family == "assettocorsa" || family == "assettocorsacompetizione" || family == "assettocorsaevo" || family == "assettocorsarally")
                 AppendAcContact(y, d);
             else if (family == "automobilista2")
+            {
                 AppendAms2Surface(y, pluginManager);
+                AppendAms2SlipSpeed(y, pluginManager);
+            }
             Send(y.ToString());
 
             // Identity once a second: which game and car the channels
@@ -359,7 +362,9 @@ namespace NullcatChannelExporter
 
         // The body's vertical acceleration, pitch and roll, from SimHub's own
         // normalized motion data (the same values its motion output uses, so
-        // they mean the same thing in every game). Heave is in G there.
+        // they mean the same thing in every game). Heave is already in m/s^2
+        // there (read as G, a parked car shook at 0.7 g and a lap averaged
+        // 2.6 g; as m/s^2, 0.07 and 0.27 g): sent as it is.
         private static void AppendChassis(StringBuilder y, StatusDataBase d)
         {
             double? heave = null;
@@ -368,7 +373,7 @@ namespace NullcatChannelExporter
             double pitch, roll;
             try { pitch = d.OrientationPitch; roll = d.OrientationRoll; } catch { return; }
             if (double.IsNaN(pitch) || double.IsNaN(roll)) return;
-            y.Append(",accHeave=").Append((heave.Value * 9.80665).ToString("0.###", CultureInfo.InvariantCulture))
+            y.Append(",accHeave=").Append(heave.Value.ToString("0.###", CultureInfo.InvariantCulture))
              .Append(",pitchDeg=").Append(pitch.ToString("0.####", CultureInfo.InvariantCulture))
              .Append(",rollDeg=").Append(roll.ToString("0.####", CultureInfo.InvariantCulture));
         }
@@ -461,6 +466,20 @@ namespace NullcatChannelExporter
             for (var w = 0; w < 4; w++)
                 y.Append(",surface").Append(Wheels[w]).Append('=').Append(cls[w].ToString(CultureInfo.InvariantCulture));
             AppendAms2TyreFlags(y, pm);
+        }
+
+        // Automobilista 2 tyre slip speed as it is, m/s (protocol 1.8): the
+        // contact patch slipping over the road, sideways and along together.
+        // nullCAT takes the along part out with the wheel speeds and plays
+        // the rest as a slip angle (the plain combined slip grew with road
+        // speed and read as a slide on every straight).
+        private static void AppendAms2SlipSpeed(StringBuilder y, PluginManager pm)
+        {
+            var ss = new double[4];
+            for (var w = 0; w < 4; w++)
+                if (!ReadRaw(pm, "DataCorePlugin.GameRawData.mTyreSlipSpeed0" + (w + 1), out ss[w]) || double.IsNaN(ss[w]) || double.IsInfinity(ss[w])) return;
+            for (var w = 0; w < 4; w++)
+                y.Append(",slipSpeed").Append(Wheels[w]).Append('=').Append(Math.Abs(ss[w]).ToString("0.###", CultureInfo.InvariantCulture));
         }
 
         // Automobilista 2 tyre flags (protocol 1.7): bit 0 attached, bit 1

@@ -8,6 +8,7 @@
 #include <chrono>
 #include <string>
 #include "NcxTokens.h"
+#include "TelemetryRecorder.h"
 
 static constexpr int MAX_DRIVES = 10;
 
@@ -155,7 +156,13 @@ public:
     void    setFrozenMs(int64_t ms) { m_frozenMs.store(ms < 0 ? 0 : ms); }
     int64_t frozenMs() const        { return m_frozenMs.load(); }
 
+    // Every datagram as it arrived, to a file (start/stop from the web
+    // thread; receive() only hands it a copy, see TelemetryRecorder.h).
+    TelemetryRecorder&       recorder()       { return m_recorder; }
+    const TelemetryRecorder& recorder() const { return m_recorder; }
+
 private:
+    TelemetryRecorder m_recorder;
     static constexpr uintptr_t INVALID_SOCKET_VALUE = static_cast<uintptr_t>(~0);
     uintptr_t m_socket            = INVALID_SOCKET_VALUE;
     bool      m_winsockInitialized= false;

@@ -128,14 +128,26 @@ struct MotionStatus
     // 5 impact ring (peak = hardest knock), 6 ground contact 1/0 (peak = 1
     // once the tyre has been in the air), 7 surface class, 8 water 0..1,
     // 9 floating 0..1, 10 brake disc heat 0..1, 11 punctured 1/0 (the
-    // Wheels tile's tyre state; 0 while that tile is off).
-    static constexpr int HAP_WHEEL_SETS = 12;
+    // Wheels tile's tyre state; 0 while that tile is off), 12 the lateral
+    // slip angle as played (deg: the sim's, or from a slip speed less its
+    // baseline), 13 that baseline (deg, learned on the straights).
+    static constexpr int HAP_WHEEL_SETS = 14;
     double          hapticsIn     [haptics::FX_TYPE_COUNT] = {};
     double          hapticsInPk   [haptics::FX_TYPE_COUNT] = {};
     double          hapticsWheel  [HAP_WHEEL_SETS][4]      = {};
     double          hapticsWheelPk[HAP_WHEEL_SETS][4]      = {};
     double          ncxVal[NcxValues::TokenCount]          = {};
     double          ncxPk [NcxValues::TokenCount]          = {};
+    // ABS: working on the sim's flag (held), from the wheels, and the rate
+    // the wheels' dumps come at; the lateral slip's source (0 the skid
+    // channel, 1 the sim's slip angle, 2 a combined slip, 3 an angle from a
+    // slip speed) and its baseline's straight-line time, and whether that
+    // is enough to call it learned.
+    bool            hapAbsFlag = false, hapAbsWheels = false;
+    double          hapAbsWheelHz = 0.0;
+    int             hapLatSrc = 0;
+    double          hapLatBaseSec = 0.0;
+    bool            hapLatLearned = false;
 };
 
 class MotionController

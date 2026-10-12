@@ -1050,6 +1050,158 @@ int main()
         check(pk > 10.0, "I-13 ground: deflatedRR thumps the RR route (the Wheels tile's puncture)");
     }
 
+    // ---- I-17: Automobilista 2 the way it really sends ----
+    {
+        using haptics::FxType; using haptics::Part;
+        const double dt = 0.0005;
+        const double PI = 3.14159265358979;
+        haptics::Layer L; haptics::LawsState st;
+        haptics::EffectParams fx; fx.ampPct = 100.0; fx.routes[0] = { 0, 1.0, Part::FL };
+        L.configureFx(FxType::Lockup, fx); L.configureFx(FxType::Skid, fx); L.configureFx(FxType::AbsPulse, fx);
+        haptics::SlipParams lat = haptics::effectInfo(haptics::Effect::Skid).slipDefaults;
+        lat.peak = 9.0; lat.onsetPct = 40.0; lat.ease = 0.0; lat.smoothHz = 3.0; lat.budget = 0.0;
+        L.configureSlip(FxType::Skid, lat);
+        // Longitudinal as a rig gets it (the registry's: edge 0.3 from 3 %);
+        // a bare Layer's own defaults have no edge.
+        L.configureSlip(FxType::Lockup, haptics::effectInfo(haptics::Effect::Lockup).slipDefaults);
+        NcxValues v{}; v.fresh = true;
+        auto setW = [&](int group, double a, double b, double c, double d)
+        { const double x[4] = { a, b, c, d }; for (int w = 0; w < 4; ++w) { v.have[group + w] = true; v.val[group + w] = x[w]; } };
+        auto run = [&](double secs) { const int n = static_cast<int>(secs / dt); for (int i = 0; i < n; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); } };
+        // Rad/s for a 0.33 m wheel at kmh, NEGATIVE going forward (as AMS2 sends).
+        auto wsAt = [](double kmh) { return -(kmh / 3.6) / 0.33; };
+        v.have[NcxValues::BrakePct] = true; v.val[NcxValues::BrakePct] = 0.0;
+        v.have[NcxValues::ThrottlePct] = true; v.val[NcxValues::ThrottlePct] = 0.0;
+        v.have[NcxValues::SpeedKmh] = true; v.val[NcxValues::SpeedKmh] = 200.0;
+        setW(NcxValues::WheelSpeedFL, wsAt(200), wsAt(200), wsAt(200), wsAt(200));
+        // Before the rolling factor is known the along part is unknown: the
+        // wheel's angle is too, not all sideways (a start's wheelspin read as
+        // a full slide).
+        const double spin = 55.556 * 0.2;   // 20 % wheelspin's worth of slip speed, all along
+        setW(NcxValues::SlipSpeedFL, spin, spin, spin, spin);
+        for (int i = 0; i < 100; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
+        check(!st.rollKnown[WheelFL] && st.latRaw[WheelFL] == 0.0 && L.slipWheelLevel(FxType::Skid, WheelFL) < 1e-6,
+              "I-17: no rolling factor yet: the slip speed plays nothing (unknown, not a slide)");
+        // A straight at 200 km/h: 5 deg's worth of slip speed (55.6 m/s x
+        // sin 5 = 4.84 m/s) on every wheel, the tyres' own creep and toe:
+        // past the 3.6 deg onset, so it would slide without the baseline.
+        const double base = 55.556 * std::sin(5.0 * PI / 180.0);
+        setW(NcxValues::SlipSpeedFL, base, base, base, base);
+        run(15.0);   // the baseline learns over seconds (a lap of straights)
+        check(st.rollKnown[WheelFL] && st.rollKnown[WheelRR], "I-17: negative wheel speeds (Automobilista 2) still teach the rolling factor");
+        std::printf("  I-17 straight-line baseline FL %.2f deg after %.1f s of straights\n", st.latBase[WheelFL], st.latBaseSec);
+        check(std::fabs(st.latBase[WheelFL] - 5.0) < 0.3 && st.latBaseSec > haptics::laws_k::kLatBaseLearnSec, "I-17: the straight-line slip (5 deg) is learned as the baseline");
+        check(L.slipWheelLevel(FxType::Skid, WheelFL) < 0.02, "I-17: ...so a 200 km/h straight plays no slide (it played 0.2 as a combined slip)");
+        // A long coasting corner at 100 km/h (the fronts 2 % apart), the
+        // fronts at 13 deg of slip speed: 13 - 5 = 8 deg as played. Five
+        // seconds: the rolling factor must not learn the corner's split (it
+        // did, and the corner then counted as straight for the baseline).
+        v.val[NcxValues::SpeedKmh] = 100.0;
+        setW(NcxValues::WheelSpeedFL, wsAt(99), wsAt(101), wsAt(99.5), wsAt(100.5));
+        const double side = 27.778 * std::sin(13.0 * PI / 180.0);
+        setW(NcxValues::SlipSpeedFL, side, side, base / 2.0, base / 2.0);
+        const double baseBefore = st.latBase[WheelFL];
+        run(5.0);
+        std::printf("  I-17 corner: FL angle as played %.2f deg, lateral %.2f\n", st.latAngle[WheelFL], L.slipWheelLevel(FxType::Skid, WheelFL));
+        check(std::fabs(st.latAngle[WheelFL] - 8.0) < 0.4, "I-17: in a corner the slip speed plays as its sideways angle less the baseline");
+        check(L.slipWheelLevel(FxType::Skid, WheelFL) > 0.5, "I-17: ...a real slide on the front");
+        check(std::fabs(st.latBase[WheelFL] - baseBefore) < 1e-9, "I-17: the baseline does not learn in a long corner");
+        // Braking in a straight line: the fronts at -10 % slip ratio. Their
+        // slip speed is that along slip (2.78 m/s) and the baseline's
+        // sideways part; taken apart, no slide.
+        v.val[NcxValues::BrakePct] = 60.0;
+        setW(NcxValues::WheelSpeedFL, wsAt(90), wsAt(90), wsAt(100), wsAt(100));
+        {
+            const double along = 0.1 * 27.778, sideB = 27.778 * std::sin(5.0 * PI / 180.0);
+            const double sf = std::sqrt(along * along + sideB * sideB);
+            setW(NcxValues::SlipSpeedFL, sf, sf, sideB, sideB);
+        }
+        run(1.0);
+        check(L.slipWheelLevel(FxType::Skid, WheelFL) < 0.05, "I-17: braking straight, the along slip is taken out: no lateral slide");
+        // The edge: the fronts at 10 % braking slip are working (3 % to 15 %).
+        check(L.slipWheelEdge(WheelFL) > 0.3 && L.slipWheelEdge(WheelRL) < 0.01, "I-17: the edge grain: the braked fronts at 10 % work, the rolling rears do not");
+        // Driving out: the rears at +5 % (a traction control holding them);
+        // edge from 3 % feels it, edge from 8 % does not.
+        v.val[NcxValues::BrakePct] = 0.0; v.val[NcxValues::ThrottlePct] = 100.0;
+        setW(NcxValues::WheelSpeedFL, wsAt(100), wsAt(100), wsAt(105), wsAt(105));
+        setW(NcxValues::SlipSpeedFL, base / 2.0, base / 2.0, 1.4, 1.4);
+        run(0.5);
+        const double edge5 = L.slipWheelEdge(WheelRL);
+        haptics::SlipParams lon = L.slipParams(FxType::Lockup); lon.screechPct = 8.0; L.configureSlip(FxType::Lockup, lon);
+        run(0.5);
+        std::printf("  I-17 edge on the rears at +5 %%: %.2f from 3 %%, %.2f from 8 %%\n", edge5, L.slipWheelEdge(WheelRL));
+        check(edge5 > 0.05 && L.slipWheelLevel(FxType::Lockup, WheelRL) < 0.01, "I-17: a traction control's 5 % is felt as the edge, not as wheelspin");
+        check(L.slipWheelEdge(WheelRL) < 0.01, "I-17: edge from % moves where it starts");
+        lon.screechPct = 3.0; L.configureSlip(FxType::Lockup, lon);
+        v.val[NcxValues::ThrottlePct] = 0.0;
+        // A hairpin coasting: from the wheel speeds the outer wheels read
+        // +5 %, the inner -5 % (the corner's geometry, no slip): the axle's
+        // mean is 0, so no edge.
+        setW(NcxValues::WheelSpeedFL, wsAt(95), wsAt(105), wsAt(95), wsAt(105));
+        run(0.5);
+        check(L.slipWheelEdge(WheelFL) < 0.01 && L.slipWheelEdge(WheelFR) < 0.01 && L.slipWheelEdge(WheelRR) < 0.01,
+              "I-17: a hairpin's wheel speed split (+-5 %) is no edge");
+
+        // ABS from the wheels: no flag (Automobilista 2 rarely sends it); the
+        // front wheels hunting near lock under 80 % brake, the wheel speeds
+        // at 60 Hz. maxStep: the FL pulse's largest step from one cycle to
+        // the next after the first 0.2 s (a pulse jumping to each dump
+        // stepped by up to 2).
+        haptics::PulseParams pp; pp.brakeFull = 80.0;
+        double maxStep = 0.0;
+        auto hunt = [&](double secs, auto ratioAt) {
+            const int n = static_cast<int>(secs / dt); double held = 0.0, last = L.absModel().channel(WheelFL); int lastK = -1;
+            maxStep = 0.0;
+            for (int i = 0; i < n; ++i)
+            {
+                const double t = i * dt; const int k = static_cast<int>(t * 60.0);
+                if (k != lastK) { lastK = k; held = ratioAt(t); }
+                const double wf = wsAt(100.0 * (1.0 + held));
+                setW(NcxValues::WheelSpeedFL, wf, wf, wsAt(100), wsAt(100));
+                haptics::driveLaws(L, st, v, dt); L.step(dt);
+                const double now = L.absModel().channel(WheelFL);
+                if (t > 0.2) maxStep = std::max(maxStep, std::fabs(now - last));
+                last = now;
+            } };
+        const auto abs10   = [&](double t) { return -0.07 + 0.05 * std::cos(2.0 * PI * 10.0 * t); };   // -0.02 .. -0.12 at 10 Hz
+        // 8 Hz: a quick deep dip, back up over about 4 samples, then a spell
+        // rolling near the road speed before the pressure builds again.
+        const auto slow8   = [&](double t) { const double u = t * 8.0 - std::floor(t * 8.0);
+                                             return (u < 0.15) ? -0.02 - 0.33 * u / 0.15 : (u < 0.7) ? -0.35 + 0.33 * (u - 0.15) / 0.55 : -0.02; };
+        const auto hover15 = [&](double t) { return -0.09 + 0.02 * std::cos(2.0 * PI * 15.0 * t); };   // threshold braking, the road shaking it
+        const auto locked  = [&](double) { return -1.0; };
+        const auto absOff  = [&]() { return st.absWheelHoldSec == 0.0 && L.fxLevel(static_cast<int>(FxType::AbsPulse)) < 0.01; };
+        v.have[NcxValues::AbsActive] = true; v.val[NcxValues::AbsActive] = 0.0;
+        v.val[NcxValues::BrakePct] = 80.0;
+        setW(NcxValues::SlipSpeedFL, 0.0, 0.0, 0.0, 0.0);
+        pp.fromWheels = 0.0; L.configurePulse(FxType::AbsPulse, pp);
+        hunt(1.0, abs10);
+        check(absOff(), "I-17: from wheels off, no flag: no ABS");
+        pp.fromWheels = 1.0; L.configurePulse(FxType::AbsPulse, pp);
+        hunt(1.0, abs10);
+        std::printf("  I-17 ABS from the wheels: %.1f Hz detected, level %.2f, largest pulse step %.3f\n",
+                    st.absWheelHz, L.fxLevel(static_cast<int>(FxType::AbsPulse)), maxStep);
+        check(st.absWheelHoldSec > 0.0 && std::fabs(st.absWheelHz - 10.0) < 1.5, "I-17: from wheels on: the wheels hunting at 10 Hz are ABS working, its rate found");
+        check(L.fxLevel(static_cast<int>(FxType::AbsPulse)) > 0.99, "I-17: ...and the ABS pulse plays (80 % brake = full)");
+        check(L.absModel().synced(WheelFL) && !L.absModel().synced(WheelRL), "I-17: the front corners' pulse is timed to their wheels (the rolling rears are not)");
+        check(maxStep < 0.1, "I-17: ...pulled into step with them, never jumping to each dump");
+        st.absWheelHz = 0.0;
+        hunt(1.0, slow8);
+        std::printf("  I-17 ABS, a deep dip back up over 8 samples: %.1f Hz detected\n", st.absWheelHz);
+        check(st.absWheelHoldSec > 0.0 && std::fabs(st.absWheelHz - 8.0) < 1.0, "I-17: a wheel spinning back up over several samples is one dump a cycle (the rate stays true)");
+        hunt(1.0, hover15);
+        check(absOff(), "I-17: threshold braking, the wheel hovering near a lock, is no ABS");
+        setW(NcxValues::OnGroundFL, 0.0, 0.0, 1.0, 1.0);
+        hunt(1.0, abs10);
+        check(absOff(), "I-17: the fronts in the air (a kerb hop) are no ABS");
+        for (int w = 0; w < 4; ++w) v.have[NcxValues::OnGroundFL + w] = false;
+        hunt(1.0, locked);
+        check(absOff(), "I-17: a wheel locked and staying locked (no ABS) is no ABS");
+        hunt(0.5, [&](double) { return 0.0; });
+        check(absOff() && !L.absModel().synced(WheelFL), "I-17: ...nor its release; ABS off frees the corners");
+        v.val[NcxValues::BrakePct] = 0.0;
+    }
+
     // ---- I-14: the fronts' screech and pulse through the laws ----
     {
         using haptics::FxType; using haptics::Part;

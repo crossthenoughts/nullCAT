@@ -730,6 +730,8 @@ void MotionController::publishHapticsStatusLocked()
         m_statusSnapshot.hapticsWheel[9][w] = m_haptics.surfaceModel().floating(w);
         m_statusSnapshot.hapticsWheel[10][w] = m_haptics.wheelsModel().discHeat(w);
         m_statusSnapshot.hapticsWheel[11][w] = m_haptics.wheelsModel().punctured(w) ? 1.0 : 0.0;
+        m_statusSnapshot.hapticsWheel[12][w] = m_hapLaws.latAngle[w];
+        m_statusSnapshot.hapticsWheel[13][w] = m_hapLaws.latBase[w];
         for (int s = 0; s < MotionStatus::HAP_WHEEL_SETS; ++s)
             m_statusSnapshot.hapticsWheelPk[s][w] = m_hapWheelPk[s][w];
     }
@@ -739,6 +741,12 @@ void MotionController::publishHapticsStatusLocked()
         m_statusSnapshot.ncxVal[i]  = m_ncxValSnapshot[i];
         m_statusSnapshot.ncxPk[i]   = m_ncxPk[i];
     }
+    m_statusSnapshot.hapAbsFlag    = m_hapLaws.absFlagOn;
+    m_statusSnapshot.hapLatSrc     = m_hapLaws.slipSrc;
+    m_statusSnapshot.hapAbsWheels  = m_hapLaws.absWheelHoldSec > 0.0;
+    m_statusSnapshot.hapAbsWheelHz = m_hapLaws.absWheelHz;
+    m_statusSnapshot.hapLatBaseSec = m_hapLaws.latBaseSec;
+    m_statusSnapshot.hapLatLearned = m_hapLaws.latBaseSec >= haptics::laws_k::kLatBaseLearnSec;
 }
 
 // Session peaks of the tile readouts, taken every haptics step (the
@@ -786,6 +794,8 @@ void MotionController::trackHapticPeaks()
             m_hapWheelPk[8][w] = std::max(m_hapWheelPk[8][w], m_haptics.surfaceModel().water(w));
             m_hapWheelPk[9][w] = std::max(m_hapWheelPk[9][w], m_haptics.surfaceModel().floating(w));
         }
+        if (live(FxType::Skid)) m_hapWheelPk[12][w] = std::max(m_hapWheelPk[12][w], m_hapLaws.latAngle[w]);
+        m_hapWheelPk[13][w] = m_hapLaws.latBase[w];                                              // (no peak: as now)
     }
     // A slip channel means nothing at a standstill (a stationary car's slip
     // is a division by almost zero: billions on the wire), so its session

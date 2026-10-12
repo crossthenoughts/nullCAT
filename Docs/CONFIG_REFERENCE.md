@@ -154,6 +154,7 @@ Slip-only fields. Both tiles are per-wheel models with two components, each with
 | `slipLon` | `lock`, `lockHz` | `1`, `9` | A wheel locking under braking: mix and carrier (4 to 30 Hz) at 80 km/h; the carrier follows road speed. |
 | `slipLon` | `spin`, `spinHz` | `1`, `10` | A driven wheel spinning: mix and carrier (4 to 30 Hz), fixed. |
 | `slipLon` | `peakRatio` | `0.8` | Slip ratio at full severity, 0.2 to 2. Nothing plays inside 0.15. |
+| `slipLon` | `edge`, `edgePct`, `edgeHz` | `0.3`, `3`, `35` | Every tyre working short of its limit, braking or driving: mix 0 to 1 (0 = off), from this slip ratio % (0.5 to 14) up to full at 15 %, eased in (smoothstep), on its own carrier (10 to 120 Hz). The loaded tyre is weighted up. |
 
 Road-only fields. `model` picks how the body's movement is made; when the sim sends nothing that model can use, the tile plays the `roadNoise` texture (`freqHz`, `jitter`, `peakPct`) instead.
 
@@ -190,6 +191,7 @@ ABS and TC fields (`abs`, `tc`; `freqHz` is the cycle rate):
 | `abs`, `tc` | `sharp` | `0.3` | The drop's edge, 0 to 1: 0 round (the drop takes half the cycle), 1 a knock (ABS dumps in a quarter of the cycle, TC cuts in a third). |
 | `abs`, `tc` | `spread` | `0.5` | 0 to 1: each cycle up to 30 % longer or shorter and 35 % shallower; for ABS each corner also on its own rate (up to 18 % apart), so the corners drift in and out of step. 0 = one regular pulse. |
 | `abs`, `tc` | `holdMs` | `150` | 0 to 500 ms, 0 = off: the sim's ABS / TC flag is held on over gaps this short, so a flag the sim blips or flickers plays as one effect. |
+| `abs` | `fromWheels` | `0` | 0 off, 1 on: ABS also counts as working when a braked wheel dips towards a lock (past 6 % slip) and spins back up (inside 4 %) twice in a row at an ABS rhythm (0.04 to 0.35 s apart), held 0.4 s. A wheel hovering near a lock, staying locked, or in the air does not count. Each corner's pulse is then pulled into step with its own wheel. Needs `slipRatio*` or `wheelSpeed*`. |
 | `abs` | `slow` | `0.5` | 0 to 1: how far the cycle slows towards a stop (rate x (1 - slow x (1 - speed / 80 km/h)) below 80 km/h; speed unknown = full rate). |
 | `abs` | `buzz`, `buzzHz` | `0.3`, `40` | The pump and valve buzz: mix 0 to 1 and carrier 15 to 120 Hz. |
 | `abs` | `brakeFull` | `80` | ABS plays as hard as the driver brakes: from nothing at 10 % brake up to full at this brake %, 10 to 100 (10 = always full). ABS never plays below 10 % brake. |

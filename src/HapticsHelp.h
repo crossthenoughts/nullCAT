@@ -127,6 +127,11 @@ constexpr ParamHelp kHelp[] = {
       "Keeps the sim's ABS flag on over gaps this short, 0 to 500 ms (0 = off, the flag as sent). Some sims "
       "(Assetto Corsa) blip the flag through a stop, which chops the pulse into fragments; 100 to 200 joins "
       "them into one steady cycle. The same for any car: it depends on the sim." },
+    { "abs", "fromWheels",
+      "ABS also counts as working when the wheels show it: a wheel dipping towards a lock and spinning back up "
+      "as its valve dumps, twice at an ABS rhythm. Each corner's pulse is then timed to its own wheel. On for "
+      "sims that report ABS only now and then (Automobilista 2); the tile shows when it is detecting and at "
+      "what rate. Needs wheel speeds or slip ratios." },
     { "abs", "slipLink",
       "While ABS works, each corner's valve shapes that wheel's slip tiles (the lock texture held at the edge "
       "of locking, the lateral slip easing after each dump). Works with ABS's own amp at 0." },
@@ -151,6 +156,15 @@ constexpr ParamHelp kHelp[] = {
     { "slipLon", "peakRatio",
       "The slip ratio that counts as a full lock or spin, 0.2 to 2 (nothing plays inside 0.15). Road car: 0.6 "
       "to 0.8. GT3: 0.4 to 0.6. Single-seater: 0.3 to 0.5 (slicks let go at less slip)." },
+    { "slipLon", "edge",
+      "The tyres working short of their limit, braking or driving: a fine grain that tells you the rear is "
+      "putting the power down (or the fronts are near locking) before anything lets go, 0 to 1 (0 = off). 0.2 "
+      "to 0.4 for most; more on a car whose traction control holds it at the edge." },
+    { "slipLon", "edgePct",
+      "Where the edge grain starts, as a slip ratio %, 0.5 to 14 (full at the 15 % limit). Lower feels the tyres "
+      "working sooner. Road car: 4 to 6. GT3: 3 to 4. Single-seater: 2 to 3 (slicks work at less slip)." },
+    { "slipLon", "edgeHz",
+      "The edge grain's pitch, 10 to 120 Hz. 30 to 40 on a seat actuator, higher on a belt or shaker." },
 
     // ---- lateral slip ----
     { "slipLat", "scrub",

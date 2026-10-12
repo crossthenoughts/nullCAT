@@ -87,11 +87,13 @@ struct SlipParams
     // driving, so a wheel with both a slip angle and a slip ratio slides
     // when the two together reach its limit, not each on its own.
     double budget   = 0.0;
-    // The front tyres' early and late cues (the Lateral tile's; 0 = off, so
-    // Longitudinal has neither). Screech: the tyres starting to squeal before
-    // they let go, a light fine texture from screechPct of peak deg, full at
-    // peak, on its own carrier. Pulse: past the limit the fronts stick and
-    // slip in a slow irregular cycle at pulseHz, as strong as the scrub.
+    // The front tyres' early and late cues (the Lateral tile's; 0 = off).
+    // Screech: the tyres starting to squeal before they let go, a light fine
+    // texture from screechPct of peak deg, full at peak, on its own carrier.
+    // Pulse: past the limit the fronts stick and slip in a slow irregular
+    // cycle at pulseHz, as strong as the scrub. The Longitudinal tile uses
+    // the screech fields for its edge (edge x, edge from % as a slip ratio
+    // %, edge hz): every tyre working short of its limit, braking or driving.
     double screech    = 0.0;
     double screechPct = 50.0;
     double screechHz  = 30.0;
@@ -174,6 +176,10 @@ struct PulseParams
     // that blips its ABS flag (Assetto Corsa) or flickers its TC flag
     // chopped the cycle into fragments.
     double holdMs = 150.0;
+    // ABS: also working when the wheels show it (0 off, 1 on): each wheel
+    // dipping towards a lock and spinning back up as its valve dumps, the
+    // corner's pulse timed to those dumps.
+    double fromWheels = 0.0;
 };
 
 // The Surface tile (SurfaceModel.h): stones, snow crunch, studs, puddles.

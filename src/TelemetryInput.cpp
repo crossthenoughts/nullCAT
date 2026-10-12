@@ -247,6 +247,8 @@ bool TelemetryInput::receive()
 
     // Null-terminate the received data
     m_recvBuf[bytes] = '\0';
+    // A recording takes a copy as it arrived (lock-free, RT-safe; off = one load).
+    m_recorder.push(m_recvBuf, bytes);
 
     TelemetryData parsed;
     if (!parsePacket(m_recvBuf, bytes, parsed))

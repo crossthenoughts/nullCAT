@@ -41,6 +41,8 @@ namespace pulse_k {
     constexpr double kTcDrop     = 0.33;   // sharp 1: TC cuts in a third
     constexpr double kPeriodVar  = 0.3;    // spread 1: each cycle up to +-30% long
     constexpr double kDepthVar   = 0.35;   // spread 1: each cycle up to 35% shallower
+    constexpr double kSyncKeepPeriods = 2.5;   // a corner locked to its wheel stays locked this many periods after a dump
+    constexpr double kSyncMaxErr = 0.4;        // ...and corrects at most this share of a cycle per period
     // spread 1: each corner's own rate around freq hz, and where in its
     // cycle it starts (FL, FR, RL, RR)
     constexpr double kCornerRate[WHEEL_COUNT]  = { -0.15, 0.12, -0.07, 0.18 };
@@ -88,13 +90,19 @@ public:
         for (int c = 0; c < m_n; ++c)
         {
             Ch& ch = m_ch[c];
+            // A corner locked to its wheel (sync) runs at the rate that
+            // brings it to its next dump on time, no spread. Its corner
+            // offset stays, so the lock ending is a change of rate, never
+            // a jump.
+            const bool synced = ch.syncLeft > 0.0;
             const double cornerK = (m_n > 1) ? 1.0 + spread * kCornerRate[c] : 1.0;
-            ch.u += m_rateHz * cornerK * ch.periodK * dtSec;
+            ch.u += (synced ? ch.syncHz : m_rateHz * cornerK * ch.periodK) * dtSec;
+            ch.syncLeft = std::max(0.0, ch.syncLeft - dtSec);
             if (ch.u >= 1.0)
             {
                 ch.u -= std::floor(ch.u);
                 ch.periodK = 1.0 / (1.0 + spread * kPeriodVar * (2.0 * rand01(ch.rng) - 1.0));
-                ch.depth   = 1.0 - spread * kDepthVar * rand01(ch.rng);
+                ch.depth   = synced ? 1.0 : 1.0 - spread * kDepthVar * rand01(ch.rng);
             }
             ch.shapeU = ch.u + ((m_n > 1) ? spread * kCornerPhase[c] : 0.0);
             ch.out = ch.depth * pulseShape(ch.shapeU, drop);
@@ -134,8 +142,36 @@ public:
         for (int c = first; c <= last; ++c) sum += at(c);
         return sum / static_cast<double>(last - first + 1);
     }
+    // Lock a corner's cycle to its wheel (ABS from the wheels): the wheel
+    // just spun back up, so the valve has dumped and the cycle should be at
+    // the end of its drop. Jumping it there stepped the output on every
+    // dump (the wheel speeds arrive 60 times a second: +-17 ms on each), so
+    // instead the rate until the next dump is set to arrive there on time
+    // (a phase lock, at most kSyncMaxErr of a cycle per period), held until
+    // the dumps stop coming (a few of their periods).
+    void sync(int c, double periodSec)
+    {
+        if (c < 0 || c >= m_n || !(periodSec > 0.0)) return;
+        Ch& ch = m_ch[c];
+        double e = ch.shapeU - m_drop;
+        e -= std::floor(e + 0.5);   // -0.5..0.5 of a cycle: ahead +, behind -
+        e = std::max(-pulse_k::kSyncMaxErr, std::min(pulse_k::kSyncMaxErr, e));
+        ch.syncHz   = (1.0 - e) / periodSec;
+        ch.syncLeft = pulse_k::kSyncKeepPeriods * periodSec;
+    }
+    // ABS off: every corner free-runs again (a stale lock never carries
+    // into the next stop).
+    void unsync() { for (Ch& ch : m_ch) ch.syncLeft = 0.0; }
+    bool synced(int c) const { return c >= 0 && c < m_n && m_ch[c].syncLeft > 0.0; }
     double channel(int c) const { return (c >= 0 && c < m_n) ? m_ch[c].out : 0.0; }
-    double rateHz() const  { return m_rateHz; }
+    // The fastest any corner cycles (a locked corner runs at its wheel's
+    // rate), for derating on a position axis.
+    double rateHz() const
+    {
+        double r = m_rateHz;
+        for (int c = 0; c < m_n; ++c) if (m_ch[c].syncLeft > 0.0) r = std::max(r, m_ch[c].syncHz);
+        return r;
+    }
     double buzz() const    { return m_buzzOut; }
     double buzzHz() const  { return m_buzzHz; }
     double buzzPhase() const { return m_buzzOsc.phase; }
@@ -154,7 +190,7 @@ private:
         r ^= r << 13; r ^= r >> 7; r ^= r << 17;
         return static_cast<double>(r & 0xFFFFFF) / 16777215.0;
     }
-    struct Ch { double u = 0.0, periodK = 1.0, depth = 1.0, out = 0.0, shapeU = 0.0; uint64_t rng = 1; };
+    struct Ch { double u = 0.0, periodK = 1.0, depth = 1.0, out = 0.0, shapeU = 0.0, syncHz = 0.0, syncLeft = 0.0; uint64_t rng = 1; };
     Ch     m_ch[WHEEL_COUNT];
     int    m_n;
     double m_knockDrop, m_drop = 0.5;

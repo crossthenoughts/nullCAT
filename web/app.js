@@ -1513,8 +1513,22 @@ async function hapGameShow(game){
 // Live status hook (called from applyState): channel-health chips, mute
 // state, real-time animation - continuous tiles scroll while their engine
 // level is up, transient tiles flick on a fired-counter change.
+// The telemetry recording's state on the Master tile.
+let hapRecOn=false;
+function hapRecRender(s){
+  const rec=s&&s.record; if(!rec) return;
+  hapRecOn=!!rec.on;
+  const b=$('hapRecBtn'), st=$('hapRecState'); if(!b||!st) return;
+  b.textContent=rec.on?'stop':'record';
+  b.classList.toggle('btn-action',!!rec.on);
+  const mb=(+rec.bytes||0)/1048576, t=Math.round(+rec.sec||0);
+  st.textContent=rec.on
+    ?('REC '+Math.floor(t/60)+':'+String(t%60).padStart(2,'0')+', '+mb.toFixed(1)+' MB, '+(+rec.packets||0)+' packets'+((+rec.dropped||0)>0?(', '+rec.dropped+' dropped'):''))
+    :(rec.note?rec.note:(rec.file?('last: '+rec.file+' ('+mb.toFixed(1)+' MB)'):'off'));
+}
 function hapLive(s){
   shakerStatus(s);
+  hapRecRender(s);
   const panel=$('hapPanel'); if(!panel||panel.hidden) return;
   hapMutedNow=!!s.hapMuted;
   const mb=$('hapMuteBtn'), mst=$('hapMuteState');
@@ -1586,6 +1600,24 @@ function hapLive(s){
       // Road: a tyre in the air shows "air" instead of its travel.
       ['FL','FR','RL','RR'].forEach((n,i)=>{ if(cells[i]) cells[i].textContent=n+' '+((k===2&&ground[i]!==undefined&&+ground[i]<0.5)?'air':f(now[i])+'/'+f(pk[i])); });
       wl.classList.toggle('hot',pk.some(v=>+v>0.05));
+    }
+    // Lateral: each wheel's slip angle as played and its straight-line
+    // baseline, with how long the baseline has learned.
+    const al=t.tile.querySelector('[data-ang]');
+    if(al&&Array.isArray(s.hapWheels)&&s.hapWheels.length>13){
+      const ang=s.hapWheels[12]||[], base=s.hapWheels[13]||[], cells=al.children;
+      ['FL','FR','RL','RR'].forEach((n,i)=>{ if(cells[i]) cells[i].textContent=n+' '+(+ang[i]||0).toFixed(1)+'°/'+(+base[i]||0).toFixed(1); });
+      const as=t.tile.querySelector('[data-angstate]'), sec=+s.hapLatBaseSec||0, src=+s.hapLatSrc||0, learned=!!s.hapLatLearned;
+      if(as){ as.textContent=src===3?('from slip speed: baseline '+(learned?'learned':'learning')+' ('+sec.toFixed(0)+' s of straights)')
+          :src===1?'the sim\'s own slip angle (no baseline needed)':src===2?'combined slip (no angle from this sim)':'angle -';
+        as.classList.toggle('warn',src===3&&!learned); }
+    }
+    // ABS: what says it is working (the flag, the wheels and their rate).
+    const ab=t.tile.querySelector('[data-abssrc]');
+    if(ab&&s.hapAbs){
+      const fw=+t.dv.fromWheels>=0.5, a=s.hapAbs;
+      ab.textContent=(a.flag||a.wheels)?('working: '+[a.flag?'flag':'',a.wheels?('wheels '+(+a.hz||0).toFixed(0)+' Hz'):''].filter(Boolean).join(' + ')):('idle'+(fw?'':' (from wheels off)'));
+      ab.classList.toggle('warn',!!a.wheels);
     }
     // Wheels: the tyres' state at a glance (flat spots, hot discs, a
     // puncture), amber or red while anything is there.
@@ -1726,8 +1758,19 @@ function hapInit(){
       +'<div class="hr hap-game" title="Which game\'s record the tile dots show: the one running now, or a remembered one. Forget clears the record for the game shown."><span class="hk">game</span>'
       +'<span class="hk" id="hapGameNow">(none)</span><select id="hapGameSel"><option value="">current</option></select>'
       +'<button class="btn btn-sm" type="button" id="hapGameForget" title="Forget the remembered dots for the game shown">forget</button></div>'
+      +'<div class="hsec" title="Every telemetry packet as it arrives, to a file on the controller (Pi: ~/nullcat-recordings), so a session can be replayed exactly for tuning. Written by a thread of its own: the control loop only hands it a copy.">recording</div>'
+      +'<div class="hr hap-game"><button class="btn btn-sm" type="button" id="hapRecBtn">record</button>'
+      +'<span class="hk" id="hapRecState">off</span></div>'
       +'</div><div class="hb"><span class="hk" id="hapMuteState"></span>'
       +'<button class="btn btn-sm btn-action" type="button" id="hapMuteBtn">MUTE</button></div>';
+    mc.querySelector('#hapRecBtn').onclick=async()=>{
+      const on=!hapRecOn;
+      try{
+        const r=await fetch(API+'/api/record',{method:'POST',body:JSON.stringify({on})});
+        const j=await r.json().catch(()=>({}));
+        if(!r.ok||j.ok===false){ const st=$('hapRecState'); if(st) st.textContent=j.error||('HTTP '+r.status); }
+      }catch(_){}
+    };
     mc.querySelector('#hapGameSel').onchange=(ev)=>hapGameShow(ev.target.value);
     mc.querySelector('#hapGameForget').onclick=async()=>{
       const sel=mc.querySelector('#hapGameSel');
@@ -1831,6 +1874,9 @@ function hapInit(){
       :(wset===2)?'Per wheel: road travel mm now/peak since Reset peaks; "air" while that tyre is off the ground'
       :'Per wheel: now/peak since Reset peaks (Test = 1.00 on every wheel)';
     if(wset>=0) h+='<div class="hk hwheels" data-wheels="'+wset+'" title="'+wtitle+'"><span>FL -</span><span>FR -</span><span>RL -</span><span>RR -</span></div>';
+    if(fx.k==='slipLat') h+='<div class="hk hwheels" data-ang="1" title="Each wheel\'s slip angle as played, degrees, and after the slash its straight-line baseline (learned on the straights and taken off, where the sim sends a slip speed: Automobilista 2). A baseline that stays 0 or keeps climbing means it is not learning right."><span>FL -</span><span>FR -</span><span>RL -</span><span>RR -</span></div>'
+      +'<div class="hk hwstate" data-angstate="1">angle -</div>';
+    if(fx.k==='abs') h+='<div class="hk hwstate" data-abssrc="1" title="What says ABS is working right now: the sim\'s flag (held over its gaps), the wheels (with from wheels on: their dumps, and the rate they come at), or both.">ABS -</div>';
     if(fx.k==='wheels') h+='<div class="hk hwstate" data-wstate="1" title="The tyres right now: flat spots (mm, from lock-ups), brake discs hot enough to judder, a puncture. Amber or red while there is anything. Switching the tile off and on gives fresh tyres.">tyres -</div>';
     else if(fx.k==='surface') h+='<div class="hk hwheels" data-surf="1" title="What each tyre is on, as nullCAT reads it: the surface, wet or floating, or in the air"><span>FL -</span><span>FR -</span><span>RL -</span><span>RR -</span></div>';
     else if(!fx.transient&&fx.fxIdx!==undefined) h+='<div class="hk hwheels" data-in="1" title="What this effect is driven with: now/peak since Reset peaks (Test = 1.00)">in -</div>';

@@ -89,6 +89,7 @@ constexpr ParamSpec kAbsParams[] = {            // ABS: the corners' valves, the
     { "buzzHz", "buzz hz",   15,  120, 1,    nullptr },
     { "brakeFull", "full at brake %", 10, 100, 5, nullptr }, // light braking, a light pulse; full by this pedal
     { "holdMs",    "hold ms",   0, 500, 10,   nullptr },  // the sim's flag held over gaps this long (0 off)
+    { "fromWheels","from wheels", 0, 1, 1,   "off|on" },  // ABS also from the wheels dipping and recovering, the pulse timed to them
     { "slipLink",  "slip link", 0, 1,  1,    "off|on" },  // the corners' valves shape the slip tiles
     { "lockLink",  "lock x",    0, 1,  0.05, nullptr },   // ...the lock texture surging with each cycle
     { "scrubLink", "scrub x",   0, 1,  0.05, nullptr },   // ...the lateral slip easing after each dump
@@ -127,6 +128,9 @@ constexpr ParamSpec kSlipLonParams[] = {        // longitudinal slip: lock judde
     { "spin",      "spin x",     0,   1,   0.1,  nullptr },
     { "spinHz",    "spin hz",    4,   30,  1,    nullptr },
     { "peakRatio", "peak ratio", 0.2, 2,   0.05, nullptr },
+    { "edge",      "edge x",     0,   1,   0.05, nullptr },   // the tyres working short of their limit
+    { "edgePct",   "edge from %", 0.5, 14, 0.5,  nullptr },   // ...from this slip ratio % (full at the 15 % limit)
+    { "edgeHz",    "edge hz",    10,  120, 1,    nullptr },   // ...on its own carrier
     { "jitter",    "jitter",     0,   1,   0.05, nullptr },
     { "peakPct",   "peak %",     1,   400, 1,    nullptr },   // lockup channel fallback only
 };
@@ -137,7 +141,7 @@ constexpr const char* kSlipLatKeys[SLIP_KEY_COUNT] = { "scrub", "scrubHz", "slid
                                                        "screech", "screechPct", "screechHz", "pulse", "pulseHz" };
 constexpr const char* kSlipLonKeys[SLIP_KEY_COUNT] = { "lock", "lockHz", "spin", "spinHz", "peakRatio",
                                                        nullptr, nullptr, nullptr, nullptr, nullptr,
-                                                       nullptr, nullptr, nullptr, nullptr, nullptr };
+                                                       "edge", "edgePct", "edgeHz", nullptr, nullptr };
 constexpr ParamSpec kRoadParams[] = {           // road: the model, its settings, the texture fallback
     { "ampPct",     "amp %",       0,   100, 1,    nullptr },
     { "model",      "model",       0,   2,   1,    "suspension|tyre|chassis" },
@@ -254,7 +258,7 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "ignition-cut TC). Needs rpm (throttle, limiter and boost optional).",
       nullptr, {} },
     { Effect::Abs,         "abs",         "ABS",          Kind::Abs, EventType::COUNT, FxType::AbsPulse,
-      { "brakePct", "absActive", "~speedKmh", nullptr }, { 0.0, 12.0, 0.0, 0.0 }, kAbsParams, 12,
+      { "brakePct", "absActive", "~speedKmh", nullptr }, { 0.0, 12.0, 0.0, 0.0 }, kAbsParams, 13,
       "ABS working under braking: at each corner the valve dumps the brake pressure and rebuilds it, about freq hz "
       "times a second, so the car's deceleration judders. sharp is the dump's edge (0 round, 1 a hard knock); "
       "spread lets each corner run on its own rate and each cycle differ, so the four drift in and out of step and "
@@ -262,13 +266,15 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "stop: 0.5 = half rate at a standstill); buzz x / hz is the pump and valves underneath, best on a belt or "
       "shaker. It pulses as hard as you brake: light trail braking a light pulse, full at full at brake % (10 = "
       "always full). hold ms keeps the sim's ABS flag on over gaps that short (some sims blip it), so a stop "
-      "plays one steady cycle (0 = off). Route with a part so a post carries its own corner. Slip link on: while ABS works each corner's "
+      "plays one steady cycle (0 = off). From wheels on: ABS also counts as working when the wheels show it (each "
+      "one dipping towards a lock and spinning back up as its valve dumps), and each corner's pulse is timed to "
+      "those dumps; for sims that report ABS only now and then. Route with a part so a post carries its own corner. Slip link on: while ABS works each corner's "
       "valve shapes that wheel's slip tiles, the lock texture held at the edge of locking and surging with each "
       "cycle (lock x), the lateral slip easing after each dump (scrub x); this works with ABS's own amp at 0 too. "
       "Needs the absActive and brakePct channels (speed for slow x).",
       nullptr, {} },
     { Effect::Lockup,      "slipLon",     "Longitudinal slip", Kind::Slip, EventType::COUNT, FxType::Lockup,
-      { "slipRatio*|wheelSpeed*|lockup", "speedKmh", "~load*", nullptr }, { 0.0, 9.0, 0.0, 0.2 }, kSlipLonParams, 8,
+      { "slipRatio*|wheelSpeed*|lockup", "speedKmh", "~load*", nullptr }, { 0.0, 9.0, 0.0, 0.2 }, kSlipLonParams, 11,
       "Each wheel's tread slipping along the road, per wheel. Lock: a wheel turning slower than the car under "
       "braking, a heavy judder whose beat falls with road speed. Spin: a driven wheel turning faster than the car, "
       "the tread chattering at the contact patch (16 hz; a live axle tramps lower, around 10). Severity rises from "
@@ -276,10 +282,13 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "arrive. The two wheels of an axle move together, the corner told by how hard. Route with a part (a corner, "
       "an axle, all). Needs per-wheel slip ratios, or wheel speeds (the rolling factor is learned while "
       "cruising), or the single lockup channel as a fallback (peak % is the channel value that counts as a full "
-      "slide on that path).",
-      kSlipLonKeys, { 1.0, 9.0, 1.0, 16.0, 0.8 } },
+      "slide on that path). Edge: every tyre working short of its limit, braking or driving (a traction control "
+      "holds the driven wheels at a few % of slip, well short of the spin texture): a fine grain from edge from % "
+      "of slip ratio up to full at the limit, on its own carrier (edge hz), so you feel the rear putting the power "
+      "down and the fronts near locking before anything lets go.",
+      kSlipLonKeys, { 1.0, 9.0, 1.0, 16.0, 0.8, 40.0, 1.0, 8.0, 8.0, 0.0, 0.3, 3.0, 35.0, 0.0, 6.0 } },
     { Effect::Skid,        "slipLat",     "Lateral slip", Kind::Slip, EventType::COUNT, FxType::Skid,
-      { "slipAngle*|wheelSlip*|skid", "speedKmh", "~load*", nullptr }, { 0.0, 20.0, 0.0, 0.5 }, kSlipLatParams, 18,
+      { "slipAngle*|slipSpeed*|wheelSlip*|skid", "speedKmh", "~load*", nullptr }, { 0.0, 20.0, 0.0, 0.5 }, kSlipLatParams, 18,
       "The tyres sliding, per wheel. Scrub: the fronts pushing wide, a fine texture. Screech: the fronts starting "
       "to squeal before they let go, a light texture from screech % of peak deg, full at peak deg, on its own "
       "carrier (screech hz). Pulse: fronts past the limit sticking and slipping in a slow, irregular shove at "
@@ -291,10 +300,11 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "wheel speeds) a wheel slides when the two together reach its limit (trail braking, power out of a corner), "
       "and the slide plays here or on Longitudinal slip by its direction. The carrier slows and roughens as the slide "
       "grows (squeal, moan, shudder). The loaded tyre is weighted up when wheel loads arrive; the two wheels of "
-      "an axle move together. Route with a part (a corner, an axle, all). Needs per-wheel slip angles; else the "
-      "per-wheel combined slip (Automobilista 2: any sliding tyre, spinning and locking included), from onset % "
-      "of peak % up to full at peak % (the chip shows the value arriving and its peak); else the single skid "
-      "channel. Nothing at a standstill.",
+      "an axle move together. Route with a part (a corner, an axle, all). Needs per-wheel slip angles; else a "
+      "per-wheel slip speed (Automobilista 2), turned into an angle less the straight-line angle learned on the "
+      "straights (the tile shows both); else the per-wheel combined slip (any sliding tyre, spinning and locking "
+      "included), from onset % of peak % up to full at peak % (the chip shows the value arriving and its peak); "
+      "else the single skid channel. Nothing at a standstill.",
       kSlipLatKeys, { 1.0, 20.0, 1.0, 11.0, 7.0, 40.0, 1.0, 8.0, 30.0, 1.0, 0.3, 50.0, 30.0, 0.6, 6.0 } },
     { Effect::Road,        "road",        "Road",         Kind::Road, EventType::COUNT, FxType::Road,
       { "roadHeight*|suspVel*|suspTravel*|roadNoise", "speedKmh", "~surface*", "~accHeave", nullptr },

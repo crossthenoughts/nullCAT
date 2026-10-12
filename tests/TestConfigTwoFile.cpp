@@ -133,6 +133,8 @@ private slots:
         c.hapticsAbs     = { 0.6, 0.8, 0.4, 0.5, 55.0, 1.0, 0.45, 0.2, 65.0 };
         c.hapticsTc      = { 0.2, 0.9, 0.0, 0.0, 40.0 };
         c.hapticsAbs.holdMs = 120.0; c.hapticsTc.holdMs = 0.0;   // the TC hold off
+        c.hapticsAbs.fromWheels = 1.0;
+        c.hapticsSlipLon.screech = 0.45; c.hapticsSlipLon.screechPct = 4.5; c.hapticsSlipLon.screechHz = 42.0;   // the edge
         c.hapticsSurface = { 0.4, 0.8, 1.0, 0.3, 110.0, 0.5 };
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Surface)].routes[0].part = haptics::Part::RL;
         c.hapticsWheels  = { 2.5, 0.5, 0.8, 1.5 };
@@ -198,6 +200,8 @@ private slots:
         QCOMPARE(r.hapticsAbs.slipLink, 1.0); QCOMPARE(r.hapticsAbs.lockLink, 0.45); QCOMPARE(r.hapticsAbs.scrubLink, 0.2);
         QCOMPARE(r.hapticsAbs.brakeFull, 65.0);
         QCOMPARE(r.hapticsAbs.holdMs, 120.0); QCOMPARE(r.hapticsTc.holdMs, 0.0);
+        QCOMPARE(r.hapticsAbs.fromWheels, 1.0);
+        QCOMPARE(r.hapticsSlipLon.screech, 0.45); QCOMPARE(r.hapticsSlipLon.screechPct, 4.5); QCOMPARE(r.hapticsSlipLon.screechHz, 42.0);
         QCOMPARE(r.hapticsSlipLat.screech, 0.45); QCOMPARE(r.hapticsSlipLat.screechPct, 60.0); QCOMPARE(r.hapticsSlipLat.screechHz, 40.0);
         QCOMPARE(r.hapticsSlipLat.pulse, 0.8);    QCOMPARE(r.hapticsSlipLat.pulseHz, 7.5);
         QCOMPARE(r.hapticsTc.sharp, 0.2);  QCOMPARE(r.hapticsTc.spread, 0.9);

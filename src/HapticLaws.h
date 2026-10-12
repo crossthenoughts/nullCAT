@@ -50,8 +50,8 @@ struct LawsState
     double kerbBias[2] = {};
     bool   kerbBiasSeen = false;
     // Lateral slip: the per-wheel slip angle (or combined slip) smoothed,
-    // and which source it is (0 none, 1 angle, 2 combined) so a change of
-    // source starts the smoothing afresh.
+    // and which source it is (0 none, 1 angle, 2 combined, 3 an angle from
+    // a slip speed) so a change of source starts the smoothing afresh.
     double slipF[WHEEL_COUNT] = {};
     int    slipSrc = 0;
     // The water standing on the road, built up from the rain where the sim
@@ -76,8 +76,21 @@ struct LawsState
     bool   speedSeen = false;
     double lastPitch = 0.0, lastRoll = 0.0;   // ...and the body's angles a moment ago
     bool   anglesSeen = false;
-    // The sim's ABS and TC flags, held over their short gaps.
+    // The sim's ABS and TC flags, held over their short gaps; whether the
+    // ABS flag is playing this cycle (for the card).
     double absHoldSec = 0.0, tcHoldSec = 0.0;
+    bool   absFlagOn = false;
+    // ABS from the wheels: per wheel, armed once it dips towards a lock,
+    // its lowest ratio since, the time since its last dump; the hold after
+    // a dump that counted, and the rate the dumps come at (for the card).
+    bool   absArmed[WHEEL_COUNT] = {};
+    double absMinR[WHEEL_COUNT] = {}, absSince[WHEEL_COUNT] = { 1e9, 1e9, 1e9, 1e9 };
+    double absWheelHoldSec = 0.0, absWheelHz = 0.0;
+    // Lateral from a slip speed: each wheel's sideways angle (deg), its
+    // straight-line baseline (learned) and the angle as played (smoothed,
+    // less the baseline; also a sim's own slip angle), for the card.
+    double latRaw[WHEEL_COUNT] = {}, latBase[WHEEL_COUNT] = {}, latAngle[WHEEL_COUNT] = {};
+    double latBaseSec = 0.0;   // straight-line time the baseline has learned over
 };
 
 namespace laws_k {
@@ -86,6 +99,33 @@ namespace laws_k {
     constexpr double kOverrunMinKmh    = 10.0;     // in gear and rolling: the wheels drive the engine
     constexpr double kPreviewIdleRpm   = 1100.0;   // the canned idle a Test preview runs
     constexpr double kAbsMinBrakePct   = 10.0;     // ABS needs the brake actually applied
+    // ABS from the wheels: a wheel dipping this far towards a lock arms; it
+    // spinning back up past this (and this much from its lowest) is a dump,
+    // and only then can it arm again (a wheel hovering near a lock, or
+    // creeping back over several samples, is no dump or one); two dumps
+    // this far apart (a 25 to 3 Hz cycle) are ABS working, held this long
+    // after (longer than the slowest cycle).
+    constexpr double kAbsDipRatio      = 0.06;
+    constexpr double kAbsRecoverLevel  = 0.04;
+    constexpr double kAbsRecoverRatio  = 0.03;
+    constexpr double kAbsMinPeriodSec  = 0.04, kAbsMaxPeriodSec = 0.35;
+    constexpr double kAbsWheelHoldSec  = 0.4;
+    // Lateral from a slip speed: the straight-line baseline learns while
+    // the fronts turn within this of each other above this speed, off the
+    // brake, the tyres short of their edge; up over this long (time
+    // constant) while it first learns, learned after this much straight
+    // (95 %), then up only slowly (a long fast corner the straight test
+    // misses moves it little), down quickly (the straight-line angle is
+    // the least the car shows), never past this; the road speed under the
+    // angle never below this (m/s).
+    constexpr double kLatBaseStraight  = 0.004;
+    constexpr double kLatBaseMinKmh    = 60.0;
+    constexpr double kLatBaseSec       = 2.0;
+    constexpr double kLatBaseLearnSec  = 6.0;
+    constexpr double kLatBaseUpSec     = 30.0;
+    constexpr double kLatBaseDownSec   = 1.0;
+    constexpr double kLatBaseMaxDeg    = 6.0;
+    constexpr double kLatMinSpeedMs    = 3.0;
     constexpr double kPreviewSec       = 2.0;      // Test preview length
     // Slip laws (the lateral onset, curve and smoothing are the tile's:
     // SlipParams onsetPct, ease, smoothHz)
@@ -256,6 +296,13 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             st.loadRef = 0.0;
             st.kerbBias[0] = st.kerbBias[1] = 0.0; st.kerbBiasSeen = false;
             st.quietSec = 0.0;
+            for (int w = 0; w < WHEEL_COUNT; ++w)
+            {
+                st.latRaw[w] = st.latBase[w] = st.latAngle[w] = 0.0;
+                st.absArmed[w] = false; st.absSince[w] = 1e9;
+            }
+            st.latBaseSec = 0.0;
+            st.absWheelHoldSec = st.absWheelHz = 0.0;
             L.newCar();
         }
         std::memcpy(st.lastCar, v.car, NCY_STR_LEN);
@@ -332,35 +379,6 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         L.driveEngine(lv, fireHz, load, lim, boost, pitLim, inGearOverrun, tcCut);
     }
 
-    // ABS: only while the sim says ABS is cycling AND the brake is applied
-    // (some sims flicker the flag at zero brake), and as hard as the driver
-    // brakes: each dump and re-apply swings the deceleration more at high
-    // pressure, so light trail braking is a light pulse, full by full at
-    // brake % (10 = always full).
-    // The road speed slows the cycle towards a stop (unknown: full rate; a
-    // Test preview runs at speed). The flag is held over gaps of up to the
-    // tile's hold ms: Assetto Corsa raises it in blips, about every other
-    // sample through an ABS stop, which chopped the valve cycle into
-    // fragments instead of one steady pulse. Hold 0: the flag as sent.
-    {
-        const bool absFlag = flag(NcxValues::AbsActive) > 0.5;
-        if (absFlag) st.absHoldSec = std::max(0.0, L.pulseParams(FxType::AbsPulse).holdMs) / 1000.0;
-        else         st.absHoldSec = std::max(0.0, st.absHoldSec - dtSec);
-        const bool on = (absFlag || st.absHoldSec > 0.0)
-                        && live && v.have[NcxValues::BrakePct] && v.val[NcxValues::BrakePct] > kAbsMinBrakePct;
-        double level = 0.0;
-        if (on)
-        {
-            const double full = std::max(kAbsMinBrakePct, L.pulseParams(FxType::AbsPulse).brakeFull);
-            level = (full <= kAbsMinBrakePct + 1e-9) ? 1.0
-                  : std::max(0.0, std::min(1.0, (v.val[NcxValues::BrakePct] - kAbsMinBrakePct) / (full - kAbsMinBrakePct)));
-        }
-        const bool previewing = st.previewSec[static_cast<int>(FxType::AbsPulse)] > 0.0;
-        L.driveAbsSpeed(previewing ? kPreviewKmh
-                        : (live && v.have[NcxValues::SpeedKmh]) ? std::max(0.0, v.val[NcxValues::SpeedKmh]) : -1.0);
-        L.driveFx(FxType::AbsPulse, previewOr(FxType::AbsPulse, level), 0.0);
-    }
-
     // Ground contact per tyre: the sim's own flag where it sends one
     // (onGround*), else the tyre's load (load*): a tyre carrying almost
     // nothing of the usual corner load is in the air (with hysteresis, so a
@@ -406,6 +424,12 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         }
     }
 
+    // Each wheel's signed slip ratio where one is known this cycle (from the
+    // sim or the wheel speeds): the grip budget, the Wheels tile and ABS
+    // from the wheels read it after the slip laws.
+    double ratioW[WHEEL_COUNT] = {};
+    bool   ratioOk[WHEEL_COUNT] = {};
+
     // Per-wheel slip. Raw physics in, severity out; the loaded tyre
     // weighted up when loads arrive; the old single channels as fallback.
     // A tyre in the air does not slip.
@@ -429,10 +453,6 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         // Slip means nothing at a standstill (a stationary car reports
         // slip angles and skid magnitudes that are noise or stale).
         const bool moving = speed > kSlipMinSpeedKmh;
-        // Each wheel's signed slip ratio where one is known this cycle (from
-        // the sim or the wheel speeds), for the grip budget below.
-        double ratioW[WHEEL_COUNT] = {};
-        bool   ratioOk[WHEEL_COUNT] = {};
         double lonPeak = kLonOnsetRatio + 0.05;
 
         // Longitudinal: slip ratio (- locking, + spinning) past the onset
@@ -458,11 +478,15 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             bool cruising = haveWs && speed > kRollLearnMinKmh
                 && (!v.have[NcxValues::BrakePct]    || v.val[NcxValues::BrakePct]    < kRollLearnMaxBrk)
                 && (!v.have[NcxValues::ThrottlePct] || v.val[NcxValues::ThrottlePct] < kRollLearnMaxThr);
+            // A sender may count forward rotation as negative (Automobilista
+            // 2 does): the size of the wheel speed is what counts. Learning
+            // on its sign alone left Automobilista 2 with no rolling factor,
+            // so no longitudinal slip at all.
             double kw[WHEEL_COUNT] = {};
             for (int w = 0; w < WHEEL_COUNT && cruising; ++w)
             {
-                const double ws = v.val[NcxValues::WheelSpeedFL + w];
-                if (ws <= 0.0) cruising = false;
+                const double ws = std::fabs(v.val[NcxValues::WheelSpeedFL + w]);
+                if (ws < 1e-6) cruising = false;
                 else kw[w] = speed / ws;
             }
             cruising = cruising && std::fabs(kw[WheelFL] / kw[WheelFR] - 1.0) <= kRollAxleAgree
@@ -470,6 +494,15 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             if (cruising && haveW(NcxValues::SlipAngleFL))
                 for (int w = 0; w < WHEEL_COUNT; ++w)
                     if (std::fabs(v.val[NcxValues::SlipAngleFL + w]) > kRollMaxSlipDeg) cruising = false;
+            // Where the lateral angle comes from a slip speed, a tyre sliding
+            // sideways past what the car shows on a straight is a corner too
+            // (a long coasting corner taught the corner's wheel speed split,
+            // and the corner then counted as straight for the lateral
+            // baseline). Last cycle's angle, and only once the baseline is
+            // learned: before it the straight-line angle reads as a slide.
+            if (cruising && st.slipSrc == 3 && st.latBaseSec >= kLatBaseLearnSec)
+                for (int w = 0; w < WHEEL_COUNT; ++w)
+                    if (st.latRaw[w] - st.latBase[w] > kRollMaxSlipDeg) cruising = false;
             st.rollSeedSec = cruising ? st.rollSeedSec + dtSec : 0.0;
             if (cruising)
             {
@@ -513,6 +546,30 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 if (preview) { lock = 1.0; spin = 1.0; }
                 L.driveSlip(FxType::Lockup, w, lock, spin);
             }
+
+            // The edge: the tyre working short of its limit, braking or
+            // driving (a TC holds the driven wheels at 2 to 7 %, well short
+            // of the spin texture's 15 %, so nothing was felt until the rear
+            // let go): a fine grain from edge % (the tile's own) up to full
+            // at the onset, eased in. From wheel speeds a wheel's ratio also
+            // carries the corner's geometry (the outer wheel turns faster
+            // than the road speed, the inner slower: +-5 % in a hairpin), so
+            // there the axle's mean ratio is used: a hairpin's split cancels,
+            // braking or driving the axle does not.
+            for (int w = 0; w < WHEEL_COUNT; ++w)
+            {
+                double edge = 0.0;
+                if (moving && ratioOk[w])
+                {
+                    const int m = w ^ 1;   // the axle's other wheel
+                    const double r = (haveWs && ratioOk[m]) ? 0.5 * (ratioW[w] + ratioW[m]) : ratioW[w];
+                    const double from = std::max(0.001, std::min(kLonOnsetRatio - 0.01, sp.screechPct / 100.0));
+                    const double l = std::max(0.0, std::min(1.0, (std::fabs(r) - from) / (kLonOnsetRatio - from)));
+                    edge = std::min(1.0, l * l * (3.0 - 2.0 * l) * loadW[w]) * ground[w];
+                }
+                if (preview) edge = 1.0;
+                L.driveSlipExtra(FxType::Lockup, w, edge, 0.0);
+            }
             // Lock judder beats with road speed; spin tramp is a resonance.
             const double hzScale = (speed > 0.0)
                 ? std::max(kLockHzMin, std::min(kLockHzMax, speed / kLockHzRefKmh)) : 1.0;
@@ -521,9 +578,10 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
 
         // Lateral: slip angle (deg) from onset % of peak deg up to peak deg,
         // shaped by ease (0 linear; 1 = severity squared, a light scrub
-        // first; 2 cubed). Where the sim has no slip angle but a combined
-        // slip per wheel (Automobilista 2's slip speed), that, from onset %
-        // of peak % up to full at peak %. A combined slip cannot be split
+        // first; 2 cubed). Where the sim has no slip angle but a slip speed
+        // per wheel (Automobilista 2), the sideways angle worked out from it
+        // (below); else a combined slip per wheel (Assetto Corsa's), from
+        // onset % of peak % up to full at peak %. A combined slip cannot be split
         // into sideways and along, and a spinning or locked tyre is sliding
         // too: it plays here as well as on the longitudinal tile (taking
         // the longitudinal share out cancelled power oversteer on the
@@ -539,29 +597,85 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             const double ease  = std::max(0.0, std::min(2.0, sp.ease));
             const bool preview = st.previewSec[static_cast<int>(FxType::Skid)] > 0.0;
             const bool perWheel = haveW(NcxValues::SlipAngleFL);
-            const bool combined = !perWheel && haveW(NcxValues::WheelSlipFL);
+            // A slip SPEED per wheel (m/s, sideways and along together:
+            // Automobilista 2), taken apart: the along part is the wheel's
+            // slip ratio x the road speed, what is left is sideways, and as
+            // an angle (asin of it over the road speed) it plays through the
+            // slip angle path, less each wheel's straight-line angle (toe,
+            // the tyre's own creep), learned on the straights. As a plain
+            // combined slip it grew with road speed: 2.5 deg's worth on
+            // every straight, the scrub strongest at 250 km/h.
+            const bool fromSpeed = !perWheel && haveW(NcxValues::SlipSpeedFL) && v.have[NcxValues::SpeedKmh];
+            if (fromSpeed)
+            {
+                const double vms = std::max(kLatMinSpeedMs, speed / 3.6);
+                // Straight: the fronts turning together once their rolling
+                // factors are known (without them nothing says the car is
+                // straight), off the brake, every tyre short of its edge.
+                bool straight = speed > kLatBaseMinKmh && st.rollKnown[WheelFL] && st.rollKnown[WheelFR]
+                                && ratioOk[WheelFL] && ratioOk[WheelFR]
+                                && v.have[NcxValues::WheelSpeedFL] && v.have[NcxValues::WheelSpeedFR]
+                                && (!v.have[NcxValues::BrakePct] || v.val[NcxValues::BrakePct] < kRollLearnMaxBrk);
+                if (straight)
+                {
+                    const double fl = std::fabs(v.val[NcxValues::WheelSpeedFL]) * st.rollK[WheelFL];
+                    const double fr = std::fabs(v.val[NcxValues::WheelSpeedFR]) * st.rollK[WheelFR];
+                    straight = std::fabs(fr - fl) / std::max(1e-6, 0.5 * (fr + fl)) < kLatBaseStraight;
+                    for (int w = 0; w < WHEEL_COUNT && straight; ++w)
+                        if (!ratioOk[w] || std::fabs(ratioW[w]) > kLonOnsetRatio / 3.0) straight = false;
+                }
+                if (straight) st.latBaseSec += dtSec;
+                const double up   = std::min(1.0, dtSec / ((st.latBaseSec < kLatBaseLearnSec) ? kLatBaseSec : kLatBaseUpSec));
+                const double down = std::min(1.0, dtSec / kLatBaseDownSec);
+                // A sender with slip ratios or wheel speeds whose ratio is not
+                // known yet (the rolling factor still learning after a car
+                // change): that wheel's angle is unknown, not all sideways
+                // (a race start's wheelspin read as a full slide).
+                const bool alongSent = haveW(NcxValues::SlipRatioFL) || haveW(NcxValues::WheelSpeedFL);
+                for (int w = 0; w < WHEEL_COUNT; ++w)
+                {
+                    if (alongSent && !ratioOk[w]) { st.latRaw[w] = 0.0; continue; }
+                    const double ss    = std::fabs(v.val[NcxValues::SlipSpeedFL + w]);
+                    const double along = ratioOk[w] ? std::fabs(ratioW[w]) * vms : 0.0;
+                    const double side  = std::sqrt(std::max(0.0, ss * ss - along * along));
+                    st.latRaw[w] = std::asin(std::min(1.0, side / vms)) * 180.0 / wavesynth::kPi;
+                    if (straight)
+                    {
+                        const double t = std::min(kLatBaseMaxDeg, st.latRaw[w]);
+                        st.latBase[w] += ((t > st.latBase[w]) ? up : down) * (t - st.latBase[w]);
+                    }
+                }
+            }
+            const bool combined = !perWheel && !fromSpeed && haveW(NcxValues::WheelSlipFL);
             const double peakC  = std::max(1.0, L.fxParams(FxType::Skid).peakPct);
             const double onsetC = onsetFrac * peakC;
             const double single = mag(NcxValues::Skid, FxType::Skid);
-            const int src = perWheel ? 1 : (combined ? 2 : 0);
-            const int base = (src == 1) ? NcxValues::SlipAngleFL : NcxValues::WheelSlipFL;
+            // 1 the sim's slip angle, 3 the angle from a slip speed (both deg),
+            // 2 a combined slip (peak %), 0 the single skid channel.
+            const int src = perWheel ? 1 : fromSpeed ? 3 : combined ? 2 : 0;
+            const bool angled = (src == 1 || src == 3);
+            double in[WHEEL_COUNT] = {};
+            for (int w = 0; w < WHEEL_COUNT; ++w)
+                in[w] = (src == 1) ? std::fabs(v.val[NcxValues::SlipAngleFL + w])
+                      : (src == 3) ? std::max(0.0, st.latRaw[w] - st.latBase[w])
+                      : (src == 2) ? std::fabs(v.val[NcxValues::WheelSlipFL + w]) : 0.0;
             const double smA = (sp.smoothHz > 0.0) ? 1.0 - std::exp(-2.0 * wavesynth::kPi * sp.smoothHz * dtSec) : 1.0;
             if (src != st.slipSrc)
             {
-                for (int w = 0; w < WHEEL_COUNT; ++w)
-                    st.slipF[w] = (src != 0) ? std::fabs(v.val[base + w]) : 0.0;
+                for (int w = 0; w < WHEEL_COUNT; ++w) st.slipF[w] = in[w];
                 st.slipSrc = src;
             }
             const auto curve = [ease](double lin) { return std::pow(std::max(0.0, std::min(1.0, lin)), 1.0 + ease); };
             for (int w = 0; w < WHEEL_COUNT; ++w)
             {
-                if (src != 0) st.slipF[w] += (std::fabs(v.val[base + w]) - st.slipF[w]) * smA;
+                if (src != 0) st.slipF[w] += (in[w] - st.slipF[w]) * smA;
+                st.latAngle[w] = angled ? st.slipF[w] : 0.0;
                 double sev = 0.0;
-                if (moving && perWheel)
+                if (moving && angled)
                     sev = curve((st.slipF[w] - onset) / std::max(1e-6, peak - onset));
                 else if (moving && combined)
                     sev = curve((st.slipF[w] - onsetC) / std::max(1e-6, peakC - onsetC));
-                else if (moving && !perWheel && !combined && live && v.have[NcxValues::Skid])
+                else if (moving && src == 0 && live && v.have[NcxValues::Skid])
                     sev = single;
                 sev = std::min(1.0, sev * loadW[w]) * ground[w];
                 if (preview) sev = 1.0;
@@ -578,7 +692,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 // plays on each tile by its direction (sideways: Lateral;
                 // along: Longitudinal, lock or spin by sign). Pure sideways
                 // or pure along gives the same severity as the tiles alone.
-                if (sp.budget >= 0.5 && moving && perWheel && ratioOk[w] && !preview
+                if (sp.budget >= 0.5 && moving && angled && ratioOk[w] && !preview
                     && st.previewSec[static_cast<int>(FxType::Lockup)] <= 0.0)
                 {
                     const double onsetA = std::max(0.05 * peak, onset);
@@ -614,7 +728,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                     double screech = 0.0;
                     if (moving)
                     {
-                        const double x = perWheel ? st.slipF[w] / peak
+                        const double x = angled ? st.slipF[w] / peak
                                        : combined ? st.slipF[w] / peakC
                                        : (live && v.have[NcxValues::Skid]) ? single : 0.0;
                         const double from = std::max(0.0, std::min(0.95, sp.screechPct / 100.0));
@@ -670,6 +784,74 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 L.driveWheelsBrake(v.have[NcxValues::BrakePct] ? v.val[NcxValues::BrakePct] / 100.0 : 0.0);
             }
         }
+    }
+
+    // ABS: only while ABS is working AND the brake is applied (some sims
+    // flicker the flag at zero brake), and as hard as the driver brakes:
+    // each dump and re-apply swings the deceleration more at high pressure,
+    // so light trail braking is a light pulse, full by full at brake % (10
+    // = always full). The road speed slows the cycle towards a stop
+    // (unknown: full rate; a Test preview runs at speed).
+    // Working = the sim's flag, held over gaps up to the tile's hold ms
+    // (Assetto Corsa raises it in blips, about every other sample through a
+    // stop, which chopped the cycle into fragments; 0 = the flag as sent);
+    // or, with from wheels on, the wheels themselves: a sim that reports
+    // its ABS only now and then (Automobilista 2: 7 % of the braking) still
+    // shows it in each wheel dipping towards a lock and spinning back up as
+    // its valve dumps. Two dumps on a wheel at an ABS rhythm (25 to 3 Hz)
+    // are ABS working, and each dump times that corner's pulse (its cycle
+    // pulled into step with the dumps, at the rate they come). A wheel that
+    // locks and stays locked (no ABS), or hovers near a lock (threshold
+    // braking), never dumps; a tyre in the air is not counted.
+    {
+        const PulseParams& pp = L.pulseParams(FxType::AbsPulse);
+        const bool absFlag = flag(NcxValues::AbsActive) > 0.5;
+        if (absFlag) st.absHoldSec = std::max(0.0, pp.holdMs) / 1000.0;
+        else         st.absHoldSec = std::max(0.0, st.absHoldSec - dtSec);
+        const bool braking = live && v.have[NcxValues::BrakePct] && v.val[NcxValues::BrakePct] > kAbsMinBrakePct;
+        const bool rolling = live && v.have[NcxValues::SpeedKmh] && v.val[NcxValues::SpeedKmh] > kSlipMinSpeedKmh;
+        st.absWheelHoldSec = std::max(0.0, st.absWheelHoldSec - dtSec);
+        for (int w = 0; w < WHEEL_COUNT; ++w)
+        {
+            st.absSince[w] += dtSec;
+            if (!(pp.fromWheels >= 0.5 && braking && rolling && ratioOk[w] && ground[w] > 0.5))
+            {
+                st.absArmed[w] = false; st.absSince[w] = 1e9;
+                continue;
+            }
+            const double r = ratioW[w];
+            if (!st.absArmed[w])
+            {
+                if (r < -kAbsDipRatio) { st.absArmed[w] = true; st.absMinR[w] = r; }
+                continue;
+            }
+            st.absMinR[w] = std::min(st.absMinR[w], r);
+            if (r > -kAbsRecoverLevel && r > st.absMinR[w] + kAbsRecoverRatio)
+            {
+                const double period = st.absSince[w];
+                if (period >= kAbsMinPeriodSec && period <= kAbsMaxPeriodSec)
+                {
+                    st.absWheelHoldSec = kAbsWheelHoldSec;
+                    st.absWheelHz += 0.3 * (1.0 / period - st.absWheelHz);
+                    L.absSync(w, period);
+                }
+                st.absSince[w] = 0.0; st.absArmed[w] = false;
+            }
+        }
+        st.absFlagOn = (absFlag || st.absHoldSec > 0.0) && braking;
+        const bool on = st.absFlagOn || (st.absWheelHoldSec > 0.0 && braking);
+        if (!on) L.absUnsync();   // ABS off: the next stop starts free, not on a stale timing
+        double level = 0.0;
+        if (on)
+        {
+            const double full = std::max(kAbsMinBrakePct, pp.brakeFull);
+            level = (full <= kAbsMinBrakePct + 1e-9) ? 1.0
+                  : std::max(0.0, std::min(1.0, (v.val[NcxValues::BrakePct] - kAbsMinBrakePct) / (full - kAbsMinBrakePct)));
+        }
+        const bool previewing = st.previewSec[static_cast<int>(FxType::AbsPulse)] > 0.0;
+        L.driveAbsSpeed(previewing ? kPreviewKmh
+                        : (live && v.have[NcxValues::SpeedKmh]) ? std::max(0.0, v.val[NcxValues::SpeedKmh]) : -1.0);
+        L.driveFx(FxType::AbsPulse, previewOr(FxType::AbsPulse, level), 0.0);
     }
 
     // Road: everything the models can use goes in and the tile's model

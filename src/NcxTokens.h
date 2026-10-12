@@ -45,6 +45,8 @@ struct NcxTok
         // protocol 1.7
         OnGroundFL, OnGroundFR, OnGroundRL, OnGroundRR,         // 1 the tyre touches the ground, 0 it is in the air
         DeflatedFL, DeflatedFR, DeflatedRL, DeflatedRR,         // 1 the tyre is punctured (flat), 0 inflated
+        // protocol 1.8
+        SlipSpeedFL, SlipSpeedFR, SlipSpeedRL, SlipSpeedRR,     // the contact patch slipping over the road, m/s (sideways and along together)
         TokenCount
     };
 };
@@ -80,6 +82,7 @@ inline const char* ncxTokenName(int t)
         "rain", "wet", "wetFL", "wetFR", "wetRL", "wetRR",
         "onGroundFL", "onGroundFR", "onGroundRL", "onGroundRR",
         "deflatedFL", "deflatedFR", "deflatedRL", "deflatedRR",
+        "slipSpeedFL", "slipSpeedFR", "slipSpeedRL", "slipSpeedRR",
     };
     return (t >= 0 && t < NcxTok::TokenCount) ? kNames[t] : "";
 }

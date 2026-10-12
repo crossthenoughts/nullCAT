@@ -432,6 +432,12 @@ std::string WebServer::buildStatusJson() const
         for (int i = 0; i < NcxValues::TokenCount; ++i)
             s += (i ? "," : "") + jsonDouble(ms.ncxPk[i], 3);
         s += "],";
+        // ABS: on the sim's flag, from the wheels (and their rate); the
+        // lateral baseline's straight-line learning time.
+        s += "\"hapAbs\":{\"flag\":" + jsonBool(ms.hapAbsFlag) + ",\"wheels\":" + jsonBool(ms.hapAbsWheels)
+           + ",\"hz\":" + jsonDouble(ms.hapAbsWheelHz, 1) + "},";
+        s += "\"hapLatBaseSec\":" + jsonDouble(ms.hapLatBaseSec, 1) + ",\"hapLatSrc\":" + std::to_string(ms.hapLatSrc)
+           + ",\"hapLatLearned\":" + jsonBool(ms.hapLatLearned) + ",";
         // Sim identity from NULLCATY (empty until a sender names it).
         if (m_telemetry)
         {
@@ -441,6 +447,12 @@ std::string WebServer::buildStatusJson() const
             // Packets arriving but every value unchanged for 2 s (paused sim):
             // effects are released; the header shows it instead of "receiving".
             s += "\"ncxFrozen\":" + jsonBool(td.ncxFrozen) + ",";
+            // The telemetry recording (Record in the haptics strip).
+            const TelemetryRecorder::Status rs = m_telemetry->recorder().status();
+            s += "\"record\":{\"on\":" + jsonBool(rs.on) + ",\"file\":" + jsonStr(rs.file)
+               + ",\"bytes\":" + std::to_string(rs.bytes) + ",\"packets\":" + std::to_string(rs.packets)
+               + ",\"dropped\":" + std::to_string(rs.dropped) + ",\"sec\":" + jsonDouble(rs.sec, 0)
+               + ",\"note\":" + jsonStr(rs.note) + "},";
         }
         // Shaker sink: the sound card state and per-channel output levels.
         {
@@ -1589,7 +1601,7 @@ bool WebServer::start()
                     {
                         d["slow"] = q.slow; d["buzz"] = q.buzz; d["buzzHz"] = q.buzzHz;
                         d["slipLink"] = q.slipLink; d["lockLink"] = q.lockLink; d["scrubLink"] = q.scrubLink;
-                        d["brakeFull"] = q.brakeFull;
+                        d["brakeFull"] = q.brakeFull; d["fromWheels"] = q.fromWheels;
                     }
                 }
                 else if (info.kind == haptics::Kind::Driveline)
@@ -2316,6 +2328,27 @@ bool WebServer::start()
             // The haptic tile peaks go with the drive peaks; asked for
             // directly as well so the idle clock (loop stopped) honours it.
             if (m_motion) m_motion->requestHapticPeakReset();
+            okResp(res);
+        });
+
+        // Telemetry recording: body {"on": true|false}. Every datagram as it
+        // arrives, to a file (TelemetryRecorder.h: the RT receive path only
+        // hands it a copy). Linux: ~/nullcat-recordings (outside the
+        // versioned install, so an update keeps them); else beside the config.
+        postCmd("/api/record", [this, okResp, errResp](const httplib::Request& req, httplib::Response& res)
+        {
+            if (!m_telemetry) { errResp(res, "Components not ready."); return; }
+            const QJsonObject body = QJsonDocument::fromJson(QByteArray::fromStdString(req.body)).object();
+            if (!body.value("on").toBool(false)) { m_telemetry->recorder().stop(); LOG_INFO("Recording stopped."); okResp(res); return; }
+            std::string dir;
+#ifndef _WIN32
+            if (const char* home = std::getenv("HOME")) dir = std::string(home) + "/nullcat-recordings";
+#endif
+            if (dir.empty())
+                dir = (std::filesystem::path(m_configPath.empty() ? std::string(".") : m_configPath).parent_path() / "recordings").string();
+            std::string why;
+            if (!m_telemetry->recorder().start(dir, why)) { errResp(res, "Recording not started: " + why); return; }
+            LOG_INFO("Recording telemetry to " + dir + "/" + m_telemetry->recorder().status().file + ".");
             okResp(res);
         });
 

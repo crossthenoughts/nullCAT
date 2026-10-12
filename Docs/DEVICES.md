@@ -228,6 +228,19 @@ figures and reasoning behind the values, there to refer to when tuning.
 The shipped table is `cars.json` beside the program; every update replaces
 it, so put your own tuning in your layer, not in that file.
 
+### Recording a session
+
+**record** on the Master tile writes every telemetry packet as it
+arrives to a file on the controller, `~/nullcat-recordings` on the Pi (a
+`recordings` folder beside the rig config on Windows), named by the time
+it started; **stop** closes it. A session recorded this way can be played
+back exactly, so a feel that is wrong on one corner of one track can be
+looked at packet by packet. The tile shows the time, size and packets
+so far. The control loop only hands each packet over; a thread of its
+own does the writing, and if it ever falls behind it leaves packets out
+of the file (counted on the tile as dropped) rather than hold anything
+up. It needs 1 GB free to start and stops by itself at 2 GB.
+
 ### Routing to a position axis
 
 A torque axis takes a plain gain (x). A position axis takes its gain in
@@ -367,12 +380,35 @@ around 10 for one). **peak ratio** is
 the slip ratio at full severity (0.8 by default; a locked wheel is -1);
 nothing plays inside the first 0.15, where the tyre is still gripping.
 
+**edge** is that grip at work: a fine grain while a tyre is braking or
+driving hard but short of letting go, so you feel the rear putting the
+power down, or the fronts close to locking, before anything slips.
+**edge from %** is the slip ratio it starts at (3 % by default) and it is
+full at 15 %, where lock and spin take over; lower starts it sooner
+(slicks work at less slip than road tyres). **edge x** is its mix (0.3 by
+default, 0 = off) and **edge hz** its carrier (35 Hz). The loaded tyre
+is weighted up.
+
 When the sim sends wheel loads, the loaded tyre's slip is weighted up and
 the unloaded one's down, so the outside tyre in a corner shakes harder.
 
+Automobilista 2 has no slip angle, only how fast each tyre slides over
+the road. nullCAT takes out the part that is the wheel locking or
+spinning, turns what is left into a slip angle against the road speed,
+and plays it like any sim's slip angle, so **peak deg** and **onset %**
+mean the same. Every car shows a small angle on a straight (its toe, the
+tyre's own creep); nullCAT learns it on the straights, a few seconds of
+steady driving above 60 km/h, and takes it off, so the tile plays what
+the corner adds and stays quiet on the straight. The tile shows each
+tyre's angle as played and, after the slash, the straight-line angle it
+has learned (`FL 4.2°/1.8`), with how many seconds of straights it has
+learned over. It reads **learning** in amber until it has 6 seconds. A
+baseline that stays 0, keeps climbing, or a tile that plays on a
+straight, means it is not learning right: worth a recording.
+
 Where the sim has no slip angle but a combined slip per wheel
-(Automobilista 2's tyre slip speed; Assetto Corsa's wheel slip where its
-slip angle is not available), Lateral slip takes that instead. A combined slip cannot be split into sideways and
+(Assetto Corsa's wheel slip where its slip angle is not available),
+Lateral slip takes that instead. A combined slip cannot be split into sideways and
 along, and a spinning or locked tyre is sliding too, so on that path the
 Lateral tile plays for any sliding tyre (power oversteer, a lock-up) and
 the Longitudinal tile adds its judder or tramp on top. It starts at
@@ -644,6 +680,16 @@ Route ABS with a part like the slip tiles: a post on one corner plays
 that corner's valve; an axle or all plays its corners together, the full
 pulse when they are in step and less as they drift apart, as the car's
 body feels the four wheels' braking added up.
+
+Some sims report ABS only now and then (Automobilista 2 flags it in a
+small part of a stop). Tick **from wheels** and ABS also counts as
+working when the wheels show it: a braked wheel dipping towards a lock
+and spinning back up as its valve dumps, twice in a row at an ABS
+rhythm. Each corner's pulse is then timed to its own wheel's dumps
+rather than running at **freq hz**. The tile shows what says ABS is
+working right now (the flag, the wheels, or both) and the rate the wheels
+are dumping at. It needs wheel speeds or slip ratios; a wheel that stays
+locked is a lock-up, not ABS.
 
 Tick **slip link** to tie ABS to the slip tiles. While ABS works, each
 corner's valve then shapes that wheel's slip: the lock texture on the

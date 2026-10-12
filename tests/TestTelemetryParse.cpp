@@ -21,6 +21,7 @@
 #include <string>
 #include <thread>
 #include <chrono>
+#include <filesystem>
 
 static int g_fail = 0, g_pass = 0;
 static void check(bool ok, const char* name)
@@ -245,6 +246,66 @@ int main()
         wait(600);
         s = ti.getLatestData();
         check(!s.ncxFresh && !s.ncxFrozen, "no packets for 500 ms: stopped, not frozen");
+    }
+
+    // ---- The telemetry recorder: every datagram, in order, to a file ----
+    {
+        namespace fs = std::filesystem;
+        const fs::path dir = fs::temp_directory_path() / "nullcat-rec-test";
+        fs::remove_all(dir);
+        TelemetryRecorder rec;
+        rec.push("NULLCATY,rpm=1\n", 15);   // off: ignored
+        check(rec.status().packets == 0 && rec.status().dropped == 0, "recorder: off takes nothing (one atomic load)");
+        std::string why;
+        check(rec.start(dir.string(), why), "recorder: starts into a new folder");
+        std::string why2;
+        check(!rec.start(dir.string(), why2) && !why2.empty(), "recorder: a second start while recording is refused");
+        char line[64];
+        for (int i = 0; i < 100; ++i)
+        {
+            const int n = std::snprintf(line, sizeof line, "NULLCATY,rpm=%d\n", i);
+            rec.push(line, n);
+        }
+        const std::string file = rec.status().file;
+        rec.stop();
+        const TelemetryRecorder::Status st = rec.status();
+        check(!st.on && st.packets == 100 && st.dropped == 0, "recorder: 100 datagrams written, none dropped");
+        std::FILE* f = std::fopen((dir / file).string().c_str(), "rb");
+        int lines = 0, ok = 0; char buf[256];
+        if (f)
+        {
+            while (std::fgets(buf, sizeof buf, f))
+            {
+                if (lines > 0)
+                {
+                    const char* tab = std::strchr(buf, '\t');
+                    char want[64]; std::snprintf(want, sizeof want, "NULLCATY,rpm=%d\n", lines - 1);
+                    if (tab && std::strcmp(tab + 1, want) == 0) ++ok;
+                }
+                ++lines;
+            }
+            std::fclose(f);
+        }
+        check(lines == 101 && ok == 100, "recorder: a header, then each datagram in order as ms<TAB>datagram (its own line ending dropped)");
+        const auto countLines = [&](const std::string& name) {
+            int n = 0; char b[256];
+            if (std::FILE* g = std::fopen((dir / name).string().c_str(), "rb")) { while (std::fgets(b, sizeof b, g)) ++n; std::fclose(g); }
+            return n; };
+        // A flood from another thread (the receive path) while the writer
+        // runs: never blocks, and every datagram is either written or counted.
+        // Started again within the same second: a new file, the first kept.
+        check(rec.start(dir.string(), why), "recorder: starts again after a stop");
+        const std::string file2 = rec.status().file;
+        std::thread producer([&] { for (int i = 0; i < 5000; ++i) rec.push("NULLCATY,speedKmh=100\n", 22); });
+        producer.join();
+        rec.stop();
+        const TelemetryRecorder::Status s2 = rec.status();
+        std::printf("  recorder flood: %llu written, %llu dropped\n", static_cast<unsigned long long>(s2.packets), static_cast<unsigned long long>(s2.dropped));
+        check(s2.packets + s2.dropped == 5000, "recorder: under a flood every datagram is written or counted as dropped");
+        check(s2.packets >= TelemetryRecorder::kSlots && countLines(file2) == static_cast<int>(s2.packets) + 1,
+              "recorder: ...at least a ring's worth written, every one of them in the file");
+        check(file2 != file && countLines(file) == 101, "recorder: a restart in the same second writes a new file and keeps the last");
+        fs::remove_all(dir);
     }
 
     std::printf("\n%d passed, %d failed\n", g_pass, g_fail);

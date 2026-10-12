@@ -615,6 +615,7 @@ public:
         if (SlipModel* sm = slipFor(t)) sm->driveExtra(wheel, screech, pulse);
     }
     double slipWheelScreech(int wheel) const { return m_slipLat.wheelScreech(wheel); }
+    double slipWheelEdge(int wheel) const    { return m_slipLon.wheelScreech(wheel); }   // the Longitudinal tile's edge (its screech layer)
     double slipWheelPulse(int wheel) const   { return m_slipLat.wheelPulse(wheel); }
     void setSlipCarrierScale(FxType t, double aScale, double bScale)
     {
@@ -733,6 +734,8 @@ public:
     }
     const PulseParams& pulseParams(FxType t) const { return (t == FxType::TcPulse) ? m_tcParams : m_absParams; }
     void driveAbsSpeed(double kmh)                 { m_absModel.driveSpeed(kmh); }   // negative = unknown
+    void absSync(int corner, double periodSec)     { m_absModel.sync(corner, periodSec); }   // ABS from the wheels: a dump on that corner
+    void absUnsync()                               { m_absModel.unsync(); }                  // ...ABS off: the corners free-run again
     const PulseModel& absModel() const             { return m_absModel; }
     const PulseModel& tcModel() const              { return m_tcModel; }
 

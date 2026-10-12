@@ -298,7 +298,7 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
                 {
                     o["slow"] = q.slow; o["buzz"] = q.buzz; o["buzzHz"] = q.buzzHz;
                     o["slipLink"] = q.slipLink; o["lockLink"] = q.lockLink; o["scrubLink"] = q.scrubLink;
-                    o["brakeFull"] = q.brakeFull;
+                    o["brakeFull"] = q.brakeFull; o["fromWheels"] = q.fromWheels;
                 }
             }
             else if (info.kind == haptics::Kind::Driveline)
@@ -465,6 +465,7 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                     q.lockLink  = o.value("lockLink").toDouble(q.lockLink);
                     q.scrubLink = o.value("scrubLink").toDouble(q.scrubLink);
                     q.brakeFull = o.value("brakeFull").toDouble(q.brakeFull);
+                    q.fromWheels = o.value("fromWheels").toDouble(q.fromWheels);
                 }
             }
             if (info.kind == haptics::Kind::Driveline)
@@ -1482,6 +1483,7 @@ std::vector<std::string> AppConfig::validate() const
                     if (q.lockLink < 0.0 || q.lockLink > 1.0)   errors.push_back(pfx + "lockLink out of range [0, 1]");
                     if (q.scrubLink < 0.0 || q.scrubLink > 1.0) errors.push_back(pfx + "scrubLink out of range [0, 1]");
                     if (q.brakeFull < 10.0 || q.brakeFull > 100.0) errors.push_back(pfx + "brakeFull out of range [10, 100]");
+                    if (q.fromWheels != 0.0 && q.fromWheels != 1.0) errors.push_back(pfx + "fromWheels must be 0 (off) or 1 (on)");
                 }
             }
             if (info.kind == haptics::Kind::Slip)

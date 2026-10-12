@@ -273,8 +273,41 @@ Development branch. Nothing here is in a release yet.
   default and opt-in with a window, because a car idling at a standstill
   sends identical packets too and the guard muted the engine after two
   seconds in the pits. The SimHub plugin goes quiet on pause by itself.
+- Lateral slip in Automobilista 2 plays a real slip angle. The sim gives
+  only how fast each tyre slides, and as a plain slip that grew with road
+  speed, so the scrub was strongest on the straights. nullCAT now takes
+  out the part the wheel's lock or spin explains, turns the rest into an
+  angle against the road speed, and learns on the straights the small
+  angle every car shows there (toe, the tyre's own creep) to take it off.
+  The tile shows each tyre's angle and the learned straight-line angle,
+  and whether it is still learning. Protocol 1.8: `slipSpeedFL..RR`; the
+  SimHub plugin sends it from Automobilista 2.
+- Longitudinal slip **edge**: a fine grain while a tyre brakes or drives
+  hard but short of letting go, so the rear putting the power down (or
+  the fronts close to locking) is felt before anything slips. From **edge
+  from %** slip (3 by default) to full at 15 %, with its own mix (0.3)
+  and carrier (35 Hz).
+- ABS **from wheels** (off by default): ABS also counts as working when a
+  braked wheel dips towards a lock and spins back up at an ABS rhythm, for
+  sims that flag ABS only now and then (Automobilista 2 flagged it in 7 %
+  of the braking). Each corner's pulse is then pulled into step with its
+  own wheel's dumps. A wheel hovering near a lock, staying locked or in
+  the air does not count. The tile shows what says ABS is working (the
+  flag, the wheels) and the rate.
+- **record** on the Master tile: every telemetry packet to a file on the
+  controller (`~/nullcat-recordings` on the Pi), so a session can be
+  played back exactly for tuning. A thread of its own writes it; the
+  control loop only hands packets over and never waits on it.
 
 ### Fixed
+- Longitudinal slip from wheel speeds was dead in Automobilista 2: the sim
+  counts its wheels turning backwards going forward, and nullCAT never
+  learned their size. The sign is ignored now (a car rolling backwards
+  already read as rolling).
+- Road's chassis model and the Impacts tile's heave read the body's
+  vertical acceleration about ten times too big in Automobilista 2 and
+  Assetto Corsa, which made the chassis model violent: the SimHub plugin
+  multiplied SimHub's heave, already in m/s², by g. Update the plugin.
 - Hard judder from the Wheels and slip tiles ("square wheels"), seen in
   Automobilista 2. A jump in the sim's road speed no car can make (a
   return to the pits, a reset) read as all four wheels locked at speed and
