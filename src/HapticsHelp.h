@@ -318,6 +318,19 @@ constexpr ParamHelp kHelp[] = {
     { "driveline", "ignoreN",
       "The Gear shift tile's knock: on, the neutral a sim reports for a moment in every shift is no shift of its "
       "own (one knock per shift); off, going into neutral knocks too. On for most." },
+    { "driveline", "diff",
+      "The differential chattering, 0 to 1 (0 = off: an open diff, as most road cars have). A limited-slip's "
+      "clutch plates stick and slip as the driven wheels turn apart in a slow, tight corner, harder under "
+      "power: irregular clacks, below 30 km/h in full, gone by 80. 0.3 to 0.6 for a race car with a plate "
+      "diff; 0 for a road car." },
+    { "driveline", "diffType",
+      "What the car has. Limited slip: clutch plates that chatter as the wheels turn apart (most race cars, "
+      "many performance cars). Spool: a locked axle, the inside tyre scrubbing and hopping in tight turns "
+      "(stock cars, drift cars, karts)." },
+    { "driveline", "diffHz",
+      "How fast the clacks come at full chatter, 4 to 30 per second (fewer as it eases). 8 to 15." },
+    { "driveline", "driven",
+      "Which wheels the engine drives: rear, front or all. The diff watches that axle (a spool, the other)." },
     { "driveline", "whine",
       "Straight-cut gears singing, rising with each gear, 0 to 1 (0 = quiet helical gears). Road car: 0. "
       "GT3: 0.3 to 0.6. Single-seater: 0.4 to 0.8." },

@@ -302,7 +302,7 @@ QJsonObject CarTable::fromHapticsObject(const QJsonObject& haptics,
                                               "limJit", "inertia", "turbo", "liftoff", "pops", "tcCut", nullptr };
     static const char* const kLimiter[]   = { "ampPct", "freqHz", "jitter", nullptr };
     static const char* const kDriveline[] = { "ampPct", "jitter", "clutch", "clutchHz", "lug", "lugHz",
-                                              "gearbox", "whine", "shunt", "shuntHz", nullptr };
+                                              "gearbox", "whine", "shunt", "shuntHz", "diff", "diffType", "diffHz", "driven", nullptr };
     static const char* const kPulse[]     = { "ampPct", "freqHz", nullptr };
     const auto pick = [&](const char* from, const char* const* keys)
     {

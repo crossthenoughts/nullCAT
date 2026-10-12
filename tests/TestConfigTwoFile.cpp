@@ -147,6 +147,7 @@ private slots:
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Road)].routes[0].part = haptics::Part::RR;
         c.hapticsDriveline = { 0.8, 9.0, 0.6, 6.5, 1.0, 0.7, 0.4, 55.0 };
         c.hapticsDriveline.ignoreN = 0.0;          // default on: off round-trips
+        c.hapticsDriveline.diff = 0.4; c.hapticsDriveline.diffType = 1.0; c.hapticsDriveline.diffHz = 9.0; c.hapticsDriveline.driven = 2.0;
         c.hapticsEngine.inertia = 0.3; c.hapticsEngine.turbo = 1; c.hapticsEngine.liftoff = 1.5; c.hapticsEngine.pops = 0.4;
         c.hapticsEngine.tcCut = 0.6;
         // Route parts on the per-wheel tiles survive; "all" is the default.
@@ -206,6 +207,8 @@ private slots:
         QCOMPARE(r.hapticsAbs.fromWheels, 1.0);
         QCOMPARE(r.hapticsAbs.lowOff, 0.0); QCOMPARE(r.hapticsTc.lowOff, 1.0);   // TC carries none
         QCOMPARE(r.hapticsDriveline.ignoreN, 0.0);
+        QCOMPARE(r.hapticsDriveline.diff, 0.4); QCOMPARE(r.hapticsDriveline.diffType, 1.0);
+        QCOMPARE(r.hapticsDriveline.diffHz, 9.0); QCOMPARE(r.hapticsDriveline.driven, 2.0);
         QCOMPARE(r.hapticsSlipLon.screech, 0.45); QCOMPARE(r.hapticsSlipLon.screechPct, 4.5); QCOMPARE(r.hapticsSlipLon.screechHz, 42.0);
         QCOMPARE(r.hapticsSlipLat.screech, 0.45); QCOMPARE(r.hapticsSlipLat.screechPct, 60.0); QCOMPARE(r.hapticsSlipLat.screechHz, 40.0);
         QCOMPARE(r.hapticsSlipLat.pulse, 0.8);    QCOMPARE(r.hapticsSlipLat.pulseHz, 7.5);

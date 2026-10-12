@@ -775,6 +775,19 @@ load and quieter on the overrun; leave it at 0 for a helical road box.
 throttle snaps open or shut while rolling in gear, one knock each way,
 harder in a dog box; a slow throttle change makes no knock.
 
+**diff x** is the differential (0, off, by default: most road cars have
+an open diff, which does nothing you would feel). A **limited slip**
+diff's clutch plates resist the driven wheels turning apart; in a slow,
+tight corner the outside wheel has to turn faster, and the plates stick
+and let go in irregular clacks, harder under power and a little off it.
+It plays in full below 30 km/h and is gone by 80, so it is a hairpin and
+pit-lane thing, never a straight. A **spool** (a locked axle: stock
+cars, drift cars) lets the wheels turn only as one, so in a tight turn
+the inside tyre scrubs and hops instead. **diff hz** is how fast the
+clacks come at full chatter (12), and **driven** says which wheels the
+engine drives (rear by default). 0.3 to 0.6 suits a race car with a
+plate diff.
+
 ### The engine
 
 Describe the engine and the effect follows it:

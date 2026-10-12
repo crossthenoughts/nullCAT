@@ -176,6 +176,10 @@ constexpr ParamSpec kDrivelineParams[] = {      // driveline: clutch judder + lu
     { "lugHz",    "lug hz",     3,   15,  0.5,  nullptr },
     { "gearbox",  "gearbox",    0,   1,   1,    "synchro|dog" },
     { "ignoreN",  "ignore neutral", 0, 1, 1,   "off|on" },   // the Gear shift knock: N passed through is no shift
+    { "diff",     "diff x",     0,   1,   0.05, nullptr },   // the differential's chatter (0 = off: an open diff)
+    { "diffType", "diff",       0,   1,   1,    "limited slip|spool" },
+    { "diffHz",   "diff hz",    4,   30,  1,    nullptr },   // the clacks' rate at full chatter
+    { "driven",   "driven",     0,   2,   1,    "rear|front|all" },
     { "whine",    "whine x",    0,   1,   0.1,  nullptr },
     { "shunt",    "shunt x",    0,   1,   0.1,  nullptr },
     { "shuntHz",  "shunt hz",   20,  80,  1,    nullptr },
@@ -372,8 +376,10 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "lug hz, fading as the revs climb out of it. Gearbox shapes the gear-shift thunk: a synchro box clunks "
       "softly, a dog box knocks hard and, shifted under power, knocks again as the dogs engage. Whine is "
       "straight-cut gears meshing, its pitch stepping with every gear and its level with load. Shunt is the "
-      "backlash taking up when the throttle snaps open or shut, in gear and rolling. Nothing in neutral. Needs "
-      "clutch, rpm and gear (speed and throttle make it exact).", nullptr, {} },
+      "backlash taking up when the throttle snaps open or shut, in gear and rolling. Diff (0 = off): a "
+      "limited-slip's plates clacking as the driven wheels turn apart in slow tight corners, harder under power, "
+      "or a spool's inside tyre scrubbing; it needs per-wheel slip ratios or wheel speeds. Nothing in neutral. "
+      "Needs clutch, rpm and gear (speed and throttle make it exact).", nullptr, {} },
     { Effect::Surface,     "surface",     "Surface",      Kind::Surface, EventType::COUNT, FxType::Surface,
       { "surface*", "speedKmh", "~rain|wet", nullptr }, { 0.0, 60.0, 0.0, 0.0 }, kSurfaceParams, static_cast<int>(std::size(kSurfaceParams)),
       "What the ground does under each tyre beyond the road's shape, per corner (route with a part). Stones: "

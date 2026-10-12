@@ -319,7 +319,7 @@ public:
                     if (r.shaker >= 0)
                     {
                         toShaker(r, p.ampPct * (o.judderEnv * std::sin(r.harm * o.judderPhase) + o.lugEnv * std::sin(r.harm * o.lugPhase)
-                                              + o.whineEnv * std::sin(r.harm * o.whinePhase) + o.shunt));
+                                              + o.whineEnv * std::sin(r.harm * o.whinePhase) + o.shunt + o.diff));
                         continue;
                     }
                     if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
@@ -327,7 +327,8 @@ public:
                     const double v = p.ampPct * (o.judder * sinkScale(r.axis, ask, o.judderHz)
                                                + o.lug    * sinkScale(r.axis, ask, o.lugHz)
                                                + o.whine  * sinkScale(r.axis, ask, o.whineHz)
-                                               + o.shunt  * sinkScale(r.axis, ask, o.shuntHz));
+                                               + o.shunt  * sinkScale(r.axis, ask, o.shuntHz)
+                                               + o.diff   * sinkScale(r.axis, ask, o.diffHz));
                     if (v != 0.0) m_overlay[r.axis] += v * r.gain;
                 }
                 continue;
@@ -754,6 +755,8 @@ public:
     void driveDriveline(double judder, double lug)    { m_driveline.drive(judder, lug); }
     void driveDrivelineWhine(double level, double hz) { m_driveline.driveWhine(level, hz); }
     void drivelineShunt(double strength)              { m_driveline.shunt(strength); }
+    void driveDiff(double level, double rateHz)       { m_driveline.driveDiff(level, rateHz); }
+    double diffLevel() const                          { return m_driveline.diffLevel(); }
     double drivelineWhineLevel() const                { return m_driveline.whineLevel(); }
     double drivelineJudderLevel() const               { return m_driveline.judderLevel(); }
     double drivelineLugLevel() const                  { return m_driveline.lugLevel(); }

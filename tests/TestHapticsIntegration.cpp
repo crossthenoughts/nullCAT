@@ -34,6 +34,7 @@
 #include <cstring>
 #include <cmath>
 #include <algorithm>
+#include <vector>
 
 static int g_fail = 0, g_pass = 0;
 static void check(bool ok, const char* name)
@@ -1377,6 +1378,68 @@ int main()
         for (int w = 0; w < 4; ++w) { v.have[NcxValues::SlipRatioFL + w] = true; v.val[NcxValues::SlipRatioFL + w] = -1.0; }
         watch(0.5, pk, xr);
         check(pk < 1e-6, "I-19 pads: a locked wheel gives nothing");
+    }
+
+    // ---- I-20: the Driveline tile's differential ----
+    {
+        using haptics::FxType; using haptics::Part;
+        const double dt = 0.0005;
+        haptics::Layer L; haptics::LawsState st;
+        haptics::EffectParams dp; dp.ampPct = 100.0; dp.routes[0] = { 0, 1.0, Part::All };   // a belt: a force
+        L.configureFx(FxType::Driveline, dp);
+        haptics::DrivelineParams d; d.clutch = 0.0; d.lug = 0.0; d.whine = 0.0; d.shunt = 0.0;
+        d.diff = 1.0; d.diffType = 0.0; d.diffHz = 12.0; d.driven = 0.0;
+        L.configureDriveline(d);
+        NcxValues v{}; v.fresh = true;
+        v.have[NcxValues::SpeedKmh] = true; v.val[NcxValues::SpeedKmh] = 25.0;
+        v.have[NcxValues::ThrottlePct] = true; v.val[NcxValues::ThrottlePct] = 60.0;
+        auto ratios = [&](double fl, double fr, double rl, double rr)
+        { const double x[4] = { fl, fr, rl, rr }; for (int w = 0; w < 4; ++w) { v.have[NcxValues::SlipRatioFL + w] = true; v.val[NcxValues::SlipRatioFL + w] = x[w]; } };
+        // Clacks over a window: how many, their spacing's spread, the peak.
+        auto listen = [&](double secs, int& clacks, double& spread, double& pk) {
+            // A clack: output after at least 5 ms of silence.
+            clacks = 0; pk = 0.0; int quiet = 1000; double last = -1.0; std::vector<double> gaps;
+            for (int i = 0; i < static_cast<int>(secs / dt); ++i)
+            {
+                haptics::driveLaws(L, st, v, dt); L.step(dt);
+                const double o = std::fabs(L.overlayFor(0));
+                pk = std::max(pk, o);
+                if (o < 1e-9) { ++quiet; continue; }
+                if (quiet >= 10) { ++clacks; if (last >= 0.0) gaps.push_back(i * dt - last); last = i * dt; }
+                quiet = 0;
+            }
+            double m = 0.0; for (double g : gaps) m += g; m = gaps.empty() ? 0.0 : m / gaps.size();
+            double var = 0.0; for (double g : gaps) var += (g - m) * (g - m);
+            spread = (gaps.size() > 1 && m > 0.0) ? std::sqrt(var / gaps.size()) / m : 0.0;
+        };
+        int n = 0; double spread = 0.0, pk = 0.0;
+        ratios(0.0, 0.0, 0.0, 0.0);
+        listen(1.0, n, spread, pk);
+        check(n == 0, "I-20 diff: driving straight, the plates hold: nothing");
+        // A hairpin at 25 km/h under 60 % throttle: the rears 8 % apart.
+        ratios(-0.04, 0.04, -0.04, 0.04);
+        listen(2.0, n, spread, pk);
+        std::printf("  I-20 diff: %d clacks in 2 s (spacing spread %.0f %%), peak %.1f\n", n, 100.0 * spread, pk);
+        check(n >= 15 && n <= 40, "I-20 diff: a slow tight corner under power clacks at about diff hz");
+        check(spread > 0.1, "I-20 diff: ...irregularly, like plates, not a tone");
+        const double onPower = L.diffLevel();
+        v.val[NcxValues::ThrottlePct] = 0.0; listen(1.0, n, spread, pk);
+        check(L.diffLevel() > 0.2 * onPower && L.diffLevel() < 0.45 * onPower, "I-20 diff: off the throttle, the preload's lighter chatter");
+        v.val[NcxValues::ThrottlePct] = 60.0;
+        // The same split at 100 km/h (a fast sweeper's spin): nothing.
+        v.val[NcxValues::SpeedKmh] = 100.0; listen(1.0, n, spread, pk); listen(1.0, n, spread, pk);
+        check(n == 0, "I-20 diff: at speed, nothing");
+        v.val[NcxValues::SpeedKmh] = 25.0; listen(1.0, n, spread, pk);
+        d.diff = 0.0; L.configureDriveline(d); listen(1.0, n, spread, pk);
+        check(n == 0, "I-20 diff: diff x 0 (an open diff), nothing");
+        // A spool: the rears turn as one (no split), the inside tyre scrubs;
+        // how tight the corner is comes from the free fronts.
+        d.diff = 1.0; d.diffType = 1.0; L.configureDriveline(d);
+        ratios(-0.04, 0.04, 0.0, 0.0);
+        listen(2.0, n, spread, pk);
+        check(n >= 15, "I-20 diff: a spool in a tight corner scrubs and hops (from the free axle)");
+        ratios(0.0, 0.0, 0.0, 0.0); listen(1.0, n, spread, pk); listen(1.0, n, spread, pk);
+        check(n == 0, "I-20 diff: ...and straight, nothing");
     }
 
     // ---- I-14: the fronts' screech and pulse through the laws ----

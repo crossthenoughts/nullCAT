@@ -177,6 +177,15 @@ namespace laws_k {
     constexpr double kLugThrottle      = 50.0;     // % throttle at or above which the engine can be lugged
     constexpr double kLugFromX         = 0.30;     // lug fades out by this fraction of the redline...
     constexpr double kLugFullX         = 0.12;     // ...and is full at this one (just above idle)
+    // The differential: full below this road speed, gone by this (a spool's
+    // scrub by this); the driven wheels this far apart (slip ratio) start
+    // it, this far is full (a hairpin turns the outside wheel about 10 %
+    // faster); a limited-slip's preload chatters this much off throttle;
+    // the clacks' rate from this share of diff hz up to it.
+    constexpr double kDiffFullKmh      = 30.0, kDiffGoneKmh = 80.0, kDiffSpoolGoneKmh = 50.0;
+    constexpr double kDiffFromSplit    = 0.02, kDiffFullSplit = 0.08;
+    constexpr double kDiffPreload      = 0.3;
+    constexpr double kDiffRateMin      = 0.6;
     constexpr double kLugMinRpm        = 600.0;    // not while cranking or dying
     // Whine: pitch from the input shaft at an order the actuator carries,
     // stepping per gear (a lower gear meshes slower per engine rev).
@@ -1227,6 +1236,54 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             }
         }
         L.driveDriveline(judder, lug);
+
+        // The differential (diff x 0 = off, an open diff). A clutch-type
+        // limited-slip chatters when its plates stick and slip as the driven
+        // wheels turn apart: a slow tight corner (the outside wheel turns
+        // faster) or a spinning inside wheel, harder under power (a little
+        // off it: its preload), full below kDiffFullKmh and gone by
+        // kDiffGoneKmh. A spool lets the driven wheels turn only as one, so
+        // the sim shows them together and the inside tyre scrubs and hops
+        // instead: how tight the corner is comes from the free axle's split.
+        // The clacks come faster the harder it chatters.
+        {
+            const DrivelineParams& dp = L.drivelineParams();
+            double dl = 0.0, rate = 0.0;
+            if (preview && dp.diff > 0.0) { dl = 1.0; rate = dp.diffHz; }
+            else if (dp.diff > 0.0 && live && v.have[NcxValues::SpeedKmh])
+            {
+                const double kmh   = std::max(0.0, v.val[NcxValues::SpeedKmh]);
+                const bool   spool = dp.diffType >= 0.5;
+                const int    driven = static_cast<int>(dp.driven + 0.5);   // 0 rear, 1 front, 2 all
+                const auto split = [&](int ax, double& s) -> bool
+                {
+                    const int l = ax ? WheelRL : WheelFL, r = ax ? WheelRR : WheelFR;
+                    if (!ratioOk[l] || !ratioOk[r]) return false;
+                    s = std::fabs(ratioW[l] - ratioW[r]) * std::min(ground[l], ground[r]);
+                    return true;
+                };
+                double s = 0.0; bool ok = false;
+                if (!spool)
+                {
+                    if (driven == 0)      ok = split(1, s);
+                    else if (driven == 1) ok = split(0, s);
+                    else { double a = 0.0, b = 0.0; const bool oa = split(0, a), ob = split(1, b); ok = oa || ob; s = std::max(a, b); }
+                }
+                else if (driven == 0) ok = split(0, s);   // the free axle says how tight
+                else if (driven == 1) ok = split(1, s);
+                if (ok)
+                {
+                    const double gone   = spool ? kDiffSpoolGoneKmh : kDiffGoneKmh;
+                    const double speedK = std::max(0.0, std::min(1.0, (gone - kmh) / (gone - kDiffFullKmh)));
+                    const double splitK = std::max(0.0, std::min(1.0, (s - kDiffFromSplit) / (kDiffFullSplit - kDiffFromSplit)));
+                    const double thr    = v.have[NcxValues::ThrottlePct] ? std::max(0.0, std::min(1.0, v.val[NcxValues::ThrottlePct] / 100.0)) : 0.0;
+                    const double torqueK = spool ? 1.0 : kDiffPreload + (1.0 - kDiffPreload) * thr;
+                    dl   = speedK * splitK * torqueK;
+                    rate = std::max(1.0, dp.diffHz) * (kDiffRateMin + (1.0 - kDiffRateMin) * splitK);
+                }
+            }
+            L.driveDiff(dl, rate);
+        }
 
         // Whine: straight-cut mesh following the input shaft, in gear with
         // the clutch driving; level from load with a floor (unloaded gears

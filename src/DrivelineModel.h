@@ -18,9 +18,14 @@
 //           so it steps on every shift) and whose level follows load.
 //   SHUNT   backlash taking up when the throttle crosses zero torque: one
 //           knock at shunt hz, harder in a dog box, scaled by how fast.
+//   DIFF    the differential: a clutch-type limited-slip's plates sticking
+//           and letting go as the driven wheels turn apart (or a spool's
+//           inside tyre scrubbing and hopping): irregular clacks, each a
+//           short knock, at about diff hz, each spaced and struck a little
+//           differently so it reads as the plates, not a fault.
 // All whole-car (no parts). Mixes and carriers per component; the shared
 // jitter roughens the oscillators. Levels ramp like the other continuous
-// effects; the shunt is a pulse.
+// effects; the shunt and the clacks are pulses.
 //
 // RT-safe: fixed state, pure arithmetic.
 // ============================================================
@@ -37,12 +42,18 @@ namespace driveline_k {
     constexpr double kAttackSec  = 0.05;
     constexpr double kReleaseSec = 0.15;
     constexpr double kMinHz      = 2.0;
+    // The diff's clacks: each a knock at this carrier (a short, hard
+    // click), spaced up to this share longer or shorter than the rate and
+    // struck between this share and full.
+    constexpr double kClackHz      = 45.0;
+    constexpr double kClackSpacing = 0.45;
+    constexpr double kClackHitMin  = 0.55;
 }
 
 struct DrivelineOut
 {
-    double judder = 0.0, lug = 0.0, whine = 0.0, shunt = 0.0;   // -1..1 x mix x level (shunt: a pulse)
-    double judderHz = 0.0, lugHz = 0.0, whineHz = 0.0, shuntHz = 0.0;   // carriers for sink derating
+    double judder = 0.0, lug = 0.0, whine = 0.0, shunt = 0.0, diff = 0.0;   // -1..1 x mix x level (shunt, diff: pulses)
+    double judderHz = 0.0, lugHz = 0.0, whineHz = 0.0, shuntHz = 0.0, diffHz = 0.0;   // carriers for sink derating
     double judderEnv = 0.0, lugEnv = 0.0, whineEnv = 0.0;        // level x mix
     double judderPhase = 0.0, lugPhase = 0.0, whinePhase = 0.0;  // radians, for a shaker's harmonic
 };
@@ -62,6 +73,13 @@ public:
     {
         m_tW = std::max(0.0, std::min(1.0, level));
         m_whineHz = std::max(0.0, hz);
+    }
+    // The diff: how hard it chatters (0..1) and the clacks' rate (Hz) this
+    // cycle. Not driven = quiet.
+    void driveDiff(double level, double rateHz)
+    {
+        m_tD = std::max(0.0, std::min(1.0, level));
+        m_diffRate = std::max(0.0, rateHz);
     }
     // Shunt: one knock of the given strength (0..1 x mix), now.
     void shunt(double strength)
@@ -105,20 +123,53 @@ public:
             m_out.shunt += m_shAmp[i] * d.shunt * env * std::sin(2.0 * wavesynth::kPi * (m_shT[i] / dur));
             m_shT[i] += dtSec;
         }
+        // The diff: a clack each time the chatter's phase comes round, the
+        // next one a little nearer or further and struck a little harder or
+        // softer; each a knock one kClackHz cycle long.
+        {
+            using namespace driveline_k;
+            ramp(m_lD, m_tD, dtSec); m_tD = 0.0;
+            if (m_lD > 1e-4 && d.diff > 0.0 && m_diffRate > 0.0)
+            {
+                m_clackPh += m_diffRate * m_clackK * dtSec;
+                if (m_clackPh >= 1.0)
+                {
+                    m_clackPh -= std::floor(m_clackPh);
+                    m_clackK = 1.0 / (1.0 + kClackSpacing * (2.0 * rand01() - 1.0));
+                    m_clackAmp = m_lD * (kClackHitMin + (1.0 - kClackHitMin) * rand01());
+                    m_clackT = 0.0;
+                }
+            }
+            else m_clackPh = 0.0;
+            const double cdur = 1.0 / kClackHz;
+            if (m_clackT < cdur)
+            {
+                const double env = wavesynth::envelope(m_clackT, cdur, cdur * 0.3);
+                m_out.diff = m_clackAmp * std::min(1.0, d.diff) * env * std::sin(2.0 * wavesynth::kPi * (m_clackT / cdur));
+                m_out.diffHz = kClackHz;
+                m_clackT += dtSec;
+            }
+        }
     }
 
     const DrivelineOut& out() const { return m_out; }
     double level() const
     {
         double sh = 0.0; for (int i = 0; i < kShuntPool; ++i) if (m_shT[i] < kShuntIdle) sh = std::max(sh, m_shAmp[i]);
-        return std::max(std::max(m_lJ, m_lL), std::max(m_lW, sh));
+        return std::max(std::max(std::max(m_lJ, m_lL), std::max(m_lW, sh)), m_lD);
     }
     double judderLevel() const { return m_lJ; }
+    double diffLevel() const   { return m_lD; }
     double lugLevel() const    { return m_lL; }
     double whineLevel() const  { return m_lW; }
     void clear() { *this = DrivelineModel{}; }
 
 private:
+    double rand01()
+    {
+        m_rng ^= m_rng << 13; m_rng ^= m_rng >> 7; m_rng ^= m_rng << 17;
+        return static_cast<double>(m_rng & 0xFFFFFF) / 16777215.0;
+    }
     static void ramp(double& level, double target, double dtSec)
     {
         using namespace driveline_k;
@@ -148,6 +199,8 @@ private:
     double m_tJ = 0.0, m_tL = 0.0, m_lJ = 0.0, m_lL = 0.0;
     double m_tW = 0.0, m_lW = 0.0, m_whineHz = 0.0;
     double m_shT[kShuntPool] = { kShuntIdle, kShuntIdle }, m_shAmp[kShuntPool] = { 0.0, 0.0 };
+    double m_tD = 0.0, m_lD = 0.0, m_diffRate = 0.0;                     // the diff: target, level, clack rate
+    double m_clackPh = 0.0, m_clackK = 1.0, m_clackAmp = 0.0, m_clackT = 1e9;   // ...the clack under way
     wavesynth::Oscillator m_oscJ, m_oscL, m_oscW;
     uint64_t m_rng = 0x9E3779B97F4A7C15ull;
     DrivelineOut m_out;

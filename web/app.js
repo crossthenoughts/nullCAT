@@ -1156,6 +1156,11 @@ function hapDimFor(k,dv,have){
     if(Math.round(+dv.slipLink)!==1){ dim.lockLink='Slip link is off'; dim.scrubLink='Slip link is off'; }
     return dim;
   }
+  if(k==='driveline'){
+    const dim={};
+    if(!(+dv.diff>0)) ['diffType','diffHz','driven'].forEach(x=>{ dim[x]='Diff x is 0: no differential chatter (an open diff)'; });
+    return dim;
+  }
   if(k==='kerb'){
     const dim={};
     if(all('surface')){ dim.peakPct='The sim sends the surface under each tyre: the curbs channel is not used'; dim.detectMm='The sim sends the surface under each tyre: no detection needed'; }

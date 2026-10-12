@@ -252,6 +252,15 @@ struct DrivelineParams
     // the way to the next gear is no shift of its own (sims report N for a
     // moment in every shift, which knocked twice).
     double ignoreN  = 1.0;
+    // The differential: diff = the clacks' mix 0..1 (0 = off: an open diff);
+    // diffType 0 a clutch-type limited-slip (its plates stick and slip when
+    // the driven wheels turn apart, under power, in a slow tight corner), 1 a
+    // spool (locked: the inside tyre scrubs and hops); diffHz the clacks'
+    // rate at full chatter; driven: 0 rear, 1 front, 2 all.
+    double diff     = 0.0;
+    double diffType = 0.0;
+    double diffHz   = 12.0;
+    double driven   = 0.0;
 };
 
 // Per-effect tuning shared by every effect kind. ampPct 0 = the effect is

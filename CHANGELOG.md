@@ -303,6 +303,11 @@ Development branch. Nothing here is in a release yet.
 - **fresh tyres** on the Wheels tile: wipes the flat spots and cools the
   discs there and then (a restart from the grid in the same car keeps
   them otherwise).
+- Driveline tile **diff** (off by default): a limited-slip diff's plates
+  clacking as the driven wheels turn apart in slow tight corners, harder
+  under power, or a spool's inside tyre scrubbing and hopping; irregular,
+  full below 30 km/h and gone by 80 (a spool's by 50). With **diff hz**
+  and **driven** (rear, front, all).
 - Wheels tile **bite** and **drag**: the pads on the turning disc. The
   bite is the grab as the pedal goes on or is squeezed harder, swelling
   and fading over a quarter second; the drag the rub that stays while you

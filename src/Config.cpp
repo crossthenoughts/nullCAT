@@ -308,6 +308,7 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
                 o["clutch"] = d.clutch; o["clutchHz"] = d.clutchHz; o["lug"] = d.lug; o["lugHz"] = d.lugHz;
                 o["gearbox"] = d.gearbox; o["whine"] = d.whine; o["shunt"] = d.shunt; o["shuntHz"] = d.shuntHz;
                 o["ignoreN"] = d.ignoreN;
+                o["diff"] = d.diff; o["diffType"] = d.diffType; o["diffHz"] = d.diffHz; o["driven"] = d.driven;
             }
             h[info.key] = o;
         }
@@ -487,6 +488,10 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                 d.shunt    = o.value("shunt").toDouble(d.shunt);
                 d.shuntHz  = o.value("shuntHz").toDouble(d.shuntHz);
                 d.ignoreN  = o.value("ignoreN").toDouble(d.ignoreN);
+                d.diff     = o.value("diff").toDouble(d.diff);
+                d.diffType = o.value("diffType").toDouble(d.diffType);
+                d.diffHz   = o.value("diffHz").toDouble(d.diffHz);
+                d.driven   = o.value("driven").toDouble(d.driven);
             }
             if (info.kind == haptics::Kind::Engine)
             {
@@ -1408,6 +1413,10 @@ std::vector<std::string> AppConfig::validate() const
                     errors.push_back(pfx + "shuntHz out of range [20, 80]");
                 if (d.ignoreN != 0.0 && d.ignoreN != 1.0)
                     errors.push_back(pfx + "ignoreN must be 0 (off) or 1 (on)");
+                if (d.diff < 0.0 || d.diff > 1.0) errors.push_back(pfx + "diff out of range [0, 1]");
+                if (d.diffType != 0.0 && d.diffType != 1.0) errors.push_back(pfx + "diffType must be 0 (limited slip) or 1 (spool)");
+                if (d.diffHz < 4.0 || d.diffHz > 30.0) errors.push_back(pfx + "diffHz out of range [4, 30]");
+                if (d.driven != 0.0 && d.driven != 1.0 && d.driven != 2.0) errors.push_back(pfx + "driven must be 0 (rear), 1 (front) or 2 (all)");
             }
             if (info.kind == haptics::Kind::Road)
             {
