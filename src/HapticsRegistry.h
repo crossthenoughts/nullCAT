@@ -70,7 +70,7 @@ struct EffectInfo
     SlipParams   slipDefaults;
 };
 
-constexpr int SLIP_KEY_COUNT = 15;  // SlipParams fields with a config key (slipField)
+constexpr int SLIP_KEY_COUNT = 18;  // SlipParams fields with a config key (slipField)
 
 namespace registry_detail {
 
@@ -118,6 +118,9 @@ constexpr ParamSpec kSlipLatParams[] = {        // lateral slip: scrub (fronts) 
     { "smoothHz","smooth hz",  0,   30,  1,    nullptr },   // slip angle smoothing, 0 off
     { "attackMs","attack ms",  2,   200, 1,    nullptr },   // how fast a slide builds
     { "budget",  "grip budget", 0,  1,   1,    "off|on" },  // cornering and braking/driving share one grip
+    { "baseMode", "baseline",  0,   2,   1,    "learn|learn once|fixed" },   // slip-speed path: the straight-line angle taken off
+    { "baseDegF", "base deg F", 0,  6,   0.1,  nullptr },   // ...fixed: the fronts'
+    { "baseDegR", "base deg R", 0,  6,   0.1,  nullptr },   // ...fixed: the rears'
     { "jitter",  "jitter",     0,   1,   0.05, nullptr },
     { "peakPct", "peak %",     1,   400, 1,    nullptr },   // combined-slip and skid-channel paths
 };
@@ -138,10 +141,12 @@ constexpr ParamSpec kSlipLonParams[] = {        // longitudinal slip: lock judde
 // carry the field (Longitudinal keeps its fixed onset and curve).
 constexpr const char* kSlipLatKeys[SLIP_KEY_COUNT] = { "scrub", "scrubHz", "slide", "slideHz", "peakDeg",
                                                        "onsetPct", "ease", "smoothHz", "attackMs", "budget",
-                                                       "screech", "screechPct", "screechHz", "pulse", "pulseHz" };
+                                                       "screech", "screechPct", "screechHz", "pulse", "pulseHz",
+                                                       "baseMode", "baseDegF", "baseDegR" };
 constexpr const char* kSlipLonKeys[SLIP_KEY_COUNT] = { "lock", "lockHz", "spin", "spinHz", "peakRatio",
                                                        nullptr, nullptr, nullptr, nullptr, nullptr,
-                                                       "edge", "edgePct", "edgeHz", nullptr, nullptr };
+                                                       "edge", "edgePct", "edgeHz", nullptr, nullptr,
+                                                       nullptr, nullptr, nullptr };
 constexpr ParamSpec kRoadParams[] = {           // road: the model, its settings, the texture fallback
     { "ampPct",     "amp %",       0,   100, 1,    nullptr },
     { "model",      "model",       0,   2,   1,    "suspension|tyre|chassis" },
@@ -286,9 +291,9 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "holds the driven wheels at a few % of slip, well short of the spin texture): a fine grain from edge from % "
       "of slip ratio up to full at the limit, on its own carrier (edge hz), so you feel the rear putting the power "
       "down and the fronts near locking before anything lets go.",
-      kSlipLonKeys, { 1.0, 9.0, 1.0, 16.0, 0.8, 40.0, 1.0, 8.0, 8.0, 0.0, 0.3, 3.0, 35.0, 0.0, 6.0 } },
+      kSlipLonKeys, { 1.0, 9.0, 1.0, 16.0, 0.8, 40.0, 1.0, 8.0, 8.0, 0.0, 0.3, 3.0, 35.0, 0.0, 6.0, 0.0, 0.0, 0.0 } },
     { Effect::Skid,        "slipLat",     "Lateral slip", Kind::Slip, EventType::COUNT, FxType::Skid,
-      { "slipAngle*|slipSpeed*|wheelSlip*|skid", "speedKmh", "~load*", nullptr }, { 0.0, 20.0, 0.0, 0.5 }, kSlipLatParams, 18,
+      { "slipAngle*|slipSpeed*|wheelSlip*|skid", "speedKmh", "~load*", nullptr }, { 0.0, 20.0, 0.0, 0.5 }, kSlipLatParams, 21,
       "The tyres sliding, per wheel. Scrub: the fronts pushing wide, a fine texture. Screech: the fronts starting "
       "to squeal before they let go, a light texture from screech % of peak deg, full at peak deg, on its own "
       "carrier (screech hz). Pulse: fronts past the limit sticking and slipping in a slow, irregular shove at "
@@ -302,10 +307,11 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "grows (squeal, moan, shudder). The loaded tyre is weighted up when wheel loads arrive; the two wheels of "
       "an axle move together. Route with a part (a corner, an axle, all). Needs per-wheel slip angles; else a "
       "per-wheel slip speed (Automobilista 2), turned into an angle less the straight-line angle learned on the "
-      "straights (the tile shows both); else the per-wheel combined slip (any sliding tyre, spinning and locking "
-      "included), from onset % of peak % up to full at peak % (the chip shows the value arriving and its peak); "
-      "else the single skid channel. Nothing at a standstill.",
-      kSlipLatKeys, { 1.0, 20.0, 1.0, 11.0, 7.0, 40.0, 1.0, 8.0, 30.0, 1.0, 0.3, 50.0, 30.0, 0.6, 6.0 } },
+      "straights (baseline: learn, learn once, or fixed at base deg F / R; the tile shows both, relearn starts it "
+      "over); else the per-wheel combined slip (any sliding tyre, spinning and locking included), from onset % of "
+      "peak % up to full at peak % (the chip shows the value arriving and its peak); else the single skid channel. "
+      "Nothing at a standstill.",
+      kSlipLatKeys, { 1.0, 20.0, 1.0, 11.0, 7.0, 40.0, 1.0, 8.0, 30.0, 1.0, 0.3, 50.0, 30.0, 0.6, 6.0, 0.0, 0.0, 0.0 } },
     { Effect::Road,        "road",        "Road",         Kind::Road, EventType::COUNT, FxType::Road,
       { "roadHeight*|suspVel*|suspTravel*|roadNoise", "speedKmh", "~surface*", "~accHeave", nullptr },
       { 0.0, 16.0, 0.0, 0.6 }, kRoadParams, 17,
@@ -454,6 +460,9 @@ inline double& slipField(SlipParams& s, int i)
         case 12: return s.screechHz;
         case 13: return s.pulse;
         case 14: return s.pulseHz;
+        case 15: return s.baseMode;
+        case 16: return s.baseDegF;
+        case 17: return s.baseDegR;
         default: return s.peak;
     }
 }

@@ -437,7 +437,7 @@ std::string WebServer::buildStatusJson() const
         s += "\"hapAbs\":{\"flag\":" + jsonBool(ms.hapAbsFlag) + ",\"wheels\":" + jsonBool(ms.hapAbsWheels)
            + ",\"hz\":" + jsonDouble(ms.hapAbsWheelHz, 1) + "},";
         s += "\"hapLatBaseSec\":" + jsonDouble(ms.hapLatBaseSec, 1) + ",\"hapLatSrc\":" + std::to_string(ms.hapLatSrc)
-           + ",\"hapLatLearned\":" + jsonBool(ms.hapLatLearned) + ",";
+           + ",\"hapLatMode\":" + std::to_string(ms.hapLatMode) + ",\"hapLatLearned\":" + jsonBool(ms.hapLatLearned) + ",";
         // Sim identity from NULLCATY (empty until a sender names it).
         if (m_telemetry)
         {
@@ -2328,6 +2328,15 @@ bool WebServer::start()
             // The haptic tile peaks go with the drive peaks; asked for
             // directly as well so the idle clock (loop stopped) honours it.
             if (m_motion) m_motion->requestHapticPeakReset();
+            okResp(res);
+        });
+
+        // The Lateral tile's relearn: its straight-line baseline (slip-speed
+        // path) starts over.
+        postCmd("/api/haptics/relearn", [this, okResp, errResp](const httplib::Request&, httplib::Response& res)
+        {
+            if (!m_motion) { errResp(res, "Components not ready."); return; }
+            m_motion->requestLatRelearn();
             okResp(res);
         });
 

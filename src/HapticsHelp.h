@@ -209,6 +209,18 @@ constexpr ParamHelp kHelp[] = {
     { "slipLat", "budget",
       "Grip budget: a tyre has one grip for cornering and for braking or driving, so trail braking and power "
       "out of a corner slide earlier, as they do in a car. On for most." },
+    { "slipLat", "baseMode",
+      "For sims that give a tyre's sliding speed rather than its slip angle (Automobilista 2): the small angle "
+      "every car shows on a straight (toe, the tyre's own creep), taken off so only the corner plays. Learn: "
+      "learned on the straights, and kept up to date. Learn once: learned once per car, then held, so a "
+      "badly read straight later cannot move it. Fixed: base deg F and R as set, no learning (one value for "
+      "every car). The tile shows each wheel's angle and baseline; relearn starts the learning over." },
+    { "slipLat", "baseDegF",
+      "With baseline fixed: the fronts' straight-line angle taken off, 0 to 6 deg. Read it off the tile after "
+      "a learned run (the number after the slash on the front wheels)." },
+    { "slipLat", "baseDegR",
+      "With baseline fixed: the rears' straight-line angle taken off, 0 to 6 deg. Read it off the tile after "
+      "a learned run (the number after the slash on the rear wheels)." },
     { "slipLat", "peakPct",
       "For sims without a slip angle (combined slip, the skid channel): the value that counts as a full slide, "
       "1 to 400. Read the chip's peak after a few laps." },

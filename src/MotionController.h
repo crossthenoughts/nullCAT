@@ -141,11 +141,12 @@ struct MotionStatus
     // ABS: working on the sim's flag (held), from the wheels, and the rate
     // the wheels' dumps come at; the lateral slip's source (0 the skid
     // channel, 1 the sim's slip angle, 2 a combined slip, 3 an angle from a
-    // slip speed) and its baseline's straight-line time, and whether that
-    // is enough to call it learned.
+    // slip speed), its baseline mode (0 learn, 1 learn once, 2 fixed), the
+    // baseline's straight-line time, and whether that is enough to call it
+    // learned.
     bool            hapAbsFlag = false, hapAbsWheels = false;
     double          hapAbsWheelHz = 0.0;
-    int             hapLatSrc = 0;
+    int             hapLatSrc = 0, hapLatMode = 0;
     double          hapLatBaseSec = 0.0;
     bool            hapLatLearned = false;
 };
@@ -352,6 +353,9 @@ public:
     // peaks: Reset peaks in the header, and every loop start. Consumed by
     // whichever path steps the haptics next (RT loop or idle clock).
     void    requestHapticPeakReset() { m_hapPeakReset.store(true, std::memory_order_release); }
+    // The Lateral tile's relearn: its straight-line baseline starts over,
+    // taken by whichever path steps the haptics next.
+    void    requestLatRelearn() { m_hapLatRelearn.store(true, std::memory_order_release); }
     CommandConditioner::GuardStats getGuardStats(int i) const
     {
         if (i < 0 || i >= MAX_DRIVES) return {};
@@ -621,4 +625,5 @@ private:
     double           m_hapWheelPk[MotionStatus::HAP_WHEEL_SETS][4] = {};
     double           m_hapPreviewQuiet[haptics::FX_TYPE_COUNT] = {};   // a Test preview and its tail: no peaks
     std::atomic<bool> m_hapPeakReset{false};
+    std::atomic<bool> m_hapLatRelearn{false};
 };

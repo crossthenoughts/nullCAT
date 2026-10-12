@@ -1584,9 +1584,15 @@ function hapLive(s){
       t.tile.querySelectorAll('[data-pk]').forEach(row=>{
         const key=row.dataset.pk;
         if(special){ row.classList.toggle('dim',!!special[key]); titled(row,special[key]||''); return; }
-        const dim=(wheelLive&&HAP_TRIM_MAG.includes(key))||(magLive&&!wheelLive&&HAP_TRIM_WHEEL.includes(key));
+        let dim=(wheelLive&&HAP_TRIM_MAG.includes(key))||(magLive&&!wheelLive&&HAP_TRIM_WHEEL.includes(key));
+        let why=dim?(wheelLive?'Per-wheel data is live: this trim applies to the single-channel fallback only':'The single channel is live: this trim applies to per-wheel data only'):'';
+        // The Lateral baseline: only on the slip-speed path; base deg only when fixed.
+        if(k==='slipLat'&&(key==='baseMode'||key==='baseDegF'||key==='baseDegR')){
+          if(+s.hapLatSrc!==3){ dim=true; why='Only for a sim that sends a slip speed rather than a slip angle (Automobilista 2)'; }
+          else if(key!=='baseMode'&&Math.round(+t.dv.baseMode)!==2){ dim=true; why='Used with baseline fixed only'; }
+        }
         row.classList.toggle('dim',dim);
-        titled(row,dim?(wheelLive?'Per-wheel data is live: this trim applies to the single-channel fallback only':'The single channel is live: this trim applies to per-wheel data only'):'');
+        titled(row,why);
       });
     }
     // Per-wheel readout: now/peak per corner from the matching status set.
@@ -1607,10 +1613,12 @@ function hapLive(s){
     if(al&&Array.isArray(s.hapWheels)&&s.hapWheels.length>13){
       const ang=s.hapWheels[12]||[], base=s.hapWheels[13]||[], cells=al.children;
       ['FL','FR','RL','RR'].forEach((n,i)=>{ if(cells[i]) cells[i].textContent=n+' '+(+ang[i]||0).toFixed(1)+'°/'+(+base[i]||0).toFixed(1); });
-      const as=t.tile.querySelector('[data-angstate]'), sec=+s.hapLatBaseSec||0, src=+s.hapLatSrc||0, learned=!!s.hapLatLearned;
-      if(as){ as.textContent=src===3?('from slip speed: baseline '+(learned?'learned':'learning')+' ('+sec.toFixed(0)+' s of straights)')
+      const as=t.tile.querySelector('[data-angstate]'), sec=+s.hapLatBaseSec||0, src=+s.hapLatSrc||0, learned=!!s.hapLatLearned, mode=+s.hapLatMode||0;
+      const learning=(mode!==2&&!learned);
+      if(as){ as.textContent=src===3?('from slip speed: baseline '+(mode===2?'fixed'
+            :(learned?(mode===1?'learned, held':'learned'):'learning')+' ('+sec.toFixed(0)+' s of straights)'))
           :src===1?'the sim\'s own slip angle (no baseline needed)':src===2?'combined slip (no angle from this sim)':'angle -';
-        as.classList.toggle('warn',src===3&&!learned); }
+        as.classList.toggle('warn',src===3&&learning); }
     }
     // ABS: what says it is working (the flag, the wheels and their rate).
     const ab=t.tile.querySelector('[data-abssrc]');
@@ -1759,8 +1767,8 @@ function hapInit(){
       +'<span class="hk" id="hapGameNow">(none)</span><select id="hapGameSel"><option value="">current</option></select>'
       +'<button class="btn btn-sm" type="button" id="hapGameForget" title="Forget the remembered dots for the game shown">forget</button></div>'
       +'<div class="hsec" title="Every telemetry packet as it arrives, to a file on the controller (Pi: ~/nullcat-recordings), so a session can be replayed exactly for tuning. Written by a thread of its own: the control loop only hands it a copy.">recording</div>'
-      +'<div class="hr hap-game"><button class="btn btn-sm" type="button" id="hapRecBtn">record</button>'
-      +'<span class="hk" id="hapRecState">off</span></div>'
+      +'<div class="hr hap-game"><button class="btn btn-sm" type="button" id="hapRecBtn" title="Start or stop recording every telemetry packet to a new file on the controller (Pi: ~/nullcat-recordings). Needs 1 GB free; stops by itself at 2 GB or to leave 512 MB free.">record</button>'
+      +'<span class="hk" id="hapRecState" title="While recording: time, size, packets written, and any the writer had to leave out (dropped). Stopped: the last file, or why it stopped.">off</span></div>'
       +'</div><div class="hb"><span class="hk" id="hapMuteState"></span>'
       +'<button class="btn btn-sm btn-action" type="button" id="hapMuteBtn">MUTE</button></div>';
     mc.querySelector('#hapRecBtn').onclick=async()=>{
@@ -1875,7 +1883,8 @@ function hapInit(){
       :'Per wheel: now/peak since Reset peaks (Test = 1.00 on every wheel)';
     if(wset>=0) h+='<div class="hk hwheels" data-wheels="'+wset+'" title="'+wtitle+'"><span>FL -</span><span>FR -</span><span>RL -</span><span>RR -</span></div>';
     if(fx.k==='slipLat') h+='<div class="hk hwheels" data-ang="1" title="Each wheel\'s slip angle as played, degrees, and after the slash its straight-line baseline (learned on the straights and taken off, where the sim sends a slip speed: Automobilista 2). A baseline that stays 0 or keeps climbing means it is not learning right."><span>FL -</span><span>FR -</span><span>RL -</span><span>RR -</span></div>'
-      +'<div class="hk hwstate" data-angstate="1">angle -</div>';
+      +'<div class="hap-game"><span class="hk hwstate" data-angstate="1" title="Where the slip angle comes from. From a slip speed (Automobilista 2): whether the straight-line baseline is learning (amber), learned, learned and held (baseline: learn once), or fixed, and how many seconds of straights it has learned over. It learns on steady straights above 60 km/h, off the brake.">angle -</span>'
+      +'<button class="btn btn-sm" type="button" data-relearn="1" title="Throw away the learned straight-line baseline and learn it again from the next straights (a new car does this by itself). With baseline fixed it changes nothing.">relearn</button></div>';
     if(fx.k==='abs') h+='<div class="hk hwstate" data-abssrc="1" title="What says ABS is working right now: the sim\'s flag (held over its gaps), the wheels (with from wheels on: their dumps, and the rate they come at), or both.">ABS -</div>';
     if(fx.k==='wheels') h+='<div class="hk hwstate" data-wstate="1" title="The tyres right now: flat spots (mm, from lock-ups), brake discs hot enough to judder, a puncture. Amber or red while there is anything. Switching the tile off and on gives fresh tyres.">tyres -</div>';
     else if(fx.k==='surface') h+='<div class="hk hwheels" data-surf="1" title="What each tyre is on, as nullCAT reads it: the surface, wet or floating, or in the air"><span>FL -</span><span>FR -</span><span>RL -</span><span>RR -</span></div>';
@@ -1914,6 +1923,8 @@ function hapInit(){
     }; });
     hapTiles[fx.k]={svg,fx,dv,tile,level:0,anim:false,testUntil:0,inText:''};
     tile.querySelector('.hap-routechip').onclick=()=>hapDrawerRender(fx);
+    { const rl=tile.querySelector('[data-relearn]');
+      if(rl) rl.onclick=async()=>{ try{ await fetch(API+'/api/haptics/relearn',{method:'POST',body:'{}'}); }catch(_){} }; }
     tile.querySelector('[data-test]').onclick=async(ev)=>{
       const b=ev.target; b.disabled=true;
       try{

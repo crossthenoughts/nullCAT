@@ -1499,6 +1499,8 @@ std::vector<std::string> AppConfig::validate() const
                             if (val < ps.min || val > ps.max)
                                 errors.push_back(pfx + ps.key + " out of range [" + std::to_string(ps.min) + ", "
                                                  + std::to_string(ps.max) + "]");
+                            else if (ps.opts && val != std::floor(val))   // a choice (budget, baseline): one of them
+                                errors.push_back(pfx + ps.key + " must be a whole number (one of its choices)");
                         }
                 }
             }

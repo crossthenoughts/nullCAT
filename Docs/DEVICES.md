@@ -406,6 +406,17 @@ learned over. It reads **learning** in amber until it has 6 seconds. A
 baseline that stays 0, keeps climbing, or a tile that plays on a
 straight, means it is not learning right: worth a recording.
 
+**baseline** picks how that straight-line angle is had. **learn** (the
+default) keeps learning it on every straight; once learned it only creeps
+up and drops back quickly, so a long fast corner moves it little.
+**learn once** learns it for each car and then holds it, so nothing later
+in the session can move it. **fixed** learns nothing and takes off
+**base deg F** on the fronts and **base deg R** on the rears: read them
+off the tile after a learned run. Fixed is one value for every car, and
+cars differ, so it suits testing or a session in one car. **relearn** on
+the tile throws the learned angle away and learns it again from the next
+straights; a new car does that by itself.
+
 Where the sim has no slip angle but a combined slip per wheel
 (Assetto Corsa's wheel slip where its slip angle is not available),
 Lateral slip takes that instead. A combined slip cannot be split into sideways and

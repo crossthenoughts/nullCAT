@@ -91,7 +91,16 @@ struct LawsState
     // less the baseline; also a sim's own slip angle), for the card.
     double latRaw[WHEEL_COUNT] = {}, latBase[WHEEL_COUNT] = {}, latAngle[WHEEL_COUNT] = {};
     double latBaseSec = 0.0;   // straight-line time the baseline has learned over
+    int    latBaseMode = 0;    // the tile's baseline mode last cycle (leaving fixed starts the learning over)
 };
+
+// The Lateral tile's straight-line baseline starts over: its relearn
+// button, and a new car.
+inline void relearnLatBase(LawsState& st)
+{
+    for (int w = 0; w < WHEEL_COUNT; ++w) st.latRaw[w] = st.latBase[w] = st.latAngle[w] = 0.0;
+    st.latBaseSec = 0.0;
+}
 
 namespace laws_k {
     constexpr double kEngineAliveRpm   = 30.0;     // anything turning: cranking lumps from the starter up
@@ -296,12 +305,8 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             st.loadRef = 0.0;
             st.kerbBias[0] = st.kerbBias[1] = 0.0; st.kerbBiasSeen = false;
             st.quietSec = 0.0;
-            for (int w = 0; w < WHEEL_COUNT; ++w)
-            {
-                st.latRaw[w] = st.latBase[w] = st.latAngle[w] = 0.0;
-                st.absArmed[w] = false; st.absSince[w] = 1e9;
-            }
-            st.latBaseSec = 0.0;
+            relearnLatBase(st);
+            for (int w = 0; w < WHEEL_COUNT; ++w) { st.absArmed[w] = false; st.absSince[w] = 1e9; }
             st.absWheelHoldSec = st.absWheelHz = 0.0;
             L.newCar();
         }
@@ -499,8 +504,9 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             // (a long coasting corner taught the corner's wheel speed split,
             // and the corner then counted as straight for the lateral
             // baseline). Last cycle's angle, and only once the baseline is
-            // learned: before it the straight-line angle reads as a slide.
-            if (cruising && st.slipSrc == 3 && st.latBaseSec >= kLatBaseLearnSec)
+            // known (learned, or fixed): before it the straight-line angle
+            // reads as a slide.
+            if (cruising && st.slipSrc == 3 && (st.latBaseSec >= kLatBaseLearnSec || st.latBaseMode == 2))
                 for (int w = 0; w < WHEEL_COUNT; ++w)
                     if (st.latRaw[w] - st.latBase[w] > kRollMaxSlipDeg) cruising = false;
             st.rollSeedSec = cruising ? st.rollSeedSec + dtSec : 0.0;
@@ -606,6 +612,16 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             // combined slip it grew with road speed: 2.5 deg's worth on
             // every straight, the scrub strongest at 250 km/h.
             const bool fromSpeed = !perWheel && haveW(NcxValues::SlipSpeedFL) && v.have[NcxValues::SpeedKmh];
+            // The baseline (the tile's): learned on the straights (0),
+            // learned once per car and then held (1), or fixed at base deg F
+            // and R (2). Leaving fixed starts the learning over: the fixed
+            // values were never learned.
+            const int baseMode = std::max(0, std::min(2, static_cast<int>(sp.baseMode + 0.5)));
+            if (st.latBaseMode == 2 && baseMode != 2) relearnLatBase(st);
+            st.latBaseMode = baseMode;
+            if (baseMode == 2)
+                for (int w = 0; w < WHEEL_COUNT; ++w)
+                    st.latBase[w] = std::max(0.0, std::min(kLatBaseMaxDeg, (w == WheelFL || w == WheelFR) ? sp.baseDegF : sp.baseDegR));
             if (fromSpeed)
             {
                 const double vms = std::max(kLatMinSpeedMs, speed / 3.6);
@@ -624,6 +640,8 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                     for (int w = 0; w < WHEEL_COUNT && straight; ++w)
                         if (!ratioOk[w] || std::fabs(ratioW[w]) > kLonOnsetRatio / 3.0) straight = false;
                 }
+                // Fixed, or learned once and held: no learning.
+                if (baseMode == 2 || (baseMode == 1 && st.latBaseSec >= kLatBaseLearnSec)) straight = false;
                 if (straight) st.latBaseSec += dtSec;
                 const double up   = std::min(1.0, dtSec / ((st.latBaseSec < kLatBaseLearnSec) ? kLatBaseSec : kLatBaseUpSec));
                 const double down = std::min(1.0, dtSec / kLatBaseDownSec);

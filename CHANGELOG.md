@@ -280,8 +280,10 @@ Development branch. Nothing here is in a release yet.
   angle against the road speed, and learns on the straights the small
   angle every car shows there (toe, the tyre's own creep) to take it off.
   The tile shows each tyre's angle and the learned straight-line angle,
-  and whether it is still learning. Protocol 1.8: `slipSpeedFL..RR`; the
-  SimHub plugin sends it from Automobilista 2.
+  and whether it is still learning. **baseline** chooses learn, learn
+  once (per car, then held) or fixed (**base deg F** and **R**), and
+  **relearn** starts it over. Protocol 1.8: `slipSpeedFL..RR`; the SimHub
+  plugin sends it from Automobilista 2.
 - Longitudinal slip **edge**: a fine grain while a tyre brakes or drives
   hard but short of letting go, so the rear putting the power down (or
   the fronts close to locking) is felt before anything slips. From **edge

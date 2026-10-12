@@ -251,13 +251,16 @@ int main()
     // ---- The telemetry recorder: every datagram, in order, to a file ----
     {
         namespace fs = std::filesystem;
-        const fs::path dir = fs::temp_directory_path() / "nullcat-rec-test";
+        // Under the working (build) folder, on a real disk: the Pi's /tmp is a
+        // RAM disk under the recorder's 1 GB minimum.
+        const fs::path dir = fs::current_path() / "nullcat-rec-test";
         fs::remove_all(dir);
         TelemetryRecorder rec;
         rec.push("NULLCATY,rpm=1\n", 15);   // off: ignored
         check(rec.status().packets == 0 && rec.status().dropped == 0, "recorder: off takes nothing (one atomic load)");
         std::string why;
         check(rec.start(dir.string(), why), "recorder: starts into a new folder");
+        if (!why.empty()) std::printf("  recorder refused: %s\n", why.c_str());
         std::string why2;
         check(!rec.start(dir.string(), why2) && !why2.empty(), "recorder: a second start while recording is refused");
         char line[64];

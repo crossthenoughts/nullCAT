@@ -99,6 +99,13 @@ struct SlipParams
     double screechHz  = 30.0;
     double pulse      = 0.0;
     double pulseHz    = 6.0;
+    // The straight-line baseline taken off an angle worked out from a slip
+    // speed (the Lateral tile's): baseMode 0 learns it on the straights, 1
+    // learns it once per car and then holds it, 2 uses baseDegF (fronts) and
+    // baseDegR (rears) as set.
+    double baseMode = 0.0;
+    double baseDegF = 0.0;
+    double baseDegR = 0.0;
 };
 
 // The Road tile's replay settings (used when per-corner suspension

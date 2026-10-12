@@ -1202,6 +1202,63 @@ int main()
         v.val[NcxValues::BrakePct] = 0.0;
     }
 
+    // ---- I-18: the Lateral baseline: learn, learn once, fixed, relearn ----
+    {
+        using haptics::FxType; using haptics::Part;
+        const double dt = 0.002;
+        const double PI = 3.14159265358979;
+        haptics::Layer L; haptics::LawsState st;
+        haptics::EffectParams fx; fx.ampPct = 100.0; fx.routes[0] = { 0, 1.0, Part::FL };
+        L.configureFx(FxType::Lockup, fx); L.configureFx(FxType::Skid, fx);
+        haptics::SlipParams lat = haptics::effectInfo(haptics::Effect::Skid).slipDefaults;
+        L.configureSlip(FxType::Skid, lat);
+        NcxValues v{}; v.fresh = true;
+        std::strncpy(v.car, "Car A", NCY_STR_LEN - 1);
+        auto setW = [&](int group, double x) { for (int w = 0; w < 4; ++w) { v.have[group + w] = true; v.val[group + w] = x; } };
+        auto run = [&](double secs) { const int n = static_cast<int>(secs / dt); for (int i = 0; i < n; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); } };
+        auto straightAt = [&](double deg) { setW(NcxValues::SlipSpeedFL, 55.556 * std::sin(deg * PI / 180.0)); };
+        auto mode = [&](double m, double f = 0.0, double r = 0.0) { lat.baseMode = m; lat.baseDegF = f; lat.baseDegR = r; L.configureSlip(FxType::Skid, lat); };
+        v.have[NcxValues::BrakePct] = true; v.val[NcxValues::BrakePct] = 0.0;
+        v.have[NcxValues::ThrottlePct] = true; v.val[NcxValues::ThrottlePct] = 0.0;
+        v.have[NcxValues::SpeedKmh] = true; v.val[NcxValues::SpeedKmh] = 200.0;
+        setW(NcxValues::WheelSpeedFL, -(200.0 / 3.6) / 0.33);
+        straightAt(4.0);
+        run(10.0);
+        check(std::fabs(st.latBase[WheelFL] - 4.0) < 0.2 && st.latBaseSec >= haptics::laws_k::kLatBaseLearnSec,
+              "I-18 learn: a 4 deg straight is learned");
+        haptics::relearnLatBase(st);
+        check(st.latBase[WheelFL] == 0.0 && st.latBaseSec == 0.0, "I-18 relearn: the baseline starts over");
+        run(10.0);
+        check(std::fabs(st.latBase[WheelFL] - 4.0) < 0.2, "I-18 relearn: ...and learns again from the next straights");
+        // Learn once: learned, then held whatever the straights say.
+        mode(1.0);
+        straightAt(2.0);
+        run(5.0);
+        check(std::fabs(st.latBase[WheelFL] - 4.0) < 0.05, "I-18 learn once: once learned it is held (a 2 deg straight does not move it)");
+        // Learn: the same straight brings it down within seconds.
+        mode(0.0);
+        run(5.0);
+        check(std::fabs(st.latBase[WheelFL] - 2.0) < 0.2, "I-18 learn: it follows a lower straight-line angle down quickly");
+        // Fixed: base deg F and R, no learning; the angle played is the
+        // straight's 2 deg less them.
+        mode(2.0, 1.5, 0.5);
+        const double secBefore = st.latBaseSec;
+        run(3.0);
+        check(st.latBase[WheelFL] == 1.5 && st.latBase[WheelFR] == 1.5 && st.latBase[WheelRL] == 0.5 && st.latBase[WheelRR] == 0.5,
+              "I-18 fixed: base deg F on the fronts, R on the rears");
+        check(std::fabs(st.latAngle[WheelFL] - 0.5) < 0.1 && std::fabs(st.latAngle[WheelRL] - 1.5) < 0.1 && st.latBaseSec == secBefore,
+              "I-18 fixed: the angle played is the sim's less them, nothing learned");
+        // Back to learn: the fixed values were never learned, so it starts over.
+        mode(0.0);
+        run(dt);
+        check(st.latBaseSec < 0.01 && st.latBase[WheelFL] < 0.01, "I-18: leaving fixed starts the learning over");
+        run(10.0);
+        // A new car starts it over too.
+        std::strncpy(v.car, "Car B", NCY_STR_LEN - 1);
+        run(dt);
+        check(st.latBaseSec < 0.01 && st.latBase[WheelFL] < 0.01, "I-18: a new car starts the baseline over");
+    }
+
     // ---- I-14: the fronts' screech and pulse through the laws ----
     {
         using haptics::FxType; using haptics::Part;

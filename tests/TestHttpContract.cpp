@@ -238,6 +238,9 @@ int main()
               && has(st, "\"ncxVal\":[") && has(st, "\"ncxPk\":["),
               "GET /api/status carries the tile readouts (hapIn/Pk, hapWheels/Pk, ncxVal/Pk)");
         check(has(post("/api/resetstats", "{}"), "\"ok\":true"), "POST /api/resetstats accepted (clears the haptic peaks too)");
+        check(has(st, "\"hapLatSrc\":") && has(st, "\"hapLatLearned\":") && has(st, "\"hapAbs\":{") && has(st, "\"record\":{"),
+              "GET /api/status carries the lateral source and baseline state, ABS's source and the recording");
+        check(has(post("/api/haptics/relearn", "{}"), "\"ok\":true"), "POST /api/haptics/relearn accepted (the lateral baseline starts over)");
     }
     // Shakers (off in this host config): the status says so, the device list
     // answers, and the tone test is refused with the reason.

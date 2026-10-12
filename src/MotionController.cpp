@@ -743,6 +743,7 @@ void MotionController::publishHapticsStatusLocked()
     }
     m_statusSnapshot.hapAbsFlag    = m_hapLaws.absFlagOn;
     m_statusSnapshot.hapLatSrc     = m_hapLaws.slipSrc;
+    m_statusSnapshot.hapLatMode    = m_hapLaws.latBaseMode;
     m_statusSnapshot.hapAbsWheels  = m_hapLaws.absWheelHoldSec > 0.0;
     m_statusSnapshot.hapAbsWheelHz = m_hapLaws.absWheelHz;
     m_statusSnapshot.hapLatBaseSec = m_hapLaws.latBaseSec;
@@ -1997,6 +1998,7 @@ void MotionController::hapticsIdleTick(const TelemetryData& td)
 void MotionController::driveContinuousHaptics(const TelemetryData& td)
 {
     const NcxValues v = m_ncxMap.extract(td);
+    if (m_hapLatRelearn.exchange(false, std::memory_order_acq_rel)) haptics::relearnLatBase(m_hapLaws);
     haptics::driveLaws(m_haptics, m_hapLaws, v, m_cycleTimeSec, &m_ratioLearner.ratios());
     for (int i = 0; i < NcxValues::TokenCount; ++i)
     {
