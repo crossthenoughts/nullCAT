@@ -125,23 +125,24 @@ public:
         }
         // The diff: a clack each time the chatter's phase comes round, the
         // next one a little nearer or further and struck a little harder or
-        // softer; each a knock one kClackHz cycle long.
+        // softer; each a knock one kClackHz cycle long, the next never
+        // before the last has finished (a clack cut short stepped).
         {
             using namespace driveline_k;
             ramp(m_lD, m_tD, dtSec); m_tD = 0.0;
+            const double cdur = 1.0 / kClackHz;
             if (m_lD > 1e-4 && d.diff > 0.0 && m_diffRate > 0.0)
             {
-                m_clackPh += m_diffRate * m_clackK * dtSec;
-                if (m_clackPh >= 1.0)
+                m_clackPh = std::min(1.0, m_clackPh + m_diffRate * m_clackK * dtSec);
+                if (m_clackPh >= 1.0 && m_clackT >= cdur)
                 {
-                    m_clackPh -= std::floor(m_clackPh);
+                    m_clackPh = 0.0;
                     m_clackK = 1.0 / (1.0 + kClackSpacing * (2.0 * rand01() - 1.0));
                     m_clackAmp = m_lD * (kClackHitMin + (1.0 - kClackHitMin) * rand01());
                     m_clackT = 0.0;
                 }
             }
             else m_clackPh = 0.0;
-            const double cdur = 1.0 / kClackHz;
             if (m_clackT < cdur)
             {
                 const double env = wavesynth::envelope(m_clackT, cdur, cdur * 0.3);

@@ -83,6 +83,8 @@ namespace wheels_k {
     constexpr double kBitePeriodVar = 0.25, kBiteDepthVar = 0.3;
     constexpr double kBiteGrit      = 0.35;  // a second harmonic: the pads' grit
     constexpr double kBitePosShare  = 0.1;   // a post: this share of its 100 % at full
+    constexpr double kPadRampSec    = 0.008; // the grains ease in and out over this (no click)
+    constexpr double kPadSamplesPerCycle = 8.0;   // ...and never ask the loop for fewer samples a cycle
     constexpr double kPosFullMm   = 0.3;     // a post's 100%: the body moving this much
     constexpr double kForceRefHz  = 8.0;     // a force sink's 100% = kPosFullMm moved at this rate
     constexpr double kLevelSec    = 0.2;     // the tile's level: peak, falling over this
@@ -223,10 +225,10 @@ public:
             // The pads on the disc: the grab and the drag, each a dithered
             // grain at its own pitch following this wheel's speed, at the
             // caliper (not through the suspension).
-            w.grab.pos = w.drag.pos = 0.0;
-            if (m_brake >= kBiteMinBrake && v > kLockMinMs)
+            // (Off, each eases out rather than stopping dead.)
             {
-                const double k = std::sqrt(std::min(1.0, v / kBiteRefMs)) * turning * loadK;
+                const double k = (m_brake >= kBiteMinBrake && v > kLockMinMs)
+                               ? std::sqrt(std::min(1.0, v / kBiteRefMs)) * turning * loadK : 0.0;
                 force += grain(w.grab, w.rng, bite * m_grab * k, q.biteHz * v / kBiteRefMs, dtSec, m_grabHz);
                 force += grain(w.drag, w.rng, drag * m_brake * k, q.dragHz * v / kBiteRefMs, dtSec, m_dragHz);
             }
@@ -289,14 +291,21 @@ private:
     }
     // One of the pads' grains on one wheel: phase, this cycle's length and
     // depth (each cycle a little different), a post's share of it.
-    struct Grain { double ph = 0.0, k = 1.0, d = 1.0, pos = 0.0; };
+    struct Grain { double ph = 0.0, k = 1.0, d = 1.0, pos = 0.0, e = 0.0; };   // e: the eased strength
     // Advance a grain at hz (never below the floor) and give its force at
     // strength e (0 = silent), noting the pitch for a post's derating.
-    static double grain(Grain& g, uint64_t& rng, double e, double hz, double dtSec, double& maxHz)
+    // The strength eases over kPadRampSec each way (no step on or off); once
+    // silent the phase starts again at a zero crossing. The pitch never asks
+    // for fewer than kPadSamplesPerCycle loop samples a cycle (a fast car at
+    // a high bite hz aliased into a lower tone), the grit dropped when its
+    // harmonic would.
+    static double grain(Grain& g, uint64_t& rng, double target, double hz, double dtSec, double& maxHz)
     {
         using namespace wheels_k;
-        if (!(e > 0.0)) return 0.0;
-        hz = std::max(kBiteMinHz, hz);
+        g.e += (std::max(0.0, std::min(1.0, target)) - g.e) * std::min(1.0, dtSec / kPadRampSec);
+        if (g.e < 1e-4) { g.e = 0.0; g.ph = 0.0; g.pos = 0.0; return 0.0; }
+        const double top = 1.0 / (std::max(1e-6, dtSec) * kPadSamplesPerCycle);
+        hz = std::max(kBiteMinHz, std::min(top, hz));
         g.ph += hz * g.k * dtSec;
         if (g.ph >= 1.0)
         {
@@ -305,8 +314,9 @@ private:
             g.d = 1.0 - kBiteDepthVar * rand01(rng);
         }
         const double a = 2.0 * wavesynth::kPi * g.ph;
-        const double s = (std::sin(a) + kBiteGrit * std::sin(2.0 * a + 0.7)) / (1.0 + kBiteGrit);
-        const double f = std::min(1.0, e) * g.d * s;
+        const bool   grit = 2.0 * hz * g.k <= top;
+        const double s = grit ? (std::sin(a) + kBiteGrit * std::sin(2.0 * a + 0.7)) / (1.0 + kBiteGrit) : std::sin(a);
+        const double f = g.e * g.d * s;
         g.pos = kBitePosShare * f;
         maxHz = std::max(maxHz, hz);
         return f;

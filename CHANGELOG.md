@@ -51,7 +51,7 @@ Development branch. Nothing here is in a release yet.
   folded sidewall, a heavy thump once a revolution. Protocol 1.7: the
   numbered line widens to 96 slots, tokens `onGround*` and `deflated*`.
 - Changing car starts over what was learned about the last one: each
-  wheel's rolling factor, the usual corner load, the kerb height bias,
+  wheel's rolling factor, the usual corner load, the kerb detector,
   the engine's learned redline, and the tyres (no flat spots, cold
   discs). A pause in the pits or a menu no longer gives you fresh tyres;
   without a car name, only ten minutes without the sim does.
@@ -314,7 +314,8 @@ Development branch. Nothing here is in a release yet.
   brake. Each a dithered grain with its own pitch (**bite hz**, **drag
   hz**, at 100 km/h) following each wheel's speed, stronger at speed and
   on the loaded tyres, nothing from a locked wheel; at the caliper, not
-  through the suspension.
+  through the suspension. On by default (bite 0.5, drag 0.3), a saved rig
+  included: set them to 0 on the tile if you would rather not.
 - Impacts defaults measured on recorded laps: **from mm/s** 400 (was 500),
   **full mm/s** 1500 (was 2500), **heave g** 0.5 (was 1.5, set while the
   plugin sent heave ten times too big: in real units the body almost
@@ -342,7 +343,7 @@ Development branch. Nothing here is in a release yet.
   for seconds through its smoothing; slip values are capped before they
   are smoothed. A body acceleration past 30 g is ignored too, and so is a
   gear outside -1 to 12 (a sim sent 150 once: two gear-shift knocks), and
-  an engine speed past 25,000 rpm or 1.5 x the car's redline (Automobilista
+  an engine speed past 40,000 rpm or changing faster than any engine can (Automobilista
   2 sent 191,105 rpm once): the last true one stands.
 - The Gear shift tile knocked two or three times for one shift: sims
   report neutral for a moment in every shift, and Automobilista 2 a junk
@@ -373,7 +374,7 @@ Development branch. Nothing here is in a release yet.
   kerb's edge and ribs: a tyre jumping by half of `detect mm` or more against its axle
   partner within a few hundredths of a second. Measured against a slowly
   learned camber, the track's own camber changes read as a kerb for most
-  of a lap at Imola (on recorded laps: 70 % of the driving before, 3 to 5 %
+  of a lap at Imola (on recorded laps: 70 % of the driving before, 4 to 7 %
   now, like Automobilista 2's own kerb surfaces).
 - Naturally aspirated engines never gave their lift-off pop: the SimHub
   plugin sends a boost of 0 for them, and the pop was scaled by the boost.

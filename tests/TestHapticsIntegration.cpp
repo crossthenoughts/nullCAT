@@ -874,6 +874,15 @@ int main()
         ride(1.0, 0.0, [&](double) { heights(130.0, 0.0, 80.0, 0.0); });
         ride(2.0, 0.0, [&](double t) { heights(130.0 - 25.0 * t, 0.0, 80.0, 0.0); });   // camber back, slowly
         check(kerbPk[WheelFL] == 0.0 && kerbPk[WheelFR] == 0.0, "I-9 kerb detect: the camber easing back is no kerb");
+        // A chicane: a kerb under FL, up and off, then one under FR.
+        ride(0.3, 0.0, [&](double) { heights(110.0, 0.0, 80.0, 0.0); });
+        check(kerbPk[WheelFL] > 0.99 && kerbPk[WheelFR] == 0.0, "I-9 kerb detect: a chicane: FL's kerb first");
+        ride(0.3, 0.0, [&](double) { heights(80.0, 0.0, 80.0, 0.0); });
+        ride(0.6, 0.0, [&](double) { heights(80.0, 0.0, 80.0, 0.0); });
+        ride(0.3, 0.0, [&](double) { heights(80.0, 30.0, 80.0, 0.0); });
+        check(kerbPk[WheelFR] > 0.99 && kerbPk[WheelFL] == 0.0, "I-9 kerb detect: ...then FR's is FR's");
+        ride(0.3, 0.0, [&](double) { heights(80.0, 0.0, 80.0, 0.0); });
+        ride(1.0, 0.0, [&](double) { heights(80.0, 0.0, 80.0, 0.0); });
         // A single step up under RR (a raised kerb's edge): on at once, gone
         // within half a second on its flat top.
         ride(0.1, 0.0, [&](double) { heights(80.0, 0.0, 80.0, 25.0); });
@@ -1374,9 +1383,43 @@ int main()
         v.val[NcxValues::SpeedKmh] = 50.0; watch(0.6, pk, xr);   // past the speed jump's hold
         watch(0.5, pk, xr);
         check(std::fabs(xr / 2.0 / 0.5 - 40.0) < 12.0, "I-19 pads: at 50 km/h the drag's pitch is half");
+        // No step on or off: the grain eases in from a zero crossing and out.
+        {
+            v.val[NcxValues::SpeedKmh] = 100.0; v.val[NcxValues::BrakePct] = 0.0;
+            watch(1.0, pk, xr);   // past the speed jump's hold, the pads off
+            double last = L.overlayFor(0), maxStep = 0.0, peak = 0.0;
+            v.val[NcxValues::BrakePct] = 60.0;
+            for (int i = 0; i < static_cast<int>(0.3 / dt); ++i)
+            {
+                haptics::driveLaws(L, st, v, dt); L.step(dt);
+                const double o = L.overlayFor(0);
+                maxStep = std::max(maxStep, std::fabs(o - last)); peak = std::max(peak, std::fabs(o)); last = o;
+            }
+            v.val[NcxValues::BrakePct] = 0.0;
+            for (int i = 0; i < static_cast<int>(0.1 / dt); ++i)
+            {
+                haptics::driveLaws(L, st, v, dt); L.step(dt);
+                const double o = L.overlayFor(0);
+                maxStep = std::max(maxStep, std::fabs(o - last)); last = o;
+            }
+            std::printf("  I-19 pads: largest step %.1f of a %.1f peak\n", maxStep, peak);
+            check(peak > 30.0 && maxStep < 0.4 * peak, "I-19 pads: the grab and its release step nowhere");
+        }
+        // The pitch never asks the loop for fewer than 8 samples a cycle: at
+        // 300 km/h a bite hz of 200 would be 600 Hz, which aliased.
+        {
+            q.biteHz = 200.0; q.drag = 0.0; L.configureWheels(q);
+            v.val[NcxValues::SpeedKmh] = 300.0; watch(1.0, pk, xr);
+            v.val[NcxValues::BrakePct] = 60.0; watch(0.2, pk, xr);
+            const double hz = xr / 2.0 / 0.2;
+            std::printf("  I-19 pads: bite hz 200 at 300 km/h plays at %.0f Hz (the cap %.0f)\n", hz, 1.0 / (dt * 8.0));
+            check(hz <= 1.0 / (dt * 8.0) * 1.15, "I-19 pads: the pitch is capped where the loop can draw it");
+            v.val[NcxValues::BrakePct] = 60.0; v.val[NcxValues::SpeedKmh] = 50.0; watch(1.0, pk, xr);
+            q.biteHz = 40.0; q.drag = 1.0; L.configureWheels(q);
+        }
         // A locked wheel's disc is not turning under the pads: nothing.
         for (int w = 0; w < 4; ++w) { v.have[NcxValues::SlipRatioFL + w] = true; v.val[NcxValues::SlipRatioFL + w] = -1.0; }
-        watch(0.5, pk, xr);
+        watch(0.2, pk, xr); watch(0.5, pk, xr);   // (after the grain has eased out)
         check(pk < 1e-6, "I-19 pads: a locked wheel gives nothing");
     }
 
@@ -1412,12 +1455,21 @@ int main()
             double var = 0.0; for (double g : gaps) var += (g - m) * (g - m);
             spread = (gaps.size() > 1 && m > 0.0) ? std::sqrt(var / gaps.size()) / m : 0.0;
         };
+        // Wheel speeds as Assetto Corsa and Automobilista 2 send them (the
+        // corner's geometry in them), m/s at the tread.
+        auto speeds = [&](double fl, double fr, double rl, double rr)
+        { const double x[4] = { fl, fr, rl, rr }; for (int w = 0; w < 4; ++w) { v.have[NcxValues::WheelSpeedFL + w] = true; v.val[NcxValues::WheelSpeedFL + w] = x[w]; } };
+        auto noSpeeds = [&]() { for (int w = 0; w < 4; ++w) v.have[NcxValues::WheelSpeedFL + w] = false; };
+        v.have[NcxValues::Gear] = true; v.val[NcxValues::Gear] = 2.0;
+        v.have[NcxValues::BrakePct] = true; v.val[NcxValues::BrakePct] = 0.0;
+        const double c = 25.0 / 3.6;
         int n = 0; double spread = 0.0, pk = 0.0;
-        ratios(0.0, 0.0, 0.0, 0.0);
+        speeds(c, c, c, c);
         listen(1.0, n, spread, pk);
         check(n == 0, "I-20 diff: driving straight, the plates hold: nothing");
-        // A hairpin at 25 km/h under 60 % throttle: the rears 8 % apart.
-        ratios(-0.04, 0.04, -0.04, 0.04);
+        // A hairpin at 25 km/h under 60 % throttle: the outside wheels 8 %
+        // faster than the inside ones.
+        speeds(0.96 * c, 1.04 * c, 0.96 * c, 1.04 * c);
         listen(2.0, n, spread, pk);
         std::printf("  I-20 diff: %d clacks in 2 s (spacing spread %.0f %%), peak %.1f\n", n, 100.0 * spread, pk);
         check(n >= 15 && n <= 40, "I-20 diff: a slow tight corner under power clacks at about diff hz");
@@ -1426,19 +1478,46 @@ int main()
         v.val[NcxValues::ThrottlePct] = 0.0; listen(1.0, n, spread, pk);
         check(L.diffLevel() > 0.2 * onPower && L.diffLevel() < 0.45 * onPower, "I-20 diff: off the throttle, the preload's lighter chatter");
         v.val[NcxValues::ThrottlePct] = 60.0;
+        v.val[NcxValues::Gear] = 0.0; listen(1.0, n, spread, pk);
+        check(L.diffLevel() < 0.45 * onPower, "I-20 diff: in neutral, no drive through it: the preload alone");
+        v.val[NcxValues::Gear] = 2.0;
+        v.val[NcxValues::BrakePct] = 50.0; listen(0.5, n, spread, pk); listen(1.0, n, spread, pk);
+        check(n == 0, "I-20 diff: under braking (a lock-up, ABS), nothing");
+        v.val[NcxValues::BrakePct] = 0.0;
         // The same split at 100 km/h (a fast sweeper's spin): nothing.
         v.val[NcxValues::SpeedKmh] = 100.0; listen(1.0, n, spread, pk); listen(1.0, n, spread, pk);
         check(n == 0, "I-20 diff: at speed, nothing");
         v.val[NcxValues::SpeedKmh] = 25.0; listen(1.0, n, spread, pk);
         d.diff = 0.0; L.configureDriveline(d); listen(1.0, n, spread, pk);
         check(n == 0, "I-20 diff: diff x 0 (an open diff), nothing");
+        // A sim's own slip ratios (Competizione) leave the geometry out: with
+        // no wheel speeds, the inside wheel spinning (the ratios apart) is
+        // what the plates fight.
+        d.diff = 1.0; L.configureDriveline(d);
+        noSpeeds(); ratios(0.0, 0.0, 0.08, 0.0);
+        listen(2.0, n, spread, pk);
+        check(n >= 15, "I-20 diff: from a sim's slip ratios, the inside wheel spinning clacks");
+        // The clacks never cut each other short, even at the fastest rate.
+        {
+            d.diffHz = 30.0; L.configureDriveline(d);
+            double last = 0.0, maxStep = 0.0, peak = 0.0;
+            for (int i = 0; i < static_cast<int>(1.0 / dt); ++i)
+            {
+                haptics::driveLaws(L, st, v, dt); L.step(dt);
+                const double o = L.overlayFor(0);
+                maxStep = std::max(maxStep, std::fabs(o - last)); peak = std::max(peak, std::fabs(o)); last = o;
+            }
+            check(peak > 10.0 && maxStep < 0.25 * peak, "I-20 diff: at diff hz 30 no clack is cut short (no step)");
+            d.diffHz = 12.0; L.configureDriveline(d);
+        }
         // A spool: the rears turn as one (no split), the inside tyre scrubs;
-        // how tight the corner is comes from the free fronts.
-        d.diff = 1.0; d.diffType = 1.0; L.configureDriveline(d);
-        ratios(-0.04, 0.04, 0.0, 0.0);
+        // how tight the corner is comes from the free fronts' speeds.
+        for (int w = 0; w < 4; ++w) v.have[NcxValues::SlipRatioFL + w] = false;
+        d.diffType = 1.0; L.configureDriveline(d);
+        speeds(0.96 * c, 1.04 * c, c, c);
         listen(2.0, n, spread, pk);
         check(n >= 15, "I-20 diff: a spool in a tight corner scrubs and hops (from the free axle)");
-        ratios(0.0, 0.0, 0.0, 0.0); listen(1.0, n, spread, pk); listen(1.0, n, spread, pk);
+        speeds(c, c, c, c); listen(1.0, n, spread, pk); listen(1.0, n, spread, pk);
         check(n == 0, "I-20 diff: ...and straight, nothing");
     }
 
@@ -1618,6 +1697,15 @@ int main()
         check(st.lastRpm == 6100.0, "I-15 rpm: 6100 to 12000 in one sample is junk");
         run(0.2);
         check(st.lastRpm == 12000.0, "I-15 rpm: ...held a moment, it stands");
+        // An F1 engine at 18,000: a stall (or the ignition off) is taken at
+        // once; a reset to the pits idling at 1500 within a quarter second
+        // (a tenth-second ceiling held it at 18,000 for good).
+        v.val[NcxValues::Rpm] = 18000.0; run(0.4);
+        v.val[NcxValues::Rpm] = 0.0; run(1.0 / 60.0);
+        check(st.lastRpm == 0.0, "I-15 rpm: 18,000 to a stall is taken at once");
+        v.val[NcxValues::Rpm] = 18000.0; run(0.4);
+        v.val[NcxValues::Rpm] = 1500.0; run(0.3);
+        check(st.lastRpm == 1500.0, "I-15 rpm: 18,000 to 1500 (a reset to idle) is taken within a quarter second");
         v.have[NcxValues::Limiter] = false;
         // One combined-slip sample of three billion (Automobilista 2's slip
         // speed, now and then): capped, it cannot hold the slide on.

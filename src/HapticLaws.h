@@ -65,7 +65,9 @@ struct LawsState
     int    kerbHistN[2] = {}, kerbHistHead[2] = {};
     double kerbEnv[2] = {};
     bool   kerbOn[2] = {};
-    double kerbOnSec[2] = {}, kerbRef[2] = {};
+    double kerbOnSec[2] = {}, kerbRef[2] = {}, kerbQuietSec[2] = {};
+    double kerbLastRef[2] = {}, kerbSinceOff[2] = { 1e9, 1e9 };   // the last kerb: where it began, how long since it ended
+    int    kerbLastSide[2] = {};
     int    kerbSide[2] = {};
     // Lateral slip: the per-wheel slip angle (or combined slip) smoothed,
     // and which source it is (0 none, 1 angle, 2 combined, 3 an angle from
@@ -83,7 +85,7 @@ struct LawsState
     double loadRef = 0.0;
     bool   air[WHEEL_COUNT] = {};
     // The car the sim last named: a different one starts the per-car
-    // learning over (rolling factor, usual load, kerb bias, the engine's
+    // learning over (rolling factor, usual load, kerb detector, the engine's
     // redline, the tyres).
     char   lastCar[NCY_STR_LEN] = {};
     bool   carSeen = false;
@@ -225,6 +227,8 @@ namespace laws_k {
     constexpr double kKerbJumpSec      = 0.035;
     constexpr double kKerbHoldSec      = 0.25;
     constexpr double kKerbEventMaxSec  = 4.0;
+    constexpr double kKerbQuietSec     = 0.4;      // ...or until it has been quiet this long (the camber may have moved)
+    constexpr double kKerbDropSec      = 2.0;      // a jump back towards where it began, within this after, is its drop off
     // ABS: no ABS below walking pace (the ABS tile's off < 5 km/h).
     constexpr double kAbsLowOffKmh     = 5.0;
     // Surface laws: the water film from rain.
@@ -256,14 +260,16 @@ namespace laws_k {
     constexpr double kRatioMin         = -1.0, kRatioMax = 3.0;
     constexpr double kGearMin          = -1.0, kGearMax = 12.0;   // a gear outside this is a garbage frame
     // An engine speed past this, or changing faster than this (rpm/s, over
-    // the time since it last changed, counted between the speed guard's
-    // floor and ceiling: 3000 rpm in a 60 Hz sample, 15000 after a tenth of
-    // a second), is a garbage frame (Automobilista 2 sent 191,105 rpm once,
+    // the time since it last changed, from the speed guard's floor: 3000
+    // rpm in a 60 Hz sample, 15000 after a tenth of a second, anything after
+    // a quarter), is a garbage frame (Automobilista 2 sent 191,105 rpm once,
     // with 386 km/h and gear 128): the last one that could be true stands,
     // and the frame's limiter flag, which the sender set from that rpm,
     // goes with it (it would teach the redline).
     constexpr double kRpmMax           = 40000.0;   // an electric motor revs past 20000
     constexpr double kRpmSlew          = 150000.0;
+    constexpr double kRpmMaxAgeSec     = kRpmMax / kRpmSlew;   // the allowance stops growing here: any rpm below kRpmMax is taken
+    constexpr double kRpmStopped       = 500.0;    // an engine stopping (a stall, the ignition off) is taken at once
     constexpr double kAngleJumpDeg     = 8.0;      // pitch or roll jumping this far between two samples: a glitch
     // Wheels laws
     constexpr double kFreshTyresSec    = 600.0;    // a different car brings fresh tyres; failing that, the stream quiet this long (a pause in the pits is not a new session)
@@ -316,13 +322,20 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             gearDropped = true;   // a junk frame, not a stream gone: the gear shift keeps its place
         }
         st.rpmAgeSec += dtSec;
-        if (!live) st.rpmSeen = false;
-        else if (v.have[NcxValues::Rpm])
+        // A different car this frame: its first rpm owes nothing to the last
+        // car's (the per-car reset below runs after this).
+        if (!live || (v.car[0] != '\0' && st.carSeen && std::strncmp(v.car, st.lastCar, NCY_STR_LEN) != 0))
+            st.rpmSeen = false;
+        if (live && v.have[NcxValues::Rpm])
         {
             const double rpm = v.val[NcxValues::Rpm];
             bool junk = rpm > kRpmMax;
-            if (!junk && st.rpmSeen && rpm != st.lastRpm)
-                junk = std::fabs(rpm - st.lastRpm) > kRpmSlew * std::min(kGlitchMaxDtSec, std::max(kGlitchMinDtSec, st.rpmAgeSec));
+            // The allowance grows with the time since the last true change,
+            // until anything below kRpmMax is taken (a stall from 18,000 or a
+            // reset to the pits stood for good at a tenth-second ceiling); an
+            // engine stopping is taken at once.
+            if (!junk && st.rpmSeen && rpm != st.lastRpm && rpm > kRpmStopped)
+                junk = std::fabs(rpm - st.lastRpm) > kRpmSlew * std::min(kRpmMaxAgeSec, std::max(kGlitchMinDtSec, st.rpmAgeSec));
             if (junk)
             {
                 if (st.rpmSeen) v.val[NcxValues::Rpm] = st.lastRpm;
@@ -876,6 +889,10 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 }
                 L.driveWheelsBrake(v.have[NcxValues::BrakePct] ? v.val[NcxValues::BrakePct] / 100.0 : 0.0);
             }
+            // The brake still goes on while a speed jump leaves the speed
+            // untrusted: the pads' grab must not start over afterwards.
+            else if (live && v.have[NcxValues::BrakePct])
+                L.driveWheelsBrake(v.val[NcxValues::BrakePct] / 100.0);
         }
     }
 
@@ -1075,7 +1092,8 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                     const int l = ax ? WheelRL : WheelFL, r = ax ? WheelRR : WheelFR;
                     const double d = v.val[NcxValues::RoadHeightFL + l] - v.val[NcxValues::RoadHeightFL + r];
                     const int K = LawsState::KERB_HIST;
-                    if (!st.kerbSeen) { st.kerbHistN[ax] = 0; st.kerbEnv[ax] = 0.0; st.kerbOn[ax] = false; st.kerbSide[ax] = 0; }
+                    if (!st.kerbSeen) { st.kerbHistN[ax] = 0; st.kerbEnv[ax] = 0.0; st.kerbOn[ax] = false; st.kerbSide[ax] = 0;
+                                        st.kerbQuietSec[ax] = 0.0; st.kerbLastSide[ax] = 0; st.kerbSinceOff[ax] = 1e9; }
                     // A new sim sample (the held value changed) joins the
                     // history; the jump: the largest change from any sample
                     // of the last kKerbJumpSec.
@@ -1106,16 +1124,40 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                     // put it on the wrong wheel), held until the axle is back
                     // level with where it was before, so the drop off a
                     // raised kerb rumbles the same wheel.
+                    // While on one, the axle swinging past where it began to
+                    // the other side is a kerb under the other wheel (a
+                    // chicane); quiet for kKerbQuietSec, it is over even if
+                    // the camber has moved meanwhile.
+                    if (st.kerbOn[ax] && jump > half)
+                    {
+                        const double off = d - st.kerbRef[ax];
+                        if ((st.kerbSide[ax] == 1 && off < -half) || (st.kerbSide[ax] == 2 && off > half))
+                        { st.kerbSide[ax] = (off > 0.0) ? 1 : 2; st.kerbRef[ax] = from; st.kerbOnSec[ax] = 0.0; }
+                    }
+                    // A new jump: the drop off the last kerb when it comes
+                    // soon after and swings back towards where that kerb
+                    // began (the same wheel); else a kerb of its own, on the
+                    // side the jump rose.
+                    st.kerbSinceOff[ax] += dtSec;
                     if (!st.kerbOn[ax] && jump > half)
                     {
-                        st.kerbOn[ax] = true; st.kerbOnSec[ax] = 0.0; st.kerbRef[ax] = from;
-                        st.kerbSide[ax] = (d > from) ? 1 : 2;
+                        const bool dropOff = st.kerbLastSide[ax] != 0 && st.kerbSinceOff[ax] < kKerbDropSec
+                                             && std::fabs(from - st.kerbLastRef[ax]) > half
+                                             && std::fabs(d - st.kerbLastRef[ax]) < std::fabs(from - st.kerbLastRef[ax]);
+                        st.kerbOn[ax] = true; st.kerbOnSec[ax] = 0.0;
+                        st.kerbRef[ax]  = dropOff ? st.kerbLastRef[ax] : from;
+                        st.kerbSide[ax] = dropOff ? st.kerbLastSide[ax] : ((d > from) ? 1 : 2);
                     }
                     if (st.kerbOn[ax])
                     {
                         st.kerbOnSec[ax] += dtSec;
-                        if ((k <= 0.0 && std::fabs(d - st.kerbRef[ax]) <= half) || st.kerbOnSec[ax] > kKerbEventMaxSec)
-                        { st.kerbOn[ax] = false; st.kerbSide[ax] = 0; }
+                        st.kerbQuietSec[ax] = (k <= 0.0) ? st.kerbQuietSec[ax] + dtSec : 0.0;
+                        if ((k <= 0.0 && std::fabs(d - st.kerbRef[ax]) <= half) || st.kerbQuietSec[ax] > kKerbQuietSec
+                            || st.kerbOnSec[ax] > kKerbEventMaxSec)
+                        {
+                            st.kerbLastRef[ax] = st.kerbRef[ax]; st.kerbLastSide[ax] = st.kerbSide[ax]; st.kerbSinceOff[ax] = 0.0;
+                            st.kerbOn[ax] = false; st.kerbSide[ax] = 0; st.kerbQuietSec[ax] = 0.0;
+                        }
                     }
                     if (k <= 0.0) continue;
                     if (st.kerbSide[ax] != 2) lvl[l] = std::max(lvl[l], k);
@@ -1249,17 +1291,34 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         {
             const DrivelineParams& dp = L.drivelineParams();
             double dl = 0.0, rate = 0.0;
+            // Not under braking (a lock-up or ABS working is no diff), and no
+            // drive through it in neutral or with the clutch down: the
+            // preload alone.
+            const bool braking = v.have[NcxValues::BrakePct] && v.val[NcxValues::BrakePct] > kAbsMinBrakePct;
             if (preview && dp.diff > 0.0) { dl = 1.0; rate = dp.diffHz; }
-            else if (dp.diff > 0.0 && live && v.have[NcxValues::SpeedKmh])
+            else if (dp.diff > 0.0 && live && v.have[NcxValues::SpeedKmh] && !braking)
             {
                 const double kmh   = std::max(0.0, v.val[NcxValues::SpeedKmh]);
                 const bool   spool = dp.diffType >= 0.5;
                 const int    driven = static_cast<int>(dp.driven + 0.5);   // 0 rear, 1 front, 2 all
+                // An axle's two wheels apart: from the wheel speeds where
+                // they are sent (the corner's geometry is in them; a sim's
+                // own slip ratios leave it out), else the slip ratios.
                 const auto split = [&](int ax, double& s) -> bool
                 {
                     const int l = ax ? WheelRL : WheelFL, r = ax ? WheelRR : WheelFR;
-                    if (!ratioOk[l] || !ratioOk[r]) return false;
-                    s = std::fabs(ratioW[l] - ratioW[r]) * std::min(ground[l], ground[r]);
+                    if (v.have[NcxValues::WheelSpeedFL + l] && v.have[NcxValues::WheelSpeedFL + r])
+                    {
+                        const double a = std::fabs(v.val[NcxValues::WheelSpeedFL + l]) * (st.rollKnown[l] ? st.rollK[l] : 1.0);
+                        const double b = std::fabs(v.val[NcxValues::WheelSpeedFL + r]) * (st.rollKnown[r] ? st.rollK[r] : 1.0);
+                        if (a + b < 1e-6) return false;
+                        s = std::fabs(a - b) / (0.5 * (a + b));
+                    }
+                    else if (ratioOk[l] && ratioOk[r]) s = std::fabs(ratioW[l] - ratioW[r]);
+                    else return false;
+                    // A wheel locking is no diff.
+                    if ((ratioOk[l] && ratioW[l] < -kLonOnsetRatio) || (ratioOk[r] && ratioW[r] < -kLonOnsetRatio)) return false;
+                    s *= std::min(ground[l], ground[r]);
                     return true;
                 };
                 double s = 0.0; bool ok = false;
@@ -1276,7 +1335,9 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                     const double gone   = spool ? kDiffSpoolGoneKmh : kDiffGoneKmh;
                     const double speedK = std::max(0.0, std::min(1.0, (gone - kmh) / (gone - kDiffFullKmh)));
                     const double splitK = std::max(0.0, std::min(1.0, (s - kDiffFromSplit) / (kDiffFullSplit - kDiffFromSplit)));
-                    const double thr    = v.have[NcxValues::ThrottlePct] ? std::max(0.0, std::min(1.0, v.val[NcxValues::ThrottlePct] / 100.0)) : 0.0;
+                    const bool   drive  = !(v.have[NcxValues::Gear] && std::fabs(v.val[NcxValues::Gear]) < 0.5)
+                                       && !(v.have[NcxValues::ClutchPct] && v.val[NcxValues::ClutchPct] >= kClutchSlipHi);
+                    const double thr    = (drive && v.have[NcxValues::ThrottlePct]) ? std::max(0.0, std::min(1.0, v.val[NcxValues::ThrottlePct] / 100.0)) : 0.0;
                     const double torqueK = spool ? 1.0 : kDiffPreload + (1.0 - kDiffPreload) * thr;
                     dl   = speedK * splitK * torqueK;
                     rate = std::max(1.0, dp.diffHz) * (kDiffRateMin + (1.0 - kDiffRateMin) * splitK);

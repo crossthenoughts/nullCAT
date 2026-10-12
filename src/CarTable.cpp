@@ -289,6 +289,17 @@ QJsonObject CarTable::toHapticsObject(const QJsonObject& entry)
     }
     section("limiter",   "limiter");
     section("driveline", "driveline");
+    // What diff the car has and which wheels it drives are the car's: an
+    // entry that does not say is a rear-driven limited slip (no other car's
+    // spool or front drive carried over). How strongly the diff plays (diff
+    // x, diff hz) is the rig's, and stays.
+    if (h.contains("driveline"))
+    {
+        QJsonObject o = h.value("driveline").toObject();
+        if (!o.contains("diffType")) o["diffType"] = 0.0;
+        if (!o.contains("driven"))   o["driven"]   = 0.0;
+        h["driveline"] = o;
+    }
     section("abs",       "abs");
     section("tc",        "tc");
     return h;

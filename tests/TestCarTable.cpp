@@ -263,6 +263,19 @@ private slots:
         QCOMPARE(d.hapticsEngine.maxRpm, 7200.0);
         QCOMPARE(d.hapticsFx[static_cast<size_t>(haptics::Effect::Engine)].routes[0].axis, -1);
         QCOMPARE(d.hapticsMasterGain, 1.0);
+
+        // The diff: what the car has and which wheels it drives are the
+        // car's, so an entry that does not say resets them (no spool or
+        // front drive carried over from the last car); how strongly it plays
+        // is the rig's and stays.
+        {
+            AppConfig r; r.hapticsDriveline.diff = 0.5; r.hapticsDriveline.diffHz = 9.0;
+            r.hapticsDriveline.diffType = 1.0; r.hapticsDriveline.driven = 1.0;   // the last car: a front-drive spool
+            QJsonObject entry; QJsonObject dl; dl["gearbox"] = 1.0; entry["driveline"] = dl;
+            Config::readHapticsObject(CarTable::toHapticsObject(entry), r);
+            QCOMPARE(r.hapticsDriveline.diffType, 0.0); QCOMPARE(r.hapticsDriveline.driven, 0.0);
+            QCOMPARE(r.hapticsDriveline.diff, 0.5);     QCOMPARE(r.hapticsDriveline.diffHz, 9.0);
+        }
     }
 
     void followCar_inRigJsonNotInProfiles()
