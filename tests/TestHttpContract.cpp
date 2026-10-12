@@ -241,6 +241,7 @@ int main()
         check(has(st, "\"hapLatSrc\":") && has(st, "\"hapLatLearned\":") && has(st, "\"hapAbs\":{") && has(st, "\"record\":{"),
               "GET /api/status carries the lateral source and baseline state, ABS's source and the recording");
         check(has(post("/api/haptics/relearn", "{}"), "\"ok\":true"), "POST /api/haptics/relearn accepted (the lateral baseline starts over)");
+        check(has(post("/api/haptics/fresh-tyres", "{}"), "\"ok\":true"), "POST /api/haptics/fresh-tyres accepted (flat spots and hot discs gone)");
     }
     // Shakers (off in this host config): the status says so, the device list
     // answers, and the tone test is refused with the reason.

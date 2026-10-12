@@ -570,11 +570,17 @@ Route it with a part so the corner on the kerb rumbles.
 Which tyre is on a kerb comes from the sim: the surface under each tyre
 (Automobilista 2); else the game's own kerb channel (Competizione, EVO:
 all wheels, full at **peak %**); else, in a sim that sends the road
-height under each tyre (Assetto Corsa), a tyre standing more than
-**detect mm** above its partner on the same axle, beyond what the
-track's camber and banking usually give there. Detect mm is 0 (off) by
-default; around 15 finds raised kerbs. A flat painted kerb cannot be
-found that way. The Test button runs the strip at 80 km/h, on and off.
+height under each tyre (Assetto Corsa), the kerb's edge and ribs: one
+tyre jumping by half of **detect mm** or more (full at it) against its partner on the same axle in a
+few hundredths of a second, on the side that jumped up, through to the
+drop off it. The rumble fades a quarter second after the last jump, so a
+ribbed kerb plays along its ribs and a smooth raised one gives a moment
+as you hit it and another as you drop off.
+The track's own camber and banking change over seconds and never count.
+Detect mm is 0 (off) by default; around 15 suits most tracks: lower if
+kerbs are missed, higher if bumps read as kerbs. A flat painted kerb
+cannot be found that way. The Test button runs the strip at 80 km/h, on
+and off.
 
 ### Surface
 
@@ -629,15 +635,30 @@ own rate.
 - **puncture x** (1): when the sim says a tyre is punctured (Automobilista
   2), the wheel rides on its folded sidewall: a heavy thump once a
   revolution.
+- **bite x** (0.5) and **drag x** (0.3): the pads on the turning disc.
+  The bite is the grab as the pedal goes on, or is squeezed harder: a
+  coarse grain that swells and fades over a quarter second. The drag is
+  the rub that stays while you brake, with the pedal. Each has its own
+  pitch at 100 km/h, **bite hz** (35) and **drag hz** (60), following each
+  wheel's own speed, so it sinks as the car slows and the corners drift
+  apart; each cycle is a little different, so it reads as friction, not a
+  tone. Both are stronger at speed and on the loaded tyres (the fronts
+  under braking), and a locked wheel gives nothing: its disc is not
+  turning under the pads. They act at the caliper rather than through the
+  suspension: a belt or shaker gets them as they are, a seat actuator a
+  fine movement of its own (a bite hz of 25 to 40 is what a post can
+  carry).
 
 Each wheel turns at its own speed (from the slip ratios or wheel speeds
 the sim sends), so the corners drift in and out of step: route with a
 part so each seat actuator plays its own corner; a route carrying
 several corners plays them together and beats as they drift. Fresh
-tyres and cold discs come with a different car; a pause in the pits
-keeps your flats (only ten minutes without the sim at all starts the
-tyres over). Test runs 80 km/h: out of balance, then a flat on the front
-left, then hot discs under braking.
+tyres and cold discs come with a different car; a pause in the pits, or
+a restart from the grid in the same car, keeps your flats (only ten
+minutes without the sim at all starts the tyres over). **fresh tyres**
+on the tile wipes the flats and cools the discs there and then; the
+tyre line beside it shows what each tyre has. Test runs 80 km/h: out of
+balance, then a flat on the front left, then hot discs under braking.
 
 ### Impacts
 
@@ -650,10 +671,12 @@ it never reaches a belt or a shaker. This tile plays only that.
 - A corner's suspension stopping or starting dead from one sim sample to
   the next: the bump stop at the bottom of a big compression, a landing,
   a kerb strike, the suspension topping out over a crest. It starts at
-  **from mm/s** (500) of sudden change and is full at **full mm/s**
-  (2500).
+  **from mm/s** (400) of sudden change and is full at **full mm/s**
+  (1500). Measured on recorded laps that is about 1 knock a minute for a
+  smooth prototype at Bathurst, 6 to 16 for a GT car at Imola, 19 for a
+  Group A car at Brands Hatch and 30 to 40 for a 1975 Formula 1 car.
 - A sudden jump in the body's vertical g, on every corner: a landing, a
-  heavy compression. **heave g** (1.5) is the jump that starts a knock,
+  heavy compression. **heave g** (0.5) is the jump that starts a knock,
   full at three times that; 0 turns it off.
 
 A belt or shaker gets a knock that rings at **ring hz** (40) and dies
@@ -666,7 +689,10 @@ Test knocks each corner in turn (the rear left topping out), then the
 whole car.
 
 Turn **from mm/s** up if rough tracks knock all the time, down if hits
-pass unnoticed.
+pass unnoticed. A knock is short: on a belt that already carries the
+engine, the driveline and the kerbs it is easily lost, so give it a
+gain of 1 there, or route it to the seat posts with a part, where it is
+a jolt of its own.
 
 ### ABS and TC
 
@@ -707,10 +733,16 @@ corner's valve then shapes that wheel's slip: the lock texture on the
 Longitudinal tile stays at the edge of locking (ABS never lets the wheel
 lock) and surges with every cycle, by **lock x** (0.7 by default); the
 Lateral tile's scrub and slide ease after each dump, when the tyre gets
-its grip back sideways, by **scrub x** (0.3). Spin is left alone. It works
-with the ABS tile's own amp at 0 too, if you want ABS felt only through
-the tyres. The sim's slip data arrives too slowly to carry the valves'
-rhythm itself, so this puts it back.
+its grip back sideways, by **scrub x** (0.3). Spin is left alone. The
+sim's slip data arrives too slowly to carry the valves' rhythm itself,
+so this puts it back. The ABS tile's amp at 0 means no ABS at all, the
+slip link and from wheels included: a car without ABS has its amp at 0
+in the car table, whatever the tickboxes say from the last car. To feel
+ABS only through the tyres, keep its amp and take its routes away.
+
+**off < 5 km/h** (on by default) stops ABS below walking pace, whatever
+the sim's flag says: a real ABS lets go before the car stops, and some
+sims hold the flag on at a standstill with the brake down.
 **TC pulse** is the body surge of each traction-control cut: drive lost,
 then back, about **freq hz** times a second, with the same **sharp** and
 **spread** (each cut a little different in timing and depth).
@@ -732,7 +764,11 @@ speed and throttle making it exact.
 tile's thunk: a *synchro* road box clunks softly and a little longer; a
 *dog* box (sequential or an H-pattern dogbox) knocks hard and short,
 and a shift under power gets a second knock a moment later as the dogs
-engage. **whine x** is straight-cut gears meshing: a tone
+engage. Sims report neutral for a moment in every shift; with **ignore
+neutral** ticked (the default) that is no shift of its own, so each
+shift knocks once. Untick it to feel going into neutral too. Either way
+a gear counts once it has held a few hundredths of a second: a sim's
+one-frame junk gear in the middle of a shift is ignored. **whine x** is straight-cut gears meshing: a tone
 whose pitch follows the input shaft and steps on every shift, loud under
 load and quieter on the overrun; leave it at 0 for a helical road box.
 **shunt x / shunt hz** is the driveline's backlash taking up when the

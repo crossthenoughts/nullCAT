@@ -241,6 +241,7 @@ public:
                 f.level = m_wheels.level();
                 if (f.level < 1e-4) continue;
                 const double hz = std::max(road_k::kDerateHz, m_wheels.rateHz());
+                const double grabHz = m_wheels.padHz(false), dragHz = m_wheels.padHz(true);
                 for (const Route& r : p.routes)
                 {
                     if (r.gain <= 0.0) continue;
@@ -248,7 +249,16 @@ public:
                     if (r.shaker >= 0) { if (o.force != 0.0) toShaker(r, p.ampPct * o.force); continue; }
                     if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
                     if (m_sinkKind[r.axis] == SinkKind::Position)
-                        m_overlay[r.axis] += p.ampPct * o.pos * r.gain * sinkScale(r.axis, p.ampPct * r.gain, hz);
+                    {
+                        // The body's movement at the wheel's rate; the pads'
+                        // grab and drag, fine movements of their own, each
+                        // derated at its pitch.
+                        const double ask = p.ampPct * r.gain;
+                        double pv = o.pos * sinkScale(r.axis, ask, hz);
+                        if (grabHz > 0.0) pv += m_wheels.padFor(r.part, false) * sinkScale(r.axis, ask, grabHz);
+                        if (dragHz > 0.0) pv += m_wheels.padFor(r.part, true)  * sinkScale(r.axis, ask, dragHz);
+                        m_overlay[r.axis] += p.ampPct * pv * r.gain;
+                    }
                     else
                         m_overlay[r.axis] += p.ampPct * o.force * r.gain;
                 }
@@ -328,8 +338,8 @@ public:
                 // model ramps per wheel itself.)
                 const double rate = (f.targetLevel > f.level) ? dtSec / 0.050 : dtSec / 0.120;
                 f.level += std::max(-rate, std::min(rate, f.targetLevel - f.level));
-                // ABS runs its corners' valves whenever it works, its own
-                // amp or not: the slip link (below, slip slots) follows them.
+                // ABS runs its corners' valves whenever it works, routed or not
+                // (amp 0 is no ABS: the laws drive no level): the slip link follows them.
                 if (i == static_cast<int>(FxType::AbsPulse))
                 {
                     m_absLinkLevel = (f.level >= 1e-4) ? f.level : 0.0;
@@ -694,7 +704,7 @@ public:
     }
     void driveWheelsBrake(double brake01)          { m_wheels.driveBrake(brake01); }
     void driveWheelsPreview(double flatMm, double heat) { m_wheels.drivePreview(flatMm, heat); }
-    void wheelsFreshTyres()                        { m_wheels.clear(); }
+    void wheelsFreshTyres()                        { m_wheels.freshTyres(); }   // flats and disc heat only: no step in the output
 
     // How far each tyre touches the ground (0 in the air .. 1), per cycle:
     // the Road, Surface and Wheels tiles go quiet for a tyre in the air (the

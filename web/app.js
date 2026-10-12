@@ -1148,6 +1148,11 @@ function hapDimFor(k,dv,have){
   }
   if(k==='abs'){
     const dim={};
+    if(!(+dv.ampPct>0)){
+      // Amp 0 = no ABS at all (a car without it): nothing plays, through the tyres either.
+      ['slipLink','lockLink','scrubLink','fromWheels','lowOff','holdMs','brakeFull'].forEach(x=>{ dim[x]='ABS is off (amp 0): nothing of it plays, through the tyres either'; });
+      return dim;
+    }
     if(Math.round(+dv.slipLink)!==1){ dim.lockLink='Slip link is off'; dim.scrubLink='Slip link is off'; }
     return dim;
   }
@@ -1624,7 +1629,7 @@ function hapLive(s){
     const ab=t.tile.querySelector('[data-abssrc]');
     if(ab&&s.hapAbs){
       const fw=+t.dv.fromWheels>=0.5, a=s.hapAbs;
-      ab.textContent=(a.flag||a.wheels)?('working: '+[a.flag?'flag':'',a.wheels?('wheels '+(+a.hz||0).toFixed(0)+' Hz'):''].filter(Boolean).join(' + ')):('idle'+(fw?'':' (from wheels off)'));
+      ab.textContent=!(+t.dv.ampPct>0)?'off (amp 0: no ABS, through the tyres either)':(a.flag||a.wheels)?('working: '+[a.flag?'flag':'',a.wheels?('wheels '+(+a.hz||0).toFixed(0)+' Hz'):''].filter(Boolean).join(' + ')):('idle'+(fw?'':' (from wheels off)'));
       ab.classList.toggle('warn',!!a.wheels);
     }
     // Wheels: the tyres' state at a glance (flat spots, hot discs, a
@@ -1886,7 +1891,8 @@ function hapInit(){
       +'<div class="hap-game"><span class="hk hwstate" data-angstate="1" title="Where the slip angle comes from. From a slip speed (Automobilista 2): whether the straight-line baseline is learning (amber), learned, learned and held (baseline: learn once), or fixed, and how many seconds of straights it has learned over. It learns on steady straights above 60 km/h, off the brake.">angle -</span>'
       +'<button class="btn btn-sm" type="button" data-relearn="1" title="Throw away the learned straight-line baseline and learn it again from the next straights (a new car does this by itself). With baseline fixed it changes nothing.">relearn</button></div>';
     if(fx.k==='abs') h+='<div class="hk hwstate" data-abssrc="1" title="What says ABS is working right now: the sim\'s flag (held over its gaps), the wheels (with from wheels on: their dumps, and the rate they come at), or both.">ABS -</div>';
-    if(fx.k==='wheels') h+='<div class="hk hwstate" data-wstate="1" title="The tyres right now: flat spots (mm, from lock-ups), brake discs hot enough to judder, a puncture. Amber or red while there is anything. Switching the tile off and on gives fresh tyres.">tyres -</div>';
+    if(fx.k==='wheels') h+='<div class="hap-game"><span class="hk hwstate" data-wstate="1" title="The tyres right now: flat spots (mm, from lock-ups), brake discs hot enough to judder, a puncture. Amber or red while there is anything. They last until a different car, ten minutes without the sim, or fresh tyres; a restart from the grid in the same car keeps them.">tyres -</span>'
+      +'<button class="btn btn-sm" type="button" data-fresh="1" title="Fresh tyres: wipe the flat spots and cool the discs now (after a restart, or a lock-up you want gone). A puncture is the sim\'s and stays while it says so.">fresh tyres</button></div>';
     else if(fx.k==='surface') h+='<div class="hk hwheels" data-surf="1" title="What each tyre is on, as nullCAT reads it: the surface, wet or floating, or in the air"><span>FL -</span><span>FR -</span><span>RL -</span><span>RR -</span></div>';
     else if(!fx.transient&&fx.fxIdx!==undefined) h+='<div class="hk hwheels" data-in="1" title="What this effect is driven with: now/peak since Reset peaks (Test = 1.00)">in -</div>';
     h+='<div class="hrows">';
@@ -1924,7 +1930,9 @@ function hapInit(){
     hapTiles[fx.k]={svg,fx,dv,tile,level:0,anim:false,testUntil:0,inText:''};
     tile.querySelector('.hap-routechip').onclick=()=>hapDrawerRender(fx);
     { const rl=tile.querySelector('[data-relearn]');
-      if(rl) rl.onclick=async()=>{ try{ await fetch(API+'/api/haptics/relearn',{method:'POST',body:'{}'}); }catch(_){} }; }
+      if(rl) rl.onclick=async()=>{ try{ await fetch(API+'/api/haptics/relearn',{method:'POST',body:'{}'}); }catch(_){} };
+      const fr=tile.querySelector('[data-fresh]');
+      if(fr) fr.onclick=async()=>{ try{ await fetch(API+'/api/haptics/fresh-tyres',{method:'POST',body:'{}'}); }catch(_){} }; }
     tile.querySelector('[data-test]').onclick=async(ev)=>{
       const b=ev.target; b.disabled=true;
       try{

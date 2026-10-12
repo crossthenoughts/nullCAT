@@ -1825,7 +1825,7 @@ int main()
         // Brake judder: only with hot discs, only under braking, twice a
         // revolution.
         {
-            WheelsParams q; q.balance = 0.0; q.flat = 0.0;   // judder 0.5
+            WheelsParams q; q.balance = 0.0; q.flat = 0.0; q.bite = 0.0; q.drag = 0.0;   // judder 0.5 alone (the pads: I-19)
             WheelsModel cold; std::vector<double> fc; roll(cold, q, 30.0, same, 1.0, 2000, Part::FL, &fc);
             CHECK(rmsOf(fc, 0) < 1e-9, "wheels judder: cold discs do not judder");
             WheelsModel hot; roll(hot, q, 50.0, same, 1.0, 20000, Part::FL, nullptr);   // 10 s hard on the brakes at 180 km/h
@@ -1898,7 +1898,10 @@ int main()
         using haptics::ImpactModel; using haptics::ImpactParams; using haptics::EffectParams; using haptics::Part;
         const double dt = 0.0005;
         EffectParams ep; ep.freqHz = 40.0; ep.durMs = 50.0;
-        const ImpactParams q;   // from 500, full 2500 mm/s, heave 1.5 g
+        // The model's arithmetic at fixed thresholds (not the defaults,
+        // which are measured and may move): from 500, full 2500 mm/s,
+        // heave 1.5 g.
+        ImpactParams q; q.fromMmS = 500.0; q.fullMmS = 2500.0; q.heaveG = 1.5;
         // FL's suspension velocity held between sim samples 1/60 s apart;
         // vel(t) gives each sample. Traces of FL's force and post outputs.
         auto run = [&](ImpactModel& m, double (*vel)(double), double secs, std::vector<double>* f, std::vector<double>* p) {
@@ -2206,12 +2209,13 @@ int main()
             approx(static_cast<double>(crossings(diff).size()) / 4.0, 40.0, 4.0, "abs buzz: a buzz at buzz hz under the pulse");
 
             // Slip link: while ABS works each corner's valve shapes that
-            // wheel's slip tiles. ABS's own amp 0 (felt only through the slip
-            // tiles); the sim shows no lock on FL, a full scrub on FL, full
+            // wheel's slip tiles. ABS felt only through the slip tiles: its
+            // amp kept, no routes of its own (amp 0 is no ABS at all, in the
+            // laws); the sim shows no lock on FL, a full scrub on FL, full
             // spin on RR.
             auto linked = [&](double link, double simLock, std::vector<double>& lockFL, std::vector<double>& scrubFL,
                               std::vector<double>& spinRR, std::vector<double>& valveFL) {
-                Layer L; EffectParams a; a.ampPct = 0.0; a.freqHz = 10.0;
+                Layer L; EffectParams a; a.ampPct = 100.0; a.freqHz = 10.0;
                 EffectParams s; s.ampPct = 100.0; s.routes[0] = { 0, 1.0 };
                 L.configureFx(FxType::AbsPulse, a); L.configureFx(FxType::Lockup, s); L.configureFx(FxType::Skid, s);
                 PulseParams q{ 1.0, 0.0, 0.0, 0.0, 40.0 }; q.slipLink = link; q.lockLink = 0.7; q.scrubLink = 0.3;

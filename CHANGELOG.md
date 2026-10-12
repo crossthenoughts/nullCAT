@@ -300,6 +300,21 @@ Development branch. Nothing here is in a release yet.
   controller (`~/nullcat-recordings` on the Pi), so a session can be
   played back exactly for tuning. A thread of its own writes it; the
   control loop only hands packets over and never waits on it.
+- **fresh tyres** on the Wheels tile: wipes the flat spots and cools the
+  discs there and then (a restart from the grid in the same car keeps
+  them otherwise).
+- Wheels tile **bite** and **drag**: the pads on the turning disc. The
+  bite is the grab as the pedal goes on or is squeezed harder, swelling
+  and fading over a quarter second; the drag the rub that stays while you
+  brake. Each a dithered grain with its own pitch (**bite hz**, **drag
+  hz**, at 100 km/h) following each wheel's speed, stronger at speed and
+  on the loaded tyres, nothing from a locked wheel; at the caliper, not
+  through the suspension.
+- Impacts defaults measured on recorded laps: **from mm/s** 400 (was 500),
+  **full mm/s** 1500 (was 2500), **heave g** 0.5 (was 1.5, set while the
+  plugin sent heave ten times too big: in real units the body almost
+  never knocked). About 1 to 40 knocks a minute by car and track. A saved
+  rig keeps its own values: change them on the tile.
 
 ### Fixed
 - Longitudinal slip from wheel speeds was dead in Automobilista 2: the sim
@@ -321,7 +336,22 @@ Development branch. Nothing here is in a release yet.
   reads in the billions, which held the Lateral slip tile at a full slide
   for seconds through its smoothing; slip values are capped before they
   are smoothed. A body acceleration past 30 g is ignored too, and so is a
-  gear outside -1 to 12 (a sim sent 150 once: two gear-shift knocks).
+  gear outside -1 to 12 (a sim sent 150 once: two gear-shift knocks), and
+  an engine speed past 25,000 rpm or 1.5 x the car's redline (Automobilista
+  2 sent 191,105 rpm once): the last true one stands.
+- The Gear shift tile knocked two or three times for one shift: sims
+  report neutral for a moment in every shift, and Automobilista 2 a junk
+  gear for one frame (a 5-4 downshift read 5, N, 3, 4). A gear now counts
+  once it has held 45 ms, and with the Driveline tile's new **ignore
+  neutral** (on by default) the neutral passed through is no shift: one
+  knock per shift.
+- ABS played through its slip link with the ABS tile's amp at 0, so a car
+  without ABS (its car-table amp 0) still judder-locked the tyres through
+  half of every stop when slip link was ticked from the last car. Amp 0 is
+  now no ABS at all; to feel ABS only through the tyres, keep its amp and
+  give it no routes. ABS also played at a standstill with the brake down
+  where the sim held its flag on: the ABS tile's new **off < 5 km/h** (on
+  by default) stops it below walking pace.
 - Longitudinal slip from wheel speeds could read a wheel as spinning or
   locked for many seconds after a spin: with the pedals off in a spin,
   nullCAT learned each wheel's size from the stopped wheels. It now learns
@@ -334,7 +364,12 @@ Development branch. Nothing here is in a release yet.
   that slot as 0, and the 0 shut the detection out (all you felt was the
   Road tile's suspension going over the kerb). The detection now always
   runs when `detect mm` is set; where the game sends its own kerb channel
-  too (Competizione, EVO), the stronger of the two plays.
+  too (Competizione, EVO), the stronger of the two plays. And it finds the
+  kerb's edge and ribs: a tyre jumping by half of `detect mm` or more against its axle
+  partner within a few hundredths of a second. Measured against a slowly
+  learned camber, the track's own camber changes read as a kerb for most
+  of a lap at Imola (on recorded laps: 70 % of the driving before, 3 to 5 %
+  now, like Automobilista 2's own kerb surfaces).
 - Naturally aspirated engines never gave their lift-off pop: the SimHub
   plugin sends a boost of 0 for them, and the pop was scaled by the boost.
   Boost now counts only for an engine set as turbo, so a sim that reports

@@ -155,7 +155,7 @@ struct KerbParams
     double riseMm   = 8.0;    // the step up onto the kerb
     double ribMm    = 3.0;    // rib height
     double fullMm   = 10.0;   // kerb movement that counts as 100% on a position axis
-    double detectMm = 0.0;    // no surface type from the sim: a tyre this much above its axle mate is on a kerb (0 = off)
+    double detectMm = 0.0;    // no surface type from the sim: a tyre jumping this much against its axle mate (from half of it) is on a kerb (0 = off)
 };
 
 // The ABS and TC tiles' pulse (PulseModel.h). Both: sharp (the drop's
@@ -187,6 +187,9 @@ struct PulseParams
     // dipping towards a lock and spinning back up as its valve dumps, the
     // corner's pulse timed to those dumps.
     double fromWheels = 0.0;
+    // ABS: off below walking pace (0 off, 1 on): a real ABS stops cycling
+    // before the car stops, whatever a sim's flag says with the brake held.
+    double lowOff = 1.0;
 };
 
 // The Surface tile (SurfaceModel.h): stones, snow crunch, studs, puddles.
@@ -209,15 +212,28 @@ struct WheelsParams
     double flat   = 1.0;     // flat spots ground in by lock-ups, x their depth (0 = off)
     double judder = 0.5;     // hot brake discs pulsing the braking force, 0..1
     double puncture = 1.0;   // a punctured tyre (when the sim says so) thumping once a revolution, 0..2
+    // The pads on the turning disc, each a rough grain with its pitch at
+    // 100 km/h, following each wheel's speed. bite: the grab as the pedal
+    // goes on or is squeezed harder, swelling and fading over a quarter
+    // second, coarser; drag: the steady rub under braking, finer. Mixes 0..1
+    // (0 = off).
+    double bite   = 0.5;
+    double drag   = 0.3;
+    double biteHz = 35.0;
+    double dragHz = 60.0;
 };
 
 // The Impacts tile (ImpactModel.h): the edge of a hit through the
 // suspension. A knock rings at the effect's freqHz over durMs (its decay).
 struct ImpactParams
 {
-    double fromMmS = 500.0;   // a jump in a corner's suspension velocity between two samples that starts a knock
-    double fullMmS = 2500.0;  // ...and the jump that is a full one
-    double heaveG  = 1.5;     // a jump in the body's vertical acceleration (g) that knocks every corner (0 = off)
+    // Defaults measured on recordings (Assetto Corsa and Automobilista 2,
+    // five cars): about 1 to 40 knocks a minute by car and track. The old
+    // 500 / 2500 / 1.5 g were set while the plugin sent heave 10x too big:
+    // with real units the body almost never knocked.
+    double fromMmS = 400.0;   // a jump in a corner's suspension velocity between two samples that starts a knock
+    double fullMmS = 1500.0;  // ...and the jump that is a full one
+    double heaveG  = 0.5;     // a jump in the body's vertical acceleration (g) that knocks every corner (0 = off)
 };
 
 // The Driveline tile: clutch judder and lugging wind-up, each a mix and
@@ -232,6 +248,10 @@ struct DrivelineParams
     double whine    = 0.0;    // straight-cut gear whine mix 0..1 (0 = helical, quiet)
     double shunt    = 0.5;    // driveline shunt (backlash take-up) on throttle tip-in / lift, 0..1
     double shuntHz  = 40.0;   // ...its knock carrier
+    // The Gear shift tile's knock (0 off, 1 on): a pass through neutral on
+    // the way to the next gear is no shift of its own (sims report N for a
+    // moment in every shift, which knocked twice).
+    double ignoreN  = 1.0;
 };
 
 // Per-effect tuning shared by every effect kind. ampPct 0 = the effect is

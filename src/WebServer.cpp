@@ -1586,6 +1586,7 @@ bool WebServer::start()
                 {
                     const haptics::WheelsParams wd;
                     d["balance"] = wd.balance; d["flat"] = wd.flat; d["judder"] = wd.judder; d["puncture"] = wd.puncture;
+                    d["bite"] = wd.bite; d["drag"] = wd.drag; d["biteHz"] = wd.biteHz; d["dragHz"] = wd.dragHz;
                 }
                 else if (info.kind == haptics::Kind::Impacts)
                 {
@@ -1601,7 +1602,7 @@ bool WebServer::start()
                     {
                         d["slow"] = q.slow; d["buzz"] = q.buzz; d["buzzHz"] = q.buzzHz;
                         d["slipLink"] = q.slipLink; d["lockLink"] = q.lockLink; d["scrubLink"] = q.scrubLink;
-                        d["brakeFull"] = q.brakeFull; d["fromWheels"] = q.fromWheels;
+                        d["brakeFull"] = q.brakeFull; d["fromWheels"] = q.fromWheels; d["lowOff"] = q.lowOff;
                     }
                 }
                 else if (info.kind == haptics::Kind::Driveline)
@@ -1609,6 +1610,7 @@ bool WebServer::start()
                     const haptics::DrivelineParams dd;
                     d["clutch"] = dd.clutch; d["clutchHz"] = dd.clutchHz; d["lug"] = dd.lug; d["lugHz"] = dd.lugHz;
                     d["gearbox"] = dd.gearbox; d["whine"] = dd.whine; d["shunt"] = dd.shunt; d["shuntHz"] = dd.shuntHz;
+                    d["ignoreN"] = dd.ignoreN;
                 }
                 e["defaults"] = d;
                 e["tip"] = info.tip;
@@ -2337,6 +2339,15 @@ bool WebServer::start()
         {
             if (!m_motion) { errResp(res, "Components not ready."); return; }
             m_motion->requestLatRelearn();
+            okResp(res);
+        });
+
+        // The Wheels tile's fresh tyres: flat spots and hot discs gone
+        // (a restart from the grid in the same car keeps them otherwise).
+        postCmd("/api/haptics/fresh-tyres", [this, okResp, errResp](const httplib::Request&, httplib::Response& res)
+        {
+            if (!m_motion) { errResp(res, "Components not ready."); return; }
+            m_motion->requestFreshTyres();
             okResp(res);
         });
 

@@ -216,7 +216,10 @@ int main()
         const double dt = 0.002;
         auto settle = [&](int n) { for (int i = 0; i < n; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); } };
 
-        // ABS flag with no brake: nothing. With brake: pulses.
+        // ABS flag with no brake: nothing. With brake: pulses. (The pulse's
+        // own behaviour from a standstill up, so off < 5 km/h is unticked
+        // here; I-17 covers it.)
+        { haptics::PulseParams q = L.pulseParams(haptics::FxType::AbsPulse); q.lowOff = 0.0; L.configurePulse(haptics::FxType::AbsPulse, q); }
         v.val[NcxValues::AbsActive] = 1.0; v.val[NcxValues::BrakePct] = 0.0;  settle(100);
         check(L.fxLevel(static_cast<int>(haptics::FxType::AbsPulse)) < 0.05, "I-7 ABS flag alone (no brake) stays silent");
         // As hard as the driver brakes: from nothing at 10% to full at full at
@@ -314,17 +317,18 @@ int main()
             v.val[NcxValues::TcActive] = 1.0; settle(10);
         }
 
-        // Gear edge: a change fires ONE transient; a steady gear fires none;
-        // the first sighting after staleness never fires.
-        v.val[NcxValues::Gear] = 3.0; settle(10);
+        // Gear edge: a change fires ONE transient (once the new gear has
+        // held 45 ms); a steady gear fires none; the first sighting after
+        // staleness never fires.
+        v.val[NcxValues::Gear] = 3.0; settle(40);
         const uint64_t n0 = L.fireCount();
-        v.val[NcxValues::Gear] = 4.0; settle(10);
+        v.val[NcxValues::Gear] = 4.0; settle(30);
         const uint64_t n1 = L.fireCount();
         settle(100);
         const uint64_t n2 = L.fireCount();
         check(n1 == n0 + 1, "I-7 gear change fires one gear-shift transient");
         check(n2 == n1,     "I-7 steady gear fires nothing more");
-        v.fresh = false; settle(10); v.fresh = true; v.val[NcxValues::Gear] = 2.0; settle(10);
+        v.fresh = false; settle(10); v.fresh = true; v.val[NcxValues::Gear] = 2.0; settle(60);
         check(L.fireCount() == n2, "I-7 a returning stream never fires a stale crossing");
 
         // Stale: every level fades.
@@ -821,32 +825,66 @@ int main()
         for (int i = 0; i < 50; ++i) { haptics::driveLaws(K, ks, kv, dt); K.step(dt); }
         check(K.kerbWheelLevel(WheelFL) == 0.0, "I-9 kerb: off the kerb, it lets go");
 
-        // Kerb from the road heights (detect mm): the axle's usual
-        // left-right (banking) is not a kerb; a tyre stepping up past it is.
+        // Kerb from the road heights (detect mm): a kerb is a JUMP in an
+        // axle's left-right height difference (its edge, its ribs). The
+        // road's banking, and its camber changing over seconds (Imola: 20 to
+        // 55 mm, which read as a kerb most of a lap against a slowly learned
+        // usual difference), are not. Sim samples at 60 Hz, the laws at 500.
         haptics::KerbParams kd; kd.detectMm = 20.0; K.configureKerb(kd);
         for (int w = 0; w < 4; ++w) kv.have[NcxValues::SurfaceFL + w] = false;
         auto heights = [&](double fl, double fr, double rl, double rr)
         { const double h[4] = { fl, fr, rl, rr }; for (int w = 0; w < 4; ++w) { kv.have[NcxValues::RoadHeightFL + w] = true; kv.val[NcxValues::RoadHeightFL + w] = h[w]; } };
-        heights(30.0, 0.0, 30.0, 0.0);
-        for (int i = 0; i < 500; ++i) { haptics::driveLaws(K, ks, kv, dt); K.step(dt); }
-        check(K.kerbWheelLevel(WheelFL) == 0.0 && K.kerbWheelLevel(WheelFR) == 0.0, "I-9 kerb detect: banking alone is not a kerb");
-        heights(60.0, 0.0, 30.0, 0.0);
-        for (int i = 0; i < 50; ++i) { haptics::driveLaws(K, ks, kv, dt); K.step(dt); }
-        check(K.kerbWheelLevel(WheelFL) > 0.99 && K.kerbWheelLevel(WheelFR) == 0.0 && K.kerbWheelLevel(WheelRL) == 0.0,
-              "I-9 kerb detect: FL 30 mm above its usual is on a kerb");
-        heights(30.0, 0.0, 30.0, 0.0);
-        for (int i = 0; i < 50; ++i) { haptics::driveLaws(K, ks, kv, dt); K.step(dt); }
-        heights(30.0, 0.0, 30.0, 25.0);
-        for (int i = 0; i < 50; ++i) { haptics::driveLaws(K, ks, kv, dt); K.step(dt); }
-        check(K.kerbWheelLevel(WheelRR) > 0.99 && K.kerbWheelLevel(WheelFL) == 0.0, "I-9 kerb detect: RR stepping up 25 mm is on a kerb");
+        // Drive secs with the heights a function of time, held per 60 Hz
+        // sample; the largest kerb level seen per wheel after `from` s.
+        double kerbPk[4] = {};
+        auto ride = [&](double secs, double from, auto at) {
+            for (double& p : kerbPk) p = 0.0;
+            const int n = static_cast<int>(secs / dt); int lastK = -1;
+            for (int i = 0; i < n; ++i)
+            {
+                const double t = i * dt; const int k = static_cast<int>(t * 60.0);
+                if (k != lastK) { lastK = k; at(k / 60.0); }
+                haptics::driveLaws(K, ks, kv, dt); K.step(dt);
+                if (t >= from) for (int w = 0; w < 4; ++w) kerbPk[w] = std::max(kerbPk[w], K.kerbWheelLevel(w));
+            } };
+        ride(1.0, 0.0, [&](double) { heights(30.0, 0.0, 30.0, 0.0); });
+        check(kerbPk[WheelFL] == 0.0 && kerbPk[WheelFR] == 0.0, "I-9 kerb detect: banking alone is not a kerb");
+        ride(2.0, 0.0, [&](double t) { heights(30.0 + 25.0 * t, 0.0, 30.0 + 25.0 * t, 0.0); });   // 50 mm of camber in 2 s, both axles
+        check(kerbPk[WheelFL] == 0.0 && kerbPk[WheelFR] == 0.0 && kerbPk[WheelRL] == 0.0, "I-9 kerb detect: the camber changing over seconds is no kerb");
+        // A ribbed kerb under FL: 20 mm ribs every other sample for 0.6 s.
+        ride(0.6, 0.05, [&](double t) { const int k = static_cast<int>(t * 60.0 + 0.5); heights((k % 2) ? 100.0 : 80.0, 0.0, 80.0, 0.0); });
+        check(kerbPk[WheelFL] > 0.99 && kerbPk[WheelFR] == 0.0 && kerbPk[WheelRL] == 0.0, "I-9 kerb detect: ribs under FL put FL on a kerb, not FR or the rears");
+        check(K.kerbWheelLevel(WheelFL) > 0.99, "I-9 kerb detect: ...and keep it there while the ribs go on");
+        ride(1.0, 0.6, [&](double) { heights(80.0, 0.0, 80.0, 0.0); });
+        check(kerbPk[WheelFL] == 0.0, "I-9 kerb detect: off the ribs it lets go within half a second");
+        // Ribs under FR straight after the camber has moved (a side taken
+        // from a slowly learned camber lagged it and put the kerb on FL).
+        ride(2.0, 0.0, [&](double t) { heights(80.0 + 25.0 * t, 0.0, 80.0, 0.0); });
+        ride(0.6, 0.05, [&](double t) { const int k = static_cast<int>(t * 60.0 + 0.5); heights(130.0, (k % 2) ? 20.0 : 0.0, 80.0, 0.0); });
+        check(kerbPk[WheelFR] > 0.99 && kerbPk[WheelFL] == 0.0, "I-9 kerb detect: ribs under FR after a camber change are FR's");
+        ride(1.0, 0.0, [&](double) { heights(130.0, 0.0, 80.0, 0.0); });
+        // A flat raised kerb under FL: up 30 mm for a second, then off. The
+        // drop off rumbles FL again, not FR.
+        ride(0.1, 0.0, [&](double) { heights(160.0, 0.0, 80.0, 0.0); });
+        check(kerbPk[WheelFL] > 0.99 && kerbPk[WheelFR] == 0.0, "I-9 kerb detect: up onto a flat kerb, FL");
+        ride(1.0, 0.0, [&](double) { heights(160.0, 0.0, 80.0, 0.0); });
+        ride(0.1, 0.0, [&](double) { heights(130.0, 0.0, 80.0, 0.0); });
+        check(kerbPk[WheelFL] > 0.99 && kerbPk[WheelFR] == 0.0, "I-9 kerb detect: ...and off it, FL again (the same kerb)");
+        ride(1.0, 0.0, [&](double) { heights(130.0, 0.0, 80.0, 0.0); });
+        ride(2.0, 0.0, [&](double t) { heights(130.0 - 25.0 * t, 0.0, 80.0, 0.0); });   // camber back, slowly
+        check(kerbPk[WheelFL] == 0.0 && kerbPk[WheelFR] == 0.0, "I-9 kerb detect: the camber easing back is no kerb");
+        // A single step up under RR (a raised kerb's edge): on at once, gone
+        // within half a second on its flat top.
+        ride(0.1, 0.0, [&](double) { heights(80.0, 0.0, 80.0, 25.0); });
+        check(kerbPk[WheelRR] > 0.99 && kerbPk[WheelRL] == 0.0 && kerbPk[WheelFL] == 0.0, "I-9 kerb detect: RR stepping up 25 mm is on a kerb");
+        ride(1.0, 0.5, [&](double) { heights(80.0, 0.0, 80.0, 25.0); });
+        check(kerbPk[WheelRR] == 0.0, "I-9 kerb detect: ...for a moment: its flat top is no rumble");
         // A numbered line pads its kerb channel with 0 (Assetto Corsa sends
         // none): that 0 must not shut the detector out.
         kv.have[NcxValues::Curbs] = true; kv.val[NcxValues::Curbs] = 0.0;
-        heights(30.0, 0.0, 30.0, 0.0);
-        for (int i = 0; i < 50; ++i) { haptics::driveLaws(K, ks, kv, dt); K.step(dt); }
-        heights(60.0, 0.0, 30.0, 0.0);
-        for (int i = 0; i < 50; ++i) { haptics::driveLaws(K, ks, kv, dt); K.step(dt); }
-        check(K.kerbWheelLevel(WheelFL) > 0.99, "I-9 kerb detect: a kerb channel stuck at 0 does not shut the detector out");
+        ride(0.5, 0.0, [&](double) { heights(80.0, 0.0, 80.0, 0.0); });
+        ride(0.1, 0.0, [&](double) { heights(110.0, 0.0, 80.0, 0.0); });
+        check(kerbPk[WheelFL] > 0.99, "I-9 kerb detect: a kerb channel stuck at 0 does not shut the detector out");
         kv.have[NcxValues::Curbs] = false;
 
         // Preview with no sim: the strip at 80 km/h, on 0.6 s in every 1 s.
@@ -1199,6 +1237,39 @@ int main()
         check(absOff(), "I-17: a wheel locked and staying locked (no ABS) is no ABS");
         hunt(0.5, [&](double) { return 0.0; });
         check(absOff() && !L.absModel().synced(WheelFL), "I-17: ...nor its release; ABS off frees the corners");
+
+        // Off below walking pace: the sim's flag held on at 3 km/h with the
+        // brake down (the BMW in the pits) plays no ABS; unticked it does.
+        // (The speed jump is a glitch the guard holds for half a second.)
+        v.val[NcxValues::AbsActive] = 1.0;
+        v.val[NcxValues::SpeedKmh] = 3.0; setW(NcxValues::WheelSpeedFL, wsAt(3), wsAt(3), wsAt(3), wsAt(3));
+        pp.fromWheels = 0.0; pp.lowOff = 1.0; L.configurePulse(FxType::AbsPulse, pp);
+        double absPk = 0.0;   // over the whole second: the speed jump's half-second hold included
+        for (int i = 0; i < static_cast<int>(1.0 / dt); ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); absPk = std::max(absPk, L.fxLevel(static_cast<int>(FxType::AbsPulse))); }
+        check(absPk < 0.01, "I-17: ABS flag on at 3 km/h: nothing below 5 km/h, through the speed jump's hold too");
+        pp.lowOff = 0.0; L.configurePulse(FxType::AbsPulse, pp);
+        run(0.5);
+        check(L.fxLevel(static_cast<int>(FxType::AbsPulse)) > 0.99, "I-17: ...off < 5 km/h unticked, the flag plays");
+        // Amp 0 is no ABS at all: its slip link does not judder the tyres
+        // (a car without ABS, its entry's amp 0, the tickboxes left on from
+        // the last car). Kept amp with no routes: felt through the tyres only.
+        v.val[NcxValues::SpeedKmh] = 100.0; setW(NcxValues::WheelSpeedFL, wsAt(100), wsAt(100), wsAt(100), wsAt(100));
+        pp.lowOff = 1.0; pp.slipLink = 1.0; L.configurePulse(FxType::AbsPulse, pp);
+        haptics::EffectParams off = fx; off.ampPct = 0.0; L.configureFx(FxType::AbsPulse, off);
+        double lockPk = 0.0;
+        for (int i = 0; i < static_cast<int>(1.0 / dt); ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); if (i * dt > 0.6) lockPk = std::max(lockPk, L.slipWheelLevel(FxType::Lockup, WheelRL)); }
+        check(L.fxLevel(static_cast<int>(FxType::AbsPulse)) < 0.01 && lockPk < 0.01, "I-17: ABS amp 0: no ABS, and no lock judder through its slip link");
+        haptics::startPreview(st, FxType::AbsPulse);
+        lockPk = 0.0;
+        for (int i = 0; i < static_cast<int>(1.0 / dt); ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); lockPk = std::max(lockPk, L.slipWheelLevel(FxType::Lockup, WheelRL)); }
+        check(lockPk < 0.01, "I-17: ...nor a Test of it");
+        haptics::EffectParams tyresOnly = fx; tyresOnly.routes[0] = haptics::Route{}; L.configureFx(FxType::AbsPulse, tyresOnly);
+        lockPk = 0.0;
+        for (int i = 0; i < static_cast<int>(1.0 / dt); ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); if (i * dt > 0.3) lockPk = std::max(lockPk, L.slipWheelLevel(FxType::Lockup, WheelRL)); }
+        check(lockPk > 0.4, "I-17: ABS amp kept, no routes: felt through the tyres only (the slip link at the edge of locking)");
+        L.configureFx(FxType::AbsPulse, fx);
+        pp.slipLink = 0.0; L.configurePulse(FxType::AbsPulse, pp);
+        v.val[NcxValues::AbsActive] = 0.0;
         v.val[NcxValues::BrakePct] = 0.0;
     }
 
@@ -1258,6 +1329,54 @@ int main()
         std::strncpy(v.car, "Car B", NCY_STR_LEN - 1);
         run(dt);
         check(st.latBaseSec < 0.01 && st.latBase[WheelFL] < 0.01, "I-18: a new car starts the baseline over");
+    }
+
+    // ---- I-19: the Wheels tile's pads: the grab and the drag ----
+    {
+        using haptics::FxType; using haptics::Part;
+        const double dt = 0.0005;
+        haptics::Layer L; haptics::LawsState st;
+        haptics::EffectParams wp; wp.ampPct = 100.0; wp.routes[0] = { 0, 1.0, Part::FL };   // a belt: a force
+        L.configureFx(FxType::Wheels, wp);
+        haptics::WheelsParams q; q.balance = 0.0; q.flat = 0.0; q.judder = 0.0; q.puncture = 0.0;
+        q.bite = 1.0; q.drag = 0.0; q.biteHz = 40.0; q.dragHz = 80.0;
+        L.configureWheels(q);
+        NcxValues v{}; v.fresh = true;
+        v.have[NcxValues::SpeedKmh] = true; v.val[NcxValues::SpeedKmh] = 100.0;
+        v.have[NcxValues::BrakePct] = true; v.val[NcxValues::BrakePct] = 0.0;
+        // Peak |output| over a window, and its zero crossings (the pitch).
+        auto watch = [&](double secs, double& pk, int& xings) {
+            pk = 0.0; xings = 0; double last = 0.0;
+            for (int i = 0; i < static_cast<int>(secs / dt); ++i)
+            {
+                haptics::driveLaws(L, st, v, dt); L.step(dt);
+                const double o = L.overlayFor(0);
+                pk = std::max(pk, std::fabs(o));
+                if (i > 0 && (o >= 0.0) != (last >= 0.0) && std::fabs(o - last) > 1e-9) ++xings;
+                last = o;
+            } };
+        double pk = 0.0; int xr = 0;
+        watch(1.0, pk, xr);
+        check(pk < 1e-6, "I-19 pads: no brake, nothing");
+        v.val[NcxValues::BrakePct] = 60.0;
+        double grabPk = 0.0; watch(0.3, grabPk, xr);
+        const double grabHz = xr / 2.0 / 0.3;
+        double laterPk = 0.0; watch(1.0, laterPk, xr); watch(0.3, laterPk, xr);   // a second on, the pedal held
+        std::printf("  I-19 grab peak %.1f (pitch %.0f Hz at 100 km/h), a second later %.2f\n", grabPk, grabHz, laterPk);
+        check(grabPk > 30.0, "I-19 pads: the brake going on grabs");
+        check(std::fabs(grabHz - 40.0) < 10.0, "I-19 pads: ...at bite hz at 100 km/h (dithered)");
+        check(laterPk < 0.1 * grabPk, "I-19 pads: ...fading once the pedal holds (drag 0)");
+        q.drag = 1.0; L.configureWheels(q);
+        double dragPk = 0.0; watch(0.5, dragPk, xr);
+        const double dragHz = xr / 2.0 / 0.5;
+        check(dragPk > 20.0 && std::fabs(dragHz - 80.0) < 20.0, "I-19 pads: the drag rubs on while the brake stays on, at drag hz");
+        v.val[NcxValues::SpeedKmh] = 50.0; watch(0.6, pk, xr);   // past the speed jump's hold
+        watch(0.5, pk, xr);
+        check(std::fabs(xr / 2.0 / 0.5 - 40.0) < 12.0, "I-19 pads: at 50 km/h the drag's pitch is half");
+        // A locked wheel's disc is not turning under the pads: nothing.
+        for (int w = 0; w < 4; ++w) { v.have[NcxValues::SlipRatioFL + w] = true; v.val[NcxValues::SlipRatioFL + w] = -1.0; }
+        watch(0.5, pk, xr);
+        check(pk < 1e-6, "I-19 pads: a locked wheel gives nothing");
     }
 
     // ---- I-14: the fronts' screech and pulse through the laws ----
@@ -1384,6 +1503,59 @@ int main()
         v.val[NcxValues::Gear] = 150.0; run(1.0 / 60.0);
         v.val[NcxValues::Gear] = 4.0;   run(0.2);
         check(L.fireCount(haptics::EventType::GearShift) == shifts0, "I-15: a garbage gear (150) fires no shift");
+        // The gear as the sims really send it: a neutral for a moment in
+        // every shift, and Automobilista 2's one-frame junk gear (a 5-4
+        // downshift read 5, N, 3, 4: three knocks). A synchro box, so one
+        // knock per shift (no dog engagement knock).
+        {
+            haptics::DrivelineParams dpar = L.drivelineParams(); dpar.gearbox = 0.0; dpar.ignoreN = 1.0; L.configureDriveline(dpar);
+            const auto shifts = [&]() { return L.fireCount(haptics::EventType::GearShift); };
+            uint64_t s0 = shifts();
+            v.val[NcxValues::Gear] = 0.0; run(0.15); v.val[NcxValues::Gear] = 5.0; run(0.3);
+            check(shifts() - s0 == 1, "I-15 gear: 4, N for 150 ms, 5 is one shift (ignore neutral)");
+            s0 = shifts();
+            v.val[NcxValues::Gear] = 0.0; run(0.18); v.val[NcxValues::Gear] = 3.0; run(1.0 / 60.0); v.val[NcxValues::Gear] = 4.0; run(0.3);
+            check(shifts() - s0 == 1, "I-15 gear: 5, N, a one-frame junk 3, then 4 is one shift");
+            s0 = shifts();
+            v.val[NcxValues::Gear] = 2.0; run(1.0 / 60.0); v.val[NcxValues::Gear] = 4.0; run(0.3);
+            check(shifts() == s0, "I-15 gear: a one-frame junk gear on its own is no shift");
+            dpar.ignoreN = 0.0; L.configureDriveline(dpar);
+            s0 = shifts();
+            v.val[NcxValues::Gear] = 0.0; run(0.15); v.val[NcxValues::Gear] = 5.0; run(0.3);
+            check(shifts() - s0 == 2, "I-15 gear: ignore neutral off, going into N knocks too");
+            dpar.ignoreN = 1.0; L.configureDriveline(dpar);
+            // A junk frame (gear 128, dropped) in the middle of a real shift
+            // does not swallow it.
+            s0 = shifts();
+            v.val[NcxValues::Gear] = 4.0; run(0.02); v.val[NcxValues::Gear] = 128.0; run(1.0 / 60.0);
+            v.val[NcxValues::Gear] = 4.0; run(0.3);
+            check(shifts() - s0 == 1, "I-15 gear: a junk frame mid-shift does not swallow the shift");
+            // A neutral held half a second is a real one: selecting the same
+            // gear again knocks.
+            s0 = shifts();
+            v.val[NcxValues::Gear] = 0.0; run(0.7); v.val[NcxValues::Gear] = 4.0; run(0.3);
+            check(shifts() - s0 == 1, "I-15 gear: back into the same gear after a real neutral knocks");
+        }
+        // A junk engine speed (Automobilista 2 sent 191,105 rpm once, with
+        // the plugin's limiter flag set from it) is not taken: the last one
+        // that could be true stands, and the flag goes with it. Nor an rpm
+        // changing faster than an engine can within one sample; held a
+        // moment, a real change stands.
+        { haptics::EffectParams lp; lp.ampPct = 100.0; lp.freqHz = 17.0; lp.routes[0] = { 2, 1.0, Part::All }; L.configureFx(FxType::Limiter, lp); }
+        v.have[NcxValues::Rpm] = true; v.val[NcxValues::Rpm] = 6000.0;
+        v.have[NcxValues::Limiter] = true; v.val[NcxValues::Limiter] = 1.0; run(1.0 / 60.0);
+        check(L.fxLevel(static_cast<int>(FxType::Limiter)) > 0.2, "I-15 rpm: a true frame's limiter flag plays (the control)");
+        v.val[NcxValues::Limiter] = 0.0; run(0.3);
+        v.val[NcxValues::Rpm] = 191105.0; v.val[NcxValues::Limiter] = 1.0; run(1.0 / 60.0);
+        check(st.rpmSeen && st.lastRpm == 6000.0, "I-15 rpm: a 191,105 rpm junk frame is not taken");
+        check(L.fxLevel(static_cast<int>(FxType::Limiter)) < 0.01, "I-15 rpm: ...nor its limiter flag");
+        v.val[NcxValues::Limiter] = 0.0;
+        v.val[NcxValues::Rpm] = 6100.0; run(1.0 / 60.0);
+        v.val[NcxValues::Rpm] = 12000.0; run(1.0 / 60.0);
+        check(st.lastRpm == 6100.0, "I-15 rpm: 6100 to 12000 in one sample is junk");
+        run(0.2);
+        check(st.lastRpm == 12000.0, "I-15 rpm: ...held a moment, it stands");
+        v.have[NcxValues::Limiter] = false;
         // One combined-slip sample of three billion (Automobilista 2's slip
         // speed, now and then): capped, it cannot hold the slide on.
         v.val[NcxValues::WheelSlipFL] = 3.0e9; run(1.0 / 60.0);

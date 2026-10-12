@@ -1999,6 +1999,7 @@ void MotionController::driveContinuousHaptics(const TelemetryData& td)
 {
     const NcxValues v = m_ncxMap.extract(td);
     if (m_hapLatRelearn.exchange(false, std::memory_order_acq_rel)) haptics::relearnLatBase(m_hapLaws);
+    if (m_hapFreshTyres.exchange(false, std::memory_order_acq_rel)) m_haptics.wheelsFreshTyres();
     haptics::driveLaws(m_haptics, m_hapLaws, v, m_cycleTimeSec, &m_ratioLearner.ratios());
     for (int i = 0; i < NcxValues::TokenCount; ++i)
     {

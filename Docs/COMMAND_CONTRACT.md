@@ -57,6 +57,7 @@ in the same commit.
 | E-stop release | `/api/estop/release` | none | - | `estop:false` | **desktop-only** (re-arm needs eyes on the rig) |
 | Reset fault (+lockout) | `/api/reset-fault` | needs components | drive may refuse reset until thermal decay (Er40/41); retried by fault monitor | drive state via per-drive status; lockout cleared | yes |
 | Reset stats | `/api/resetstats` | needs loop | - | tuning metrics re-baseline | no (tuning, not operation) |
+| Fresh tyres | `/api/haptics/fresh-tyres` | needs motion controller | taken by the next haptics step (loop or idle clock) | the Wheels tile's flats and disc heat back to 0 | no (tuning, not operation) |
 | Relearn lateral baseline | `/api/haptics/relearn` | needs motion controller | taken by the next haptics step (loop or idle clock) | `hapLatBaseSec` back to 0, `hapLatLearned:false` | no (tuning, not operation) |
 | Record telemetry | `/api/record` (body `{"on":true\|false}`) | refused when it cannot start (already recording, under 1 GB free, the folder or file cannot be made) | - | `record.on`, `record.file`, `record.note` | no (tuning, not operation) |
 | Restart service | `/api/restart` | private client address only | - | - | **never bindable** |

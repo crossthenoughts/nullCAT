@@ -18,7 +18,16 @@
 //            and harder the wheel slid locked, wearing slowly round again;
 //   judder   hot brake discs varying in thickness: the braking force
 //            pulsing twice per revolution, only under braking with hot
-//            discs (felt fore and aft: belts, surge, shakers).
+//            discs (felt fore and aft: belts, surge, shakers);
+//   bite     the pads on the turning disc: a rough grain at bite hz (at
+//   drag     100 km/h, following each wheel's own speed), swelling as the
+//            pedal goes on or is squeezed harder (the grab) and settling
+//            to a steady rub (the drag), stronger at speed and on the
+//            loaded tyre, nothing from a locked wheel; each cycle a little
+//            longer or shorter and shallower, so it reads as friction, not
+//            a tone. It acts at the caliper, not through the suspension:
+//            straight to a belt or shaker, and a fine movement of its own
+//            on a post (derated at its own pitch).
 // A force F on the hub (per unit unsprung mass) enters the quarter car as
 // the road input that makes the same tyre force: F x unsprung / tyre rate.
 // Each wheel turns at its own speed, so the corners drift in and out of
@@ -37,6 +46,7 @@
 #include "WaveSynth.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 namespace haptics {
 
@@ -59,6 +69,20 @@ namespace wheels_k {
     constexpr double kCoolSec     = 40.0;    // cooling: heat x (0.2 + speed / 30 m/s) / this per second
     constexpr double kHotFrom     = 0.3;     // discs judder above this heat, full by 1
     constexpr double kJudderMinBrake = 0.05; // under braking
+    // The pads: the grain's pitch is bite hz at this wheel speed, following
+    // it (never below the floor); the grab builds with the pedal's rise (a
+    // press from nothing to half pedal in a moment: full) and fades over
+    // this long; the grain grows with the square root of speed, full from
+    // the reference; each cycle up to this much longer or shorter and this
+    // much shallower; a post's share of it (of its 100 %).
+    constexpr double kBiteRefMs     = 100.0 / 3.6;
+    constexpr double kBiteMinHz     = 4.0;
+    constexpr double kGrabPerPedal  = 2.0;
+    constexpr double kGrabSec       = 0.25;
+    constexpr double kBiteMinBrake  = 0.02;
+    constexpr double kBitePeriodVar = 0.25, kBiteDepthVar = 0.3;
+    constexpr double kBiteGrit      = 0.35;  // a second harmonic: the pads' grit
+    constexpr double kBitePosShare  = 0.1;   // a post: this share of its 100 % at full
     constexpr double kPosFullMm   = 0.3;     // a post's 100%: the body moving this much
     constexpr double kForceRefHz  = 8.0;     // a force sink's 100% = kPosFullMm moved at this rate
     constexpr double kLevelSec    = 0.2;     // the tile's level: peak, falling over this
@@ -119,9 +143,15 @@ public:
         const double outA  = std::exp(-2.0 * wavesynth::kPi * std::max(road_k::kMinHpHz, rp.hpHz) * dtSec);
         const double aFull = kPosFullMm * std::pow(2.0 * wavesynth::kPi * kForceRefHz, 2.0);
         const double balance = std::max(0.0, q.balance), flatX = std::max(0.0, q.flat), judder = std::max(0.0, q.judder);
+        const double bite = std::max(0.0, std::min(1.0, q.bite)), drag = std::max(0.0, std::min(1.0, q.drag));
         const double hubToRoad = kMassRatioWheel / std::max(1e-9, k.kt);   // a hub force as the road input making the same tyre force
         double inst = 0.0;
-        m_rateHz = 0.0;
+        m_rateHz = m_grabHz = m_dragHz = 0.0;
+        // The grab: the pedal going on, or squeezed harder, fading after.
+        const double rise = std::max(0.0, m_brake - m_brakePrev);
+        m_brakePrev = m_brake;
+        m_grab = (m_brake < kBiteMinBrake) ? 0.0
+               : std::min(1.0, m_grab * std::exp(-dtSec / kGrabSec) + kGrabPerPedal * rise);
         for (int i = 0; i < WHEEL_COUNT; ++i)
         {
             W& w = m_w[i];
@@ -148,6 +178,10 @@ public:
             // Disc heat: in with the brake and the speed, out faster at speed.
             w.heat += dtSec * (kHeatRate * m_brake * w.carMs - w.heat * (0.2 + w.carMs / 30.0) / kCoolSec);
             w.heat = std::max(0.0, std::min(1.0, w.heat));
+            // The pads: how far the disc is turning against the car (a locked
+            // wheel's disc stands still under them) and the tyre's load share.
+            const double turning = (w.carMs > kLockMinMs) ? std::max(0.0, std::min(1.0, v / w.carMs)) : (v > kLockMinMs ? 1.0 : 0.0);
+            const double loadK   = std::max(0.3, std::min(1.5, w.load));
             w.carMs = 0.0; w.ratio = 0.0; w.load = 1.0;   // this cycle's, used
 
             // The road this wheel makes as it turns (mm): the imbalance's
@@ -186,6 +220,16 @@ public:
             const double hot  = std::max(0.0, std::min(1.0, (heat - kHotFrom) / (1.0 - kHotFrom)));
             if (judder > 0.0 && hot > 0.0 && m_brake > kJudderMinBrake && v > kLockMinMs)
                 force += judder * hot * m_brake * w.groundF * std::sin(2.0 * ph + kPhase[i]);
+            // The pads on the disc: the grab and the drag, each a dithered
+            // grain at its own pitch following this wheel's speed, at the
+            // caliper (not through the suspension).
+            w.grab.pos = w.drag.pos = 0.0;
+            if (m_brake >= kBiteMinBrake && v > kLockMinMs)
+            {
+                const double k = std::sqrt(std::min(1.0, v / kBiteRefMs)) * turning * loadK;
+                force += grain(w.grab, w.rng, bite * m_grab * k, q.biteHz * v / kBiteRefMs, dtSec, m_grabHz);
+                force += grain(w.drag, w.rng, drag * m_brake * k, q.dragHz * v / kBiteRefMs, dtSec, m_dragHz);
+            }
             w.out.pos   = roadSoftKnee(w.zsHp / kPosFullMm);
             w.out.force = roadSoftKnee(force);
             inst = std::max(inst, std::max(std::fabs(w.out.pos), std::fabs(w.out.force)));
@@ -204,6 +248,16 @@ public:
         o.pos /= n; o.force /= n;
         return o;
     }
+    // The pads' grains for a post (a movement of their own, each derated at
+    // its pitch): the part's corners' mean. drag = false: the grab.
+    double padFor(Part part, bool drag) const
+    {
+        int first, last; partWheels(part, first, last);
+        double s = 0.0;
+        for (int i = first; i <= last; ++i) s += drag ? m_w[i].drag.pos : m_w[i].grab.pos;
+        return s / static_cast<double>(last - first + 1);
+    }
+    double padHz(bool drag) const     { return drag ? m_dragHz : m_grabHz; }   // the fastest wheel's grain this cycle (0 = none)
     double level() const              { return m_level; }
     double rateHz() const             { return m_rateHz; }   // the fastest wheel's revolutions per second
     double flatMm(int wheel) const    { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_w[wheel].flatMm : 0.0; }
@@ -211,14 +265,52 @@ public:
     bool   punctured(int wheel) const { return wheel >= 0 && wheel < WHEEL_COUNT && m_w[wheel].deflated; }
     double revolution(int wheel) const{ return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_w[wheel].rev : 0.0; }
 
-    // New tyres and cold discs.
+    // Fresh tyres and cold discs, rolling on (the wheels keep turning: no
+    // step in the output).
+    void freshTyres()
+    {
+        for (W& w : m_w) { w.flatMm = w.spotAt = w.heat = w.lockSec = 0.0; w.wasGrinding = false; }
+        m_prevFlat = m_prevHeat = 0.0;
+    }
+    // Everything back to rest (a new car, the tile off).
     void clear()
     {
-        for (W& w : m_w) w = W{};
+        uint64_t seed = 0x9E3779B97F4A7C15ull;
+        for (W& w : m_w) { w = W{}; w.rng = seed; seed = seed * 6364136223846793005ull + 1442695040888963407ull; }
         m_brake = m_level = m_rateHz = m_prevFlat = m_prevHeat = 0.0;
+        m_brakePrev = m_grab = m_grabHz = m_dragHz = 0.0;
     }
 
 private:
+    static double rand01(uint64_t& r)
+    {
+        r ^= r << 13; r ^= r >> 7; r ^= r << 17;
+        return static_cast<double>(r & 0xFFFFFF) / 16777215.0;
+    }
+    // One of the pads' grains on one wheel: phase, this cycle's length and
+    // depth (each cycle a little different), a post's share of it.
+    struct Grain { double ph = 0.0, k = 1.0, d = 1.0, pos = 0.0; };
+    // Advance a grain at hz (never below the floor) and give its force at
+    // strength e (0 = silent), noting the pitch for a post's derating.
+    static double grain(Grain& g, uint64_t& rng, double e, double hz, double dtSec, double& maxHz)
+    {
+        using namespace wheels_k;
+        if (!(e > 0.0)) return 0.0;
+        hz = std::max(kBiteMinHz, hz);
+        g.ph += hz * g.k * dtSec;
+        if (g.ph >= 1.0)
+        {
+            g.ph -= std::floor(g.ph);
+            g.k = 1.0 + kBitePeriodVar * (2.0 * rand01(rng) - 1.0);
+            g.d = 1.0 - kBiteDepthVar * rand01(rng);
+        }
+        const double a = 2.0 * wavesynth::kPi * g.ph;
+        const double s = (std::sin(a) + kBiteGrit * std::sin(2.0 * a + 0.7)) / (1.0 + kBiteGrit);
+        const double f = std::min(1.0, e) * g.d * s;
+        g.pos = kBitePosShare * f;
+        maxHz = std::max(maxHz, hz);
+        return f;
+    }
     struct W
     {
         double v = 0.0, carMs = 0.0, ratio = 0.0, load = 1.0;
@@ -227,11 +319,14 @@ private:
         double rev = 0.0, spotAt = 0.0, flatMm = 0.0, heat = 0.0, lockSec = 0.0;
         QuarterCar qc;
         double zsHp = 0.0, zsPrev = 0.0, asHp = 0.0, asPrev = 0.0;
+        Grain grab, drag;   // the pads: the grab and the drag
+        uint64_t rng = 1;
         RoadOut out;
     };
     W m_w[WHEEL_COUNT];
     double m_brake = 0.0, m_level = 0.0, m_rateHz = 0.0;
     double m_prevFlat = 0.0, m_prevHeat = 0.0;
+    double m_brakePrev = 0.0, m_grab = 0.0, m_grabHz = 0.0, m_dragHz = 0.0;
 };
 
 } // namespace haptics

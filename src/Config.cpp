@@ -283,6 +283,7 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
             {
                 const haptics::WheelsParams& w = c.hapticsWheels;
                 o["balance"] = w.balance; o["flat"] = w.flat; o["judder"] = w.judder; o["puncture"] = w.puncture;
+                o["bite"] = w.bite; o["drag"] = w.drag; o["biteHz"] = w.biteHz; o["dragHz"] = w.dragHz;
             }
             else if (info.kind == haptics::Kind::Impacts)
             {
@@ -298,7 +299,7 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
                 {
                     o["slow"] = q.slow; o["buzz"] = q.buzz; o["buzzHz"] = q.buzzHz;
                     o["slipLink"] = q.slipLink; o["lockLink"] = q.lockLink; o["scrubLink"] = q.scrubLink;
-                    o["brakeFull"] = q.brakeFull; o["fromWheels"] = q.fromWheels;
+                    o["brakeFull"] = q.brakeFull; o["fromWheels"] = q.fromWheels; o["lowOff"] = q.lowOff;
                 }
             }
             else if (info.kind == haptics::Kind::Driveline)
@@ -306,6 +307,7 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
                 const haptics::DrivelineParams& d = c.hapticsDriveline;
                 o["clutch"] = d.clutch; o["clutchHz"] = d.clutchHz; o["lug"] = d.lug; o["lugHz"] = d.lugHz;
                 o["gearbox"] = d.gearbox; o["whine"] = d.whine; o["shunt"] = d.shunt; o["shuntHz"] = d.shuntHz;
+                o["ignoreN"] = d.ignoreN;
             }
             h[info.key] = o;
         }
@@ -441,6 +443,10 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                 w.flat   = o.value("flat").toDouble(w.flat);
                 w.judder = o.value("judder").toDouble(w.judder);
                 w.puncture = o.value("puncture").toDouble(w.puncture);
+                w.bite   = o.value("bite").toDouble(w.bite);
+                w.drag   = o.value("drag").toDouble(w.drag);
+                w.biteHz = o.value("biteHz").toDouble(w.biteHz);
+                w.dragHz = o.value("dragHz").toDouble(w.dragHz);
             }
             if (info.kind == haptics::Kind::Impacts)
             {
@@ -466,6 +472,7 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                     q.scrubLink = o.value("scrubLink").toDouble(q.scrubLink);
                     q.brakeFull = o.value("brakeFull").toDouble(q.brakeFull);
                     q.fromWheels = o.value("fromWheels").toDouble(q.fromWheels);
+                    q.lowOff     = o.value("lowOff").toDouble(q.lowOff);
                 }
             }
             if (info.kind == haptics::Kind::Driveline)
@@ -479,6 +486,7 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                 d.whine    = o.value("whine").toDouble(d.whine);
                 d.shunt    = o.value("shunt").toDouble(d.shunt);
                 d.shuntHz  = o.value("shuntHz").toDouble(d.shuntHz);
+                d.ignoreN  = o.value("ignoreN").toDouble(d.ignoreN);
             }
             if (info.kind == haptics::Kind::Engine)
             {
@@ -1398,6 +1406,8 @@ std::vector<std::string> AppConfig::validate() const
                     errors.push_back(pfx + "whine/shunt mix out of range [0, 1]");
                 if (d.shuntHz < 20.0 || d.shuntHz > 80.0)
                     errors.push_back(pfx + "shuntHz out of range [20, 80]");
+                if (d.ignoreN != 0.0 && d.ignoreN != 1.0)
+                    errors.push_back(pfx + "ignoreN must be 0 (off) or 1 (on)");
             }
             if (info.kind == haptics::Kind::Road)
             {
@@ -1455,6 +1465,8 @@ std::vector<std::string> AppConfig::validate() const
                 if (w.flat < 0.0 || w.flat > 4.0)     errors.push_back(pfx + "flat out of range [0, 4]");
                 if (w.judder < 0.0 || w.judder > 1.0) errors.push_back(pfx + "judder out of range [0, 1]");
                 if (w.puncture < 0.0 || w.puncture > 2.0) errors.push_back(pfx + "puncture out of range [0, 2]");
+                if (w.bite < 0.0 || w.bite > 1.0 || w.drag < 0.0 || w.drag > 1.0) errors.push_back(pfx + "bite/drag out of range [0, 1]");
+                if (w.biteHz < 10.0 || w.biteHz > 200.0 || w.dragHz < 10.0 || w.dragHz > 200.0) errors.push_back(pfx + "biteHz/dragHz out of range [10, 200]");
             }
             if (info.kind == haptics::Kind::Impacts)
             {
@@ -1484,6 +1496,7 @@ std::vector<std::string> AppConfig::validate() const
                     if (q.scrubLink < 0.0 || q.scrubLink > 1.0) errors.push_back(pfx + "scrubLink out of range [0, 1]");
                     if (q.brakeFull < 10.0 || q.brakeFull > 100.0) errors.push_back(pfx + "brakeFull out of range [10, 100]");
                     if (q.fromWheels != 0.0 && q.fromWheels != 1.0) errors.push_back(pfx + "fromWheels must be 0 (off) or 1 (on)");
+                    if (q.lowOff != 0.0 && q.lowOff != 1.0)         errors.push_back(pfx + "lowOff must be 0 (off) or 1 (on)");
                 }
             }
             if (info.kind == haptics::Kind::Slip)

@@ -184,7 +184,7 @@ Kerb-only fields (`kerb`). Which tyre is on a kerb: `surface*` = 2, else the str
 | `riseMm` | `8` | The step up onto the kerb (mm), 0 to 50. |
 | `ribMm` | `3` | Rib height (mm), 0 to 20. |
 | `fullMm` | `10` | Kerb movement (mm) that is 100 % on a position axis, 0.5 to 50. A position axis gets the step as a thud on and off (above 3 Hz); a belt or shaker gets the ribs and the step's edges, scaled with speed (full at 80 km/h). |
-| `detectMm` | `0` | 0 to 100, 0 = off. Without a surface type, a tyre this far above its axle partner on `roadHeight*`, beyond the axle's usual camber and banking, is on a kerb (from half of it, full at it); a `curbs` channel too, the stronger plays. |
+| `detectMm` | `0` | 0 to 100, 0 = off. Without a surface type: an axle's left-right `roadHeight*` difference jumping this far across the sim samples of the last 35 ms (a kerb's edge or ribs) puts a tyre on a kerb, from half of it, full at it, fading 0.25 s after the last jump; the side is the tyre standing higher than the axle's usual (camber and banking, learned off the kerbs). The road's camber changing over seconds never counts. A `curbs` channel too: the stronger plays. |
 
 ABS and TC fields (`abs`, `tc`; `freqHz` is the cycle rate):
 
@@ -194,10 +194,11 @@ ABS and TC fields (`abs`, `tc`; `freqHz` is the cycle rate):
 | `abs`, `tc` | `spread` | `0.5` | 0 to 1: each cycle up to 30 % longer or shorter and 35 % shallower; for ABS each corner also on its own rate (up to 18 % apart), so the corners drift in and out of step. 0 = one regular pulse. |
 | `abs`, `tc` | `holdMs` | `150` | 0 to 500 ms, 0 = off: the sim's ABS / TC flag is held on over gaps this short, so a flag the sim blips or flickers plays as one effect. |
 | `abs` | `fromWheels` | `0` | 0 off, 1 on: ABS also counts as working when a braked wheel dips towards a lock (past 6 % slip) and spins back up (inside 4 %) twice in a row at an ABS rhythm (0.04 to 0.35 s apart), held 0.4 s. A wheel hovering near a lock, staying locked, or in the air does not count. Each corner's pulse is then pulled into step with its own wheel. Needs `slipRatio*` or `wheelSpeed*`. |
+| `abs` | `lowOff` | `1` | 0 off, 1 on: no ABS below 5 km/h, whatever the sim's flag says (a flag held on at a standstill with the brake down). |
 | `abs` | `slow` | `0.5` | 0 to 1: how far the cycle slows towards a stop (rate x (1 - slow x (1 - speed / 80 km/h)) below 80 km/h; speed unknown = full rate). |
 | `abs` | `buzz`, `buzzHz` | `0.3`, `40` | The pump and valve buzz: mix 0 to 1 and carrier 15 to 120 Hz. |
 | `abs` | `brakeFull` | `80` | ABS plays as hard as the driver brakes: from nothing at 10 % brake up to full at this brake %, 10 to 100 (10 = always full). ABS never plays below 10 % brake. |
-| `abs` | `slipLink`, `lockLink`, `scrubLink` | `0`, `0.7`, `0.3` | Slip link (0 off, 1 on): while ABS works each corner's valve cycle shapes that wheel's slip tiles. The lock texture is held between 0.5 x the ABS level and 0.6 (never locked) and scaled by 1 - lockLink x (1 - m), m running from 1 with the pressure on to 0 just after the dump; lateral slip by 1 - scrubLink x (1 - m). Spin is untouched. Works with the ABS tile's amp at 0. |
+| `abs` | `slipLink`, `lockLink`, `scrubLink` | `0`, `0.7`, `0.3` | Slip link (0 off, 1 on): while ABS works each corner's valve cycle shapes that wheel's slip tiles. The lock texture is held between 0.5 x the ABS level and 0.6 (never locked) and scaled by 1 - lockLink x (1 - m), m running from 1 with the pressure on to 0 just after the dump; lateral slip by 1 - scrubLink x (1 - m). Spin is untouched. The ABS tile's amp at 0 is no ABS at all, the slip link included; to feel ABS only through the tyres, keep its amp and give it no routes. |
 
 ABS routes take a `part`: one corner plays that corner's valve, an axle or `all` the average of its corners.
 
@@ -220,6 +221,8 @@ Wheels fields (`wheels`; `freqHz` is kept but unused). Each wheel's road input r
 | `flat` | `1` | 0 to 4: flat spots x their depth. A wheel at slip ratio -0.5 or below with the car moving grinds 0.02 mm per metre slid (x its load share from `load*`, up to 2 mm) where its tread sat when it locked; the flat is a dip over 8 % of a revolution and wears off over 30 km (1/e). |
 | `judder` | `0.5` | 0 to 1: brake judder, a force (not a movement) twice a revolution while braking above 5 %, scaled by disc heat past 0.3 of full. Heat: + 0.001 x brake x speed (m/s) per second, cooling at heat x (0.2 + speed / 30 m/s) / 40 per second. |
 | `puncture` | `1` | 0 to 2: a tyre the sim reports punctured (`deflated*` = 1) rides on its folded sidewall: a 2 mm dip over a quarter of a revolution, plus a fold of 15 % of that twice a revolution. |
+| `bite`, `biteHz` | `0.5`, `35` | The pads grabbing the disc: 0 to 1 (0 = off). The grab builds 2 x the pedal's rise (from nothing to half pedal at once = full) and fades with a 0.25 s time constant; a grain at `biteHz` (10 to 200) at 100 km/h, following each wheel's speed (never below 4 Hz), x the square root of speed / 100 km/h (full from there), x how far the wheel turns against the car (a locked wheel: 0), x its load share (0.3 to 1.5). A force at the caliper (not through the quarter car); a post gets a tenth of its 100 % at full, derated at the grain's pitch. Each cycle up to 25 % longer or shorter and 30 % shallower. |
+| `drag`, `dragHz` | `0.3`, `60` | The pads rubbing while the brake stays on: 0 to 1 (0 = off), x the pedal, the same speed, wheel and load scaling as `bite`, its own grain at `dragHz` (10 to 200) at 100 km/h. |
 
 Fresh tyres and cold discs when the sim names a different car (`car=` on the identity line), else after the stream has been quiet for 10 minutes. A different car also starts the rest of the per-car learning over: the rolling factor per wheel, the usual corner load, the kerb height bias and the engine's learned redline. A tyre in the air (see below) does none of this, and grinds no flat however locked.
 
@@ -229,9 +232,9 @@ Impacts fields (`impacts`; `freqHz` is the ring's carrier, 15 to 120 Hz, `durMs`
 
 | Field | Default | Notes |
 |---|---|---|
-| `fromMmS` | `500` | 100 to 3000: the jump in a corner's suspension velocity between two samples (mm/s) that starts a knock (severity 0). |
-| `fullMmS` | `2500` | 300 to 8000, above `fromMmS`: the jump that is a full knock. |
-| `heaveG` | `1.5` | 0 to 5, 0 = off: the jump in `accHeave` between two samples (g) that knocks every corner, full at 3 x this. |
+| `fromMmS` | `400` | 100 to 3000: the jump in a corner's suspension velocity between two samples (mm/s) that starts a knock (severity 0). Measured: 1 to 40 knocks a minute by car and track. |
+| `fullMmS` | `1500` | 300 to 8000, above `fromMmS`: the jump that is a full knock. |
+| `heaveG` | `0.5` | 0 to 5, 0 = off: the jump in `accHeave` between two samples (g) that knocks every corner, full at 3 x this. |
 
 Driveline-only fields (`driveline`):
 
@@ -240,6 +243,7 @@ Driveline-only fields (`driveline`):
 | `clutch`, `clutchHz` | `1`, `10` | Clutch judder: mix (0 to 1) and carrier (4 to 20 Hz). Plays while the clutch pedal is between 15 % and 85 % with slip across it (engine rpm against the learned ratio for the gear times road speed; a launch under 5 km/h is full slip), scaled by throttle. |
 | `lug`, `lugHz` | `1`, `7` | Lugging wind-up: mix (0 to 1) and carrier (3 to 15 Hz). Plays in gear at 50 % throttle or more between 12 % and 30 % of the redline, full at the low end. |
 | `gearbox` | `0` | 0 synchro, 1 dog. Shapes the gear-shift thunk (synchro: 0.75 x, 1.4 x longer, lower; dog: full, 0.7 x shorter, higher, plus an engagement knock 60 ms after a shift at 60 % throttle or more). |
+| `ignoreN` | `1` | 0 off, 1 on: the Gear shift tile's knock ignores the neutral passed through mid-shift (one knock per shift). Off, going into neutral knocks too. Either way a gear counts only once it has held 45 ms (and a neutral held half a second is a real one: the gear after it knocks) (a one-frame junk gear is none). |
 | `whine` | `0` | Straight-cut gear whine mix (0 to 1): pitch from rpm at the engine buzz's auto order stepping 6 % per gear, level 0.3 + 0.7 x throttle, in gear with the clutch driving. |
 | `shunt`, `shuntHz` | `0.5`, `40` | Backlash take-up knock (mix 0 to 1, carrier 20 to 80 Hz) when the throttle crosses 5 % and 20 % within 150 ms, rolling in gear; 1.4 x in a dog box, 0.8 x on a lift. |
 

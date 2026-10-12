@@ -132,9 +132,13 @@ constexpr ParamHelp kHelp[] = {
       "as its valve dumps, twice at an ABS rhythm. Each corner's pulse is then timed to its own wheel. On for "
       "sims that report ABS only now and then (Automobilista 2); the tile shows when it is detecting and at "
       "what rate. Needs wheel speeds or slip ratios." },
+    { "abs", "lowOff",
+      "No ABS below 5 km/h, whatever the sim's flag says: a real ABS stops cycling before the car stops (some "
+      "sims hold the flag on at a standstill with the brake down). On for most." },
     { "abs", "slipLink",
       "While ABS works, each corner's valve shapes that wheel's slip tiles (the lock texture held at the edge "
-      "of locking, the lateral slip easing after each dump). Works with ABS's own amp at 0." },
+      "of locking, the lateral slip easing after each dump). ABS's amp at 0 turns this off too (a car without "
+      "ABS); to feel ABS only through the tyres, keep its amp and take its routes away." },
     { "abs", "lockLink",
       "With slip link on: how much the lock texture surges with each valve cycle, 0 to 1. 0.5 to 0.8." },
     { "abs", "scrubLink",
@@ -294,9 +298,10 @@ constexpr ParamHelp kHelp[] = {
       "Kerb movement (mm) that counts as 100% on a seat actuator, 0.5 to 50. Road car: 12 to 15 (soft, rides "
       "it out). GT3: 8 to 12. Single-seater: 5 to 8 (stiff, feels every rib)." },
     { "kerb", "detectMm",
-      "For sims with no surface type (Assetto Corsa): a tyre this many mm above its axle partner is on a "
-      "kerb (from half of it, full at it), 0 to 100 (0 = off). 12 to 20 for raised kerbs; 8 to 10 if low "
-      "kerbs do not register. Flat painted kerbs have no height to find." },
+      "For sims with no surface type (Assetto Corsa): a tyre jumping this many mm against its axle partner "
+      "within a few hundredths of a second, a kerb's edge or its ribs, puts it on a kerb (from half of it, full "
+      "at it), 0 to 100 (0 = off). The road's camber and banking change too slowly to count. 12 to 20 for "
+      "most; lower if kerbs are missed, higher if bumps read as kerbs. Flat painted kerbs have nothing to find." },
 
     // ---- driveline ----
     { "driveline", "clutch",
@@ -310,6 +315,9 @@ constexpr ParamHelp kHelp[] = {
     { "driveline", "gearbox",
       "Shapes the gear-shift thunk. Road car: synchro (a soft clunk). GT3: dog (a hard knock; a second knock "
       "on a shift under power). Single-seater: dog." },
+    { "driveline", "ignoreN",
+      "The Gear shift tile's knock: on, the neutral a sim reports for a moment in every shift is no shift of its "
+      "own (one knock per shift); off, going into neutral knocks too. On for most." },
     { "driveline", "whine",
       "Straight-cut gears singing, rising with each gear, 0 to 1 (0 = quiet helical gears). Road car: 0. "
       "GT3: 0.3 to 0.6. Single-seater: 0.4 to 0.8." },
@@ -345,6 +353,19 @@ constexpr ParamHelp kHelp[] = {
     { "wheels", "puncture",
       "A punctured tyre (when the sim says so) riding on its sidewall, a heavy thump once a revolution, 0 to "
       "2. 1 for most." },
+    { "wheels", "bite",
+      "The pads grabbing the disc as the brake goes on, or is squeezed harder: a coarse grain that swells and "
+      "fades over a quarter second, 0 to 1 (0 = off). Stronger at speed and on the loaded tyre; nothing from a "
+      "locked wheel. 0.3 to 0.6." },
+    { "wheels", "drag",
+      "The pads rubbing the disc while the brake stays on: a fine grain with the brake pressure, 0 to 1 (0 = "
+      "off). Stronger at speed and on the loaded tyre; nothing from a locked wheel. 0.2 to 0.4." },
+    { "wheels", "biteHz",
+      "The grab's pitch at 100 km/h, 10 to 200 Hz; it follows each wheel's speed (half at 50 km/h), so it "
+      "sinks as the car slows. 25 to 40 reaches a seat actuator; higher for a belt or shaker." },
+    { "wheels", "dragHz",
+      "The rub's pitch at 100 km/h, 10 to 200 Hz; it follows each wheel's speed. 50 to 80 on a belt or "
+      "shaker; a seat actuator carries little of it." },
 
     // ---- impacts ----
     { "impacts", "freqHz",
@@ -354,15 +375,17 @@ constexpr ParamHelp kHelp[] = {
       "Ring ms: how fast the knock dies, 10 to 200 ms. Road car: 60 to 80. GT3: 40 to 60. Single-seater: 30 "
       "to 50." },
     { "impacts", "fromMmS",
-      "A sudden change in a corner's suspension speed (mm/s) that starts a knock, 100 to 3000. Raise it if "
-      "rough tracks knock all the time. Road car: 400 to 600. GT3: 500 to 800. Single-seater: 800 to 1200 "
-      "(stiff cars jolt routinely)." },
+      "A sudden change in a corner's suspension speed (mm/s) that starts a knock, 100 to 3000. 400 by default; "
+      "measured at 400: a prototype at Bathurst about 1 a minute, a GT car at Imola 6 to 16, a Group A car at "
+      "Brands Hatch 19, a 1975 F1 car at Imola 30 to 40. Raise it if a stiff car knocks all the time, lower it "
+      "if hits pass unnoticed." },
     { "impacts", "fullMmS",
-      "The sudden change that is a full knock, 300 to 8000 mm/s. Road car: 2000 to 2500. GT3: 2500 to 3500. "
-      "Single-seater: 3500 to 5000." },
+      "The sudden change that is a full knock, 300 to 8000 mm/s. 1500 by default: a hit of 2 to 4 times the "
+      "start plays strong." },
     { "impacts", "heaveG",
-      "A jump in the body's vertical g that knocks every corner (a landing), 0 to 5 (0 = off). 1.5 to 2.5 for "
-      "most; rally: 1 to 1.5." },
+      "A jump in the body's vertical g between two samples that knocks every corner (a landing, a heavy "
+      "compression), 0 to 5 (0 = off), full at 3 times it. 0.5 by default: about 2 to 18 a minute on the "
+      "tracks measured; 0.75 to 1 if it knocks on every bump." },
 };
 
 } // namespace help_detail

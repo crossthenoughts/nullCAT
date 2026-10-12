@@ -30,8 +30,16 @@ namespace haptics {
 struct LawsState
 {
     double previewSec[FX_TYPE_COUNT] = {};   // >0 = Test preview running for that slot
+    // The gear the box is in (the last one knocked for), and a new value
+    // waiting to hold long enough to be a gear (a junk frame is not).
     int    lastGear = 0;
     bool   gearSeen = false;
+    int    gearCand = 0;
+    double gearCandSec = 0.0;
+    // The engine speed last sent that could be true (a junk frame's rpm is
+    // replaced by it).
+    double lastRpm = 0.0, rpmAgeSec = 0.0;
+    bool   rpmSeen = false;
     // Rolling factor per wheel for the wheelSpeed fallback: speedKmh /
     // wheelSpeed learned while cruising (no brake, light throttle), so a
     // sender's wheel-speed unit (rev/s, rad/s, km/h) and a staggered tyre
@@ -45,10 +53,20 @@ struct LawsState
     bool   throttleSeen = false;
     double lowThrottleAgo = 1e9, highThrottleAgo = 1e9;
     double dogKnockIn = 0.0;   // seconds until the dog engagement knock (0 = none pending)
-    // Kerb detection from road heights: each axle's usual left-minus-right
-    // (camber, banking), learned off the kerbs, so a tyre stepping up shows.
-    double kerbBias[2] = {};
-    bool   kerbBiasSeen = false;
+    // Kerb detection from road heights, per axle: the last few sim samples
+    // of the left-minus-right height difference with their times (a jump
+    // across them is a kerb's edge or ribs), the jumps' fading envelope,
+    // and the kerb under way: on or not, how long, the difference before it
+    // began, and its side from the first jump (0 none, 1 left, 2 right).
+    static constexpr int KERB_HIST = 32;
+    bool   kerbSeen = false;
+    double kerbClock = 0.0;
+    double kerbHistT[2][KERB_HIST] = {}, kerbHistD[2][KERB_HIST] = {};
+    int    kerbHistN[2] = {}, kerbHistHead[2] = {};
+    double kerbEnv[2] = {};
+    bool   kerbOn[2] = {};
+    double kerbOnSec[2] = {}, kerbRef[2] = {};
+    int    kerbSide[2] = {};
     // Lateral slip: the per-wheel slip angle (or combined slip) smoothed,
     // and which source it is (0 none, 1 angle, 2 combined, 3 an angle from
     // a slip speed) so a change of source starts the smoothing afresh.
@@ -180,12 +198,26 @@ namespace laws_k {
     constexpr double kDogPowerThrottle = 60.0;     // % throttle: a shift above this gets the engagement knock
     constexpr double kDogKnockDelaySec = 0.06;
     constexpr double kDogKnockScale    = 0.7;
+    constexpr double kGearSettleSec    = 0.045;    // a gear must hold this long to count (a junk frame lasts one 60 Hz sample, 17 ms, up to about 30 with timing jitter)
+    constexpr double kNeutralHeldSec   = 0.5;      // ignore neutral: held this long it is a real neutral (selecting the same gear again knocks)
     // Road and kerb laws
     constexpr double kPreviewKmh       = 80.0;     // the road speed a road, kerb or ABS Test preview runs at
     constexpr double kPreviewKerbOnSec = 0.6;      // kerb preview: on this long...
     constexpr double kPreviewKerbCycle = 1.0;      // ...in every this long
     constexpr double kKerbMinKmh       = 10.0;     // height detection: rolling
-    constexpr double kKerbBiasSec      = 2.0;      // how fast the axle's usual left-right learns
+    // A kerb is a JUMP in an axle's left-right height difference: the
+    // largest change across the sim samples of the last this long (a kerb's
+    // edge, its ribs; two samples at 60 Hz, more at a faster rate), the
+    // envelope of the jumps fading over this long. The road's camber and
+    // banking change over seconds (Imola: 20 to 55 mm, axle by axle), about
+    // 1 mm in the window, so they never jump. A kerb lasts from its first
+    // jump until the axle is back level with where it was before (the drop
+    // off it is the same kerb, on the same side), at most this long.
+    constexpr double kKerbJumpSec      = 0.035;
+    constexpr double kKerbHoldSec      = 0.25;
+    constexpr double kKerbEventMaxSec  = 4.0;
+    // ABS: no ABS below walking pace (the ABS tile's off < 5 km/h).
+    constexpr double kAbsLowOffKmh     = 5.0;
     // Surface laws: the water film from rain.
     constexpr double kFilmFillSec      = 60.0;     // heavy rain stands on the road in about a minute
     constexpr double kFilmDrySec       = 240.0;    // ...and takes a few to dry off
@@ -214,6 +246,15 @@ namespace laws_k {
     constexpr double kCombinedMaxX     = 4.0;
     constexpr double kRatioMin         = -1.0, kRatioMax = 3.0;
     constexpr double kGearMin          = -1.0, kGearMax = 12.0;   // a gear outside this is a garbage frame
+    // An engine speed past this, or changing faster than this (rpm/s, over
+    // the time since it last changed, counted between the speed guard's
+    // floor and ceiling: 3000 rpm in a 60 Hz sample, 15000 after a tenth of
+    // a second), is a garbage frame (Automobilista 2 sent 191,105 rpm once,
+    // with 386 km/h and gear 128): the last one that could be true stands,
+    // and the frame's limiter flag, which the sender set from that rpm,
+    // goes with it (it would teach the redline).
+    constexpr double kRpmMax           = 40000.0;   // an electric motor revs past 20000
+    constexpr double kRpmSlew          = 150000.0;
     constexpr double kAngleJumpDeg     = 8.0;      // pitch or roll jumping this far between two samples: a glitch
     // Wheels laws
     constexpr double kFreshTyresSec    = 600.0;    // a different car brings fresh tyres; failing that, the stream quiet this long (a pause in the pits is not a new session)
@@ -244,6 +285,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
     // The channels as the laws use them: anything the sim sent that cannot
     // be true is capped or dropped here first (see laws_k).
     NcxValues v = in;
+    bool gearDropped = false;   // this frame's gear was junk (dropped), not unsent
     {
         for (int t = 0; t < NcxValues::TokenCount; ++t)
             if (v.have[t] && !std::isfinite(v.val[t])) v.have[t] = false;
@@ -260,7 +302,30 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         if (v.have[NcxValues::AccHeave] && std::fabs(v.val[NcxValues::AccHeave]) > kHeaveMaxMs2)
             v.have[NcxValues::AccHeave] = false;
         if (v.have[NcxValues::Gear] && (v.val[NcxValues::Gear] < kGearMin - 0.5 || v.val[NcxValues::Gear] > kGearMax + 0.5))
+        {
             v.have[NcxValues::Gear] = false;
+            gearDropped = true;   // a junk frame, not a stream gone: the gear shift keeps its place
+        }
+        st.rpmAgeSec += dtSec;
+        if (!live) st.rpmSeen = false;
+        else if (v.have[NcxValues::Rpm])
+        {
+            const double rpm = v.val[NcxValues::Rpm];
+            bool junk = rpm > kRpmMax;
+            if (!junk && st.rpmSeen && rpm != st.lastRpm)
+                junk = std::fabs(rpm - st.lastRpm) > kRpmSlew * std::min(kGlitchMaxDtSec, std::max(kGlitchMinDtSec, st.rpmAgeSec));
+            if (junk)
+            {
+                if (st.rpmSeen) v.val[NcxValues::Rpm] = st.lastRpm;
+                else            v.have[NcxValues::Rpm] = false;
+                v.have[NcxValues::Limiter] = false;
+            }
+            else
+            {
+                if (!st.rpmSeen || rpm != st.lastRpm) st.rpmAgeSec = 0.0;
+                st.lastRpm = rpm; st.rpmSeen = true;
+            }
+        }
         // The road speed: a jump no car can make leaves it untrusted (as if
         // unsent) for the hold, so nothing reads a jump to the pits as four
         // wheels locked at speed.
@@ -303,7 +368,8 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             for (int w = 0; w < WHEEL_COUNT; ++w) { st.rollK[w] = 0.0; st.rollKnown[w] = false; st.air[w] = false; }
             st.rollSeedSec = 0.0;
             st.loadRef = 0.0;
-            st.kerbBias[0] = st.kerbBias[1] = 0.0; st.kerbBiasSeen = false;
+            st.kerbSeen = false;
+            st.rpmSeen = false;
             st.quietSec = 0.0;
             relearnLatBase(st);
             for (int w = 0; w < WHEEL_COUNT; ++w) { st.absArmed[w] = false; st.absSince[w] = 1e9; }
@@ -826,7 +892,17 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         const bool absFlag = flag(NcxValues::AbsActive) > 0.5;
         if (absFlag) st.absHoldSec = std::max(0.0, pp.holdMs) / 1000.0;
         else         st.absHoldSec = std::max(0.0, st.absHoldSec - dtSec);
-        const bool braking = live && v.have[NcxValues::BrakePct] && v.val[NcxValues::BrakePct] > kAbsMinBrakePct;
+        // No ABS at all with the tile's amp at 0, through its slip link
+        // either (a car with no ABS has its amp at 0: the link went on
+        // judder-locking the tyres through half of every stop); and, with
+        // off < 5 km/h, none below walking pace (a sim's flag held on at a
+        // standstill with the brake down played ABS in the pits).
+        // (The speed as sent: a low one is safe to trust for this even while
+        // a jump has left it untrusted for everything else.)
+        const bool fitted  = L.fxParams(FxType::AbsPulse).ampPct > 0.0;
+        const bool tooSlow = pp.lowOff >= 0.5 && live && in.have[NcxValues::SpeedKmh] && std::isfinite(in.val[NcxValues::SpeedKmh])
+                             && in.val[NcxValues::SpeedKmh] < kAbsLowOffKmh;
+        const bool braking = fitted && !tooSlow && live && v.have[NcxValues::BrakePct] && v.val[NcxValues::BrakePct] > kAbsMinBrakePct;
         const bool rolling = live && v.have[NcxValues::SpeedKmh] && v.val[NcxValues::SpeedKmh] > kSlipMinSpeedKmh;
         st.absWheelHoldSec = std::max(0.0, st.absWheelHoldSec - dtSec);
         for (int w = 0; w < WHEEL_COUNT; ++w)
@@ -869,7 +945,8 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         const bool previewing = st.previewSec[static_cast<int>(FxType::AbsPulse)] > 0.0;
         L.driveAbsSpeed(previewing ? kPreviewKmh
                         : (live && v.have[NcxValues::SpeedKmh]) ? std::max(0.0, v.val[NcxValues::SpeedKmh]) : -1.0);
-        L.driveFx(FxType::AbsPulse, previewOr(FxType::AbsPulse, level), 0.0);
+        const double absLevel = previewOr(FxType::AbsPulse, level);   // (previewOr runs the Test timer: call it either way)
+        L.driveFx(FxType::AbsPulse, fitted ? absLevel : 0.0, 0.0);      // amp 0: not even a Test drives the slip link
     }
 
     // Road: everything the models can use goes in and the tile's model
@@ -933,9 +1010,14 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
     // Kerb: how much of each tyre is on a kerb. The sim's surface class
     // under each tyre where it sends one; else the stronger of its curbs
     // channel (all wheels, full at peak %) and, with detect mm set and the
-    // road height under each tyre, a tyre stepped up above its axle mate by
-    // detect mm more than usual for that axle (camber and banking learned
-    // off the kerbs). A Test preview runs the strip at 80 km/h, on and off.
+    // road height under each tyre, a kerb's edge or ribs: the axle's
+    // left-right height difference jumping by half of detect mm or more
+    // within a few hundredths of a second (full at detect mm), the rumble
+    // fading a quarter second after the last jump, on the side the first
+    // jump rose (to the drop off it). The road's own camber and banking change
+    // over seconds and never count (measured against a slowly learned usual
+    // difference, they read as a kerb most of a lap at Imola). A Test
+    // preview runs the strip at 80 km/h, on and off.
     {
         double& previewLeft = st.previewSec[static_cast<int>(FxType::Kerb)];
         const KerbParams& kp = L.kerbParams();
@@ -964,7 +1046,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         {
             // The game's kerb channel (Competizione, EVO) on every wheel,
             // and with detect mm set and the road heights arriving, a tyre
-            // stepping up past its axle mate: the stronger of the two. A
+            // jumping against its axle mate (a kerb's edge or ribs): the stronger of the two. A
             // numbered line pads a kerb channel it does not have with 0, so
             // the channel must never shut the detector out (it did, in
             // Assetto Corsa).
@@ -976,23 +1058,63 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             if (kp.detectMm > 0.0 && haveW(NcxValues::RoadHeightFL) && kmh > kKerbMinKmh)
             {
                 heights = true;
-                const double half = 0.5 * kp.detectMm;
-                const double a = std::min(1.0, dtSec / kKerbBiasSec);
+                const double half  = 0.5 * kp.detectMm;
+                const double fade  = std::exp(-dtSec / kKerbHoldSec);
+                st.kerbClock += dtSec;
                 for (int ax = 0; ax < 2; ++ax)
                 {
                     const int l = ax ? WheelRL : WheelFL, r = ax ? WheelRR : WheelFR;
                     const double d = v.val[NcxValues::RoadHeightFL + l] - v.val[NcxValues::RoadHeightFL + r];
-                    if (!st.kerbBiasSeen) st.kerbBias[ax] = d;
-                    const double ex = d - st.kerbBias[ax];
-                    // Learns off the kerbs; on one, a tenth as fast (a bias
-                    // seeded on a kerb still finds its way back).
-                    st.kerbBias[ax] += ((std::fabs(ex) < half) ? a : 0.1 * a) * (d - st.kerbBias[ax]);
-                    const int up = ex > 0.0 ? l : r;
-                    lvl[up] = std::max(lvl[up], std::max(0.0, std::min(1.0, (std::fabs(ex) - half) / half)));
+                    const int K = LawsState::KERB_HIST;
+                    if (!st.kerbSeen) { st.kerbHistN[ax] = 0; st.kerbEnv[ax] = 0.0; st.kerbOn[ax] = false; st.kerbSide[ax] = 0; }
+                    // A new sim sample (the held value changed) joins the
+                    // history; the jump: the largest change from any sample
+                    // of the last kKerbJumpSec.
+                    const int last = (st.kerbHistHead[ax] + K - 1) % K;
+                    if (st.kerbHistN[ax] == 0 || st.kerbHistD[ax][last] != d)
+                    {
+                        st.kerbHistT[ax][st.kerbHistHead[ax]] = st.kerbClock;
+                        st.kerbHistD[ax][st.kerbHistHead[ax]] = d;
+                        st.kerbHistHead[ax] = (st.kerbHistHead[ax] + 1) % K;
+                        st.kerbHistN[ax] = std::min(K, st.kerbHistN[ax] + 1);
+                    }
+                    // A past sample counts while it was still the value
+                    // held some time in the window: the sample that replaced
+                    // it arrived inside it.
+                    double jump = 0.0, from = d;
+                    for (int i = 2; i <= st.kerbHistN[ax]; ++i)
+                    {
+                        const int succ = (st.kerbHistHead[ax] + K - (i - 1)) % K;
+                        if (st.kerbClock - st.kerbHistT[ax][succ] > kKerbJumpSec) break;
+                        const double dk = st.kerbHistD[ax][(st.kerbHistHead[ax] + K - i) % K];
+                        if (std::fabs(d - dk) > jump) { jump = std::fabs(d - dk); from = dk; }
+                    }
+                    st.kerbEnv[ax] = std::max(jump, st.kerbEnv[ax] * fade);
+                    const double k = std::max(0.0, std::min(1.0, (st.kerbEnv[ax] - half) / half));
+                    // The kerb under way: its side is the first jump's (the
+                    // left tyre rising against the right: left; a side
+                    // learned from the camber lagged a corner's camber and
+                    // put it on the wrong wheel), held until the axle is back
+                    // level with where it was before, so the drop off a
+                    // raised kerb rumbles the same wheel.
+                    if (!st.kerbOn[ax] && jump > half)
+                    {
+                        st.kerbOn[ax] = true; st.kerbOnSec[ax] = 0.0; st.kerbRef[ax] = from;
+                        st.kerbSide[ax] = (d > from) ? 1 : 2;
+                    }
+                    if (st.kerbOn[ax])
+                    {
+                        st.kerbOnSec[ax] += dtSec;
+                        if ((k <= 0.0 && std::fabs(d - st.kerbRef[ax]) <= half) || st.kerbOnSec[ax] > kKerbEventMaxSec)
+                        { st.kerbOn[ax] = false; st.kerbSide[ax] = 0; }
+                    }
+                    if (k <= 0.0) continue;
+                    if (st.kerbSide[ax] != 2) lvl[l] = std::max(lvl[l], k);
+                    if (st.kerbSide[ax] != 1) lvl[r] = std::max(lvl[r], k);
                 }
             }
         }
-        st.kerbBiasSeen = heights;
+        st.kerbSeen = heights;
         for (int w = 0; w < WHEEL_COUNT; ++w) L.driveKerb(w, lvl[w] * ground[w]);   // a tyre in the air is on no kerb
     }
 
@@ -1166,14 +1288,27 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
     L.driveFx(FxType::Limiter, previewOr(FxType::Limiter, flag(NcxValues::Limiter)),  0.0);
     L.driveFx(FxType::TcPulse, previewOr(FxType::TcPulse, tcOn), 0.0);
 
-    // Gear-shift thunk: a transient on every gear-channel CHANGE (up or
-    // down). Edge state seeds on first sight and clears on staleness, so a
-    // returning stream never fires a stale crossing.
+    // Gear-shift thunk: a transient on every change of the gear the box is
+    // in (up or down), once the new gear has held kGearSettleSec: a sim
+    // reports a junk gear for a frame mid-shift (Automobilista 2 read 5, N,
+    // 3, 4 for a 5-4 downshift: three knocks). With ignore neutral (the
+    // Driveline tile's), the N passed through on the way is no shift of its
+    // own (a neutral held half a second is a real one: the gear after it
+    // knocks even if it is the same); off, going into neutral knocks too. A
+    // junk gear frame (dropped above) leaves it where it was. Edge state
+    // seeds on first sight and clears on staleness, so a returning stream
+    // never fires a stale crossing.
     if (live && v.have[NcxValues::Gear])
     {
         const double g0 = v.val[NcxValues::Gear];
         const int g = static_cast<int>(g0 < 0.0 ? g0 - 0.5 : g0 + 0.5);
-        if (st.gearSeen && g != st.lastGear)
+        if (!st.gearSeen) { st.lastGear = st.gearCand = g; st.gearCandSec = 0.0; }
+        else if (g != st.gearCand) { st.gearCand = g; st.gearCandSec = 0.0; }
+        else st.gearCandSec += dtSec;
+        const bool ignoreN = L.drivelineParams().ignoreN >= 0.5;
+        if (ignoreN && st.gearCand == 0 && st.gearCandSec >= kNeutralHeldSec) st.lastGear = 0;
+        if (st.gearSeen && st.gearCand != st.lastGear && st.gearCandSec >= kGearSettleSec
+            && !(ignoreN && st.gearCand == 0))
         {
             // Shaped by the gearbox: synchro = a softer, longer clunk; dog =
             // a harder, shorter knock and, shifted under power, a second
@@ -1183,11 +1318,11 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             else     L.fire(EventType::GearShift, kSynchroScale, kSynchroDur, kSynchroFreq);
             const double thr = v.have[NcxValues::ThrottlePct] ? v.val[NcxValues::ThrottlePct] : 0.0;
             if (dog && thr >= kDogPowerThrottle) st.dogKnockIn = kDogKnockDelaySec;
+            st.lastGear = st.gearCand;
         }
-        st.lastGear = g;
         st.gearSeen = true;
     }
-    else
+    else if (!(live && gearDropped))
     {
         st.gearSeen = false;
     }

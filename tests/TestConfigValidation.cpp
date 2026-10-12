@@ -447,7 +447,8 @@ private slots:
     void impacts_ranges()
     {
         AppConfig cfg = validConfig();
-        QCOMPARE(cfg.hapticsImpacts.fromMmS, 500.0); QCOMPARE(cfg.hapticsImpacts.heaveG, 1.5);
+        QCOMPARE(cfg.hapticsImpacts.fromMmS, 400.0); QCOMPARE(cfg.hapticsImpacts.fullMmS, 1500.0);
+        QCOMPARE(cfg.hapticsImpacts.heaveG, 0.5);   // measured defaults (recorded laps)
         const auto refused = [&cfg](const char* key) {
             for (const auto& e : cfg.validate()) if (e.find(key) != std::string::npos) return true;
             return false; };

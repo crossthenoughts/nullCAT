@@ -356,6 +356,8 @@ public:
     // The Lateral tile's relearn: its straight-line baseline starts over,
     // taken by whichever path steps the haptics next.
     void    requestLatRelearn() { m_hapLatRelearn.store(true, std::memory_order_release); }
+    // The Wheels tile's fresh tyres: flat spots and hot discs gone.
+    void    requestFreshTyres() { m_hapFreshTyres.store(true, std::memory_order_release); }
     CommandConditioner::GuardStats getGuardStats(int i) const
     {
         if (i < 0 || i >= MAX_DRIVES) return {};
@@ -626,4 +628,5 @@ private:
     double           m_hapPreviewQuiet[haptics::FX_TYPE_COUNT] = {};   // a Test preview and its tail: no peaks
     std::atomic<bool> m_hapPeakReset{false};
     std::atomic<bool> m_hapLatRelearn{false};
+    std::atomic<bool> m_hapFreshTyres{false};
 };
