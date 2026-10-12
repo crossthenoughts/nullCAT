@@ -1232,9 +1232,10 @@ int main()
         check(std::fabs(st.latBase[WheelFL] - 4.0) < 0.2, "I-18 relearn: ...and learns again from the next straights");
         // Learn once: learned, then held whatever the straights say.
         mode(1.0);
+        const double held = st.latBase[WheelFL];
         straightAt(2.0);
         run(5.0);
-        check(std::fabs(st.latBase[WheelFL] - 4.0) < 0.05, "I-18 learn once: once learned it is held (a 2 deg straight does not move it)");
+        check(held > 3.5 && st.latBase[WheelFL] == held, "I-18 learn once: once learned it is held (a 2 deg straight does not move it)");
         // Learn: the same straight brings it down within seconds.
         mode(0.0);
         run(5.0);
