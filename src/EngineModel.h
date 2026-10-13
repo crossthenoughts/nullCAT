@@ -77,6 +77,11 @@ namespace engine_k {
     constexpr double kRockGoneAboveHz     = 42.0;   // crank Hz: rock gone above (2520 rpm)
     constexpr double kRockLoadFloor       = 0.7;    // rock = floor + (1-floor) x load
     constexpr double kHalfOrderLope       = 0.6;    // half-order content x lope
+    // Below 1, the rock follows the square root of heavy x balance: a smooth
+    // V12 (a 250 GTO at 0.28) still idles with a felt shake. At 1 and above
+    // it is as it was (a big four stays rock, not thumps). The order of
+    // engines stays the same.
+    constexpr double kRockShakeExp        = 0.5;
     constexpr double kCoastHit            = 0.35;   // thump strength at closed throttle
     constexpr double kResolveFullOverlap  = 4.0;    // thumps fully felt up to this many per carrier cycle
     constexpr double kResolveFadeSpan     = 8.0;    // ...and gone this many beyond it
@@ -196,7 +201,18 @@ public:
 
     // A different car: the learned redline starts over (it is a peak hold, so
     // a lower-revving car would otherwise keep the last car's).
-    void forgetCar() { m_learnedMax = engine_k::kLearnSeedRpm; }
+    void forgetCar() { m_learnedMax = engine_k::kLearnSeedRpm; m_maxSeeded = false; }
+
+    // The sim's own max rpm, where it sends one: the redline starts there
+    // instead of the guess, once per car (the peak hold and the limiter
+    // flag still refine it). A truck no longer waits for its limiter to
+    // stop reading 3,700 rpm as half revs.
+    void seedMaxRpm(double rpm)
+    {
+        if (m_maxSeeded || !(rpm >= engine_k::kLearnMinRpm)) return;
+        m_learnedMax = rpm;
+        m_maxSeeded  = true;
+    }
 
     void clear()
     {
@@ -477,9 +493,10 @@ public:
             const double lope = std::min(1.0, p.jitter + extraLope);
             const double rock = std::sin(2.0 * ph) + (twoStroke ? 0.0 : kHalfOrderLope * lope * std::sin(ph));
             const double loadK = cranking ? kCrankRock : (kRockLoadFloor + (1.0 - kRockLoadFloor) * m_load) * (1.0 + kDyingHitGain * 0.5 * dying);
-            out.rock = p.ampPct * level * kRockMix * e.rock * heavy * balance * rockFade * loadK * m_revScale * rock;
+            const double shake = rotary ? heavy * balance : std::max(heavy * balance, std::pow(heavy * balance, kRockShakeExp));
+            out.rock = p.ampPct * level * kRockMix * e.rock * shake * rockFade * loadK * m_revScale * rock;
             out.rockHz = crankHz;
-            out.rockEnv = p.ampPct * level * kRockMix * e.rock * heavy * balance * rockFade * loadK * m_revScale;
+            out.rockEnv = p.ampPct * level * kRockMix * e.rock * shake * rockFade * loadK * m_revScale;
             out.rockPhase = ph; out.rockLope = twoStroke ? 0.0 : kHalfOrderLope * lope;
         }
 
@@ -559,6 +576,7 @@ private:
     uint64_t m_tcDrops = 0;
     double m_buzzPhase = 0.0, m_beatPhase = 0.0;
     double m_learnedMax = engine_k::kLearnSeedRpm;
+    bool   m_maxSeeded  = false;
     double m_pulseDur = 0.033;
     double m_pulseT[engine_k::kPulses]   = { 1e9, 1e9, 1e9, 1e9 };
     double m_pulseAmp[engine_k::kPulses] = { 0.0, 0.0, 0.0, 0.0 };

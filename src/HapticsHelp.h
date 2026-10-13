@@ -214,10 +214,11 @@ constexpr ParamHelp kHelp[] = {
       "for a softer one. Road car: 20 to 40. GT3: 2 to 15. Single-seater: 2 to 10." },
     { "slipLat", "budget",
       "Grip budget: a tyre has one grip for cornering and for braking or driving, so trail braking and power "
-      "out of a corner slide earlier, as they do in a car. On for most." },
+      "out of a corner slide earlier, as they do in a car. Never less than either tile alone. On for most." },
     { "slipLat", "baseMode",
-      "For sims that give a tyre's sliding speed rather than its slip angle (Automobilista 2): the small angle "
-      "every car shows on a straight (toe, the tyre's own creep), taken off so only the corner plays. Learn: "
+      "For sims that give a tyre's sliding speed rather than its slip angle (Automobilista 2): the small slip "
+      "every tyre shows on a straight (its own creep along the road, and toe), taken off so only the corner "
+      "plays. Below 25 km/h the slide fades out (gone by 10), where that sim's sliding speed says little. Learn: "
       "learned on the straights, and kept up to date. Learn once: learned once per car, then held, so a "
       "badly read straight later cannot move it. Fixed: base deg F and R as set, no learning (one value for "
       "every car). The tile shows each wheel's angle and baseline; relearn starts the learning over." },
@@ -323,18 +324,22 @@ constexpr ParamHelp kHelp[] = {
       "its engagement knock as the new gear goes in). Off, going into neutral and into the next gear knock "
       "separately. On for most." },
     { "driveline", "diff",
-      "The differential chattering, 0 to 1 (0 = off: an open diff, as most road cars have). A limited-slip's "
-      "clutch plates stick and slip as the driven wheels turn apart in a slow, tight corner, harder under "
-      "power: irregular clacks, below 30 km/h in full, gone by 80. 0.3 to 0.6 for a race car with a plate "
-      "diff; 0 for a road car." },
+      "The differential's plates clunking, 0 to 1 (0 = off: an open diff, as most road cars have). A clutch-type "
+      "limited slip clunks when the driven wheels are made to turn apart at walking pace: full lock out of the "
+      "pits or the paddock, turning round after an off, a hairpin taken at a crawl. Full below 8 km/h, gone by "
+      "20. On a racing lap a healthy diff is silent: you feel it in how the car turns in and drives out, which "
+      "the motion and the wheel already give you. It needs the sim to send wheel speeds. 0.4 to 0.8 for a race "
+      "car with a plate diff; 0 for a road car or a helical diff." },
     { "driveline", "diffType",
-      "What the car has. Limited slip: clutch plates that chatter as the wheels turn apart (most race cars, "
-      "many performance cars). Spool: a locked axle, the inside tyre scrubbing and hopping in tight turns "
-      "(stock cars, drift cars, karts)." },
+      "What the car has. Limited slip: clutch plates that clunk as the wheels are made to turn apart at walking "
+      "pace (most race cars). Spool: a locked axle; in a tight turn below about 30 km/h the inside tyre scrubs "
+      "and hops (stock cars, drift cars, karts)." },
     { "driveline", "diffHz",
-      "How fast the clacks come at full chatter, 4 to 30 per second (fewer as it eases). 8 to 15." },
+      "How fast the clunks come when the driven wheels turn apart briskly (a full-lock turn at a fast walk), 2 "
+      "to 30 a second; fewer as they slow. 6 to 10." },
     { "driveline", "driven",
-      "Which wheels the engine drives: rear, front or all. The diff watches that axle (a spool, the other)." },
+      "Which wheels the engine drives: rear, front or all. The diff watches that axle (a spool, the other). A "
+      "front-driven car's diff is felt mostly as torque steer in the wheel; here only its walking-pace clunk." },
     { "driveline", "whine",
       "Straight-cut gears singing, rising with each gear, 0 to 1 (0 = quiet helical gears). Road car: 0. "
       "GT3: 0.3 to 0.6. Single-seater: 0.4 to 0.8." },

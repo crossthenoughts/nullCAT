@@ -607,6 +607,7 @@ public:
     void configureEngine(const EngineParams& e) { m_engineParams = e; }
     const EngineParams& engineParams() const   { return m_engineParams; }
     double learnedMaxRpm() const               { return m_engine.learnedMaxRpm(); }
+    void   seedMaxRpm(double rpm)              { m_engine.seedMaxRpm(rpm); }   // the sim's own max rpm, once per car
 
     // ---- per-wheel slip (the Lockup = longitudinal and Skid = lateral
     // slots). Config apply for the params; the law drives wheels per cycle.

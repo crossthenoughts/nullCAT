@@ -330,6 +330,34 @@ Development branch. Nothing here is in a release yet.
   rig keeps its own values: change them on the tile.
 
 ### Fixed
+- Automobilista 2's slip read wrong. Every tyre rolling down a straight
+  shows a small slip along the road (3 to 6 % of the road speed on the
+  fronts), and nullCAT took it off as a sideways angle: under braking the
+  fronts read no angle at all, corners read 2 to 3.5 degrees light, and a
+  driven wheel under power read a false angle (the Mini's fronts scrubbed
+  on straights). That slip is now learned per tyre and taken off along the
+  road. A launch's wheelspin no longer reads as a 90 degree slide, and the
+  slide fades out below 25 km/h, where the sim's numbers say little.
+- The rolling factor (wheel speeds) learned wrong in several ways: the
+  first value in a curve (a front wheel 4.6 % off), a slide or a reset
+  moving it (3 % off for a minute), the driven wheels learning high from
+  engine braking (the 250 GTO's rears 1.2 %), a slipping clutch creeping it
+  up on each downshift. The first value now needs both axles turning
+  together, a moment far off a learned value is ignored unless it keeps
+  disagreeing, the clutch slipping teaches nothing, and engine braking
+  teaches the driven wheels nothing.
+- With the grip budget on and onset at 0, any slip angle took the whole
+  budget, so lock and spin went nearly silent. The budget now never plays
+  less than each tile alone.
+- Assetto Corsa played tyre slip about 1.4 times stronger than
+  Automobilista 2 for the same slide: sending tyre loads weighted the
+  loaded tyre up. The loaded tyre of each axle now counts as 1 and the
+  lighter one less, so both sims play alike. (If slip feels lighter in
+  Assetto Corsa, raise the slip tiles' amplitude.)
+- The learned redline started at a 7,000 rpm guess and took minutes to
+  find a car's real one (83 s for the Corvette GTP; a truck read its 3,700
+  rpm as half revs until it hit its limiter). It now starts at the max rpm
+  the sim sends.
 - With the control loop stopped (shakers only), the haptics **Mute** and
   the tiles' **Test** did nothing until the loop started; and Test refused
   a tile routed only to shakers. Both now work on the shakers either way.
@@ -522,6 +550,19 @@ Development branch. Nothing here is in a release yet.
   the shaker routes were dropped when the event fired.
 
 ### Changed
+- The Driveline tile's diff is now a walking-pace thing, as a real one
+  is: a limited slip's clunks come only when the driven wheels are made to
+  turn apart in a tight turn at a crawl (full below 8 km/h, gone by 20; a
+  spool's scrub and hop by 30), from the corner's own geometry (an inside
+  wheel spinning, a wheel skipping over a kerb or a spinning car no longer
+  counts), evenly like a ratchet, faster the faster the wheels turn apart
+  (diff hz, now 8 by default). It played in every slow racing corner up to
+  80 km/h, about 17 random clacks a minute, which felt like a broken car.
+  It now needs the sim to send wheel speeds.
+- A smooth engine's idle rock is stronger: a V12 (a 250 GTO) now idles
+  with a felt shake, over half a small four's, where it had a third.
+  Rougher engines are as they were, and the order of engines stays the
+  same.
 - The Sim channels map in Setup is labelled for what it is: the slot map
   for senders on the numbered line. The SimHub plugin names everything
   it sends and is not affected by it.

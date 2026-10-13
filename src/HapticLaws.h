@@ -56,6 +56,10 @@ struct LawsState
     double rollSeedNextSec = 0.0;  // ...when the next sample is due
     int    rollSeedN = 0;
     double rollSeedK[WHEEL_COUNT][ROLL_SEED_SLOTS] = {};
+    double rollOffSec = 0.0;       // how long the samples have disagreed with what was learned
+    // Which axle the engine drives, as the wheels show it: seconds of full
+    // throttle with that axle running ahead of the other (0 front, 1 rear).
+    double drivenSec[2] = {};
     // Clutch judder: how long the pedal has been in the slipping band.
     double clutchBandSec = 0.0;
     // Driveline shunt: the throttle a moment ago, for the zero-torque
@@ -120,8 +124,11 @@ struct LawsState
     double absWheelHoldSec = 0.0, absWheelHz = 0.0;
     // Lateral from a slip speed: each wheel's sideways angle (deg), its
     // straight-line baseline (learned) and the angle as played (smoothed,
-    // less the baseline; also a sim's own slip angle), for the card.
+    // less the baseline; also a sim's own slip angle), for the card; and
+    // each wheel's straight-line slip along the road (a share of the road
+    // speed), learned on the straights.
     double latRaw[WHEEL_COUNT] = {}, latBase[WHEEL_COUNT] = {}, latAngle[WHEEL_COUNT] = {};
+    double latCreep[WHEEL_COUNT] = {};
     double latBaseSec = 0.0;   // straight-line time the baseline has learned over
     int    latBaseMode = 0;    // the tile's baseline mode last cycle (leaving fixed starts the learning over)
 };
@@ -130,7 +137,7 @@ struct LawsState
 // button, and a new car.
 inline void relearnLatBase(LawsState& st)
 {
-    for (int w = 0; w < WHEEL_COUNT; ++w) st.latRaw[w] = st.latBase[w] = st.latAngle[w] = 0.0;
+    for (int w = 0; w < WHEEL_COUNT; ++w) st.latRaw[w] = st.latBase[w] = st.latAngle[w] = st.latCreep[w] = 0.0;
     st.latBaseSec = 0.0;
 }
 
@@ -167,6 +174,23 @@ namespace laws_k {
     constexpr double kLatBaseDownSec   = 1.0;
     constexpr double kLatBaseMaxDeg    = 6.0;
     constexpr double kLatMinSpeedMs    = 3.0;
+    // The slip speed's along part: Automobilista 2 measures a rolling
+    // tyre's slip against another radius than the one it rolls on, so on a
+    // straight each wheel shows a slip along the road (c, a share of the
+    // road speed: 3 to 6 % on the fronts, about 1 % on the rears) that read
+    // as a sideways angle. c is learned per wheel on the straights while
+    // that wheel turns within kLatCreepRatio of the road (near zero torque),
+    // over kLatBaseSec at first and kLatCreepSec once learned, kept within
+    // these bounds; the along part is then (ratio + c) x the road speed.
+    // A wheel spinning or locked past kLatRatioGate: the sideways part
+    // cannot be told from it (a launch read as a 90 degree slide).
+    // The angle from a slip speed fades in from kLatFadeFromKmh to full
+    // at kLatFadeFullKmh (below it the sideways part is mostly noise).
+    constexpr double kLatCreepRatio    = 0.01;
+    constexpr double kLatCreepSec      = 10.0;
+    constexpr double kLatCreepMin      = -0.02, kLatCreepMax = 0.12;
+    constexpr double kLatRatioGate     = 0.5;
+    constexpr double kLatFadeFromKmh   = 10.0, kLatFadeFullKmh = 25.0;
     constexpr double kPreviewSec       = 2.0;      // Test preview length
     // Slip laws (the lateral onset, curve and smoothing are the tile's:
     // SlipParams onsetPct, ease, smoothHz)
@@ -174,7 +198,7 @@ namespace laws_k {
     constexpr double kSlipMinSpeedKmh  = 5.0;      // ratios mean nothing at a standstill
     constexpr double kLockHzRefKmh     = 80.0;     // lock judder carrier = set hz at this road speed
     constexpr double kLockHzMin        = 0.4, kLockHzMax = 1.4;
-    constexpr double kLoadWeightMax    = 1.5;      // loaded tyre weighting cap
+    constexpr double kLoadWeightMax    = 1.5;      // loaded tyre weighting cap (the Wheels tile's load share)
     constexpr double kRollLearnMinKmh  = 30.0;
     constexpr double kRollLearnMaxThr  = 30.0;     // % throttle; above this a driven wheel may be slipping
     constexpr double kRollLearnMaxBrk  = 5.0;
@@ -183,9 +207,26 @@ namespace laws_k {
     constexpr double kRollSeedEverySec = 0.05;     // ...one sample per this much of it, wherever it falls (the median of them)
     constexpr double kRollSeedAgree    = 0.02;     // ...each wheel's samples this close to their median...
     constexpr double kRollSeedShare    = 0.75;     // ...this share of them, or keep collecting (a spin's samples disagree)
+    constexpr double kRollSeedAxleAgree = 0.01;    // ...each sample with both axles' wheels this close (a pit-exit curve taught a 4.6 % error)
     constexpr double kRollAxleAgree    = 0.04;     // an axle's two wheels within this of each other (not sliding, not a tight corner)
     constexpr double kRollMaxSlipDeg   = 3.0;      // no tyre past this slip angle, where the sim sends them
+    constexpr double kRollPreBaseSlipDeg = 6.0;    // ...an angle from a slip speed before its baseline is known: past this
     constexpr double kRollMaxStep      = 0.05;     // a sample pulls at most this share off what was learned
+    // Once learned, a sample further than this off it is ignored (a reset,
+    // a slide, a curve), unless they have disagreed this long in all (a
+    // wrong first value, a real change), when the pull above applies.
+    constexpr double kRollGate         = 0.015;
+    constexpr double kRollGateEscapeSec = 5.0;
+    constexpr double kRollClutchLo     = 10.0, kRollClutchHi = 90.0;   // % clutch: slipping between, no learning
+    // Engine braking (throttle under this, in gear, the clutch up) turns
+    // the driven wheels slower than the road: no learning on that axle.
+    // The driven axle is the one running ahead under kDrivenThrottle %
+    // between these speeds by kDrivenAhead, for kDrivenSec in all.
+    constexpr double kRollOverrunThr   = 3.0;
+    constexpr double kDrivenThrottle   = 80.0;
+    constexpr double kDrivenMinKmh     = 30.0, kDrivenMaxKmh = 200.0;
+    constexpr double kDrivenAhead      = 0.01;
+    constexpr double kDrivenSec        = 2.0;
     // Driveline laws
     constexpr double kClutchSlipLo     = 15.0;     // % pedal: below this the clutch is up (driving)
     constexpr double kClutchSlipHi     = 85.0;     // % pedal: above this it is floored (open)
@@ -195,15 +236,26 @@ namespace laws_k {
     constexpr double kLugThrottle      = 50.0;     // % throttle at or above which the engine can be lugged
     constexpr double kLugFromX         = 0.30;     // lug fades out by this fraction of the redline...
     constexpr double kLugFullX         = 0.12;     // ...and is full at this one (just above idle)
-    // The differential: full below this road speed, gone by this (a spool's
-    // scrub by this); the driven wheels this far apart (slip ratio) start
-    // it, this far is full (a hairpin turns the outside wheel about 10 %
-    // faster); a limited-slip's preload chatters this much off throttle;
-    // the clacks' rate from this share of diff hz up to it.
-    constexpr double kDiffFullKmh      = 30.0, kDiffGoneKmh = 80.0, kDiffSpoolGoneKmh = 50.0;
-    constexpr double kDiffFromSplit    = 0.02, kDiffFullSplit = 0.08;
-    constexpr double kDiffPreload      = 0.3;
-    constexpr double kDiffRateMin      = 0.6;
+    // The differential, a walking-pace thing: a limited slip full below
+    // this road speed and gone by this (a spool's scrub by these), nothing
+    // below kDiffMinKmh (two near-stopped wheels' split is noise). The
+    // corner's own geometry this far apart starts it, this far is full (a
+    // turn of about 10 m radius at a 1.5 m track); the driven wheels may run
+    // this much past the free axle's split before it is a spinning wheel,
+    // not the corner; a free axle this far apart is the car rotating. A
+    // limited slip's preload clunks this much off throttle. The clunks'
+    // rate: diff hz once the wheels turn apart at kDiffSlipRefMs, down to
+    // this share of it.
+    constexpr double kDiffFullKmh      = 8.0,  kDiffGoneKmh = 20.0;
+    constexpr double kDiffSpoolFullKmh = 10.0, kDiffSpoolGoneKmh = 30.0;
+    constexpr double kDiffMinKmh       = 2.0;
+    constexpr double kDiffFromSplit    = 0.05, kDiffFullSplit = 0.15;
+    constexpr double kDiffSpoolFromSplit = 0.06, kDiffSpoolFullSplit = 0.15;
+    constexpr double kDiffSpinAllow    = 0.03;
+    constexpr double kDiffMaxGeoSplit  = 0.4;
+    constexpr double kDiffPreload      = 0.5;
+    constexpr double kDiffSlipRefMs    = 0.5;
+    constexpr double kDiffRateMin      = 0.3;
     constexpr double kLugMinRpm        = 600.0;    // not while cranking or dying
     // Whine: pitch from the input shaft at an order the actuator carries,
     // stepping per gear (a lower gear meshes slower per engine rev).
@@ -415,6 +467,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         {
             for (int w = 0; w < WHEEL_COUNT; ++w) { st.rollK[w] = 0.0; st.rollKnown[w] = false; st.air[w] = false; }
             st.rollSeedSec = st.rollSeedNextSec = 0.0; st.rollSeedN = 0;
+            st.rollOffSec = 0.0; st.drivenSec[0] = st.drivenSec[1] = 0.0;
             st.absFlagSeen = false;
             st.loadRef = 0.0;
             st.kerbSeen = false;
@@ -429,6 +482,9 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         st.lastCar[NCY_STR_LEN - 1] = '\0';
         st.carSeen = true;
     }
+    // The sim's own max rpm seeds the learned redline (once per car).
+    if (live && v.have[NcxValues::MaxRpm] && v.val[NcxValues::MaxRpm] <= kRpmMax)
+        L.seedMaxRpm(v.val[NcxValues::MaxRpm]);
 
     const auto previewOr = [&](FxType t, double level) -> double
     {
@@ -563,21 +619,31 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             for (int w = 0; w < WHEEL_COUNT; ++w) if (!v.have[ncxWheelToken(group, w)]) return false;
             return live;
         };
+        // The slip's load weight only takes away: the loaded tyre of each
+        // axle counts as 1, the lighter one by its share of it (weighting the
+        // loaded tyre up played Assetto Corsa, which sends loads, about 1.4
+        // times stronger than a sim that does not). The Wheels tile's load
+        // share is against the mean of all four.
         double loadW[WHEEL_COUNT] = { 1.0, 1.0, 1.0, 1.0 };
+        double loadShare[WHEEL_COUNT] = { 1.0, 1.0, 1.0, 1.0 };
         if (haveW(NcxValues::LoadFL))
         {
-            double mean = 0.0;
-            for (int w = 0; w < WHEEL_COUNT; ++w) mean += std::max(0.0, v.val[NcxValues::LoadFL + w]);
+            double load[WHEEL_COUNT], mean = 0.0;
+            for (int w = 0; w < WHEEL_COUNT; ++w) mean += (load[w] = std::max(0.0, v.val[NcxValues::LoadFL + w]));
             mean /= WHEEL_COUNT;
-            if (mean > 0.0)
-                for (int w = 0; w < WHEEL_COUNT; ++w)
-                    loadW[w] = std::max(0.0, std::min(kLoadWeightMax, std::max(0.0, v.val[NcxValues::LoadFL + w]) / mean));
+            for (int w = 0; w < WHEEL_COUNT; ++w)
+            {
+                const double axleMax = std::max(load[w], load[w ^ 1]);
+                if (axleMax > 0.0) loadW[w] = load[w] / axleMax;
+                if (mean > 0.0) loadShare[w] = std::min(kLoadWeightMax, load[w] / mean);
+            }
         }
         const double speed = (live && v.have[NcxValues::SpeedKmh]) ? std::max(0.0, v.val[NcxValues::SpeedKmh]) : 0.0;
         // Slip means nothing at a standstill (a stationary car reports
         // slip angles and skid magnitudes that are noise or stale).
         const bool moving = speed > kSlipMinSpeedKmh;
         double lonPeak = kLonOnsetRatio + 0.05;
+        double lockW[WHEEL_COUNT] = {}, spinW[WHEEL_COUNT] = {};   // the Longitudinal tile's own, for the grip budget
 
         // Longitudinal: slip ratio (- locking, + spinning) past the onset
         // ratio up to peak ratio. Ratio from the sim, else from wheel speeds
@@ -602,10 +668,15 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             // hard in Assetto Corsa went minutes with no longitudinal slip
             // at all), taken only once the samples agree, so a spin with
             // the pedals off cannot teach it (it did, and the rears then
-            // read as spinning for seconds).
+            // read as spinning for seconds), and with both axles' wheels
+            // within kRollSeedAxleAgree. Once learned, a sample far off it
+            // is ignored for a while (kRollGate), and engine braking teaches
+            // the driven axle nothing (its wheels turn slower than the road).
             bool cruising = haveWs && speed > kRollLearnMinKmh
                 && (!v.have[NcxValues::BrakePct]    || v.val[NcxValues::BrakePct]    < kRollLearnMaxBrk)
-                && (!v.have[NcxValues::ThrottlePct] || v.val[NcxValues::ThrottlePct] < kRollLearnMaxThr);
+                && (!v.have[NcxValues::ThrottlePct] || v.val[NcxValues::ThrottlePct] < kRollLearnMaxThr)
+                && !(v.have[NcxValues::ClutchPct] && v.val[NcxValues::ClutchPct] > kRollClutchLo
+                                                  && v.val[NcxValues::ClutchPct] < kRollClutchHi);
             // A sender may count forward rotation as negative (Automobilista
             // 2 does): the size of the wheel speed is what counts. Learning
             // on its sign alone left Automobilista 2 with no rolling factor,
@@ -627,17 +698,31 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             // (a long coasting corner taught the corner's wheel speed split,
             // and the corner then counted as straight for the lateral
             // baseline). Last cycle's angle, and only once the baseline is
-            // known (learned, or fixed): before it the straight-line angle
-            // reads as a slide.
-            if (cruising && st.slipSrc == 3 && (st.latBaseSec >= kLatBaseLearnSec || st.latBaseMode == 2))
+            // known (learned, or fixed); before it, past a wider limit (a
+            // slide moved the rears 1.3 % before the baseline was learned).
+            if (cruising && st.slipSrc == 3)
+            {
+                const bool baseKnown = st.latBaseSec >= kLatBaseLearnSec || st.latBaseMode == 2;
                 for (int w = 0; w < WHEEL_COUNT; ++w)
-                    if (st.latRaw[w] - st.latBase[w] > kRollMaxSlipDeg) cruising = false;
+                    if (baseKnown ? st.latRaw[w] - st.latBase[w] > kRollMaxSlipDeg : st.latRaw[w] > kRollPreBaseSlipDeg)
+                        cruising = false;
+            }
             if (cruising)
             {
-                st.rollSeedSec += dtSec;
+                bool off = false;
+                for (int w = 0; w < WHEEL_COUNT; ++w)
+                    if (st.rollKnown[w] && std::fabs(kw[w] / st.rollK[w] - 1.0) > kRollGate) off = true;
+                if (off) { st.rollOffSec += dtSec; if (st.rollOffSec < kRollGateEscapeSec) cruising = false; }
+                else st.rollOffSec = std::max(0.0, st.rollOffSec - dtSec);
+            }
+            if (cruising)
+            {
+                const bool axlesTogether = std::fabs(kw[WheelFL] / kw[WheelFR] - 1.0) <= kRollSeedAxleAgree
+                                        && std::fabs(kw[WheelRL] / kw[WheelRR] - 1.0) <= kRollSeedAxleAgree;
+                if (axlesTogether) st.rollSeedSec += dtSec;
                 bool anyUnknown = false;
                 for (int w = 0; w < WHEEL_COUNT; ++w) anyUnknown = anyUnknown || !st.rollKnown[w];
-                if (anyUnknown && st.rollSeedSec >= st.rollSeedNextSec)
+                if (anyUnknown && axlesTogether && st.rollSeedSec >= st.rollSeedNextSec)
                 {
                     const int slot = st.rollSeedN % LawsState::ROLL_SEED_SLOTS;
                     for (int w = 0; w < WHEEL_COUNT; ++w) st.rollSeedK[w][slot] = kw[w];
@@ -660,9 +745,14 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                     }
                 }
                 const double a = std::min(1.0, dtSec / kRollLearnSec);
+                const bool overrun = v.have[NcxValues::ThrottlePct] && v.val[NcxValues::ThrottlePct] < kRollOverrunThr
+                                  && !(v.have[NcxValues::ClutchPct] && v.val[NcxValues::ClutchPct] >= kRollClutchHi)
+                                  && !(v.have[NcxValues::Gear] && std::fabs(v.val[NcxValues::Gear]) < 0.5);
                 for (int w = 0; w < WHEEL_COUNT; ++w)
                 {
                     if (!st.rollKnown[w]) continue;
+                    const int ax = w < 2 ? 0 : 1;
+                    if (overrun && st.drivenSec[ax] > kDrivenSec && st.drivenSec[ax] > st.drivenSec[ax ^ 1]) continue;
                     const double k = std::max((1.0 - kRollMaxStep) * st.rollK[w], std::min((1.0 + kRollMaxStep) * st.rollK[w], kw[w]));
                     st.rollK[w] += a * (k - st.rollK[w]);
                 }
@@ -694,6 +784,18 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 spin = std::min(1.0, spin * loadW[w]) * ground[w];
                 if (preview) { lock = 1.0; spin = 1.0; }
                 L.driveSlip(FxType::Lockup, w, lock, spin);
+                lockW[w] = lock; spinW[w] = spin;
+            }
+            // Which axle the engine drives: the one running ahead of the
+            // other under full throttle (the rolling factor's engine-braking
+            // rule above reads it).
+            if (live && v.have[NcxValues::ThrottlePct] && v.val[NcxValues::ThrottlePct] > kDrivenThrottle
+                && speed > kDrivenMinKmh && speed < kDrivenMaxKmh
+                && ratioOk[WheelFL] && ratioOk[WheelFR] && ratioOk[WheelRL] && ratioOk[WheelRR])
+            {
+                const double f = 0.5 * (ratioW[WheelFL] + ratioW[WheelFR]), r = 0.5 * (ratioW[WheelRL] + ratioW[WheelRR]);
+                if (r - f > kDrivenAhead) st.drivenSec[1] += dtSec;
+                if (f - r > kDrivenAhead) st.drivenSec[0] += dtSec;
             }
 
             // The edge: the tyre working short of its limit, braking or
@@ -748,12 +850,16 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             const bool perWheel = haveW(NcxValues::SlipAngleFL);
             // A slip SPEED per wheel (m/s, sideways and along together:
             // Automobilista 2), taken apart: the along part is the wheel's
-            // slip ratio x the road speed, what is left is sideways, and as
+            // slip ratio plus its straight-line slip (c, learned on the
+            // straights) x the road speed, what is left is sideways, and as
             // an angle (asin of it over the road speed) it plays through the
-            // slip angle path, less each wheel's straight-line angle (toe,
-            // the tyre's own creep), learned on the straights. As a plain
+            // slip angle path, less what is left of each wheel's straight-
+            // line angle (toe), learned on the straights too. As a plain
             // combined slip it grew with road speed: 2.5 deg's worth on
-            // every straight, the scrub strongest at 250 km/h.
+            // every straight, the scrub strongest at 250 km/h. Taking c off
+            // as an angle instead read the fronts at zero under braking and
+            // a corner about c too low, and a driven wheel under power as a
+            // false angle.
             const bool fromSpeed = !perWheel && haveW(NcxValues::SlipSpeedFL) && v.have[NcxValues::SpeedKmh];
             // The baseline (the tile's): learned on the straights (0),
             // learned once per car and then held (1), or fixed at base deg F
@@ -762,9 +868,14 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             const int baseMode = std::max(0, std::min(2, static_cast<int>(sp.baseMode + 0.5)));
             if (st.latBaseMode == 2 && baseMode != 2) relearnLatBase(st);
             st.latBaseMode = baseMode;
+            // Fixed takes the set angles off and learns nothing, the
+            // straight-line slip along the road included.
             if (baseMode == 2)
                 for (int w = 0; w < WHEEL_COUNT; ++w)
+                {
                     st.latBase[w] = std::max(0.0, std::min(kLatBaseMaxDeg, (w == WheelFL || w == WheelFR) ? sp.baseDegF : sp.baseDegR));
+                    st.latCreep[w] = 0.0;
+                }
             if (fromSpeed)
             {
                 const double vms = std::max(kLatMinSpeedMs, speed / 3.6);
@@ -786,21 +897,31 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 // Fixed, or learned once and held: no learning.
                 if (baseMode == 2 || (baseMode == 1 && st.latBaseSec >= kLatBaseLearnSec)) straight = false;
                 if (straight) st.latBaseSec += dtSec;
-                const double up   = std::min(1.0, dtSec / ((st.latBaseSec < kLatBaseLearnSec) ? kLatBaseSec : kLatBaseUpSec));
-                const double down = std::min(1.0, dtSec / kLatBaseDownSec);
+                const double up    = std::min(1.0, dtSec / ((st.latBaseSec < kLatBaseLearnSec) ? kLatBaseSec : kLatBaseUpSec));
+                const double down  = std::min(1.0, dtSec / kLatBaseDownSec);
+                const double creep = std::min(1.0, dtSec / ((st.latBaseSec < kLatBaseLearnSec) ? kLatBaseSec : kLatCreepSec));
                 // A sender with slip ratios or wheel speeds whose ratio is not
                 // known yet (the rolling factor still learning after a car
                 // change): that wheel's angle is unknown, not all sideways
-                // (a race start's wheelspin read as a full slide).
+                // (a race start's wheelspin read as a full slide); so is one
+                // spinning or locked past kLatRatioGate.
                 const bool alongSent = haveW(NcxValues::SlipRatioFL) || haveW(NcxValues::WheelSpeedFL);
                 for (int w = 0; w < WHEEL_COUNT; ++w)
                 {
                     if (alongSent && !ratioOk[w]) { st.latRaw[w] = 0.0; continue; }
-                    const double ss    = std::fabs(v.val[NcxValues::SlipSpeedFL + w]);
-                    const double along = ratioOk[w] ? std::fabs(ratioW[w]) * vms : 0.0;
+                    if (ratioOk[w] && std::fabs(ratioW[w]) > kLatRatioGate) { st.latRaw[w] = 0.0; continue; }
+                    const double ss = std::fabs(v.val[NcxValues::SlipSpeedFL + w]);
+                    const double r  = ratioOk[w] ? ratioW[w] : 0.0;
+                    // c and the baseline learn only while this wheel turns
+                    // with the road (no torque through it: under power the
+                    // rear baseline started at 2.3 to 2.9 deg against 0.5).
+                    const bool rolling = straight && std::fabs(r) < kLatCreepRatio;
+                    if (rolling)
+                        st.latCreep[w] += creep * (std::max(kLatCreepMin, std::min(kLatCreepMax, ss / vms - r)) - st.latCreep[w]);
+                    const double along = std::fabs(r + st.latCreep[w]) * vms;
                     const double side  = std::sqrt(std::max(0.0, ss * ss - along * along));
                     st.latRaw[w] = std::asin(std::min(1.0, side / vms)) * 180.0 / wavesynth::kPi;
-                    if (straight)
+                    if (rolling)
                     {
                         const double t = std::min(kLatBaseMaxDeg, st.latRaw[w]);
                         st.latBase[w] += ((t > st.latBase[w]) ? up : down) * (t - st.latBase[w]);
@@ -827,6 +948,11 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 st.slipSrc = src;
             }
             const auto curve = [ease](double lin) { return std::pow(std::max(0.0, std::min(1.0, lin)), 1.0 + ease); };
+            // An angle from a slip speed fades in with road speed (below
+            // walking-pace speeds a slow car's sideways part is mostly
+            // noise: a GTP played 75 % of its time at 5 to 30 km/h as a slide).
+            const double latFade = (src == 3)
+                ? std::max(0.0, std::min(1.0, (speed - kLatFadeFromKmh) / (kLatFadeFullKmh - kLatFadeFromKmh))) : 1.0;
             for (int w = 0; w < WHEEL_COUNT; ++w)
             {
                 if (src != 0) st.slipF[w] += (in[w] - st.slipF[w]) * smA;
@@ -838,7 +964,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                     sev = curve((st.slipF[w] - onsetC) / std::max(1e-6, peakC - onsetC));
                 else if (moving && src == 0 && live && v.have[NcxValues::Skid])
                     sev = single;
-                sev = std::min(1.0, sev * loadW[w]) * ground[w];
+                sev = std::min(1.0, sev * loadW[w]) * ground[w] * latFade;
                 if (preview) sev = 1.0;
                 const bool front = (w == WheelFL || w == WheelFR);
                 L.driveSlip(FxType::Skid, w, front ? sev : 0.0, front ? 0.0 : sev);
@@ -852,7 +978,10 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 // (blended between the two full points by direction), then
                 // plays on each tile by its direction (sideways: Lateral;
                 // along: Longitudinal, lock or spin by sign). Pure sideways
-                // or pure along gives the same severity as the tiles alone.
+                // or pure along gives the same severity as the tiles alone,
+                // and it never plays less than the tiles alone (with the
+                // onset at 0 any angle read as the whole budget, and lock
+                // and spin went nearly silent).
                 if (sp.budget >= 0.5 && moving && angled && ratioOk[w] && !preview
                     && st.previewSec[static_cast<int>(FxType::Lockup)] <= 0.0)
                 {
@@ -872,11 +1001,14 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                         // at a few %).
                         const double lin = std::max(0.0, std::min(1.0, (u - 1.0) / std::max(1e-6, uFull - 1.0)));
                         const double s   = std::pow(lin, 1.0 + ease * wa);
-                        lat = std::min(1.0, s * (aN / u) * loadW[w]) * ground[w];
+                        lat = std::min(1.0, s * (aN / u) * loadW[w]) * ground[w] * latFade;
                         lon = std::min(1.0, s * (kN / u) * loadW[w]) * ground[w];
                     }
+                    lat = std::max(lat, sev);
+                    const double lock = std::max(ratioW[w] < 0.0 ? lon : 0.0, lockW[w]);
+                    const double spin = std::max(ratioW[w] > 0.0 ? lon : 0.0, spinW[w]);
                     L.driveSlip(FxType::Skid, w, front ? lat : 0.0, front ? 0.0 : lat);
-                    L.driveSlip(FxType::Lockup, w, ratioW[w] < 0.0 ? lon : 0.0, ratioW[w] > 0.0 ? lon : 0.0);
+                    L.driveSlip(FxType::Lockup, w, lock, spin);
                     latFinal = lat;
                 }
 
@@ -894,7 +1026,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                                        : (live && v.have[NcxValues::Skid]) ? single : 0.0;
                         const double from = std::max(0.0, std::min(0.95, sp.screechPct / 100.0));
                         const double l = std::max(0.0, std::min(1.0, (x - from) / (1.0 - from)));
-                        screech = std::min(1.0, l * l * (3.0 - 2.0 * l) * loadW[w]) * ground[w];
+                        screech = std::min(1.0, l * l * (3.0 - 2.0 * l) * loadW[w]) * ground[w] * latFade;
                     }
                     if (preview) screech = 1.0;
                     L.driveSlipExtra(FxType::Skid, w, screech, latFinal);
@@ -940,7 +1072,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 for (int w = 0; w < WHEEL_COUNT; ++w)
                 {
                     L.driveWheelSpeed(w, ratioOk[w] ? carMs * std::max(0.0, 1.0 + ratioW[w]) : carMs);
-                    L.driveWheelLock(w, carMs, ratioOk[w] ? ratioW[w] : 0.0, loadW[w]);
+                    L.driveWheelLock(w, carMs, ratioOk[w] ? ratioW[w] : 0.0, loadShare[w]);
                 }
                 L.driveWheelsBrake(v.have[NcxValues::BrakePct] ? v.val[NcxValues::BrakePct] / 100.0 : 0.0);
             }
@@ -1355,14 +1487,20 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         L.driveDriveline(judder, lug);
 
         // The differential (diff x 0 = off, an open diff). A clutch-type
-        // limited-slip chatters when its plates stick and slip as the driven
-        // wheels turn apart: a slow tight corner (the outside wheel turns
-        // faster) or a spinning inside wheel, harder under power (a little
-        // off it: its preload), full below kDiffFullKmh and gone by
-        // kDiffGoneKmh. A spool lets the driven wheels turn only as one, so
-        // the sim shows them together and the inside tyre scrubs and hops
-        // instead: how tight the corner is comes from the free axle's split.
-        // The clacks come faster the harder it chatters.
+        // limited slip clunks when the driven wheels are made to turn apart
+        // at walking pace: full lock out of the pits, turning round after an
+        // off, a hairpin at a crawl (full below kDiffFullKmh, gone by
+        // kDiffGoneKmh), harder under power (off it: its preload). On a
+        // racing lap a healthy diff is silent: its plates are clamped or
+        // slip smoothly, and the balance it gives reaches the driver through
+        // the motion and the wheel. Only the corner's own geometry counts:
+        // the free axle's split plus kDiffSpinAllow, so a spinning inside
+        // wheel or one skipping over a kerb is no diff, and a free axle past
+        // kDiffMaxGeoSplit is the car rotating. That needs the wheel speeds
+        // (a sim's own slip ratios leave the geometry out): without them it
+        // stays silent. A spool lets the driven wheels turn only as one, so
+        // the inside tyre scrubs and hops instead, by the free axle's split.
+        // The clunks come evenly, faster the faster the wheels turn apart.
         {
             const DrivelineParams& dp = L.drivelineParams();
             double dl = 0.0, rate = 0.0;
@@ -1376,46 +1514,60 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 const double kmh   = std::max(0.0, v.val[NcxValues::SpeedKmh]);
                 const bool   spool = dp.diffType >= 0.5;
                 const int    driven = static_cast<int>(dp.driven + 0.5);   // 0 rear, 1 front, 2 all
-                // An axle's two wheels apart: from the wheel speeds where
-                // they are sent (the corner's geometry is in them; a sim's
-                // own slip ratios leave it out), else the slip ratios.
+                // An axle's two wheels apart, from the wheel speeds (the
+                // corner's geometry is in them).
                 const auto split = [&](int ax, double& s) -> bool
                 {
                     const int l = ax ? WheelRL : WheelFL, r = ax ? WheelRR : WheelFR;
-                    if (v.have[NcxValues::WheelSpeedFL + l] && v.have[NcxValues::WheelSpeedFL + r])
-                    {
-                        const double a = std::fabs(v.val[NcxValues::WheelSpeedFL + l]) * (st.rollKnown[l] ? st.rollK[l] : 1.0);
-                        const double b = std::fabs(v.val[NcxValues::WheelSpeedFL + r]) * (st.rollKnown[r] ? st.rollK[r] : 1.0);
-                        if (a + b < 1e-6) return false;
-                        s = std::fabs(a - b) / (0.5 * (a + b));
-                    }
-                    else if (ratioOk[l] && ratioOk[r]) s = std::fabs(ratioW[l] - ratioW[r]);
-                    else return false;
+                    if (!v.have[NcxValues::WheelSpeedFL + l] || !v.have[NcxValues::WheelSpeedFL + r]) return false;
+                    const double a = std::fabs(v.val[NcxValues::WheelSpeedFL + l]) * (st.rollKnown[l] ? st.rollK[l] : 1.0);
+                    const double b = std::fabs(v.val[NcxValues::WheelSpeedFL + r]) * (st.rollKnown[r] ? st.rollK[r] : 1.0);
+                    if (a + b < 1e-6) return false;
+                    s = std::fabs(a - b) / (0.5 * (a + b));
                     // A wheel locking is no diff.
                     if ((ratioOk[l] && ratioW[l] < -kLonOnsetRatio) || (ratioOk[r] && ratioW[r] < -kLonOnsetRatio)) return false;
                     s *= std::min(ground[l], ground[r]);
                     return true;
                 };
-                double s = 0.0; bool ok = false;
-                if (!spool)
+                // s: how far apart the corner turns the diff's wheels; geo:
+                // the free axle's split (the corner, or the car rotating).
+                double s = 0.0, geo = 0.0; bool ok = false;
+                double front = 0.0, rear = 0.0;
+                const bool okF = split(0, front), okR = split(1, rear);
+                if (!spool && driven <= 1)
                 {
-                    if (driven == 0)      ok = split(1, s);
-                    else if (driven == 1) ok = split(0, s);
-                    else { double a = 0.0, b = 0.0; const bool oa = split(0, a), ob = split(1, b); ok = oa || ob; s = std::max(a, b); }
+                    const double dSplit = driven == 0 ? rear : front;
+                    geo = driven == 0 ? front : rear;
+                    ok  = okF && okR;
+                    s   = std::min(dSplit, geo + kDiffSpinAllow);
                 }
-                else if (driven == 0) ok = split(0, s);   // the free axle says how tight
-                else if (driven == 1) ok = split(1, s);
-                if (ok)
+                else if (!spool)   // all driven: the axle further apart is held to the other's corner
                 {
+                    geo = std::min(front, rear);
+                    ok  = okF && okR;
+                    s   = std::min(std::max(front, rear), geo + kDiffSpinAllow);
+                }
+                else if (driven <= 1)   // a spool: the free axle says how tight
+                {
+                    geo = s = driven == 0 ? front : rear;
+                    ok  = driven == 0 ? okF : okR;
+                }
+                if (ok && kmh >= kDiffMinKmh && geo <= kDiffMaxGeoSplit)
+                {
+                    const double full   = spool ? kDiffSpoolFullKmh : kDiffFullKmh;
                     const double gone   = spool ? kDiffSpoolGoneKmh : kDiffGoneKmh;
-                    const double speedK = std::max(0.0, std::min(1.0, (gone - kmh) / (gone - kDiffFullKmh)));
-                    const double splitK = std::max(0.0, std::min(1.0, (s - kDiffFromSplit) / (kDiffFullSplit - kDiffFromSplit)));
+                    const double from   = spool ? kDiffSpoolFromSplit : kDiffFromSplit;
+                    const double to     = spool ? kDiffSpoolFullSplit : kDiffFullSplit;
+                    const double speedK = std::max(0.0, std::min(1.0, (gone - kmh) / (gone - full)));
+                    const double splitK = std::max(0.0, std::min(1.0, (s - from) / (to - from)));
                     const bool   drive  = !(v.have[NcxValues::Gear] && std::fabs(v.val[NcxValues::Gear]) < 0.5)
                                        && !(v.have[NcxValues::ClutchPct] && v.val[NcxValues::ClutchPct] >= kClutchSlipHi);
                     const double thr    = (drive && v.have[NcxValues::ThrottlePct]) ? std::max(0.0, std::min(1.0, v.val[NcxValues::ThrottlePct] / 100.0)) : 0.0;
                     const double torqueK = spool ? 1.0 : kDiffPreload + (1.0 - kDiffPreload) * thr;
                     dl   = speedK * splitK * torqueK;
-                    rate = std::max(1.0, dp.diffHz) * (kDiffRateMin + (1.0 - kDiffRateMin) * splitK);
+                    // How fast the wheels turn apart (m/s) sets the rate.
+                    const double apartMs = kmh / 3.6 * s;
+                    rate = std::max(1.0, dp.diffHz) * std::max(kDiffRateMin, std::min(1.0, apartMs / kDiffSlipRefMs));
                 }
             }
             L.driveDiff(dl, rate);

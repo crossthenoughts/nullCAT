@@ -178,7 +178,7 @@ constexpr ParamSpec kDrivelineParams[] = {      // driveline: clutch judder + lu
     { "ignoreN",  "ignore neutral", 0, 1, 1,   "off|on" },   // the Gear shift knock: N passed through is no shift
     { "diff",     "diff x",     0,   1,   0.05, nullptr },   // the differential's chatter (0 = off: an open diff)
     { "diffType", "diff",       0,   1,   1,    "limited slip|spool" },
-    { "diffHz",   "diff hz",    4,   30,  1,    nullptr },   // the clacks' rate at full chatter
+    { "diffHz",   "diff hz",    2,   30,  1,    nullptr },   // the clunks' rate when the wheels turn apart briskly
     { "driven",   "driven",     0,   2,   1,    "rear|front|all" },
     { "whine",    "whine x",    0,   1,   0.1,  nullptr },
     { "whinePitch", "whine pitch", 0, 3,  1,    "with the buzz|below the buzz|octave down|above the buzz" },
@@ -298,7 +298,7 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "Each wheel's tread slipping along the road, per wheel. Lock: a wheel turning slower than the car under "
       "braking, a heavy judder whose beat falls with road speed. Spin: a driven wheel turning faster than the car, "
       "the tread chattering at the contact patch (16 hz; a live axle tramps lower, around 10). Severity rises from "
-      "the slip ratio past the tyre's limit up to peak ratio; the loaded tyre is weighted up when wheel loads "
+      "the slip ratio past the tyre's limit up to peak ratio; the lighter tyre of an axle plays weaker when wheel loads "
       "arrive. The two wheels of an axle move together, the corner told by how hard. Route with a part (a corner, "
       "an axle, all). Needs per-wheel slip ratios, or wheel speeds (the rolling factor is learned while "
       "cruising), or the single lockup channel as a fallback (peak % is the channel value that counts as a full "
@@ -319,7 +319,7 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "cornering and braking or driving together, so where the sim sends both a slip angle and a slip ratio (or "
       "wheel speeds) a wheel slides when the two together reach its limit (trail braking, power out of a corner), "
       "and the slide plays here or on Longitudinal slip by its direction. The carrier slows and roughens as the slide "
-      "grows (squeal, moan, shudder). The loaded tyre is weighted up when wheel loads arrive; the two wheels of "
+      "grows (squeal, moan, shudder). The lighter tyre of an axle plays weaker when wheel loads arrive; the two wheels of "
       "an axle move together. Route with a part (a corner, an axle, all). Needs per-wheel slip angles; else a "
       "per-wheel slip speed (Automobilista 2), turned into an angle less the straight-line angle learned on the "
       "straights (baseline: learn, learn once, or fixed at base deg F / R; the tile shows both, relearn starts it "
@@ -381,9 +381,10 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "softly, a dog box knocks hard and, shifted under power, knocks again as the dogs engage. Whine is "
       "straight-cut gears meshing, its pitch stepping with every gear and its level with load. Shunt is the "
       "backlash taking up when the throttle snaps open or shut, in gear and rolling. Clutch, lug, whine and shunt: "
-      "nothing in neutral. Diff (0 = off): a limited-slip's plates clacking as the driven wheels turn apart in slow "
-      "tight corners, harder under power (in neutral or with the clutch down, its preload alone), never under "
-      "braking; or a spool's inside tyre scrubbing. It needs per-wheel wheel speeds or slip ratios. Needs clutch, "
+      "nothing in neutral. Diff (0 = off): a limited-slip's plates clunking as the driven wheels are made to turn "
+      "apart at walking pace (full lock out of the pits, turning round), harder under power (in neutral or with "
+      "the clutch down, its preload alone), never under braking; or a spool's inside tyre scrubbing below 30 km/h. "
+      "Silent on a racing lap, as a healthy diff is. It needs per-wheel wheel speeds. Needs clutch, "
       "rpm and gear (speed and throttle make it exact).", nullptr, {} },
     { Effect::Surface,     "surface",     "Surface",      Kind::Surface, EventType::COUNT, FxType::Surface,
       { "surface*", "speedKmh", "~rain|wet", nullptr }, { 0.0, 60.0, 0.0, 0.0 }, kSurfaceParams, static_cast<int>(std::size(kSurfaceParams)),

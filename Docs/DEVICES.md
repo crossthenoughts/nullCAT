@@ -393,20 +393,24 @@ power down, or the fronts close to locking, before anything slips.
 **edge from %** is the slip ratio it starts at (3 % by default) and it is
 full at 15 %, where lock and spin take over; lower starts it sooner
 (slicks work at less slip than road tyres). **edge x** is its mix (0.3 by
-default, 0 = off) and **edge hz** its carrier (35 Hz). The loaded tyre
-is weighted up.
+default, 0 = off) and **edge hz** its carrier (35 Hz).
 
-When the sim sends wheel loads, the loaded tyre's slip is weighted up and
-the unloaded one's down, so the outside tyre in a corner shakes harder.
+When the sim sends wheel loads, the lighter tyre of each axle plays
+weaker by its share of the loaded one's load, so the outside tyre in a
+corner shakes harder. The loaded tyre is never weighted up, so a sim that
+sends loads plays as strong as one that does not.
 
 Automobilista 2 has no slip angle, only how fast each tyre slides over
-the road. nullCAT takes out the part that is the wheel locking or
-spinning, turns what is left into a slip angle against the road speed,
+the road. nullCAT takes out the part that is along the road (the wheel
+locking or spinning, and the small slip every tyre shows rolling down a
+straight), turns what is left into a slip angle against the road speed,
 and plays it like any sim's slip angle, so **peak deg** and **onset %**
-mean the same. Every car shows a small angle on a straight (its toe, the
-tyre's own creep); nullCAT learns it on the straights, a few seconds of
-steady driving above 60 km/h, and takes it off, so the tile plays what
-the corner adds and stays quiet on the straight. The tile shows each
+mean the same. nullCAT learns each tyre's straight-line slip on the
+straights, a few seconds of steady driving above 60 km/h with that tyre
+neither driving nor braking, and also any small angle left over (toe), so
+the tile plays what the corner adds and stays quiet on the straight.
+Below 25 km/h the slide fades out (gone by 10), and a wheel spinning or
+locking hard has no angle: there that sim's numbers say little. The tile shows each
 tyre's angle as played and, after the slash, the straight-line angle it
 has learned (`FL 4.2°/1.8`), with how many seconds of straights it has
 learned over. It reads **learning** in amber until it has 6 seconds. A
@@ -442,10 +446,14 @@ counts as a full slide (100 by default): a property that only ever
 reaches 25 in a burnout gets `peak %` 25 and the tile reaches full
 severity like the per-wheel tiles do. Where it gives wheel speeds
 but no slip ratios, nullCAT learns each wheel's rolling factor while you
-cruise (brake off, light throttle, above 30 km/h) and works the ratio out
-itself, so a sender's wheel-speed unit and staggered tyre sizes need no
-setting up. Nothing plays below 5 km/h: slip means nothing at a
-standstill.
+cruise (brake off, light throttle, clutch fully in or out, above 30 km/h,
+each axle's wheels turning together) and works the ratio out itself, so a
+sender's wheel-speed unit and staggered tyre sizes need no setting up.
+Once learned, a moment that disagrees with it (a slide, a reset, a curve)
+is ignored unless it keeps disagreeing for 5 seconds, and engine braking
+teaches the driven wheels nothing (nullCAT finds which wheels are driven
+from which ones run ahead under full throttle). Nothing plays below 5
+km/h: slip means nothing at a standstill.
 
 ### Reading what the effects are fed
 
@@ -788,16 +796,21 @@ harder in a dog box; a slow throttle change makes no knock.
 
 **diff x** is the differential (0, off, by default: most road cars have
 an open diff, which does nothing you would feel). A **limited slip**
-diff's clutch plates resist the driven wheels turning apart; in a slow,
-tight corner the outside wheel has to turn faster, and the plates stick
-and let go in irregular clacks, harder under power and a little off it.
-It plays in full below 30 km/h and is gone by 80, so it is a hairpin and
-pit-lane thing, never a straight. A **spool** (a locked axle: stock
-cars, drift cars) lets the wheels turn only as one, so in a tight turn
-the inside tyre scrubs and hops instead. **diff hz** is how fast the
-clacks come at full chatter (12), and **driven** says which wheels the
-engine drives (rear by default). 0.3 to 0.6 suits a race car with a
-plate diff.
+diff's clutch plates resist the driven wheels turning apart; turning at
+full lock at walking pace (out of the pits or the paddock, turning round
+after an off, a hairpin at a crawl) the outside wheel has to turn much
+faster, and the plates stick and let go in an even ratchet of clunks,
+harder under power and a little off it. It plays in full below 8 km/h
+and is gone by 20. On a racing lap a healthy diff is silent: you feel it
+in how the car turns in and drives out, which the motion and the wheel
+already give you. Only the corner counts: an inside wheel spinning on
+the way out, a wheel skipping over a kerb or a spinning car is no diff. A
+**spool** (a locked axle: stock cars, drift cars) lets the wheels turn
+only as one, so in a tight turn below 30 km/h the inside tyre scrubs and
+hops instead. **diff hz** is how fast the clunks come when the wheels
+turn apart briskly (8), fewer as they slow, and **driven** says which
+wheels the engine drives (rear by default). It needs the sim to send
+wheel speeds. 0.4 to 0.8 suits a race car with a plate diff.
 
 ### The engine
 

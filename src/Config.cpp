@@ -1418,7 +1418,7 @@ std::vector<std::string> AppConfig::validate() const
                     errors.push_back(pfx + "whinePitch must be 0 (with the buzz), 1 (below), 2 (octave down) or 3 (above)");
                 if (d.diff < 0.0 || d.diff > 1.0) errors.push_back(pfx + "diff out of range [0, 1]");
                 if (d.diffType != 0.0 && d.diffType != 1.0) errors.push_back(pfx + "diffType must be 0 (limited slip) or 1 (spool)");
-                if (d.diffHz < 4.0 || d.diffHz > 30.0) errors.push_back(pfx + "diffHz out of range [4, 30]");
+                if (d.diffHz < 2.0 || d.diffHz > 30.0) errors.push_back(pfx + "diffHz out of range [2, 30]");
                 if (d.driven != 0.0 && d.driven != 1.0 && d.driven != 2.0) errors.push_back(pfx + "driven must be 0 (rear), 1 (front) or 2 (all)");
             }
             if (info.kind == haptics::Kind::Road)

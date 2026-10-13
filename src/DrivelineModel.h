@@ -19,10 +19,11 @@
 //   SHUNT   backlash taking up when the throttle crosses zero torque: one
 //           knock at shunt hz, harder in a dog box, scaled by how fast.
 //   DIFF    the differential: a clutch-type limited-slip's plates sticking
-//           and letting go as the driven wheels turn apart (or a spool's
-//           inside tyre scrubbing and hopping): irregular clacks, each a
-//           short knock, at about diff hz, each spaced and struck a little
-//           differently so it reads as the plates, not a fault.
+//           and letting go as the driven wheels turn apart at walking pace
+//           (or a spool's inside tyre scrubbing and hopping): evenly spaced
+//           clunks like a ratchet, each a short knock, at up to diff hz,
+//           each spaced and struck only a little differently (random gaps
+//           and random strength read as a worn joint, not the plates).
 // All whole-car (no parts). Mixes and carriers per component; the shared
 // jitter roughens the oscillators. Levels ramp like the other continuous
 // effects; the shunt and the clacks are pulses.
@@ -46,8 +47,8 @@ namespace driveline_k {
     // click), spaced up to this share longer or shorter than the rate and
     // struck between this share and full.
     constexpr double kClackHz      = 45.0;
-    constexpr double kClackSpacing = 0.45;
-    constexpr double kClackHitMin  = 0.55;
+    constexpr double kClackSpacing = 0.15;
+    constexpr double kClackHitMin  = 0.8;
 }
 
 struct DrivelineOut
