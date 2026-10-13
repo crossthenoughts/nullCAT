@@ -326,7 +326,9 @@ int main()
         }
         v.val[NcxValues::Skid] = 0.0; settle(300);
 
-        // Flag channel: TC.
+        // Flag channel: TC (on the throttle: there is nothing to cut without).
+        const bool hadThrTc = v.have[NcxValues::ThrottlePct]; const double thrTc = v.val[NcxValues::ThrottlePct];
+        v.have[NcxValues::ThrottlePct] = true; v.val[NcxValues::ThrottlePct] = 60.0;
         v.val[NcxValues::TcActive] = 1.0; settle(100);
         check(L.fxLevel(static_cast<int>(haptics::FxType::TcPulse)) > 0.9, "I-7 tcActive drives the TC pulse");
         // The TC flag flickers as traction control cuts in and out: held
@@ -355,7 +357,19 @@ int main()
             check(lo0 < 0.5, "I-7 TC: hold ms 0 plays the flag as sent (flickering)");
             raw.holdMs = 150.0; L.configurePulse(haptics::FxType::TcPulse, raw);
             v.val[NcxValues::TcActive] = 1.0; settle(10);
+            // Off the throttle there is nothing for a traction control to
+            // cut: the flag (and its hold) is ignored with the pedal up
+            // (Automobilista 2's ran on after a lift).
+            const bool hadThr = v.have[NcxValues::ThrottlePct]; const double thr0 = v.val[NcxValues::ThrottlePct];
+            raw.holdMs = 500.0; L.configurePulse(haptics::FxType::TcPulse, raw);   // a long hold: the lift must cut it short
+            v.have[NcxValues::ThrottlePct] = true; v.val[NcxValues::ThrottlePct] = 0.0; settle(100);   // 0.2 s
+            check(L.fxLevel(static_cast<int>(haptics::FxType::TcPulse)) < 0.05, "I-7 TC: the flag on with the throttle shut plays no TC (its hold cut short)");
+            raw.holdMs = 150.0; L.configurePulse(haptics::FxType::TcPulse, raw);
+            v.val[NcxValues::ThrottlePct] = 60.0; settle(100);
+            check(L.fxLevel(static_cast<int>(haptics::FxType::TcPulse)) > 0.9, "I-7 TC: ...on the throttle it does");
+            v.have[NcxValues::ThrottlePct] = hadThr; v.val[NcxValues::ThrottlePct] = thr0; settle(10);
         }
+        v.have[NcxValues::ThrottlePct] = hadThrTc; v.val[NcxValues::ThrottlePct] = thrTc;
 
         // Gear edge: a change fires ONE transient (once the new gear has
         // held 45 ms); a steady gear fires none; the first sighting after
@@ -630,6 +644,16 @@ int main()
             check(std::fabs(judder() - 0.33) < 0.06, "I-8 driveline: 1800 rpm over the ratio at 5400 = a third slip");
             set(NcxValues::ThrottlePct, 0.0); settleD(300);
             check(std::fabs(judder() - 0.05) < 0.03, "I-8 driveline: off throttle the judder drops to the floor");
+            // A shift's quick dip at speed (an auto-clutch, a heel-and-toe):
+            // 0.15 s in the band is no slip to judder over; held, it is.
+            set(NcxValues::ThrottlePct, 100.0); set(NcxValues::ClutchPct, 0.0); settleD(200);
+            double dipPk = 0.0;
+            set(NcxValues::ClutchPct, 50.0);
+            for (int i = 0; i < 75; ++i) { settleD(1); dipPk = std::max(dipPk, judder()); }   // 0.15 s
+            set(NcxValues::ClutchPct, 0.0); settleD(200);
+            check(dipPk < 0.02, "I-8 driveline: a quick clutch dip at speed (a shift) does not judder");
+            set(NcxValues::ClutchPct, 50.0); settleD(300);
+            check(judder() > 0.25, "I-8 driveline: the clutch held in the band at speed, slipping, judders");
 
             // Lug: in gear, throttle 100, 1200 rpm of a 7000 redline (x 0.17).
             set(NcxValues::ClutchPct, 0.0); set(NcxValues::ThrottlePct, 100.0); set(NcxValues::Rpm, 1200.0); set(NcxValues::SpeedKmh, 20.0);
@@ -1327,6 +1351,26 @@ int main()
         hunt(1.0, abs10);
         check(absOff(), "I-17: from wheels off, no flag: no ABS");
         pp.fromWheels = 1.0; L.configurePulse(FxType::AbsPulse, pp);
+        // A flag sent but never on is the car's ABS switched off (Assetto
+        // Corsa, aid off): a driver pumping the pedal through lock-ups is
+        // not read as ABS.
+        hunt(1.0, abs10);
+        check(absOff(), "I-17: from wheels with the flag, the sim's flag sent but never on (ABS off): the wheels are not ABS");
+        // On its own: a game whose flag is always 0 (the SimHub plugin
+        // sends 0 where SimHub has none): the wheels alone.
+        pp.fromWheels = 2.0; L.configurePulse(FxType::AbsPulse, pp);
+        hunt(1.0, abs10);
+        check(st.absWheelHoldSec > 0.0, "I-17: from wheels on its own: the wheels are ABS working, flag or none");
+        pp.fromWheels = 1.0; L.configurePulse(FxType::AbsPulse, pp);
+        v.val[NcxValues::BrakePct] = 0.0; run(0.6); v.val[NcxValues::BrakePct] = 80.0;
+        hunt(0.5, [&](double) { return 0.0; });
+        // The flag seen once (Automobilista 2 sends it now and then; here
+        // off the brake, so it plays nothing itself): the wheels fill its
+        // gaps from then on.
+        v.val[NcxValues::BrakePct] = 0.0;
+        v.val[NcxValues::AbsActive] = 1.0; run(1.0 / 60.0); v.val[NcxValues::AbsActive] = 0.0;
+        run(0.3);
+        v.val[NcxValues::BrakePct] = 80.0;
         hunt(1.0, abs10);
         std::printf("  I-17 ABS from the wheels: %.1f Hz detected, level %.2f, largest pulse step %.3f\n",
                     st.absWheelHz, L.fxLevel(static_cast<int>(FxType::AbsPulse)), maxStep);
@@ -1348,6 +1392,24 @@ int main()
         check(absOff(), "I-17: a wheel locked and staying locked (no ABS) is no ABS");
         hunt(0.5, [&](double) { return 0.0; });
         check(absOff() && !L.absModel().synced(WheelFL), "I-17: ...nor its release; ABS off frees the corners");
+        // A sim that sends no ABS flag at all: the wheels are all there is.
+        {
+            haptics::Layer L2; haptics::LawsState st2;
+            L2.configureFx(FxType::AbsPulse, fx); L2.configurePulse(FxType::AbsPulse, pp);
+            NcxValues v2 = v; v2.have[NcxValues::AbsActive] = false;
+            const int n = static_cast<int>(2.5 / dt); int lastK = -1; double held = 0.0;
+            for (int i = 0; i < n; ++i)
+            {
+                // A second cruising (the rolling factor), then the stop.
+                const double t = i * dt; const int k = static_cast<int>(t * 60.0);
+                v2.val[NcxValues::BrakePct] = (t < 1.0) ? 0.0 : 80.0;
+                if (k != lastK) { lastK = k; held = (t < 1.0) ? 0.0 : abs10(t); }
+                const double wf = wsAt(100.0 * (1.0 + held));
+                v2.val[NcxValues::WheelSpeedFL] = wf; v2.val[NcxValues::WheelSpeedFR] = wf;
+                haptics::driveLaws(L2, st2, v2, dt); L2.step(dt);
+            }
+            check(st2.absWheelHoldSec > 0.0, "I-17: no ABS flag sent at all: the wheels are ABS working");
+        }
 
         // Off below walking pace: the sim's flag held on at 3 km/h with the
         // brake down (the BMW in the pits) plays no ABS; unticked it does.
@@ -1867,6 +1929,57 @@ int main()
         v.have[NcxValues::PitchDeg] = v.have[NcxValues::RollDeg] = false;
     }
 
+    // ---- I-21: the rolling factor from short moments ----
+    {
+        using haptics::FxType;
+        const double dt = 0.002;
+        auto fresh = []() {
+            NcxValues v{}; v.fresh = true;
+            v.have[NcxValues::SpeedKmh] = v.have[NcxValues::ThrottlePct] = v.have[NcxValues::BrakePct] = true;
+            v.val[NcxValues::SpeedKmh] = 120.0; v.val[NcxValues::BrakePct] = 0.0;
+            for (int w = 0; w < 4; ++w) { v.have[NcxValues::WheelSpeedFL + w] = true; v.val[NcxValues::WheelSpeedFL + w] = 104.0; }
+            return v; };
+        // A race car: light throttle only in short moments (a lift, a
+        // breath), flat out between with the rears 4 % ahead of the road
+        // (a 312T in Assetto Corsa went minutes with none of it learned).
+        {
+            haptics::Layer L; haptics::LawsState st; NcxValues v = fresh();
+            haptics::EffectParams lp; lp.ampPct = 100.0; lp.routes[0] = { 0, 1.0 }; L.configureFx(FxType::Lockup, lp);
+            double knownAt = -1.0;
+            for (int i = 0; i < static_cast<int>(6.0 / dt); ++i)
+            {
+                const double t = i * dt, u = std::fmod(t, 0.5);
+                const bool lift = u < 0.08;
+                v.val[NcxValues::ThrottlePct] = lift ? 20.0 : 100.0;
+                v.val[NcxValues::WheelSpeedRL] = v.val[NcxValues::WheelSpeedRR] = lift ? 104.0 : 104.0 * 1.04;
+                haptics::driveLaws(L, st, v, dt); L.step(dt);
+                if (knownAt < 0.0 && st.rollKnown[0] && st.rollKnown[1] && st.rollKnown[2] && st.rollKnown[3]) knownAt = t;
+            }
+            std::printf("  I-21 rolling factor from 80 ms lifts every half second: known at %.1f s\n", knownAt);
+            check(knownAt > 0.0 && knownAt < 4.0, "I-21: short moments add up: the rolling factor is learned (it waited for half a second without a break)");
+            check(std::fabs(st.rollK[WheelRL] * 104.0 / 120.0 - 1.0) < 0.01, "I-21: ...the rolling one, not the spinning one");
+        }
+        // Samples that disagree (a wheel's speed all over the place from one
+        // sample to the next) seed nothing; steady ones beside them do.
+        {
+            haptics::Layer L; haptics::LawsState st; NcxValues v = fresh();
+            v.val[NcxValues::ThrottlePct] = 20.0;
+            uint64_t rng = 12345;
+            for (int i = 0; i < static_cast<int>(2.0 / dt); ++i)
+            {
+                if (i % 8 == 0)
+                {
+                    rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17;
+                    const double k = 1.0 + 0.30 * (static_cast<double>(rng & 0xFFFF) / 65535.0 - 0.5);   // +-15 %, a wheel all over the place
+                    v.val[NcxValues::WheelSpeedRL] = v.val[NcxValues::WheelSpeedRR] = 104.0 * k;
+                }
+                haptics::driveLaws(L, st, v, dt); L.step(dt);
+            }
+            check(!st.rollKnown[WheelRL], "I-21: wheel speeds that disagree from sample to sample teach nothing");
+            check(st.rollKnown[WheelFL], "I-21: ...the steady fronts are learned");
+        }
+    }
+
     // ---- I-12: the Impacts tile through the laws ----
     {
         using haptics::FxType; using haptics::Part;
@@ -1900,6 +2013,26 @@ int main()
         }
         check(T.impactModel().knocks(WheelRR) >= 1 && T.impactModel().knocks(WheelFR) == 1,
               "I-12 impacts: RR's travel jumping 30 mm in a sample knocks RR; a 4 g heave jump knocks every corner");
+        // Standing still (a reset or a spawn drops the car onto the ground):
+        // no knock; moving off, the first sample is no jump from a stale one;
+        // moving, a jump knocks as ever.
+        {
+            haptics::Layer S; haptics::LawsState ss; S.configureFx(FxType::Impacts, ip); S.configureImpacts(haptics::ImpactParams{});
+            NcxValues sv{}; sv.fresh = true;
+            sv.have[NcxValues::SpeedKmh] = true; sv.val[NcxValues::SpeedKmh] = 0.0;
+            auto svel = [&](double fl, int n) {
+                for (int w = 0; w < 4; ++w) { sv.have[NcxValues::SuspVelFL + w] = true; sv.val[NcxValues::SuspVelFL + w] = (w == WheelFL) ? fl : 0.0; }
+                for (int i = 0; i < n; ++i) { haptics::driveLaws(S, ss, sv, dt); S.step(dt); } };
+            svel(0.0, 100); svel(2000.0, 100);
+            check(S.impactModel().knocks(WheelFL) == 0, "I-12 impacts: standing still, a 2 m/s drop (a reset) knocks nothing");
+            // Moving off with the corner where it stood: the last sample
+            // taken standing is the one it jumps from (were they skipped,
+            // the jump from 0 would knock).
+            sv.val[NcxValues::SpeedKmh] = 40.0; svel(2000.0, 100);
+            check(S.impactModel().knocks(WheelFL) == 0, "I-12 impacts: moving off, no knock from a stale sample");
+            svel(0.0, 100);
+            check(S.impactModel().knocks(WheelFL) == 1, "I-12 impacts: moving, the jump knocks");
+        }
 
         // A Test preview with no sim: FL, FR, RL (down), RR, then the whole car.
         {

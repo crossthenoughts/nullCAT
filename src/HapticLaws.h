@@ -48,7 +48,16 @@ struct LawsState
     // set both come out as ratio 0 when rolling. Unknown until learned.
     double rollK[WHEEL_COUNT]     = {};
     bool   rollKnown[WHEEL_COUNT] = {};
-    double rollSeedSec = 0.0;   // how long the wheels have looked fit to learn from
+    // The first value: samples taken while the wheels looked fit to learn
+    // from, however short the moments (a race car is rarely at light
+    // throttle for long), one per kRollSeedEverySec of that time.
+    static constexpr int ROLL_SEED_SLOTS = 16;
+    double rollSeedSec = 0.0;      // time the wheels have looked fit to learn from, in all
+    double rollSeedNextSec = 0.0;  // ...when the next sample is due
+    int    rollSeedN = 0;
+    double rollSeedK[WHEEL_COUNT][ROLL_SEED_SLOTS] = {};
+    // Clutch judder: how long the pedal has been in the slipping band.
+    double clutchBandSec = 0.0;
     // Driveline shunt: the throttle a moment ago, for the zero-torque
     // crossing; and the dog box's second knock after a shift under power.
     double lastThrottle = 0.0;
@@ -102,6 +111,7 @@ struct LawsState
     // ABS flag is playing this cycle (for the card).
     double absHoldSec = 0.0, tcHoldSec = 0.0;
     bool   absFlagOn = false;
+    bool   absFlagSeen = false;   // the sim's ABS flag has been on, this car: its ABS works (the wheels may fill its gaps)
     // ABS from the wheels: per wheel, armed once it dips towards a lock,
     // its lowest ratio since, the time since its last dump; the hold after
     // a dump that counted, and the rate the dumps come at (for the card).
@@ -169,7 +179,10 @@ namespace laws_k {
     constexpr double kRollLearnMaxThr  = 30.0;     // % throttle; above this a driven wheel may be slipping
     constexpr double kRollLearnMaxBrk  = 5.0;
     constexpr double kRollLearnSec     = 2.0;      // learns over seconds while cruising...
-    constexpr double kRollSeedSec      = 0.5;      // ...the first value only after this long fit to learn from
+    constexpr double kRollSeedSec      = 0.5;      // ...the first value only after this long fit to learn from, in all
+    constexpr double kRollSeedEverySec = 0.05;     // ...one sample per this much of it, wherever it falls (the median of them)
+    constexpr double kRollSeedAgree    = 0.02;     // ...each wheel's samples this close to their median...
+    constexpr double kRollSeedShare    = 0.75;     // ...this share of them, or keep collecting (a spin's samples disagree)
     constexpr double kRollAxleAgree    = 0.04;     // an axle's two wheels within this of each other (not sliding, not a tight corner)
     constexpr double kRollMaxSlipDeg   = 3.0;      // no tyre past this slip angle, where the sim sends them
     constexpr double kRollMaxStep      = 0.05;     // a sample pulls at most this share off what was learned
@@ -178,6 +191,7 @@ namespace laws_k {
     constexpr double kClutchSlipHi     = 85.0;     // % pedal: above this it is floored (open)
     constexpr double kClutchLaunchKmh  = 5.0;      // slower than this with the engine up = a launch (full slip)
     constexpr double kClutchMinRpm     = 500.0;    // nothing from a stalled engine
+    constexpr double kJudderHoldSec    = 0.25;     // above a launch, the pedal held in the slipping band this long (a shift's quick dip is no slip)
     constexpr double kLugThrottle      = 50.0;     // % throttle at or above which the engine can be lugged
     constexpr double kLugFromX         = 0.30;     // lug fades out by this fraction of the redline...
     constexpr double kLugFullX         = 0.12;     // ...and is full at this one (just above idle)
@@ -282,7 +296,13 @@ namespace laws_k {
     constexpr double kPreviewWheelSpread[WHEEL_COUNT] = { 0.0, 0.004, -0.003, 0.007 };   // a Test: each wheel a touch apart
     constexpr double kPreviewFlatMm    = 0.8;
     constexpr double kPreviewBrake     = 0.6;
-    // Impacts laws: a Test preview's knocks (wheel -1 = every corner).
+    // Traction control: nothing to cut without throttle (the sim's flag and
+    // its hold ran on after a lift).
+    constexpr double kTcMinThrottlePct = 10.0;
+    // Impacts laws: slower than this the car is standing (a reset or a
+    // spawn drops it onto the ground); a Test preview's knocks (wheel -1 =
+    // every corner).
+    constexpr double kImpactStillKmh   = 2.0;
     struct PreviewKnock { double atSec; int wheel; double severity, sign; };
     constexpr PreviewKnock kPreviewKnocks[] = {
         { 0.10, WheelFL, 1.0, 1.0 }, { 0.50, WheelFR, 0.6, 1.0 }, { 0.90, WheelRL, 1.0, -1.0 },
@@ -394,7 +414,8 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         if (st.carSeen && std::strncmp(v.car, st.lastCar, NCY_STR_LEN) != 0)
         {
             for (int w = 0; w < WHEEL_COUNT; ++w) { st.rollK[w] = 0.0; st.rollKnown[w] = false; st.air[w] = false; }
-            st.rollSeedSec = 0.0;
+            st.rollSeedSec = st.rollSeedNextSec = 0.0; st.rollSeedN = 0;
+            st.absFlagSeen = false;
             st.loadRef = 0.0;
             st.kerbSeen = false;
             st.rpmSeen = false;
@@ -431,9 +452,13 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
     // ABS's below: it flickers as traction control cuts in and out, and
     // each flicker restarted the engine's cut and the TC tile's pulse (a
     // stutter that felt like the rig). Hold 0: the flag as sent.
-    const bool tcFlag = flag(NcxValues::TcActive) > 0.5;
+    // No throttle, nothing for a traction control to cut: off the pedal the
+    // flag and its hold are ignored (Automobilista 2's ran on after a lift,
+    // seconds of TC with the throttle shut).
+    const bool tcThrottle = !(live && v.have[NcxValues::ThrottlePct]) || v.val[NcxValues::ThrottlePct] >= kTcMinThrottlePct;
+    const bool tcFlag = flag(NcxValues::TcActive) > 0.5 && tcThrottle;
     if (tcFlag) st.tcHoldSec = std::max(0.0, L.pulseParams(FxType::TcPulse).holdMs) / 1000.0;
-    else        st.tcHoldSec = std::max(0.0, st.tcHoldSec - dtSec);
+    else        st.tcHoldSec = tcThrottle ? std::max(0.0, st.tcHoldSec - dtSec) : 0.0;
     const double tcOn = (tcFlag || st.tcHoldSec > 0.0) ? 1.0 : 0.0;
 
     // Engine: firing rate from rpm and the engine description; throttle is
@@ -571,9 +596,13 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             // (none sliding, spinning or rolling backwards, no tight
             // corner) and, where the sim sends slip angles, no tyre is
             // sliding. A sample pulls at most kRollMaxStep off what was
-            // learned, and the first value is taken only after half a
-            // second of that, so a spin with the pedals off cannot teach it
-            // (it did, and the rears then read as spinning for seconds).
+            // learned. The first value is the median of samples taken over
+            // half a second of that in all, however short the moments (it
+            // waited for half a second without a break, and a 312T driven
+            // hard in Assetto Corsa went minutes with no longitudinal slip
+            // at all), taken only once the samples agree, so a spin with
+            // the pedals off cannot teach it (it did, and the rears then
+            // read as spinning for seconds).
             bool cruising = haveWs && speed > kRollLearnMinKmh
                 && (!v.have[NcxValues::BrakePct]    || v.val[NcxValues::BrakePct]    < kRollLearnMaxBrk)
                 && (!v.have[NcxValues::ThrottlePct] || v.val[NcxValues::ThrottlePct] < kRollLearnMaxThr);
@@ -603,17 +632,37 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             if (cruising && st.slipSrc == 3 && (st.latBaseSec >= kLatBaseLearnSec || st.latBaseMode == 2))
                 for (int w = 0; w < WHEEL_COUNT; ++w)
                     if (st.latRaw[w] - st.latBase[w] > kRollMaxSlipDeg) cruising = false;
-            st.rollSeedSec = cruising ? st.rollSeedSec + dtSec : 0.0;
             if (cruising)
             {
+                st.rollSeedSec += dtSec;
+                bool anyUnknown = false;
+                for (int w = 0; w < WHEEL_COUNT; ++w) anyUnknown = anyUnknown || !st.rollKnown[w];
+                if (anyUnknown && st.rollSeedSec >= st.rollSeedNextSec)
+                {
+                    const int slot = st.rollSeedN % LawsState::ROLL_SEED_SLOTS;
+                    for (int w = 0; w < WHEEL_COUNT; ++w) st.rollSeedK[w][slot] = kw[w];
+                    ++st.rollSeedN;
+                    st.rollSeedNextSec = st.rollSeedSec + kRollSeedEverySec;
+                    if (st.rollSeedSec >= kRollSeedSec)
+                    {
+                        const int n = std::min(st.rollSeedN, LawsState::ROLL_SEED_SLOTS);
+                        for (int w = 0; w < WHEEL_COUNT; ++w)
+                        {
+                            if (st.rollKnown[w]) continue;
+                            double s[LawsState::ROLL_SEED_SLOTS];
+                            for (int i = 0; i < n; ++i) s[i] = st.rollSeedK[w][i];
+                            std::nth_element(s, s + n / 2, s + n);
+                            const double med = s[n / 2];
+                            int agree = 0;
+                            for (int i = 0; i < n; ++i) if (std::fabs(st.rollSeedK[w][i] / med - 1.0) <= kRollSeedAgree) ++agree;
+                            if (agree >= kRollSeedShare * n) { st.rollK[w] = med; st.rollKnown[w] = true; }
+                        }
+                    }
+                }
                 const double a = std::min(1.0, dtSec / kRollLearnSec);
                 for (int w = 0; w < WHEEL_COUNT; ++w)
                 {
-                    if (!st.rollKnown[w])
-                    {
-                        if (st.rollSeedSec >= kRollSeedSec) { st.rollK[w] = kw[w]; st.rollKnown[w] = true; }
-                        continue;
-                    }
+                    if (!st.rollKnown[w]) continue;
                     const double k = std::max((1.0 - kRollMaxStep) * st.rollK[w], std::min((1.0 + kRollMaxStep) * st.rollK[w], kw[w]));
                     st.rollK[w] += a * (k - st.rollK[w]);
                 }
@@ -918,12 +967,19 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
     // are ABS working, and each dump times that corner's pulse (its cycle
     // pulled into step with the dumps, at the rate they come). A wheel that
     // locks and stays locked (no ABS), or hovers near a lock (threshold
-    // braking), never dumps; a tyre in the air is not counted.
+    // braking), never dumps; a tyre in the air is not counted. From wheels
+    // "with the flag": the wheels fill the gaps of a flag that has shown
+    // this car's ABS working, or stand in for a sender with no flag; a flag
+    // that never comes on is ABS switched off (Assetto Corsa, aid off: a
+    // driver pumping the pedal through two lock-ups read as ABS). "On its
+    // own": the wheels alone, for a game whose flag is always 0 (the SimHub
+    // plugin sends 0 where SimHub has none).
     {
         const PulseParams& pp = L.pulseParams(FxType::AbsPulse);
         const bool absFlag = flag(NcxValues::AbsActive) > 0.5;
-        if (absFlag) st.absHoldSec = std::max(0.0, pp.holdMs) / 1000.0;
+        if (absFlag) { st.absHoldSec = std::max(0.0, pp.holdMs) / 1000.0; st.absFlagSeen = true; }
         else         st.absHoldSec = std::max(0.0, st.absHoldSec - dtSec);
+        const bool wheelsTrusted = !(live && v.have[NcxValues::AbsActive]) || st.absFlagSeen;
         // No ABS at all with the tile's amp at 0, through its slip link
         // either (a car with no ABS has its amp at 0: the link went on
         // judder-locking the tyres through half of every stop); and, with
@@ -940,7 +996,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         for (int w = 0; w < WHEEL_COUNT; ++w)
         {
             st.absSince[w] += dtSec;
-            if (!(pp.fromWheels >= 0.5 && braking && rolling && ratioOk[w] && ground[w] > 0.5))
+            if (!(pp.fromWheels >= 0.5 && (wheelsTrusted || pp.fromWheels >= 1.5) && braking && rolling && ratioOk[w] && ground[w] > 0.5))
             {
                 st.absArmed[w] = false; st.absSince[w] = 1e9;
                 continue;
@@ -1212,8 +1268,10 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
 
     // Impacts: each corner's suspension velocity (or its travel, the
     // velocity worked out per sample) and the body's vertical acceleration;
-    // the model finds the sudden jumps. A Test preview knocks FL, FR, RL
-    // (a top-out), RR, then the whole car.
+    // the model finds the sudden jumps, never with the car standing (a reset
+    // or a spawn drops it onto the ground: the speed as sent, which a reset
+    // leaves untrusted for everything else). A Test preview knocks FL, FR,
+    // RL (a top-out), RR, then the whole car.
     {
         double& previewLeft = st.previewSec[static_cast<int>(FxType::Impacts)];
         if (previewLeft > 0.0)
@@ -1238,6 +1296,8 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             if (vel)         for (int w = 0; w < WHEEL_COUNT; ++w) L.driveImpactVelocity(w, v.val[NcxValues::SuspVelFL + w]);
             else if (travel) for (int w = 0; w < WHEEL_COUNT; ++w) L.driveImpactTravel(w, v.val[NcxValues::SuspTravelFL + w]);
             if (v.have[NcxValues::AccHeave]) L.driveImpactHeave(v.val[NcxValues::AccHeave]);
+            if (in.have[NcxValues::SpeedKmh] && std::isfinite(in.val[NcxValues::SpeedKmh]) && in.val[NcxValues::SpeedKmh] < kImpactStillKmh)
+                L.impactsStill();
         }
     }
 
@@ -1249,7 +1309,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
     {
         double judder = 0.0, lug = 0.0;
         const bool preview = st.previewSec[static_cast<int>(FxType::Driveline)] > 0.0;
-        if (preview) { judder = 1.0; lug = 1.0; st.previewSec[static_cast<int>(FxType::Driveline)] -= dtSec; }
+        if (preview) { judder = 1.0; lug = 1.0; st.clutchBandSec = 0.0; st.previewSec[static_cast<int>(FxType::Driveline)] -= dtSec; }
         else if (live && v.have[NcxValues::Rpm] && v.have[NcxValues::Gear] && v.val[NcxValues::Rpm] > kClutchMinRpm)
         {
             const double rpm  = v.val[NcxValues::Rpm];
@@ -1262,20 +1322,28 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 const double c = v.val[NcxValues::ClutchPct];
                 if (c > kClutchSlipLo && c < kClutchSlipHi)
                 {
+                    st.clutchBandSec += dtSec;
                     // Window: full mid-band, tapering to the edges.
                     const double mid = 0.5 * (kClutchSlipLo + kClutchSlipHi), half = 0.5 * (kClutchSlipHi - kClutchSlipLo);
                     const double window = std::max(0.0, 1.0 - std::fabs(c - mid) / half);
                     double slip = 0.5;   // ratio unknown: assume some
                     const double speed = v.have[NcxValues::SpeedKmh] ? std::max(0.0, v.val[NcxValues::SpeedKmh]) : -1.0;
-                    if (speed >= 0.0 && speed < kClutchLaunchKmh) slip = 1.0;
+                    const bool launch = speed >= 0.0 && speed < kClutchLaunchKmh;
+                    if (launch) slip = 1.0;
                     else if (speed >= 0.0 && ratios && g > 0 && g < MAX_GEARS && ratios->known[g])
                     {
                         const double expected = ratios->r[g] * speed;
                         slip = std::max(0.0, std::min(1.0, std::fabs(rpm - expected) / std::max(1.0, rpm)));
                     }
-                    judder = window * slip * std::max(0.15, load);
+                    // Rolling, the pedal held in the band a moment: a shift's
+                    // quick dip (an auto-clutch, a heel-and-toe) is no slip to
+                    // judder over (it shuddered on every shift at speed).
+                    if (launch || st.clutchBandSec >= kJudderHoldSec)
+                        judder = window * slip * std::max(0.15, load);
                 }
+                else st.clutchBandSec = 0.0;
             }
+            else st.clutchBandSec = 0.0;
             if (inGear && v.have[NcxValues::ThrottlePct] && v.val[NcxValues::ThrottlePct] >= kLugThrottle && rpm > kLugMinRpm)
             {
                 const double maxRpm = (L.engineParams().maxRpm > 0.0) ? L.engineParams().maxRpm : L.learnedMaxRpm();
@@ -1283,6 +1351,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 lug = std::max(0.0, std::min(1.0, (kLugFromX - x) / (kLugFromX - kLugFullX))) * load;
             }
         }
+        else st.clutchBandSec = 0.0;   // no stream, a stalled engine: a later dip starts its wait afresh
         L.driveDriveline(judder, lug);
 
         // The differential (diff x 0 = off, an open diff). A clutch-type

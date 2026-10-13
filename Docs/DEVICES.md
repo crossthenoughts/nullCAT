@@ -760,8 +760,10 @@ What the transmission does when the engine and the wheels disagree.
 through its travel and slip across the clutch, the whole driveline
 shudders at its resonance (around 10 Hz). nullCAT works the slip out
 from the engine speed against what the gear and road speed say it should
-be, using the gear ratios it learns while you drive; a launch from rest
-is full slip, and more throttle makes it harder. **lug x / lug hz** is
+be, using the gear ratios it learns while you drive steadily in each
+gear; a launch from rest is full slip, and more throttle makes it harder.
+Rolling, the pedal has to stay part-way a quarter of a second first, so a
+quick dip during a shift does not judder. **lug x / lug hz** is
 the engine bogged: full throttle at too few revs winds the driveline up
 and lets it go in a slow shudder that fades as the revs climb out of it.
 Neither plays in neutral. Needs the clutch, rpm and gear channels, with
@@ -773,7 +775,9 @@ tile's thunk: a *synchro* road box clunks softly and a little longer; a
 and a shift under power gets a second knock a moment later as the dogs
 engage. Sims report neutral for a moment in every shift; with **ignore
 neutral** ticked (the default) that is no shift of its own, so each
-shift knocks once. Untick it to feel going into neutral too. Either way
+shift knocks once, as the box leaves its gear (a dog box shifted under
+power knocks again as the next gear goes in). Untick it to feel going
+into neutral and into the next gear separately. Either way
 a gear counts once it has held a few hundredths of a second: a sim's
 one-frame junk gear in the middle of a shift is ignored. **whine x** is straight-cut gears meshing: a tone
 whose pitch follows the input shaft and steps on every shift, loud under

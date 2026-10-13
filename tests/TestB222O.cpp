@@ -442,6 +442,31 @@ private slots:
         cc.merge(r3, c3);
         QCOMPARE((int)cc.cars().size(), 2);
 
+        // A session whose own gears are out of order (a higher gear with the
+        // higher ratio) is never remembered.
+        double r4[MAX_GEARS] = {}; bool c4[MAX_GEARS] = {};
+        r4[2] = 33.7; c4[2] = true;
+        r4[3] = 46.2; c4[3] = true;
+        cc.merge(r4, c4);
+        QCOMPARE((int)cc.cars().size(), 2);
+
+        // A session matching a remembered car (its 1st and 2nd) that drove a
+        // gear the remembered 3rd contradicts (4th above it): the remembered
+        // 3rd goes, the session's own 4th stands.
+        {
+            CarCache m;
+            double a[MAX_GEARS] = {}; bool ca[MAX_GEARS] = {};
+            a[1] = 120.0; ca[1] = true; a[2] = 85.0; ca[2] = true; a[3] = 60.0; ca[3] = true;
+            m.merge(a, ca);
+            double b[MAX_GEARS] = {}; bool cb[MAX_GEARS] = {};
+            b[1] = 120.5; cb[1] = true; b[2] = 85.2; cb[2] = true; b[4] = 70.0; cb[4] = true;
+            m.merge(b, cb);
+            QCOMPARE((int)m.cars().size(), 1);
+            QVERIFY(!m.cars()[0].has[3]);
+            QVERIFY(m.cars()[0].has[4]);
+            QCOMPARE(m.cars()[0].r[4], 70.0);
+        }
+
         QVERIFY(cc.save(anchor));
         CarCache back;
         QVERIFY(back.load(anchor));
@@ -450,6 +475,19 @@ private slots:
         QVERIFY(back.cars()[1].has[3]);
         QCOMPARE(back.cars()[1].r[3], 60.0);
         QVERIFY(!back.cars()[0].has[4]);
+
+        // A file holding an out-of-order set (written before the learner was
+        // timed in seconds: 2nd 33.7, 3rd 46.2) loads without it.
+        {
+            QFile f(tmp.path() + "/carcache.json");
+            QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            f.write("{\"cars\":[{\"ratios\":[0,106.5,33.7,46.2,41.9,36.2,25.9,0,0]},"
+                    "{\"ratios\":[0,120,85,60,0,0,0,0,0]}]}");
+        }
+        CarCache bad;
+        QVERIFY(bad.load(anchor));
+        QCOMPARE((int)bad.cars().size(), 1);
+        QCOMPARE(bad.cars()[0].r[2], 85.0);
     }
 
     void o5_full_default_roundtrip_no_data_loss()

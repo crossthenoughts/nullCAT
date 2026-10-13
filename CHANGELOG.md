@@ -362,6 +362,31 @@ Development branch. Nothing here is in a release yet.
   gear outside -1 to 12 (a sim sent 150 once: two gear-shift knocks), and
   an engine speed past 40,000 rpm or changing faster than any engine can (Automobilista
   2 sent 191,105 rpm once): the last true one stands.
+- The learned gear ratios went wrong and were remembered that way (in
+  Automobilista 2 and Assetto Corsa: a 2nd gear learned at half its
+  ratio, a 1st at three times it). They are learned only while a gear is
+  held steadily, off the brake, with no launch or wheelspin, over seconds
+  of driving; a higher gear must have the lower ratio; and remembered
+  ratios out of gear order are forgotten. The clutch judder reads its
+  slip from them, so it juddered when it should not.
+- Clutch judder shuddered on shifts at speed, wherever the clutch dipped
+  for a moment (an auto-clutch, a heel-and-toe). Rolling, the clutch now
+  has to stay in its slipping range a quarter of a second first; a launch
+  judders at once as before.
+- Longitudinal slip from wheel speeds could stay silent for minutes in a
+  race car (Assetto Corsa): the wheels' rolling size was only learned
+  after half a second without a break at light throttle. Short moments
+  now add up.
+- With **from wheels** on, ABS played on lock-ups in a car with its ABS
+  switched off (Assetto Corsa). From wheels is now a choice: **with the
+  flag** (what "on" was) counts the wheels only once the sim's own ABS
+  flag has been on for that car (the ABS tile says when it is waiting for
+  it); **on its own** is the wheels alone, for a game whose flag is always
+  0.
+- The TC pulse ran on after a lift (Automobilista 2's flag stays on):
+  nothing with the throttle shut now.
+- An Impacts knock with the car standing, when a reset or a spawn drops
+  it onto the ground.
 - The Gear shift tile knocked two or three times for one shift: sims
   report neutral for a moment in every shift, and Automobilista 2 a junk
   gear for one frame (a 5-4 downshift read 5, N, 3, 4). A gear now counts

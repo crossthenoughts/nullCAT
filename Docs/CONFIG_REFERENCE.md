@@ -192,8 +192,8 @@ ABS and TC fields (`abs`, `tc`; `freqHz` is the cycle rate):
 |---|---|---|---|
 | `abs`, `tc` | `sharp` | `0.3` | The drop's edge, 0 to 1: 0 round (the drop takes half the cycle), 1 a knock (ABS dumps in a quarter of the cycle, TC cuts in a third). |
 | `abs`, `tc` | `spread` | `0.5` | 0 to 1: each cycle up to 30 % longer or shorter and 35 % shallower; for ABS each corner also on its own rate (up to 18 % apart), so the corners drift in and out of step. 0 = one regular pulse. |
-| `abs`, `tc` | `holdMs` | `150` | 0 to 500 ms, 0 = off: the sim's ABS / TC flag is held on over gaps this short, so a flag the sim blips or flickers plays as one effect. |
-| `abs` | `fromWheels` | `0` | 0 off, 1 on: ABS also counts as working when a braked wheel dips towards a lock (past 6 % slip) and spins back up (inside 4 %) twice in a row at an ABS rhythm (0.04 to 0.35 s apart), held 0.4 s. A wheel hovering near a lock, staying locked, or in the air does not count. Each corner's pulse is then pulled into step with its own wheel. Needs `slipRatio*` or `wheelSpeed*`. |
+| `abs`, `tc` | `holdMs` | `150` | 0 to 500 ms, 0 = off: the sim's ABS / TC flag is held on over gaps this short, so a flag the sim blips or flickers plays as one effect. TC plays nothing with the throttle under 10 % (nothing to cut), flag and hold alike. |
+| `abs` | `fromWheels` | `0` | 0 off, 1 with the flag, 2 on its own: ABS also counts as working when a braked wheel dips towards a lock (past 6 % slip) and spins back up (inside 4 %) twice in a row at an ABS rhythm (0.04 to 0.35 s apart), held 0.4 s. A wheel hovering near a lock, staying locked, or in the air does not count. Each corner's pulse is then pulled into step with its own wheel. With the flag (1): only once the sim's own `absActive` has been on for this car, or when the sender sends no `absActive` at all; a flag that never comes on is the car's ABS switched off (the ABS tile then reads "waiting for the sim's flag"). On its own (2): the wheels alone, for a game whose flag is always 0 (the SimHub plugin sends 0 where SimHub has no ABS flag). Needs `slipRatio*` or `wheelSpeed*`. |
 | `abs` | `lowOff` | `1` | 0 off, 1 on: no ABS below 5 km/h, whatever the sim's flag says (a flag held on at a standstill with the brake down). |
 | `abs` | `slow` | `0.5` | 0 to 1: how far the cycle slows towards a stop (rate x (1 - slow x (1 - speed / 80 km/h)) below 80 km/h; speed unknown = full rate). |
 | `abs` | `buzz`, `buzzHz` | `0.3`, `40` | The pump and valve buzz: mix 0 to 1 and carrier 15 to 120 Hz. |
@@ -234,13 +234,13 @@ Impacts fields (`impacts`; `freqHz` is the ring's carrier, 15 to 120 Hz, `durMs`
 |---|---|---|
 | `fromMmS` | `400` | 100 to 3000: the jump in a corner's suspension velocity between two samples (mm/s) that starts a knock (severity 0). Measured: 1 to 40 knocks a minute by car and track. |
 | `fullMmS` | `1500` | 300 to 8000, above `fromMmS`: the jump that is a full knock. |
-| `heaveG` | `0.5` | 0 to 5, 0 = off: the jump in `accHeave` between two samples (g) that knocks every corner, full at 3 x this. |
+| `heaveG` | `0.5` | 0 to 5, 0 = off: the jump in `accHeave` between two samples (g) that knocks every corner, full at 3 x this. Nothing knocks with the car standing (under 2 km/h: a reset or a spawn drops it onto the ground). |
 
 Driveline-only fields (`driveline`):
 
 | Field | Default | Notes |
 |---|---|---|
-| `clutch`, `clutchHz` | `1`, `10` | Clutch judder: mix (0 to 1) and carrier (4 to 20 Hz). Plays while the clutch pedal is between 15 % and 85 % with slip across it (engine rpm against the learned ratio for the gear times road speed; a launch under 5 km/h is full slip), scaled by throttle. |
+| `clutch`, `clutchHz` | `1`, `10` | Clutch judder: mix (0 to 1) and carrier (4 to 20 Hz). Plays while the clutch pedal is between 15 % and 85 % with slip across it (engine rpm against the learned ratio for the gear times road speed; a launch under 5 km/h is full slip), scaled by throttle. Rolling, the pedal has to stay in that range a quarter of a second first (a shift's quick dip is no slip); a launch judders at once. The gear ratios are learned while a gear is held steadily (off the brake, the clutch up, no launch or wheelspin) over seconds of driving. |
 | `lug`, `lugHz` | `1`, `7` | Lugging wind-up: mix (0 to 1) and carrier (3 to 15 Hz). Plays in gear at 50 % throttle or more between 12 % and 30 % of the redline, full at the low end. |
 | `gearbox` | `0` | 0 synchro, 1 dog. Shapes the gear-shift thunk (synchro: 0.75 x, 1.4 x longer, lower; dog: full, 0.7 x shorter, higher, plus an engagement knock at 60 % throttle or more: 60 ms after a straight gear-to-gear shift, or as the next gear goes in when the shift passes through neutral with `ignoreN` on). |
 | `ignoreN` | `1` | 0 off, 1 on: the Gear shift tile knocks once per shift, as the box leaves its gear; the neutral a sim shows mid-shift and the gear going in within half a second are the same shift (a dog box shifted under power adds its engagement knock as that gear goes in). A neutral held half a second is a real one, and the gear after it knocks. Off, going into neutral and into the next gear knock separately. Either way a gear counts only once it has held 45 ms (a one-frame junk gear is none). |

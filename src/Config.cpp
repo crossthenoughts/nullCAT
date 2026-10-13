@@ -1507,7 +1507,8 @@ std::vector<std::string> AppConfig::validate() const
                     if (q.lockLink < 0.0 || q.lockLink > 1.0)   errors.push_back(pfx + "lockLink out of range [0, 1]");
                     if (q.scrubLink < 0.0 || q.scrubLink > 1.0) errors.push_back(pfx + "scrubLink out of range [0, 1]");
                     if (q.brakeFull < 10.0 || q.brakeFull > 100.0) errors.push_back(pfx + "brakeFull out of range [10, 100]");
-                    if (q.fromWheels != 0.0 && q.fromWheels != 1.0) errors.push_back(pfx + "fromWheels must be 0 (off) or 1 (on)");
+                    if (q.fromWheels != 0.0 && q.fromWheels != 1.0 && q.fromWheels != 2.0)
+                        errors.push_back(pfx + "fromWheels must be 0 (off), 1 (with the flag) or 2 (on its own)");
                     if (q.lowOff != 0.0 && q.lowOff != 1.0)         errors.push_back(pfx + "lowOff must be 0 (off) or 1 (on)");
                 }
             }

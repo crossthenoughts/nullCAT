@@ -131,7 +131,9 @@ constexpr ParamHelp kHelp[] = {
       "ABS also counts as working when the wheels show it: a wheel dipping towards a lock and spinning back up "
       "as its valve dumps, twice at an ABS rhythm. Each corner's pulse is then timed to its own wheel. On for "
       "sims that report ABS only now and then (Automobilista 2); the tile shows when it is detecting and at "
-      "what rate. Needs wheel speeds or slip ratios." },
+      "what rate. With the flag: only once the sim's own ABS flag has been on for this car (a flag that never "
+      "comes on is the car's ABS switched off). On its own: the wheels alone, for a game that never sends the "
+      "flag. With the flag for Assetto Corsa and Automobilista 2. Needs wheel speeds or slip ratios." },
     { "abs", "lowOff",
       "No ABS below 5 km/h, whatever the sim's flag says: a real ABS stops cycling before the car stops (some "
       "sims hold the flag on at a standstill with the brake down). On for most." },

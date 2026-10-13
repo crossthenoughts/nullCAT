@@ -150,6 +150,7 @@ struct MotionStatus
     // baseline's straight-line time, and whether that is enough to call it
     // learned.
     bool            hapAbsFlag = false, hapAbsWheels = false;
+    bool            hapAbsFlagSeen = false;   // the sim's ABS flag has been on, this car (from wheels "with the flag")
     double          hapAbsWheelHz = 0.0;
     int             hapLatSrc = 0, hapLatMode = 0;
     double          hapLatBaseSec = 0.0;

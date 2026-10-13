@@ -753,6 +753,7 @@ void MotionController::publishHapticsStatusLocked()
         m_statusSnapshot.ncxPk[i]   = m_ncxPk[i];
     }
     m_statusSnapshot.hapAbsFlag    = m_hapLaws.absFlagOn;
+    m_statusSnapshot.hapAbsFlagSeen = m_hapLaws.absFlagSeen;
     m_statusSnapshot.hapLatSrc     = m_hapLaws.slipSrc;
     m_statusSnapshot.hapLatMode    = m_hapLaws.latBaseMode;
     m_statusSnapshot.hapAbsWheels  = m_hapLaws.absWheelHoldSec > 0.0;
@@ -2124,10 +2125,10 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
     serviceCommissioning(drives, numHwDrives);
 
     // Gear-ratio learner: one observation per cycle from the NULLCATX
-    // channels (it filters for meaningful samples itself). Rig-level, so
-    // it runs whether or not any device axis is engaged.
+    // channels (it filters for meaningful samples itself, in seconds).
+    // Rig-level, so it runs whether or not any device axis is engaged.
     if (m_ncxMap.boundCount() > 0)
-        m_ratioLearner.step(m_ncxMap.extract(telemetryData));
+        m_ratioLearner.step(m_ncxMap.extract(telemetryData), m_cycleTimeSec);
 
     output.numDrives = m_numDrives;
     const bool estopNow = m_emergencyStop.load(std::memory_order_acquire);

@@ -90,7 +90,7 @@ constexpr ParamSpec kAbsParams[] = {            // ABS: the corners' valves, the
     { "buzzHz", "buzz hz",   15,  120, 1,    nullptr },
     { "brakeFull", "full at brake %", 10, 100, 5, nullptr }, // light braking, a light pulse; full by this pedal
     { "holdMs",    "hold ms",   0, 500, 10,   nullptr },  // the sim's flag held over gaps this long (0 off)
-    { "fromWheels","from wheels", 0, 1, 1,   "off|on" },  // ABS also from the wheels dipping and recovering, the pulse timed to them
+    { "fromWheels","from wheels", 0, 2, 1,   "off|with the flag|on its own" },  // ABS also from the wheels dipping and recovering, the pulse timed to them
     { "lowOff",    "off < 5 km/h", 0, 1, 1,  "off|on" },  // no ABS below walking pace, whatever the flag says
     { "slipLink",  "slip link", 0, 1,  1,    "off|on" },  // the corners' valves shape the slip tiles
     { "lockLink",  "lock x",    0, 1,  0.05, nullptr },   // ...the lock texture surging with each cycle
@@ -357,7 +357,8 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "second (the Engine tile's TC cut x adds an ignition-cut stutter if you want one). sharp is the cut's edge "
       "(0 round, 1 a hard knock), spread makes each cut a little different in timing and depth; hold ms keeps the "
       "sim's TC flag on over gaps that short (it flickers as TC cuts in and out), so TC working plays as one "
-      "(0 = off). Route it to surge and the belt. Needs the tcActive channel.", nullptr, {} },
+      "(0 = off). Nothing with the throttle shut: there is nothing to cut. Route it to surge and the belt. Needs "
+      "the tcActive channel.", nullptr, {} },
     { Effect::Kerb,        "kerb",        "Kerb",         Kind::Kerb, EventType::COUNT, FxType::Kerb,
       { "surface*|curbs|roadHeight*", "speedKmh", nullptr }, { 0.0, 16.0, 0.0, 0.4 }, kKerbParams, static_cast<int>(std::size(kKerbParams)),
       "A rumble strip under the tyre that is on one: ribs every pitch cm, so they hum at speed / pitch and the hum "
@@ -374,7 +375,8 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "The transmission when the engine and the wheels disagree. Clutch: a slipping clutch grabbing and releasing "
       "at a launch or a bad downshift, the whole driveline shuddering at clutch hz, from how much slip (engine rpm "
       "against what the gear and road speed say, using the learned ratios), how much load, and how far into the "
-      "slipping band the pedal is. Lug: full throttle at too few revs winding the driveline up and letting go at "
+      "slipping band the pedal is; rolling, the pedal held there a quarter second first (a shift's quick dip is "
+      "no slip). Lug: full throttle at too few revs winding the driveline up and letting go at "
       "lug hz, fading as the revs climb out of it. Gearbox shapes the gear-shift thunk: a synchro box clunks "
       "softly, a dog box knocks hard and, shifted under power, knocks again as the dogs engage. Whine is "
       "straight-cut gears meshing, its pitch stepping with every gear and its level with load. Shunt is the "
@@ -415,7 +417,8 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "The edge of a hit, which the motion cue rounds off and never sends to a belt or shaker: a corner's "
       "suspension stopping or starting dead between two sim samples (the bump stop on a big compression, a "
       "landing, a kerb strike, the suspension topping out), from from mm/s of sudden change, full at full mm/s; "
-      "and a sudden jump in the body's vertical g (heave g, 0 = off) on every corner. A belt or shaker gets a "
+      "and a sudden jump in the body's vertical g (heave g, 0 = off) on every corner; never with the car standing "
+      "(a reset drops it onto the ground). A belt or shaker gets a "
       "knock ringing at ring hz and dying over ring ms; a post one short jolt, up for a compression, down for a "
       "top-out (keep its route small: the motion already moves the body). Route with a part so a post knocks "
       "for its own corner. Needs the suspension velocity or travel per corner, or the body's vertical "

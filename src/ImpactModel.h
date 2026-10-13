@@ -81,6 +81,11 @@ public:
         if (!std::isfinite(ms2)) return;
         m_heaveIn = ms2; m_heaveDriven = true;
     }
+    // Per cycle, BEFORE step(): the car is standing still. The inputs are
+    // tracked as ever (so the first move after has a true last sample to
+    // jump from) but nothing knocks: a car dropped onto the ground at a
+    // reset or a spawn knocked once at a standstill.
+    void still() { m_still = true; }
     // A knock on one corner now, severity 0..1, sign +1 compression / -1
     // top-out (a Test preview; the laws' own hits come through the inputs).
     void knock(int wheel, double severity, double sign)
@@ -95,10 +100,12 @@ public:
         if (dtSec <= 0.0) return;
         const double from = std::max(1.0, q.fromMmS);
         const double full = std::max(from + 1.0, q.fullMmS);
+        const bool   still = m_still;
+        m_still = false;
         // The body: a jump in vertical acceleration between two samples.
         if (m_heaveDriven)
         {
-            if (m_heaveSeen && m_heaveIn != m_heavePrev && q.heaveG > 0.0)
+            if (m_heaveSeen && m_heaveIn != m_heavePrev && q.heaveG > 0.0 && !still)
             {
                 const double jumpG = std::fabs(m_heaveIn - m_heavePrev) / kG;
                 const double s = (jumpG - q.heaveG) / ((kHeaveFullX - 1.0) * q.heaveG);
@@ -164,7 +171,7 @@ public:
                     const double jump = v - c.vLast;
                     const double s = (std::fabs(jump) - from) / (full - from);
                     const double moved = (std::fabs(v) >= std::fabs(c.vLast)) ? v : c.vLast;
-                    if (s > 0.0) start(c, std::min(1.0, s), moved >= 0.0 ? 1.0 : -1.0, false);
+                    if (s > 0.0 && !still) start(c, std::min(1.0, s), moved >= 0.0 ? 1.0 : -1.0, false);
                 }
                 c.vLast = v; c.haveV = true;
             }
@@ -210,6 +217,7 @@ public:
     {
         for (C& c : m_c) c = C{};
         m_heaveIn = m_heavePrev = 0.0; m_heaveDriven = m_heaveSeen = false;
+        m_still = false;
         m_level = 0.0;
     }
 
@@ -237,6 +245,7 @@ private:
     C m_c[WHEEL_COUNT];
     double m_heaveIn = 0.0, m_heavePrev = 0.0;
     bool   m_heaveDriven = false, m_heaveSeen = false;
+    bool   m_still = false;   // this cycle: standing still (no knocks)
     double m_level = 0.0;
 };
 

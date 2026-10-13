@@ -1642,8 +1642,9 @@ function hapLive(s){
     // ABS: what says it is working (the flag, the wheels and their rate).
     const ab=t.tile.querySelector('[data-abssrc]');
     if(ab&&s.hapAbs){
-      const fw=+t.dv.fromWheels>=0.5, a=s.hapAbs;
-      ab.textContent=!(+t.dv.ampPct>0)?'off (amp 0: no ABS, through the tyres either)':(a.flag||a.wheels)?('working: '+[a.flag?'flag':'',a.wheels?('wheels '+(+a.hz||0).toFixed(0)+' Hz'):''].filter(Boolean).join(' + ')):('idle'+(fw?'':' (from wheels off)'));
+      const fw=Math.round(+t.dv.fromWheels||0), a=s.hapAbs;
+      const why=fw===0?' (from wheels off)':(fw===1&&a.seen===false)?' (from wheels: waiting for the sim\'s flag)':'';
+      ab.textContent=!(+t.dv.ampPct>0)?'off (amp 0: no ABS, through the tyres either)':(a.flag||a.wheels)?('working: '+[a.flag?'flag':'',a.wheels?('wheels '+(+a.hz||0).toFixed(0)+' Hz'):''].filter(Boolean).join(' + ')):('idle'+why);
       ab.classList.toggle('warn',!!a.wheels);
     }
     // Wheels: the tyres' state at a glance (flat spots, hot discs, a

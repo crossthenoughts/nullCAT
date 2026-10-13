@@ -438,7 +438,7 @@ std::string WebServer::buildStatusJson() const
         // ABS: on the sim's flag, from the wheels (and their rate); the
         // lateral baseline's straight-line learning time.
         s += "\"hapAbs\":{\"flag\":" + jsonBool(ms.hapAbsFlag) + ",\"wheels\":" + jsonBool(ms.hapAbsWheels)
-           + ",\"hz\":" + jsonDouble(ms.hapAbsWheelHz, 1) + "},";
+           + ",\"hz\":" + jsonDouble(ms.hapAbsWheelHz, 1) + ",\"seen\":" + jsonBool(ms.hapAbsFlagSeen) + "},";
         s += "\"hapLatBaseSec\":" + jsonDouble(ms.hapLatBaseSec, 1) + ",\"hapLatSrc\":" + std::to_string(ms.hapLatSrc)
            + ",\"hapLatMode\":" + std::to_string(ms.hapLatMode) + ",\"hapLatLearned\":" + jsonBool(ms.hapLatLearned) + ",";
         // Sim identity from NULLCATY (empty until a sender names it).

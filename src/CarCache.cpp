@@ -28,6 +28,7 @@ bool CarCache::load(const std::string& anchorPath)
         LOG_WARNING("CarCache: carcache.json unreadable -- starting empty.");
         return false;
     }
+    int dropped = 0;
     for (const QJsonValue& v : doc.object().value("cars").toArray())
     {
         const QJsonObject o = v.toObject();
@@ -39,11 +40,17 @@ bool CarCache::load(const std::string& anchorPath)
             const double r = ra[g].toDouble(0.0);
             if (r > 0.0) { car.r[g] = r; car.has[g] = true; any = true; }
         }
+        // A set that does not fall with every gear holds a wrong value
+        // (learned from a launch or wheelspin before the learner was
+        // timed in seconds): forgotten, the car is relearned.
+        if (any && !GearRatioLearner::inOrder(car.r, car.has)) { ++dropped; continue; }
         if (any) m_cars.push_back(car);
         if ((int)m_cars.size() >= MAX_CACHED_CARS) break;
     }
     if (!m_cars.empty())
         LOG_INFO(strf("CarCache: %d remembered car(s) loaded.", (int)m_cars.size()));
+    if (dropped > 0)
+        LOG_INFO(strf("CarCache: %d remembered car(s) with ratios out of gear order forgotten.", dropped));
     return true;
 }
 
@@ -98,9 +105,26 @@ void CarCache::merge(const double r[MAX_GEARS], const bool confident[MAX_GEARS])
         if (ok && shared >= GearRatioLearner::ADOPT_MIN_GEARS) match = (int)c;
     }
 
+    {
+        // The session's own gears must fall with every gear.
+        bool has[MAX_GEARS] = {};
+        for (int g = 1; g < MAX_GEARS; ++g) has[g] = confident[g];
+        if (!GearRatioLearner::inOrder(r, has)) return;
+    }
     CachedCar car = (match >= 0) ? m_cars[match] : CachedCar{};
     for (int g = 1; g < MAX_GEARS; ++g)
         if (confident[g]) { car.r[g] = r[g]; car.has[g] = true; }
+    // A remembered gear the session contradicts (out of order with what
+    // was just driven) goes; the session's gears stand.
+    for (int g = 1; g < MAX_GEARS; ++g)
+    {
+        if (confident[g] || !car.has[g]) continue;
+        for (int h = 1; h < MAX_GEARS; ++h)
+        {
+            if (!confident[h]) continue;
+            if ((h < g && !(r[h] > car.r[g])) || (h > g && !(r[h] < car.r[g]))) { car.has[g] = false; car.r[g] = 0.0; break; }
+        }
+    }
 
     if (match >= 0) m_cars.erase(m_cars.begin() + match);
     m_cars.insert(m_cars.begin(), car);                  // most recently driven first

@@ -133,7 +133,7 @@ private slots:
         c.hapticsAbs     = { 0.6, 0.8, 0.4, 0.5, 55.0, 1.0, 0.45, 0.2, 65.0 };
         c.hapticsTc      = { 0.2, 0.9, 0.0, 0.0, 40.0 };
         c.hapticsAbs.holdMs = 120.0; c.hapticsTc.holdMs = 0.0;   // the TC hold off
-        c.hapticsAbs.fromWheels = 1.0;
+        c.hapticsAbs.fromWheels = 2.0;   // on its own
         c.hapticsAbs.lowOff = 0.0;                 // default on: off round-trips
         c.hapticsSlipLon.screech = 0.45; c.hapticsSlipLon.screechPct = 4.5; c.hapticsSlipLon.screechHz = 42.0;   // the edge
         c.hapticsSlipLat.baseMode = 2.0; c.hapticsSlipLat.baseDegF = 2.4; c.hapticsSlipLat.baseDegR = 1.1;      // the lateral baseline fixed
@@ -205,7 +205,7 @@ private slots:
         QCOMPARE(r.hapticsAbs.slipLink, 1.0); QCOMPARE(r.hapticsAbs.lockLink, 0.45); QCOMPARE(r.hapticsAbs.scrubLink, 0.2);
         QCOMPARE(r.hapticsAbs.brakeFull, 65.0);
         QCOMPARE(r.hapticsAbs.holdMs, 120.0); QCOMPARE(r.hapticsTc.holdMs, 0.0);
-        QCOMPARE(r.hapticsAbs.fromWheels, 1.0);
+        QCOMPARE(r.hapticsAbs.fromWheels, 2.0);
         QCOMPARE(r.hapticsAbs.lowOff, 0.0); QCOMPARE(r.hapticsTc.lowOff, 1.0);   // TC carries none
         QCOMPARE(r.hapticsDriveline.ignoreN, 0.0);
         QCOMPARE(r.hapticsDriveline.whinePitch, 3.0);
