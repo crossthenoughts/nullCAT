@@ -199,6 +199,33 @@ profile, and from then on nullCAT loads that profile by itself whenever
 that car runs, with a line in the log. A profile with no binding is
 manual only. Profiles live in `profiles.json` beside the rig config.
 
+### Starting points
+
+A profile carries your routes, so it only fits your own rig. A starting
+point fits any rig: it sets only what depends on the type of car, and
+nullCAT ships four of them, on the **type** row of the Master tile:
+
+- **Road car**: a street car on road tyres. Soft, long-travel suspension,
+  slides that build gradually, iron brakes.
+- **Cup car**: a one-make racer on semi-slicks (Porsche Cup, Ginetta,
+  classic touring). Firmer, slides earlier, still forgiving.
+- **GT3 / GT**: GT3, GTE and prototypes on slicks. Stiff, aero, sharp
+  slides, steel brakes. The middle ground to tune from.
+- **Open wheeler**: single-seaters and formula cars on slicks. Very stiff,
+  little travel, grip lets go at small slip angles, carbon brakes.
+
+Each one sets how the tyres let go (Lateral and Longitudinal slip), how
+the road and kerbs move the car (Road, Kerb), the wheels' shake and brake
+judder (Wheels) and the ring of a knock (Impacts). Hover a type to read
+it. Everything else stays exactly as it is: your routes, master gain, pos
+budget, and the engine, limiter, driveline, ABS and TC (those come from
+the car table). So pick the type closest to what you drive, **apply** it,
+then pull the car from the car table for its engine, gearbox, ABS and TC,
+and tune from there. Applying writes the settings to your rig config at
+once, like loading a profile; if you have unsaved edits on the page it
+asks first. The starting points are `presets.json` beside the program;
+every update replaces it.
+
 ### The car table
 
 A profile is a copy of your rig's whole strip. The car table is the other
@@ -223,6 +250,27 @@ entry, `· no entry`). **Pull car preset** applies that entry to the five
 tiles. **Follow car** (on by default) does the same by itself whenever the
 sim names a car the table knows; untick it and the table only acts when
 asked. A profile bound to the car wins over the table.
+
+A sim sometimes names a car with something after a name the table knows:
+a version letter or a year (Automobilista 2 has a `MINI Cooper S 1965 B`
+beside its `MINI Cooper S 1965`). When there is no entry under the exact
+name, nullCAT takes the entry the name starts with, the longest one, in
+whole words and at least two of them, and only from the same game, and the
+car row adds `· near match`. **Save for this car** then files your own
+under the sim's exact name.
+
+With follow car on, a car the table has no entry for at all, in a game the
+table covers (Assetto Corsa, Automobilista 2, or any game you have saved a
+car for), does not keep the last car's engine, gearbox, ABS and TC: those
+five tiles go back to their defaults: a generic engine (a 2 litre inline
+four), gearbox, ABS and TC, each tile at the strength most cars in the
+table play it at. In a game the table does not cover, nothing changes:
+the tiles stay as you set them. The car row reads
+`· no entry · defaults in use`, and the settings the car table owns are
+tinted pink instead of the usual faint tint (hover one to read why) until
+you pull a preset car or save for this car, or the next car comes on. The
+car still plays, just not as itself: give it a car like it from the preset
+box, or set the tiles by hand and save for this car.
 
 **Preset** is a search box over the whole table: when your car has no
 entry, pick the nearest one (another GT3, the same engine in a different

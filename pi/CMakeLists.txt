@@ -72,6 +72,7 @@ add_executable(nullcat-pi
     ${SRC}/EffectStatus.cpp
     ${SRC}/HapticsProfiles.cpp
     ${SRC}/CarTable.cpp
+    ${SRC}/HapticsPresets.cpp
     ${SRC}/ShakerOutput.cpp
     ${SRC}/Logging.cpp
     ${SRC}/WebServer.cpp
@@ -137,7 +138,9 @@ add_custom_command(TARGET nullcat-pi POST_BUILD
         ${CMAKE_CURRENT_SOURCE_DIR}/../Docs/drive_profiles $<TARGET_FILE_DIR:nullcat-pi>/drive_profiles
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${CMAKE_CURRENT_SOURCE_DIR}/../resources/cars.json $<TARGET_FILE_DIR:nullcat-pi>/cars.json
-    COMMENT "Staging web/, logs/, drive_profiles/, cars.json next to nullcat-pi"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_SOURCE_DIR}/../resources/presets.json $<TARGET_FILE_DIR:nullcat-pi>/presets.json
+    COMMENT "Staging web/, logs/, drive_profiles/, cars.json, presets.json next to nullcat-pi"
 )
 
 # Standalone drive-provisioning tool. Run with the master service STOPPED (it owns
@@ -299,6 +302,7 @@ add_executable(TestHttpContract
     ${SRC}/EffectStatus.cpp
     ${SRC}/HapticsProfiles.cpp
     ${SRC}/CarTable.cpp
+    ${SRC}/HapticsPresets.cpp
     ${SRC}/ShakerOutput.cpp)
 target_include_directories(TestHttpContract PRIVATE
     ${SRC}
@@ -307,7 +311,8 @@ target_include_directories(TestHttpContract PRIVATE
     ${SOEM_ROOT}/osal
     ${SOEM_ROOT}/osal/linux
     ${SOEM_ROOT}/oshw/linux)
-target_compile_definitions(TestHttpContract PRIVATE SOEM_AVAILABLE)
+# NULLCAT_SOURCE_DIR: the shipped resources/presets.json is staged from the tree.
+target_compile_definitions(TestHttpContract PRIVATE SOEM_AVAILABLE NULLCAT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/..")
 target_link_libraries(TestHttpContract PRIVATE Qt6::Core ${SOEM_LIBRARY} Threads::Threads ${NULLCAT_AUDIO_LIBS})
 add_test(NAME TestHttpContract COMMAND TestHttpContract)
 set_tests_properties(TestHttpContract PROPERTIES TIMEOUT 120)
@@ -333,6 +338,7 @@ if(NULLCAT_FULL_TESTS)
         ${SRC}/EffectStatus.cpp
         ${SRC}/HapticsProfiles.cpp
         ${SRC}/CarTable.cpp
+        ${SRC}/HapticsPresets.cpp
         ${SRC}/ShakerOutput.cpp
         ${SRC}/Logging.cpp
         ${SRC}/DriveFaultMonitor.cpp)
@@ -354,11 +360,13 @@ if(NULLCAT_FULL_TESTS)
               TestAxisKind TestFaultCodes TestCommissioning
               TestCommissioningFlow TestB222O TestDeviceForce
               TestTorqueHoming TestDeviceState TestGearRatio TestHaptics
-              TestTorqueEnableBytes TestCarTable)
+              TestTorqueEnableBytes TestCarTable TestHapticsPresets)
         add_logic_test(${T})
     endforeach()
-    # TestCarTable reads the shipped resources/cars.json from the tree.
+    # TestCarTable and TestHapticsPresets read the shipped resources/cars.json
+    # and resources/presets.json from the tree.
     target_compile_definitions(TestCarTable PRIVATE NULLCAT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/..")
+    target_compile_definitions(TestHapticsPresets PRIVATE NULLCAT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/..")
 
     # TestTrackingFilter's Regression() case requires bit-identical FP: with
     # fused multiply-add the exact-ZOH comparison drifts and the zero-tolerance

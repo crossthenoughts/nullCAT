@@ -157,12 +157,17 @@ int main()
              "\"ac:ks_ferrari_f40\":{\"name\":\"Ferrari F40\",\"engine\":{\"ampPct\":46,\"cylinders\":8,\"turbo\":1},"
              "\"limiter\":{\"ampPct\":30},\"driveline\":{\"ampPct\":30},\"abs\":{\"ampPct\":0},\"tc\":{\"ampPct\":0},\"notes\":\"twin turbo\"}}}";
     }
+    // The shipped starting points beside it too, the file itself.
+    std::error_code presetsErr;
+    std::filesystem::copy_file(std::filesystem::path(NULLCAT_SOURCE_DIR) / "resources" / "presets.json",
+                               cfgDir / "presets.json", std::filesystem::copy_options::overwrite_existing, presetsErr);
 
     WebServer web;
     web.setComponents(&motion, &loop, &master, &cfg);
     web.setTelemetry(&telemetry);
     web.setConfigPath((cfgDir / "config.json").string());
     web.setCarTablePath((cfgDir / "cars.json").string());
+    web.setPresetsPath((cfgDir / "presets.json").string());
     web.setPort(PORT);
     web.setBindAddr(HOST);
     web.setOnStopRequested([&loop]() { if (loop.isRunning()) loop.stop(); });
@@ -310,6 +315,76 @@ int main()
               "POST /api/cars/save with no car named by the sim refuses with the reason");
         check(has(post("/api/cars/forget", "{\"key\":\"ac:ks_ferrari_f40\"}"), "\"ok\":false"),
               "POST /api/cars/forget refuses when there is no entry of yours");
+        check(has(st, "\"hapCarDefault\":false") && has(get("/api/cars"), "\"defaults\":false"),
+              "GET /api/status and /api/cars say whether the car tiles are on the defaults");
+    }
+    // Starting points: the shipped file beside the config lists its four
+    // types in the file's order; apply refuses an unknown name and merges a
+    // known one into the saved rig (its own settings only: the engine the
+    // F40 pull left, the follow switch and the routes stay), bumping the
+    // apply generation so every page refreshes.
+    {
+        check(!presetsErr, "the shipped resources/presets.json is staged beside the config");
+        const std::string ps = get("/api/haptics/presets");
+        const size_t a = ps.find("\"name\":\"Road car\""), b = ps.find("\"name\":\"Cup car\""),
+                     c = ps.find("\"name\":\"GT3 / GT\""), d = ps.find("\"name\":\"Open wheeler\"");
+        check(a != std::string::npos && b != std::string::npos && c != std::string::npos && d != std::string::npos
+              && a < b && b < c && c < d && has(ps, "\"description\":\"Street car on road tyres"),
+              "GET /api/haptics/presets lists the four starting points in order, with their descriptions");
+        check(has(post("/api/haptics/presets/apply", "{\"name\":\"nope\"}"), "\"ok\":false"),
+              "POST /api/haptics/presets/apply refuses an unknown name");
+        check(has(post("/api/haptics/presets/apply", "{}"), "\"ok\":false"),
+              "POST /api/haptics/presets/apply refuses no name");
+        check(has(post("/api/haptics/presets/apply", "{\"name\":\"Open wheeler\"}"), "\"ok\":true"),
+              "POST /api/haptics/presets/apply applies a known one");
+        std::string rig = get("/api/rig");
+        rig.erase(std::remove(rig.begin(), rig.end(), ' '), rig.end());
+        check(has(rig, "\"peakDeg\":5.5") && has(rig, "\"fullMm\":18") && has(rig, "\"cylinders\":8")
+              && has(rig, "\"turbo\":1") && has(rig, "\"followCar\":true"),
+              "the starting point is in the saved rig; the pulled car's engine and the follow switch stayed");
+        check(has(get("/api/status"), "\"hapCarGen\":2"), "GET /api/status hapCarGen bumped on the starting point");
+    }
+    // Follow car: in a game the table does not cover, a car is left alone;
+    // in one it covers, a car the table has no entry for puts the car tiles
+    // on the defaults (not the last car's: the F40 pulled above), the
+    // status saying so; a name that starts with an entry's lands on that
+    // entry as a near match. Named the way a plugin does it, a NULLCATY
+    // line, fed straight in while the status is polled.
+    {
+        const auto nameCar = [&](const char* game, const char* car, const char* want, int timeoutMs) -> bool
+        {
+            for (int t = 0, rpm = 2000; t < timeoutMs; t += 100, rpm += 7)
+            {
+                const std::string line = std::string("NULLCATY,game=") + game + ",car=" + car + ",rpm=" + std::to_string(rpm);
+                TelemetryData td;
+                if (TelemetryInput::parsePacket(line.c_str(), static_cast<int>(line.size()), td)) telemetry.ingest(td);
+                if (has(get("/api/status"), want)) return true;
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+            return false;
+        };
+        check(nameCar("iRacing", "Some Car", "\"hapCar\":\"Some Car\"", 4000)
+              && has(get("/api/status"), "\"hapCarDefault\":false") && has(get("/api/status"), "\"hapCarGen\":2"),
+              "follow car: a car in a game the table does not cover is left alone (no defaults, no apply)");
+        {
+            std::string r = get("/api/rig");
+            r.erase(std::remove(r.begin(), r.end(), ' '), r.end());
+            check(has(r, "\"cylinders\":8") && has(r, "\"turbo\":1"), "...and the saved rig keeps the last car's engine");
+        }
+        check(nameCar("AssettoCorsa", "Mystery Car", "\"hapCarDefault\":true", 4000),
+              "follow car: a car with no entry puts the car tiles on the defaults (status hapCarDefault)");
+        std::string rig = get("/api/rig");
+        rig.erase(std::remove(rig.begin(), rig.end(), ' '), rig.end());
+        check(!has(rig, "\"cylinders\":8") && has(rig, "\"peakDeg\":5.5") && has(rig, "\"followCar\":true"),
+              "the defaults replaced the last car's engine in the saved rig; the starting point and the switch stayed");
+        const std::string cars = get("/api/cars");
+        check(has(cars, "\"car\":\"Mystery Car\"") && has(cars, "\"source\":\"\"") && has(cars, "\"defaults\":true"),
+              "GET /api/cars: the car has no entry and the defaults are in use");
+        check(nameCar("AssettoCorsa", "Mazda 787B Le Mans", "\"hapCarKey\":\"ac:ks_mazda_787b\"", 4000)
+              && has(get("/api/cars"), "\"near\":true") && has(get("/api/status"), "\"hapCarDefault\":false")
+              && has(get("/api/status"), "\"hapCarApplied\":true"),
+              "follow car: a name that starts with an entry's is a near match, applied");
+        std::this_thread::sleep_for(std::chrono::milliseconds(700));   // the stream goes quiet before the loop starts
     }
 
     // ---- init (sim) -> masterOp ----

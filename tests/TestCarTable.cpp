@@ -6,7 +6,13 @@
 //   - lookup is by game + car as the stream names them, normalised: the
 //     game resolves through the file's alias map, case and punctuation
 //     in the car string never miss an entry
+//   - a name with no entry of its own lands on a near match: the longest
+//     entry of the same game it starts with, in whole words, two or more;
+//     an exact entry always wins, a one-word prefix or another game never
 //   - the user layer wins over stock on the same key; forget restores stock
+//   - the car defaults (a car with no entry, follow car on) carry exactly
+//     the car-owned keys at a fresh install's values and move nothing else;
+//     they only ever apply in a game the table covers (either layer)
 //   - an entry applied through Config::readHapticsObject moves only the
 //     five car-owned tiles and keeps every route, the slip tiles, master
 //     gain and the follow switch exactly as they were
@@ -124,6 +130,165 @@ private slots:
         QCOMPARE(items.size(), size_t(2));
         QCOMPARE(items[0].game, std::string("ac"));
         QCOMPARE(items[1].game, std::string("ams2"));
+    }
+
+    void nearMatch_wholeWordsSameGame()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        writeText(dir.path() + "/cars.json", R"({
+  "games": { "ac": "AssettoCorsa", "ams2": ["Automobilista2", "AMS2"] },
+  "cars": {
+    "ams2:MINI Cooper S 1965": { "name": "MINI Cooper S 1965", "engine": {"ampPct": 42}, "notes": "base" },
+    "ams2:MINI Cooper S":      { "name": "MINI Cooper S", "engine": {"ampPct": 40}, "notes": "tier 2" },
+    "ams2:Caterham":           { "name": "Caterham", "engine": {"ampPct": 30}, "notes": "one word" },
+    "ams2:Lotus 98T":          { "engine": {"ampPct": 50}, "notes": "turbo" },
+    "ac:ks_mazda_787b":        { "name": "Mazda 787B", "engine": {"ampPct": 45}, "notes": "four-rotor" }
+  }
+})");
+        CarTable t;
+        QVERIFY(t.loadStock((dir.path() + "/cars.json").toStdString()));
+
+        // The sim's "B" after the year: the longest entry it starts with.
+        CarTable::Match m = t.find("Automobilista2", "MINI Cooper S 1965 B");
+        QCOMPARE(m.key, std::string("ams2:MINI Cooper S 1965"));
+        QCOMPARE(m.source, std::string("stock"));
+        QVERIFY(m.nearMatch);
+        QCOMPARE(m.notes, std::string("base"));
+        // Without the year's entry the shorter one is next.
+        m = t.find("ams2", "MINI Cooper S 1966");
+        QCOMPARE(m.key, std::string("ams2:MINI Cooper S"));
+        QVERIFY(m.nearMatch);
+        // An exact entry always beats a prefix.
+        m = t.find("ams2", "MINI Cooper S 1965");
+        QCOMPARE(m.key, std::string("ams2:MINI Cooper S 1965"));
+        QVERIFY(!m.nearMatch);
+        m = t.find("AMS2", "mini cooper s");
+        QCOMPARE(m.key, std::string("ams2:MINI Cooper S"));
+        QVERIFY(!m.nearMatch);
+        // One word is not a car: a make alone never matches.
+        QVERIFY(t.find("ams2", "Caterham Seven 620R").source.empty());
+        // Whole words only, never part of one.
+        QVERIFY(t.find("ams2", "Lotus 98Turbo Special").source.empty());
+        // Another game's entries never match, however close.
+        QVERIFY(t.find("AssettoCorsa", "MINI Cooper S 1965 B").source.empty());
+        QVERIFY(t.find("rFactor2", "MINI Cooper S 1965 B").source.empty());
+        // A content folder id breaks into words at its underscores; a
+        // display name matches the same way.
+        m = t.find("AssettoCorsa", "ks_mazda_787b_le_mans");
+        QCOMPARE(m.key, std::string("ac:ks_mazda_787b"));
+        QVERIFY(m.nearMatch);
+        m = t.find("AC", "Mazda 787B Le Mans");
+        QCOMPARE(m.key, std::string("ac:ks_mazda_787b"));
+        QVERIFY(m.nearMatch);
+        // A variant suffix on top of the near match still lands.
+        m = t.find("ams2", "MINI Cooper S 1965 B - Wet");
+        QCOMPARE(m.key, std::string("ams2:MINI Cooper S 1965"));
+        QVERIFY(m.nearMatch);
+        // Exact only, when asked: no near match.
+        QVERIFY(t.find("ams2", "MINI Cooper S 1965 B", false).source.empty());
+        // Your own entry for the car itself is exact and wins.
+        QJsonObject mine; mine["name"] = "MINI Cooper S 1965 B"; mine["notes"] = "mine";
+        t.putUser(t.keyFor("Automobilista2", "MINI Cooper S 1965 B"), mine);
+        m = t.find("AMS2", "MINI Cooper S 1965 B");
+        QCOMPARE(m.source, std::string("user"));
+        QVERIFY(!m.nearMatch);
+        // ...and the base car is still the stock base car.
+        QCOMPARE(t.find("AMS2", "MINI Cooper S 1965").source, std::string("stock"));
+    }
+
+    void coversGame_byEitherLayer()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        writeText(dir.path() + "/cars.json", stockFile());
+        CarTable t;
+        QVERIFY(t.loadStock((dir.path() + "/cars.json").toStdString()));
+        // The games the table has entries for, by any of their names; the
+        // defaults for a car with no entry only ever apply in these.
+        QVERIFY(t.coversGame("ac"));
+        QVERIFY(t.coversGame("AssettoCorsa"));
+        QVERIFY(t.coversGame("Automobilista2"));
+        QVERIFY(t.coversGame("AMS2"));
+        QVERIFY(!t.coversGame("iRacing"));
+        QVERIFY(!t.coversGame("AssettoCorsaCompetizione"));
+        QVERIFY(!t.coversGame(""));
+        // One entry of yours is enough for a game to be covered, and
+        // forgetting it uncovers it again.
+        QJsonObject mine; mine["name"] = "Dallara IR18";
+        t.putUser(t.keyFor("iRacing", "Dallara IR18"), mine);
+        QVERIFY(t.coversGame("iracing"));
+        QVERIFY(t.removeUser("iRacing:Dallara IR18"));
+        QVERIFY(!t.coversGame("iRacing"));
+    }
+
+    void defaults_carKeysAtFreshValues()
+    {
+        const AppConfig fresh;
+        const QJsonObject freshH = Config::writeHapticsObject(fresh);
+        const QJsonObject d = CarTable::defaultHapticsObject();
+        // Exactly the five car tiles, each with exactly its car-owned keys,
+        // at a fresh install's values, each tile's strength at the table's
+        // typical one (a fresh install's 0 silenced every car with no
+        // entry); never a route.
+        const auto freshWant = [&](const QString& tile, const QString& key) -> QJsonValue
+        {
+            if (key != "ampPct") return freshH.value(tile).toObject().value(key);
+            return tile == QLatin1String(haptics::effectInfo(haptics::Effect::Engine).key) ? 48.0
+                 : tile == "limiter" ? 30.0 : tile == "driveline" ? 34.0 : 40.0;
+        };
+        QCOMPARE(d.size(), 5);
+        for (auto it = d.begin(); it != d.end(); ++it)
+        {
+            const std::vector<std::string> keys = CarTable::carKeys(it.key().toStdString());
+            QVERIFY2(!keys.empty(), qPrintable(it.key()));
+            const QJsonObject o = it.value().toObject();
+            QCOMPARE(o.size(), static_cast<int>(keys.size()));
+            for (const std::string& k : keys)
+            {
+                const QString qk = QString::fromStdString(k);
+                QVERIFY2(o.contains(qk), qPrintable(it.key() + "." + qk));
+                QVERIFY2(o.value(qk) == freshWant(it.key(), qk), qPrintable(it.key() + "." + qk));
+            }
+            QVERIFY2(o.value("ampPct").toDouble() > 0.0, qPrintable(it.key() + " plays"));
+        }
+
+        // Over a rig carrying another car (the 787B, a front-drive spool
+        // left from before): every car-owned key goes back to the fresh
+        // install's, every other key, route, the master and the switch stay.
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        writeText(dir.path() + "/cars.json", stockFile());
+        CarTable t;
+        QVERIFY(t.loadStock((dir.path() + "/cars.json").toStdString()));
+        AppConfig c = rigWithRoutes();
+        Config::readHapticsObject(CarTable::toHapticsObject(t.find("AssettoCorsa", "ks_mazda_787b").entry), c);
+        c.hapticsDriveline.driven = 1.0; c.hapticsDriveline.diffType = 1.0; c.hapticsDriveline.whinePitch = 2.0;
+        c.hapticsTc.sharp = 0.9;
+        const QJsonObject before = Config::writeHapticsObject(c);
+        Config::readHapticsObject(d, c);
+        const QJsonObject after = Config::writeHapticsObject(c);
+        QCOMPARE(after.keys(), before.keys());
+        for (auto it = after.begin(); it != after.end(); ++it)
+        {
+            if (!it.value().isObject())
+            {
+                QVERIFY2(it.value() == before.value(it.key()), qPrintable(it.key()));
+                continue;
+            }
+            const std::vector<std::string> car = CarTable::carKeys(it.key().toStdString());
+            const QJsonObject o = it.value().toObject(), was = before.value(it.key()).toObject();
+            for (auto kt = o.begin(); kt != o.end(); ++kt)
+            {
+                const bool owned = std::find(car.begin(), car.end(), kt.key().toStdString()) != car.end();
+                const QJsonValue want = owned ? freshWant(it.key(), kt.key()) : was.value(kt.key());
+                QVERIFY2(kt.value() == want, qPrintable(it.key() + "." + kt.key()));
+            }
+        }
+        QCOMPARE(c.hapticsEngine.cylinders, fresh.hapticsEngine.cylinders);
+        QCOMPARE(c.hapticsDriveline.driven, fresh.hapticsDriveline.driven);
+        QCOMPARE(c.hapticsDriveline.whinePitch, 2.0);   // the rig's, not the car's
+        QCOMPARE(c.hapticsTc.sharp, 0.9);
+        QCOMPARE(c.hapticsFx[static_cast<size_t>(haptics::Effect::Engine)].routes[0].gain, 0.7);
+        QCOMPARE(c.hapticsMasterGain, 1.3);
+        QCOMPARE(c.hapticsFollowCar, false);
     }
 
     void userLayer_winsAndForgets()
@@ -343,6 +508,21 @@ private slots:
         QCOMPARE(t.find("Automobilista2", "McLaren MP4_4 - Low Downforce").key, std::string("ams2:McLaren MP4/4"));
         QCOMPARE(t.find("Automobilista2", "Fusca 1 Hot Cars").source, std::string("stock"));
         QVERIFY(t.find("Automobilista2", "Some Car - Low Downforce").source.empty());
+        // Names the sim gives that the roster first missed, and the Minis
+        // driving their front wheels; another suffix after the Mini's year
+        // lands on it as a near match.
+        {
+            const CarTable::Match b = t.find("Automobilista2", "MINI Cooper S 1965 B");
+            QCOMPARE(b.key, std::string("ams2:MINI Cooper S 1965 B"));
+            QVERIFY(!b.nearMatch);
+            for (const char* mini : { "MINI Cooper S 1965 B", "MINI Cooper S 1965", "MINI Cooper S" })
+                QCOMPARE(t.find("Automobilista2", mini).entry.value("driveline").toObject().value("driven").toDouble(-1), 1.0);
+            const CarTable::Match c = t.find("Automobilista2", "MINI Cooper S 1965 C");
+            QCOMPARE(c.key, std::string("ams2:MINI Cooper S 1965"));
+            QVERIFY(c.nearMatch);
+            QCOMPARE(t.find("Automobilista2", "Porsche 911 GT3 Cup 4.0").key, std::string("ams2:Porsche 911 GT3 Cup 4.0"));
+            QVERIFY(!t.find("Automobilista2", "Porsche 911 GT3 Cup 4.0").nearMatch);
+        }
         // Every entry has the five sections, notes, and never routes.
         QFile f(path); QVERIFY(f.open(QIODevice::ReadOnly));
         const QJsonObject cars = QJsonDocument::fromJson(f.readAll()).object().value("cars").toObject();

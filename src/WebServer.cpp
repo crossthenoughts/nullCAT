@@ -499,8 +499,9 @@ std::string WebServer::buildStatusJson() const
             s += "\"hapProfile\":" + jsonStr(m_profiles.active()) + ",";
             // The car table's view of the current car: its entry (key,
             // name, where from), whether that entry is what the tiles
-            // carry, and a generation that bumps on every apply so a page
-            // can refresh its copy of the config.
+            // carry, whether the tiles are on the defaults because the car
+            // has no entry, and a generation that bumps on every apply so a
+            // page can refresh its copy of the config.
             {
                 std::lock_guard<std::mutex> lk(m_carMx);
                 s += "\"hapCar\":" + jsonStr(m_carState.car) + ",";
@@ -509,6 +510,7 @@ std::string WebServer::buildStatusJson() const
                 s += "\"hapCarName\":" + jsonStr(m_carState.match.name) + ",";
                 s += "\"hapCarSrc\":" + jsonStr(m_carState.match.source) + ",";
                 s += std::string("\"hapCarApplied\":") + (m_carState.applied ? "true" : "false") + ",";
+                s += std::string("\"hapCarDefault\":") + (m_carState.defaults ? "true" : "false") + ",";
             }
             s += "\"hapCarGen\":" + jsonInt(m_carGen.load()) + ",";
             s += "\"hapGame\":" + jsonStr(game) + ",\"hapDots\":[";
@@ -856,6 +858,14 @@ bool WebServer::start()
     if (m_cars.stockCount() || m_cars.userCount())
         LOG_INFO(strf("Haptics: car table loaded, %d cars shipped, %d of yours.",
                       m_cars.stockCount(), m_cars.userCount()));
+    // The starting points beside it (missing = none offered).
+    if (!m_presetsPath.empty())
+    {
+        if (m_presets.load(m_presetsPath))
+            LOG_INFO(strf("Haptics: %d starting points loaded.", m_presets.count()));
+        else
+            LOG_WARNING(strf("Haptics: starting points %s not found or empty; none offered.", m_presetsPath.c_str()));
+    }
     m_statusThread = std::thread([this]()
     {
 #ifdef _WIN32
@@ -1768,6 +1778,37 @@ bool WebServer::start()
             okResp(res);
         });
 
+        // Starting points (presets.json beside the executable). GET lists
+        // them in the file's order with their descriptions; apply merges
+        // one over the live set (saved to rig.json and applied live, like a
+        // car entry: its slip, road, kerb, wheels and impacts settings only)
+        // and bumps the apply generation so every page refreshes its copy.
+        svr.Get("/api/haptics/presets", [this](const httplib::Request&, httplib::Response& res)
+        {
+            QJsonArray arr;
+            for (const HapticsPresets::Preset& p : m_presets.list())
+            {
+                QJsonObject o;
+                o["name"]        = QString::fromStdString(p.name);
+                o["description"] = QString::fromStdString(p.description);
+                arr.append(o);
+            }
+            QJsonObject root; root["presets"] = arr;
+            res.set_content(QJsonDocument(root).toJson(QJsonDocument::Compact).toStdString(), "application/json");
+        });
+        postCmd("/api/haptics/presets/apply", [this, errResp](const httplib::Request& req, httplib::Response& res)
+        {
+            const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(req.body));
+            const std::string name = doc.isObject() ? doc.object().value("name").toString().trimmed().toStdString() : std::string();
+            if (name.empty()) { errResp(res, "Pick a starting point."); return; }
+            std::string err;
+            if (!applyPreset(name, err)) { errResp(res, "Could not apply the starting point: " + err); return; }
+            LOG_INFO(strf("Haptics: starting point '%s' applied from the web.", name.c_str()));
+            // The new generation: the page that asked reloads by itself and
+            // need not again when the status shows it.
+            res.set_content("{\"ok\":true,\"gen\":" + jsonInt(m_carGen.load()) + "}", "application/json");
+        });
+
         // ---- Car table: the current car's entry and the whole list; pull
         // (apply an entry: the current car's, or any by key, as a starting
         // point for a car the table lacks); save the strip's car-owned
@@ -1784,7 +1825,9 @@ bool WebServer::start()
                 root["name"]    = QString::fromStdString(m_carState.match.name);
                 root["source"]  = QString::fromStdString(m_carState.match.source);
                 root["notes"]   = QString::fromStdString(m_carState.match.notes);
+                root["near"]    = m_carState.match.nearMatch;
                 root["applied"] = m_carState.applied;
+                root["defaults"] = m_carState.defaults;
             }
             root["follow"] = followCarEnabled();
             root["stock"]  = m_cars.stockCount();
@@ -1830,7 +1873,8 @@ bool WebServer::start()
                 std::lock_guard<std::mutex> lk(m_carMx);
                 // Applied by hand: the tiles carry this entry now, which is
                 // the car's own only when it was the car's own.
-                m_carState.applied = key.empty() || (m.key == m_carState.match.key);
+                m_carState.applied  = key.empty() || (m.key == m_carState.match.key);
+                m_carState.defaults = false;
             }
             LOG_INFO(strf("Haptics: car preset '%s' (%s) applied from the web.", m.key.c_str(), m.source.c_str()));
             res.set_content("{\"ok\":true,\"key\":" + jsonStr(m.key) + ",\"name\":" + jsonStr(m.name)
@@ -1850,7 +1894,10 @@ bool WebServer::start()
             const QJsonObject body = doc.isObject() ? doc.object() : QJsonObject();
             std::string name  = body.value("name").toString().trimmed().toStdString();
             std::string notes = body.contains("notes") ? body.value("notes").toString().toStdString() : cur.notes;
-            if (name.empty()) name = cur.name.empty() ? car : cur.name;
+            // A near match's name is another car's (the base the sim's name
+            // starts with): the new entry is this car's, under its own name,
+            // or the base car would find it by name.
+            if (name.empty()) name = (cur.name.empty() || cur.nearMatch) ? car : cur.name;
             if (name.size() > 64) name.resize(64);
             if (notes.size() > 4000) notes.resize(4000);
             Config cfg;
@@ -1860,8 +1907,9 @@ bool WebServer::start()
             if (!m_cars.saveUser(m_configPath)) { errResp(res, "Cannot write cars.local.json."); return; }
             {
                 std::lock_guard<std::mutex> lk(m_carMx);
-                m_carState.match   = findCar(game, car, carId);
-                m_carState.applied = true;
+                m_carState.match    = findCar(game, car, carId);
+                m_carState.applied  = true;
+                m_carState.defaults = false;
             }
             LOG_INFO(strf("Haptics: car preset '%s' saved to your layer.", key.c_str()));
             res.set_content("{\"ok\":true,\"key\":" + jsonStr(key) + "}", "application/json");
@@ -1886,7 +1934,8 @@ bool WebServer::start()
             m_cars.saveUser(m_configPath);
             {
                 std::lock_guard<std::mutex> lk(m_carMx);
-                if (!car.empty()) { m_carState.match = findCar(game, car, carId); m_carState.applied = false; }
+                // The tiles keep what they carried (yours): not the defaults.
+                if (!car.empty()) { m_carState.match = findCar(game, car, carId); m_carState.applied = false; m_carState.defaults = false; }
             }
             okResp(res);
         });
@@ -2631,15 +2680,21 @@ void WebServer::sampleEffectStatus()
 
 // The table entry for what the sim names: by the stable id when the
 // plugin sends one, else by the shown name (an older plugin, or a game
-// whose id is its name).
+// whose id is its name). Both ways exactly before either way near: an id
+// that only starts like another car's must not beat the name's own entry.
 CarTable::Match WebServer::findCar(const std::string& game, const std::string& car, const std::string& carId) const
 {
-    if (!carId.empty())
+    for (const bool nearOk : { false, true })
     {
-        CarTable::Match m = m_cars.find(game, carId);
+        if (!carId.empty())
+        {
+            CarTable::Match m = m_cars.find(game, carId, nearOk);
+            if (!m.source.empty()) return m;
+        }
+        CarTable::Match m = m_cars.find(game, car, nearOk);
         if (!m.source.empty()) return m;
     }
-    return m_cars.find(game, car);
+    return CarTable::Match{};
 }
 
 // Where an entry saved for this car is filed: under the id when there is
@@ -2650,18 +2705,21 @@ std::string WebServer::carKeyFor(const std::string& game, const std::string& car
 }
 
 // A new car (or game) from the stream: look its entry up for the strip to
-// show, and when the strip follows the car, apply it.
+// show, and when the strip follows the car, apply it; a car with no entry
+// gets the defaults for those tiles instead of keeping the last car's.
 void WebServer::carIdentity(const std::string& game, const std::string& car, const std::string& carId, bool mayApply)
 {
     CarTable::Match m = findCar(game, car, carId);
     const std::string ident = game + "|" + car + "|" + carId;
-    bool applied = false;
+    bool applied = false, defaults = false;
     if (ident == m_carAppliedIdent)
     {
         // The same car, back after a dropout: the tiles already carry
-        // what they carried (the entry, or the user's edits since).
+        // what they carried (the entry or the defaults, or the user's
+        // edits since).
         std::lock_guard<std::mutex> lk(m_carMx);
-        applied = m_carState.applied;
+        applied  = m_carState.applied;
+        defaults = m_carState.defaults;
     }
     else if (mayApply && !m.source.empty())
     {
@@ -2670,19 +2728,40 @@ void WebServer::carIdentity(const std::string& game, const std::string& car, con
         if (applied)
         {
             m_carAppliedIdent = ident;
-            LOG_INFO(strf("Haptics: car preset '%s' (%s) applied for %s.", m.key.c_str(), m.source.c_str(), car.c_str()));
+            LOG_INFO(strf("Haptics: car preset '%s' (%s%s) applied for %s.", m.key.c_str(), m.source.c_str(),
+                          m.nearMatch ? ", near match" : "", car.c_str()));
         }
         else
             LOG_WARNING(strf("Haptics: car preset '%s' could not be applied: %s", m.key.c_str(), err.c_str()));
     }
+    else if (mayApply && !(car.empty() && carId.empty()) && m_cars.coversGame(game))
+    {
+        // A car the table has no entry for, in a game it covers: the
+        // engine, limiter, driveline, ABS and TC go back to their
+        // defaults, so this car never plays the last one's engine or
+        // gearbox. The strip tints them to say so. A game the table does
+        // not cover at all (no entry of either layer) keeps the user's own
+        // settings, as does a missing table.
+        std::string err;
+        const std::string& who = car.empty() ? carId : car;
+        defaults = applyCarDefaults(err);
+        if (defaults)
+        {
+            m_carAppliedIdent = ident;
+            LOG_INFO(strf("Haptics: no car table entry for %s: its car settings are on the defaults.", who.c_str()));
+        }
+        else
+            LOG_WARNING(strf("Haptics: the car defaults could not be applied for %s: %s", who.c_str(), err.c_str()));
+    }
     else
         m_carAppliedIdent.clear();   // a car the table did not act on
     std::lock_guard<std::mutex> lk(m_carMx);
-    m_carState.match   = m;
-    m_carState.car     = car;
-    m_carState.carId   = carId;
-    m_carState.game    = game;
-    m_carState.applied = applied;
+    m_carState.match    = m;
+    m_carState.car      = car;
+    m_carState.carId    = carId;
+    m_carState.game     = game;
+    m_carState.applied  = applied;
+    m_carState.defaults = defaults;
 }
 
 // The follow switch lives in rig.json's haptics object (saved from the
@@ -2701,6 +2780,30 @@ bool WebServer::applyCarEntry(const CarTable::Match& m, std::string& err)
     if (m.source.empty()) { err = "no entry"; return false; }
     std::lock_guard<std::mutex> lk(m_profilesIo);
     if (!applyHapticsObjectLocked(CarTable::toHapticsObject(m.entry), err)) return false;
+    m_carGen.fetch_add(1);
+    return true;
+}
+
+// The car-owned settings back to a generic car's (a fresh install's, each
+// tile at the table's typical strength), applied and saved the way an
+// entry is (only those keys move).
+bool WebServer::applyCarDefaults(std::string& err)
+{
+    std::lock_guard<std::mutex> lk(m_profilesIo);
+    if (!applyHapticsObjectLocked(CarTable::defaultHapticsObject(), err)) return false;
+    m_carGen.fetch_add(1);
+    return true;
+}
+
+// A starting point over the live set, applied and saved the way a car
+// entry is. It names only its own settings (HapticsPresets drops routes,
+// the rig's keys and the car's), so everything else stays as it was.
+bool WebServer::applyPreset(const std::string& name, std::string& err)
+{
+    const HapticsPresets::Preset p = m_presets.get(name);
+    if (p.name.empty()) { err = "no starting point called '" + name + "'"; return false; }
+    std::lock_guard<std::mutex> lk(m_profilesIo);
+    if (!applyHapticsObjectLocked(p.haptics, err)) return false;
     m_carGen.fetch_add(1);
     return true;
 }
@@ -2734,6 +2837,11 @@ bool WebServer::loadProfile(const std::string& name, std::string& err)
     if (!applyHapticsObjectLocked(h, err)) { err = "profile " + err; return false; }
     m_profiles.setActive(name);
     m_profiles.save(m_configPath);
+    {
+        // The profile's car settings replace the defaults (if they were on).
+        std::lock_guard<std::mutex> ck(m_carMx);
+        m_carState.defaults = false;
+    }
     return true;
 }
 

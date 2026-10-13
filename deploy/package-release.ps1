@@ -68,6 +68,7 @@ Copy-Item "$rel\web"                    $stage -Recurse
 Copy-Item "$rel\host.reference.json"    $stage
 Copy-Item "$rel\rig.reference.json"     $stage
 Copy-Item "$rel\cars.json"              $stage
+Copy-Item "$rel\presets.json"           $stage
 Copy-Item "$rel\LICENSE.txt"            $stage
 Copy-Item "$rel\THIRD_PARTY_NOTICES.md" $stage
 Copy-Item "$rel\SAFETY.md"              $stage
@@ -100,7 +101,7 @@ foreach ($f in $forbidden) {
 $mustHave = @("nullCAT.exe", "nullCATWatchdog.exe", "LICENSE.txt", "SAFETY.md",
               "THIRD_PARTY_NOTICES.md", "web\index.html", "Qt6Core.dll",
               "platforms\qwindows.dll", "host.reference.json", "rig.reference.json",
-              "cars.json", "KNOWN_LIMITATIONS.md", "docs\FIRST_SETUP_WINDOWS.md",
+              "cars.json", "presets.json", "KNOWN_LIMITATIONS.md", "docs\FIRST_SETUP_WINDOWS.md",
               "docs\media\simhub-update-command.png", "docs\CONFIG_REFERENCE.md")
 foreach ($f in $mustHave) {
     if (-not (Test-Path (Join-Path $stage $f))) { throw "Missing from stage: $f" }

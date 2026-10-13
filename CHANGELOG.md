@@ -9,6 +9,19 @@ middle number carries breaking changes and the last carries fixes.
 Development branch. Nothing here is in a release yet.
 
 ### Added
+- **Starting points** for the haptics strip: a **type** row on the Master
+  tile with four shipped types of car (**Road car**, **Cup car**, **GT3 /
+  GT**, **Open wheeler**), each setting how the tyres let go, how the road
+  and kerbs move the car, the wheels and the knocks for that type. Applying
+  one sets only those settings: your routes, master gain, pos budget and
+  the engine, limiter, driveline, ABS and TC stay as they are. Pick the
+  type closest to your car, apply it, then pull the car from the car table.
+  They ship in `presets.json` beside the program.
+- The car table finds a car the sim names with something after a name it
+  knows (a version letter or a year, the way Automobilista 2 names a `MINI
+  Cooper S 1965 B` beside its `MINI Cooper S 1965`): the entry the name
+  starts with, in whole words, from the same game. The car row says `near
+  match`.
 - A mute on every haptics tile (**M** in its corner): the effect goes
   silent, its settings and readouts stay, no other tile changes. The
   Master tile's **Mute** mutes every tile and **Unmute** brings them all
@@ -330,6 +343,18 @@ Development branch. Nothing here is in a release yet.
   rig keeps its own values: change them on the tile.
 
 ### Fixed
+- With follow car on, a car the car table had no entry for kept the last
+  car's engine, limiter, driveline, ABS and TC (a Mini played a truck's
+  12.9 litre engine). In a game the table covers (Assetto Corsa,
+  Automobilista 2, or one you have saved a car for) those tiles now go
+  back to their defaults for such a car (a generic engine, gearbox, ABS
+  and TC, at the strength most cars play them), the car row says `no entry ·
+  defaults in use`, and the settings the car table owns are tinted pink
+  until you pull a preset car or save for this car. Other games are left
+  as they are.
+- Automobilista 2's `MINI Cooper S 1965 B` and `Porsche 911 GT3 Cup 4.0`
+  had no entry in the car table; both have one now, and the Minis drive
+  their front wheels.
 - Automobilista 2's slip read wrong. Every tyre rolling down a straight
   shows a small slip along the road (3 to 6 % of the road speed on the
   fronts), and nullCAT took it off as a sideways angle: under braking the

@@ -38,6 +38,7 @@
 #include "EffectStatus.h"
 #include "HapticsProfiles.h"
 #include "CarTable.h"
+#include "HapticsPresets.h"
 #include "ShakerBank.h"
 
 #include <string>
@@ -71,6 +72,9 @@ public:
     // The shipped car table (cars.json beside the executable). Set before
     // start(); the user layer is found beside the config.
     void setCarTablePath(const std::string& path) { m_stockCarsPath = path; }
+    // The shipped starting points (presets.json beside the executable, like
+    // cars.json). Set before start(); missing = none offered.
+    void setPresetsPath(const std::string& path)  { m_presetsPath = path; }
     // Telemetry handle - lets /api/status report the receiving indicator.
     void setTelemetry(TelemetryInput* s)              { m_telemetry     = s; }
     // The shaker sound card (status, device list, tone test); may be null.
@@ -233,10 +237,15 @@ private:
     // car = the name the sim shows (what profiles bind to), carId = its
     // stable id when the plugin sends one; the table is looked up by the
     // id first, then the name, and a saved entry files under the id.
-    struct CarState { CarTable::Match match; std::string car, carId, game; bool applied = false; };
+    // defaults: the car has no entry and follow car put its tiles on the
+    // defaults (until the next car, or a pull, save or profile load).
+    struct CarState { CarTable::Match match; std::string car, carId, game; bool applied = false; bool defaults = false; };
     CarState          m_carState;            // guarded by m_carMx
     mutable std::mutex m_carMx;              // mutable: read by the const status builder
-    std::atomic<int>  m_carGen{0};           // bumps on every apply (auto or asked)
+    // Bumps on every rewrite of the live haptics set the server makes by
+    // itself or on request (a car entry, the car defaults, a starting
+    // point), so a page can refresh its copy.
+    std::atomic<int>  m_carGen{0};
     // The identity the table last applied for by itself. Unlike
     // m_lastIdentity it survives a stream dropout, so a pause (the plugin
     // goes quiet) and the same car coming back is not a new car: the
@@ -247,7 +256,15 @@ private:
     CarTable::Match findCar(const std::string& game, const std::string& car, const std::string& carId) const;
     std::string carKeyFor(const std::string& game, const std::string& car, const std::string& carId) const;
     bool applyCarEntry(const CarTable::Match& m, std::string& err);
+    bool applyCarDefaults(std::string& err);
     bool followCarEnabled() const;
+
+    // Starting points (presets.json beside the executable): a type of car's
+    // slip, road, kerb, wheels and impacts settings, merged over the live
+    // set like a car entry; never routes, master or the car's own tiles.
+    HapticsPresets    m_presets;
+    std::string       m_presetsPath;
+    bool applyPreset(const std::string& name, std::string& err);
 
     // Set inside the server thread once svr is constructed; used by stop()
     // to call svr.stop() and unblock svr.listen().
