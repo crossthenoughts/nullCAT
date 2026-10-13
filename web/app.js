@@ -1514,7 +1514,8 @@ function hapCarRow(c){
     now.title=(c&&c.defaults)?'The car table has no entry for '+c.car+', so follow car put the engine, limiter, driveline, ABS and TC on their defaults (the pink settings) rather than keep the last car\'s. Pick a car like it in the preset box and apply it, or tune them and save for this car.'
       :(c&&c.near)?'No entry under this exact name: the table\'s '+(c.name||c.key)+' is the nearest (the name the sim gives starts with it). Save for this car to file your own under the sim\'s name.':'';
   }
-  const fb=$('hapCarForget'); if(fb) fb.disabled=!(c&&c.source==='user');
+  // Forget drops yours for THIS car: a near match is another car's entry.
+  const fb=$('hapCarForget'); if(fb) fb.disabled=!(c&&c.source==='user'&&!c.near);
   const pb=$('hapCarPull'); if(pb) pb.disabled=!(c&&c.source);
   const sb=$('hapCarSave'); if(sb) sb.disabled=!(c&&c.car);
   const t=hapTiles.rpmVibe; if(!t) return;

@@ -345,10 +345,12 @@ Development branch. Nothing here is in a release yet.
 ### Fixed
 - With follow car on, a car the car table had no entry for kept the last
   car's engine, limiter, driveline, ABS and TC (a Mini played a truck's
-  12.9 litre engine). Those tiles now go back to their defaults for such a
-  car, the car row says `no entry · defaults in use`, and the settings the
-  car table owns are tinted pink until you pull a preset car or save for
-  this car.
+  12.9 litre engine). In a game the table covers (Assetto Corsa,
+  Automobilista 2, or one you have saved a car for) those tiles now go
+  back to their defaults for such a car, the car row says `no entry ·
+  defaults in use`, and the settings the car table owns are tinted pink
+  until you pull a preset car or save for this car. Other games are left
+  as they are.
 - Automobilista 2's `MINI Cooper S 1965 B` and `Porsche 911 GT3 Cup 4.0`
   had no entry in the car table; both have one now, and the Minis drive
   their front wheels.

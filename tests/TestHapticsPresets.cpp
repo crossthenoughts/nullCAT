@@ -12,7 +12,8 @@
 //     passes AppConfig::validate
 //   - the loader drops what a starting point may not set (an unknown tile
 //     or setting, routes, the rig's keys, a car-owned setting, a
-//     non-number) and a preset left with nothing; a missing file is none
+//     non-number) and a preset left with nothing; a file with a byte order
+//     mark keeps its order; a missing file is none
 // ============================================================
 
 #include <QtTest>
@@ -258,6 +259,17 @@ private slots:
         QCOMPARE(c.hapticsFx[static_cast<size_t>(haptics::Effect::Road)].routes[0].gain, 0.25);
         QCOMPARE(c.hapticsFx[static_cast<size_t>(haptics::Effect::Road)].routes[1].axis, -1);
         QCOMPARE(c.hapticsMasterGain, 1.0);
+
+        // Saved with a byte order mark, the file keeps its order.
+        {
+            QFile f(path); QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("\xEF\xBB\xBF{ \"presets\": { \"Zed\": { \"haptics\": { \"kerb\": { \"fullMm\": 9 } } },"
+                    " \"Ann\": { \"haptics\": { \"kerb\": { \"fullMm\": 8 } } } } }");
+        }
+        QVERIFY(p.load(path.toStdString()));
+        QCOMPARE(p.count(), 2);
+        QCOMPARE(p.list()[0].name, std::string("Zed"));
+        QCOMPARE(p.list()[1].name, std::string("Ann"));
 
         // A missing file, or one that is not JSON: no starting points.
         HapticsPresets none;

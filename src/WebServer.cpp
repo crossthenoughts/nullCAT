@@ -2734,13 +2734,14 @@ void WebServer::carIdentity(const std::string& game, const std::string& car, con
         else
             LOG_WARNING(strf("Haptics: car preset '%s' could not be applied: %s", m.key.c_str(), err.c_str()));
     }
-    else if (mayApply && !(car.empty() && carId.empty()) && (m_cars.stockCount() > 0 || m_cars.userCount() > 0))
+    else if (mayApply && !(car.empty() && carId.empty()) && m_cars.coversGame(game))
     {
-        // A car the table has no entry for: the engine, limiter,
-        // driveline, ABS and TC go back to their defaults, so this car
-        // never plays the last one's engine or gearbox. The strip tints
-        // them to say so. (No table at all, a broken install: the strip
-        // does not follow the car, as the start-up log says.)
+        // A car the table has no entry for, in a game it covers: the
+        // engine, limiter, driveline, ABS and TC go back to their
+        // defaults, so this car never plays the last one's engine or
+        // gearbox. The strip tints them to say so. A game the table does
+        // not cover at all (no entry of either layer) keeps the user's own
+        // settings, as does a missing table.
         std::string err;
         const std::string& who = car.empty() ? carId : car;
         defaults = applyCarDefaults(err);

@@ -24,6 +24,7 @@ public:
     std::vector<QString> of(const QString& member)
     {
         std::vector<QString> out;
+        if (s.startsWith("\xEF\xBB\xBF")) i = 3;   // a UTF-8 byte order mark, as the JSON parser allows
         ws();
         if (!eat('{')) return out;
         for (;;)

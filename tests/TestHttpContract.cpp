@@ -344,17 +344,18 @@ int main()
               "the starting point is in the saved rig; the pulled car's engine and the follow switch stayed");
         check(has(get("/api/status"), "\"hapCarGen\":2"), "GET /api/status hapCarGen bumped on the starting point");
     }
-    // Follow car: the sim names a car the table has no entry for, and the
-    // car tiles go to the defaults (not the last car's: the F40 pulled
-    // above), the status saying so; a name that starts with an entry's
-    // lands on that entry as a near match. Named the way a plugin does it,
-    // a NULLCATY line, fed straight in while the status is polled.
+    // Follow car: in a game the table does not cover, a car is left alone;
+    // in one it covers, a car the table has no entry for puts the car tiles
+    // on the defaults (not the last car's: the F40 pulled above), the
+    // status saying so; a name that starts with an entry's lands on that
+    // entry as a near match. Named the way a plugin does it, a NULLCATY
+    // line, fed straight in while the status is polled.
     {
-        const auto nameCar = [&](const char* car, const char* want, int timeoutMs) -> bool
+        const auto nameCar = [&](const char* game, const char* car, const char* want, int timeoutMs) -> bool
         {
             for (int t = 0, rpm = 2000; t < timeoutMs; t += 100, rpm += 7)
             {
-                const std::string line = std::string("NULLCATY,game=AssettoCorsa,car=") + car + ",rpm=" + std::to_string(rpm);
+                const std::string line = std::string("NULLCATY,game=") + game + ",car=" + car + ",rpm=" + std::to_string(rpm);
                 TelemetryData td;
                 if (TelemetryInput::parsePacket(line.c_str(), static_cast<int>(line.size()), td)) telemetry.ingest(td);
                 if (has(get("/api/status"), want)) return true;
@@ -362,7 +363,15 @@ int main()
             }
             return false;
         };
-        check(nameCar("Mystery Car", "\"hapCarDefault\":true", 4000),
+        check(nameCar("iRacing", "Some Car", "\"hapCar\":\"Some Car\"", 4000)
+              && has(get("/api/status"), "\"hapCarDefault\":false") && has(get("/api/status"), "\"hapCarGen\":2"),
+              "follow car: a car in a game the table does not cover is left alone (no defaults, no apply)");
+        {
+            std::string r = get("/api/rig");
+            r.erase(std::remove(r.begin(), r.end(), ' '), r.end());
+            check(has(r, "\"cylinders\":8") && has(r, "\"turbo\":1"), "...and the saved rig keeps the last car's engine");
+        }
+        check(nameCar("AssettoCorsa", "Mystery Car", "\"hapCarDefault\":true", 4000),
               "follow car: a car with no entry puts the car tiles on the defaults (status hapCarDefault)");
         std::string rig = get("/api/rig");
         rig.erase(std::remove(rig.begin(), rig.end(), ' '), rig.end());
@@ -371,7 +380,7 @@ int main()
         const std::string cars = get("/api/cars");
         check(has(cars, "\"car\":\"Mystery Car\"") && has(cars, "\"source\":\"\"") && has(cars, "\"defaults\":true"),
               "GET /api/cars: the car has no entry and the defaults are in use");
-        check(nameCar("Mazda 787B Le Mans", "\"hapCarKey\":\"ac:ks_mazda_787b\"", 4000)
+        check(nameCar("AssettoCorsa", "Mazda 787B Le Mans", "\"hapCarKey\":\"ac:ks_mazda_787b\"", 4000)
               && has(get("/api/cars"), "\"near\":true") && has(get("/api/status"), "\"hapCarDefault\":false")
               && has(get("/api/status"), "\"hapCarApplied\":true"),
               "follow car: a name that starts with an entry's is a near match, applied");

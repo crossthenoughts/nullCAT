@@ -11,7 +11,8 @@
 //     an exact entry always wins, a one-word prefix or another game never
 //   - the user layer wins over stock on the same key; forget restores stock
 //   - the car defaults (a car with no entry, follow car on) carry exactly
-//     the car-owned keys at a fresh install's values and move nothing else
+//     the car-owned keys at a fresh install's values and move nothing else;
+//     they only ever apply in a game the table covers (either layer)
 //   - an entry applied through Config::readHapticsObject moves only the
 //     five car-owned tiles and keeps every route, the slip tiles, master
 //     gain and the follow switch exactly as they were
@@ -193,6 +194,30 @@ private slots:
         QVERIFY(!m.nearMatch);
         // ...and the base car is still the stock base car.
         QCOMPARE(t.find("AMS2", "MINI Cooper S 1965").source, std::string("stock"));
+    }
+
+    void coversGame_byEitherLayer()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        writeText(dir.path() + "/cars.json", stockFile());
+        CarTable t;
+        QVERIFY(t.loadStock((dir.path() + "/cars.json").toStdString()));
+        // The games the table has entries for, by any of their names; the
+        // defaults for a car with no entry only ever apply in these.
+        QVERIFY(t.coversGame("ac"));
+        QVERIFY(t.coversGame("AssettoCorsa"));
+        QVERIFY(t.coversGame("Automobilista2"));
+        QVERIFY(t.coversGame("AMS2"));
+        QVERIFY(!t.coversGame("iRacing"));
+        QVERIFY(!t.coversGame("AssettoCorsaCompetizione"));
+        QVERIFY(!t.coversGame(""));
+        // One entry of yours is enough for a game to be covered, and
+        // forgetting it uncovers it again.
+        QJsonObject mine; mine["name"] = "Dallara IR18";
+        t.putUser(t.keyFor("iRacing", "Dallara IR18"), mine);
+        QVERIFY(t.coversGame("iracing"));
+        QVERIFY(t.removeUser("iRacing:Dallara IR18"));
+        QVERIFY(!t.coversGame("iRacing"));
     }
 
     void defaults_carKeysAtFreshValues()

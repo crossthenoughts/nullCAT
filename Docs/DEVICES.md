@@ -259,9 +259,12 @@ whole words and at least two of them, and only from the same game, and the
 car row adds `· near match`. **Save for this car** then files your own
 under the sim's exact name.
 
-With follow car on, a car the table has no entry for at all does not keep
-the last car's engine, gearbox, ABS and TC: those five tiles go back to
-their defaults, the settings a fresh install has. The car row reads
+With follow car on, a car the table has no entry for at all, in a game the
+table covers (Assetto Corsa, Automobilista 2, or any game you have saved a
+car for), does not keep the last car's engine, gearbox, ABS and TC: those
+five tiles go back to their defaults, the settings a fresh install has. In
+a game the table does not cover, nothing changes: the tiles stay as you
+set them. The car row reads
 `· no entry · defaults in use`, and the settings the car table owns are
 tinted pink instead of the usual faint tint (hover one to read why) until
 you pull a preset car or save for this car, or the next car comes on. Like

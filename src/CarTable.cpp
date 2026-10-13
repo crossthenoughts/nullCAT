@@ -297,6 +297,20 @@ std::vector<CarTable::Item> CarTable::list() const
     return out;
 }
 
+bool CarTable::coversGame(const std::string& game) const
+{
+    std::lock_guard<std::mutex> lk(m_mx);
+    std::string id = normalise(game);
+    if (const auto it = m_games.find(id); it != m_games.end()) id = it->second;
+    const std::string prefix = id + ":";
+    const auto any = [&prefix](const Layer& layer)
+    {
+        const auto it = layer.rows.lower_bound(prefix);   // rows are keyed "<game>:<car>", sorted
+        return it != layer.rows.end() && it->first.compare(0, prefix.size(), prefix) == 0;
+    };
+    return any(m_user) || any(m_stock);
+}
+
 void CarTable::putUser(const std::string& key, const QJsonObject& entry)
 {
     std::lock_guard<std::mutex> lk(m_mx);
