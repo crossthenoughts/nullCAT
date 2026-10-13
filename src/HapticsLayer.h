@@ -78,6 +78,7 @@ public:
         e->freqHz = ((p.freqHz > 0.0) ? p.freqHz : 90.0) * std::max(0.25, std::min(4.0, freqScale));
         e->durSec = p.durMs / 1000.0 * durK;
         e->tSec   = 0.0;
+        e->type   = static_cast<int>(t);
         // A position axis cannot carry a 60 Hz burst (a few hundredths of a
         // mm): it gets the same event as one thud at a rate it can follow,
         // stretched with the burst (a synchro's clunk is softer and longer
@@ -125,6 +126,7 @@ public:
             if (!e.active) continue;
             e.tSec += dtSec;
             if (e.tSec >= e.lifeSec) { e.active = false; continue; }
+            if (m_evMute[e.type]) continue;   // a muted tile: runs its course, plays nothing
             // Raised-cosine envelope (zero at both ends) on a sine carrier.
             const double env = wavesynth::envelope(e.tSec, e.durSec, e.durSec * 0.25);
             const double v   = e.ampPct * env
@@ -148,6 +150,7 @@ public:
         // per-cycle carrier jitter for texture-class effects.
         for (int i = 0; i < FX_TYPE_COUNT; ++i)
         {
+            const MuteGuard mute(m_overlay, m_shaker, m_fxMute[i]);
             Fx& f = m_fx[i];
             const EffectParams& p = m_fxParams[i];
             const bool slipSlot = slipFor(static_cast<FxType>(i)) != nullptr;
@@ -503,7 +506,7 @@ public:
         }
 
         // Master trim last: per-effect settings stay untouched underneath.
-        const double mg = m_muted ? 0.0 : m_masterGain;
+        const double mg = m_masterGain;
         if (mg != 1.0) { for (double& o : m_overlay) o *= mg; for (double& o : m_shaker) o *= mg; }
 
         // Axis alignment delay: the fast sinks (torque, position) can be
@@ -777,11 +780,18 @@ public:
     }
 
     // ---- master trim (RT-thread writes only, like everything here) ----
-    // gain scales EVERY overlay (0..2); mute is a hard zero. Both applied
-    // at the final sum, so per-effect settings stay untouched underneath.
+    // gain scales EVERY overlay (0..2), at the final sum, so per-effect
+    // settings stay untouched underneath.
     void setMasterGain(double g) { m_masterGain = (g < 0.0) ? 0.0 : (g > 2.0 ? 2.0 : g); }
-    void setMuted(bool m)        { m_muted = m; }
-    bool muted() const           { return m_muted; }
+    // A tile's mute: its model runs on (readouts live, unmuting instant) but
+    // it adds nothing to any axis or shaker; its amp and every other tile
+    // are untouched (an ABS at amp 0 is no ABS fitted, which changes the
+    // slip tiles; a muted one is only silent). The master mute is every
+    // tile's (MotionController).
+    void setFxMuted(FxType t, bool m)       { const int i = static_cast<int>(t); if (i >= 0 && i < FX_TYPE_COUNT) m_fxMute[i] = m; }
+    void setEventMuted(EventType t, bool m) { const int i = static_cast<int>(t); if (i >= 0 && i < EVENT_TYPE_COUNT) m_evMute[i] = m; }
+    bool fxMuted(FxType t) const            { const int i = static_cast<int>(t); return i >= 0 && i < FX_TYPE_COUNT && m_fxMute[i]; }
+    bool eventMuted(EventType t) const      { const int i = static_cast<int>(t); return i >= 0 && i < EVENT_TYPE_COUNT && m_evMute[i]; }
 
     // Live level of one continuous effect (0..1 smoothed) - status surface.
     // The Road slot shows the louder of its replay and its texture.
@@ -794,12 +804,12 @@ public:
 
     // What the effect is actually PUTTING OUT, not what it is being driven
     // with: zero when its amplitude is 0, it has no route with gain, or the
-    // layer is muted. The web wave draws this, so a tile only animates when
+    // tile is muted. The web wave draws this, so a tile only animates when
     // something can be felt (a bench session read a full wave on an effect
     // at amp 0 / no route as "fires visually, nothing felt").
     double fxOutputLevel(int i) const
     {
-        if (i < 0 || i >= FX_TYPE_COUNT || m_muted || m_masterGain <= 0.0) return 0.0;
+        if (i < 0 || i >= FX_TYPE_COUNT || m_fxMute[i] || m_masterGain <= 0.0) return 0.0;
         const EffectParams& p = m_fxParams[i];
         if (p.ampPct <= 0.0 || !hasRoute(p)) return 0.0;
         return fxLevel(i);   // Road: its model or grain as well as the texture
@@ -880,6 +890,7 @@ private:
     struct Event
     {
         bool   active = false;
+        int    type   = 0;   // EventType: whose tile (its mute)
         double ampPct = 0.0, freqHz = 0.0, durSec = 0.0, tSec = 0.0;
         double thudHz = 12.0, thudSec = 1.0 / 12.0, lifeSec = 0.0;   // position-sink rendering
         Route  routes[MAX_ROUTES];
@@ -977,9 +988,24 @@ private:
     Fx           m_fx[FX_TYPE_COUNT];
     double       m_overlay[MAX_HAPTIC_AXES] = {};
     double       m_masterGain = 1.0;
-    bool         m_muted      = false;
+    bool         m_fxMute[FX_TYPE_COUNT]    = {};
+    bool         m_evMute[EVENT_TYPE_COUNT] = {};
     uint64_t     m_fired = 0;
     uint64_t     m_firedBy[EVENT_TYPE_COUNT] = {};
+
+    // A muted tile's turn in step(): whatever it added to the axis and
+    // shaker sums this cycle is taken back out on the way out of the turn
+    // (every path through it, its early continues too).
+    struct MuteGuard
+    {
+        double* o; double* s; bool on;
+        double  so[MAX_HAPTIC_AXES], ss[MAX_SHAKER_OUT];
+        MuteGuard(double* overlay, double* shaker, bool muted) : o(overlay), s(shaker), on(muted)
+        { if (on) { std::copy(o, o + MAX_HAPTIC_AXES, so); std::copy(s, s + MAX_SHAKER_OUT, ss); } }
+        ~MuteGuard() { if (on) { std::copy(so, so + MAX_HAPTIC_AXES, o); std::copy(ss, ss + MAX_SHAKER_OUT, s); } }
+        MuteGuard(const MuteGuard&) = delete;
+        MuteGuard& operator=(const MuteGuard&) = delete;
+    };
 };
 
 } // namespace haptics

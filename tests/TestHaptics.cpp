@@ -197,6 +197,46 @@ int main()
         L6.clearAll(); L6.step(DT);
         CHECK(L6.overlayFor(2) == 0.0, "clearAll silences continuous effects instantly");
 
+        // A tile's mute: its output goes (axis and shaker), its level runs
+        // on, the tile beside it plays; a muted transient plays nothing;
+        // unmuted, straight back.
+        {
+            Layer M;
+            EffectParams a; a.ampPct = 50.0; a.freqHz = 40.0; a.routes[0] = { 2, 1.0 }; a.routes[1].shaker = 0; a.routes[1].gain = 1.0;
+            EffectParams b; b.ampPct = 50.0; b.freqHz = 30.0; b.routes[0] = { 3, 1.0 };
+            M.configureFx(FxType::Limiter, a); M.configureFx(FxType::Road, b);
+            EffectParams g; g.ampPct = 80.0; g.freqHz = 60.0; g.durMs = 40.0; g.routes[0] = { 4, 1.0 };
+            M.configure(EventType::GearShift, g);
+            double lim = 0.0, sh = 0.0, road = 0.0;
+            auto run = [&](int n) { lim = sh = road = 0.0;
+                for (int i = 0; i < n; ++i)
+                {
+                    M.driveFx(FxType::Limiter, 1.0, 0.0); M.driveFx(FxType::Road, 1.0, 0.0); M.step(DT);
+                    lim = std::max(lim, std::fabs(M.overlayFor(2))); sh = std::max(sh, std::fabs(M.shakerSample(0)));
+                    road = std::max(road, std::fabs(M.overlayFor(3)));
+                } };
+            run(400);
+            CHECK(lim > 5.0 && sh > 0.05 && road > 5.0, "mute: both tiles play unmuted (the control)");
+            M.setFxMuted(FxType::Limiter, true);
+            run(400);
+            CHECK(lim == 0.0 && sh == 0.0, "mute: a muted tile puts nothing on its axis or its shaker");
+            CHECK(road > 5.0, "mute: the tile beside it plays on");
+            CHECK(M.fxLevel(static_cast<int>(FxType::Limiter)) > 0.9 && M.fxOutputLevel(static_cast<int>(FxType::Limiter)) == 0.0,
+                  "mute: its level runs on (readouts live), its felt level reads 0");
+            M.setFxMuted(FxType::Limiter, false);
+            run(10);
+            CHECK(lim > 1.0, "mute: unmuted, straight back (no ramp up from silence)");
+            double gk = 0.0;
+            M.setEventMuted(EventType::GearShift, true);
+            M.fire(EventType::GearShift);
+            for (int i = 0; i < 100; ++i) { M.step(DT); gk = std::max(gk, std::fabs(M.overlayFor(4))); }
+            CHECK(gk == 0.0, "mute: a muted transient plays nothing");
+            M.setEventMuted(EventType::GearShift, false);
+            M.fire(EventType::GearShift); gk = 0.0;
+            for (int i = 0; i < 100; ++i) { M.step(DT); gk = std::max(gk, std::fabs(M.overlayFor(4))); }
+            CHECK(gk > 5.0, "mute: unmuted, the transient plays");
+        }
+
         // Jitter keeps the output bounded.
         EffectParams pj = p; pj.jitter = 1.0;
         Layer L7; L7.configureFx(FxType::Road, pj);

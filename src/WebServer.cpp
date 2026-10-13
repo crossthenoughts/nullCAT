@@ -395,7 +395,10 @@ std::string WebServer::buildStatusJson() const
         // array order = NcxValues::Token order = the protocol registry).
         s += "\"hapFired\":" + std::to_string(ms.hapticsFired) + ",";
         s += "\"hapMuted\":" + jsonBool(ms.hapticsMuted) + ",";
-        s += "\"hapFx\":[";
+        s += "\"hapMute\":[";   // per tile, registry order
+        for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+            s += std::string(i ? "," : "") + (((ms.hapticsMuteMask >> i) & 1ull) ? "true" : "false");
+        s += "],\"hapFx\":[";
         for (int i = 0; i < haptics::FX_TYPE_COUNT; ++i)
             s += (i ? "," : "") + jsonDouble(ms.hapticsFxLevel[i], 3);
         // Tile readouts: what each effect is driven with (hapIn, with its
@@ -1480,7 +1483,16 @@ bool WebServer::start()
             std::string routedNames;
             for (const haptics::Route& r : ep.routes)
             {
-                if (r.axis < 0 || r.gain <= 0.0) continue;
+                if (r.gain <= 0.0) continue;
+                // An open shaker channel is live with the loop stopped too
+                // (the idle clock steps the layer).
+                if (r.shaker >= 0)
+                {
+                    routedNames += (routedNames.empty() ? "" : ", ") + std::string("shaker ") + std::to_string(r.shaker + 1);
+                    if (m_shakers && m_shakers->channelLive(r.shaker)) routedLive = true;
+                    continue;
+                }
+                if (r.axis < 0) continue;
                 if (static_cast<size_t>(r.axis) < sc.drives.size())
                     routedNames += (routedNames.empty() ? "" : ", ") + sc.drives[r.axis].name;
                 // numDrives is 0 until the loop runs: nothing is live then.
@@ -1490,7 +1502,7 @@ bool WebServer::start()
                     routedLive = true;
             }
             if (!routedLive)
-            { errResp(res, "Routed axis not live (" + routedNames + "): start the loop, then engage the device or tension the belt."); return; }
+            { errResp(res, "Nothing it routes to is live (" + routedNames + "): start the loop, then engage the device or tension the belt (shakers: open the sound card)."); return; }
 
             MotionCommand cmd; cmd.type = MotionCommand::Type::HapticsTest; cmd.intVal = static_cast<int>(info->id);
             if (!m_motion->enqueueCommand(cmd)) { errResp(res, "Command queue full."); return; }
@@ -1522,8 +1534,14 @@ bool WebServer::start()
                            : (info.kind == haptics::Kind::Impacts)   ? "impacts"
                            : (info.kind == haptics::Kind::Driveline) ? "driveline" : "continuous";
                 if (info.kind != haptics::Kind::Transient) e["fxIdx"] = static_cast<int>(info.fx);
+                e["id"] = i;   // registry order: the status hapMute[] index
                 // Per-wheel effects: routes carry a part (route editor shows the selector).
                 e["parts"] = haptics::kindHasParts(info.kind);
+                // The settings a car's entry sets (follow car) and "save for
+                // this car" stores; the tile marks them.
+                QJsonArray carKeys;
+                for (const std::string& k : CarTable::carKeys(info.key)) carKeys.append(QString::fromStdString(k));
+                e["carKeys"] = carKeys;
                 QJsonArray ch;
                 for (const char* c : info.channels) { if (!c) break; ch.append(c); }
                 e["channels"] = ch;
@@ -1899,13 +1917,30 @@ bool WebServer::start()
             okResp(res);
         });
 
-        // Haptics master mute (runtime only, not persisted): body {"on":true|false}.
+        // Haptics mutes (runtime only, not persisted). Body {"on":true|false}:
+        // the master, every tile muted or every tile unmuted. With
+        // "effect":"<registry key>": that one tile (mute all, then unmute
+        // one: a solo).
         postCmd("/api/haptics/mute", [this, okResp, errResp](const httplib::Request& req, httplib::Response& res)
         {
             if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
-            MotionCommand cmd; cmd.type = MotionCommand::Type::HapticsMute;
-            cmd.intVal = (req.body.find("true") != std::string::npos) ? 1 : 0;
-            if (!m_motion->enqueueCommand(cmd)) { errResp(res, "Command queue full."); return; }
+            const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(req.body));
+            const QJsonObject o = doc.isObject() ? doc.object() : QJsonObject();
+            const bool on = o.contains("on") ? o.value("on").toBool() : (req.body.find("true") != std::string::npos);
+            MotionCommand cmd;
+            if (o.contains("effect"))
+            {
+                const haptics::EffectInfo* info = haptics::findEffect(o.value("effect").toString().toStdString().c_str());
+                if (!info) { errResp(res, "Unknown effect."); return; }
+                cmd.type = MotionCommand::Type::HapticsMuteFx;
+                cmd.intVal = static_cast<int>(info->id) | (on ? 0x100 : 0);
+            }
+            else
+            {
+                cmd.type = MotionCommand::Type::HapticsMute;
+                cmd.intVal = on ? 1 : 0;
+            }
+            if (!m_motion->enqueueCommand(cmd)) { errResp(res, "Could not apply the mute."); return; }
             okResp(res);
         });
 

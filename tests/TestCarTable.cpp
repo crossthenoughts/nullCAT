@@ -18,6 +18,7 @@
 
 #include <QtTest>
 #include <QTemporaryDir>
+#include <algorithm>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -275,6 +276,30 @@ private slots:
             Config::readHapticsObject(CarTable::toHapticsObject(entry), r);
             QCOMPARE(r.hapticsDriveline.diffType, 0.0); QCOMPARE(r.hapticsDriveline.driven, 0.0);
             QCOMPARE(r.hapticsDriveline.diff, 0.5);     QCOMPARE(r.hapticsDriveline.diffHz, 9.0);
+        }
+
+        // The keys the tiles tint as "follows the car" are exactly what an
+        // entry stores: every stored key is one, ignore neutral and whine
+        // pitch (the rig's) are not, and a tile the table never touches has
+        // none.
+        {
+            AppConfig r = rigWithRoutes(); r.hapticsEngine.maxRpm = 7000; r.hapticsEngine.order = 2;
+            const QJsonObject all = CarTable::fromHapticsObject(Config::writeHapticsObject(r), "x", "");
+            const std::pair<const char*, const char*> tiles[] = {
+                { "engine", haptics::effectInfo(haptics::Effect::Engine).key }, { "limiter", "limiter" },
+                { "driveline", "driveline" }, { "abs", "abs" }, { "tc", "tc" } };
+            for (const auto& [section, tile] : tiles)
+            {
+                const std::vector<std::string> keys = CarTable::carKeys(tile);
+                const QJsonObject o = all.value(section).toObject();
+                QCOMPARE(static_cast<int>(keys.size()), o.size());
+                for (const std::string& k : keys) QVERIFY2(o.contains(QString::fromStdString(k)), k.c_str());
+            }
+            const std::vector<std::string> dl = CarTable::carKeys("driveline");
+            QVERIFY(std::find(dl.begin(), dl.end(), "whine") != dl.end());
+            QVERIFY(std::find(dl.begin(), dl.end(), "ignoreN") == dl.end());
+            QVERIFY(std::find(dl.begin(), dl.end(), "whinePitch") == dl.end());
+            QVERIFY(CarTable::carKeys("slipLat").empty());
         }
     }
 

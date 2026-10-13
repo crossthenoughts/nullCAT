@@ -305,16 +305,32 @@ QJsonObject CarTable::toHapticsObject(const QJsonObject& entry)
     return h;
 }
 
+// The car-owned settings of each tile the table touches (the rest of a
+// tile, and every other tile, is the rig's).
+namespace {
+const char* const kCarEngine[]    = { "ampPct", "freqHz", "jitter", "cylinders", "litres", "layout",
+                                      "maxRpm", "order", "rock", "thump", "buzz", "limHit", "limHz",
+                                      "limJit", "inertia", "turbo", "liftoff", "pops", "tcCut", nullptr };
+const char* const kCarLimiter[]   = { "ampPct", "freqHz", "jitter", nullptr };
+const char* const kCarDriveline[] = { "ampPct", "jitter", "clutch", "clutchHz", "lug", "lugHz",
+                                      "gearbox", "whine", "shunt", "shuntHz", "diff", "diffType", "diffHz", "driven", nullptr };
+const char* const kCarPulse[]     = { "ampPct", "freqHz", nullptr };
+}
+
+std::vector<std::string> CarTable::carKeys(const std::string& tileKey)
+{
+    const char* const* keys = (tileKey == engineKey()) ? kCarEngine
+                            : (tileKey == "limiter")   ? kCarLimiter
+                            : (tileKey == "driveline") ? kCarDriveline
+                            : (tileKey == "abs" || tileKey == "tc") ? kCarPulse : nullptr;
+    std::vector<std::string> out;
+    for (const char* const* k = keys; k && *k; ++k) out.push_back(*k);
+    return out;
+}
+
 QJsonObject CarTable::fromHapticsObject(const QJsonObject& haptics,
                                         const std::string& name, const std::string& notes)
 {
-    static const char* const kEngine[]    = { "ampPct", "freqHz", "jitter", "cylinders", "litres", "layout",
-                                              "maxRpm", "order", "rock", "thump", "buzz", "limHit", "limHz",
-                                              "limJit", "inertia", "turbo", "liftoff", "pops", "tcCut", nullptr };
-    static const char* const kLimiter[]   = { "ampPct", "freqHz", "jitter", nullptr };
-    static const char* const kDriveline[] = { "ampPct", "jitter", "clutch", "clutchHz", "lug", "lugHz",
-                                              "gearbox", "whine", "shunt", "shuntHz", "diff", "diffType", "diffHz", "driven", nullptr };
-    static const char* const kPulse[]     = { "ampPct", "freqHz", nullptr };
     const auto pick = [&](const char* from, const char* const* keys)
     {
         QJsonObject o;
@@ -328,11 +344,11 @@ QJsonObject CarTable::fromHapticsObject(const QJsonObject& haptics,
     };
     QJsonObject e;
     e["name"]      = QString::fromStdString(name);
-    e["engine"]    = pick(engineKey(), kEngine);
-    e["limiter"]   = pick("limiter",   kLimiter);
-    e["driveline"] = pick("driveline", kDriveline);
-    e["abs"]       = pick("abs",       kPulse);
-    e["tc"]        = pick("tc",        kPulse);
+    e["engine"]    = pick(engineKey(), kCarEngine);
+    e["limiter"]   = pick("limiter",   kCarLimiter);
+    e["driveline"] = pick("driveline", kCarDriveline);
+    e["abs"]       = pick("abs",       kCarPulse);
+    e["tc"]        = pick("tc",        kCarPulse);
     e["notes"]     = QString::fromStdString(notes);
     return e;
 }

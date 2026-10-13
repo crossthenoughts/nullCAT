@@ -127,14 +127,18 @@ Every effect starts off. To make one work it needs three things:
    with no re-initialize.
 
 The routed axis must also be live (belt tensioned, device engaged,
-position axis online) to be felt. **Test** plays the effect for a
-moment and, if nothing could be felt, says why: amplitude 0, no route,
-or the routed axis not live. The tile's waveform only moves while the
+position axis online), or the shaker's sound card open, to be felt.
+**Test** plays the effect for a moment and, if nothing could be felt,
+says why: amplitude 0, no route, or nothing it routes to is live. The tile's waveform only moves while the
 effect is actually producing force, and its shape follows the amplitude
 and frequency you set.
 
-**Master** scales every effect at once; **Mute** silences the whole
-layer without changing any settings (press again to bring it back).
+**Master** scales every effect at once. Each tile has an **M** button in
+its corner that mutes just that effect: it goes silent, but its settings
+and readouts stay as they are and no other tile changes. **Mute** on the
+Master tile mutes every tile and **Unmute** brings them all back, so to
+hear one effect on its own, press Mute, then that tile's M. Mutes are not
+saved: a restart brings everything back.
 
 Each tile also carries a small **sim dot** on the right of its name.
 nullCAT remembers, for every game that has sent channels, whether each
@@ -208,7 +212,9 @@ tiles. Nothing else: an entry never carries routes, master gain, the pos
 budget or the slip, road and kerb tiles. Those are your rig's, and they
 stay exactly as you set them when an entry is applied. So the rig-level
 trim lives in the routes (a 0.3 gain on the Engine route instead of 0.7)
-and the car-level feel moves with the car.
+and the car-level feel moves with the car. On the tiles, the settings a
+car's entry sets have a faint tint; everything untinted stays put when the
+car changes.
 
 The **car** row on the Master tile shows the car the sim is naming and
 what the table has for it (`Mazda 787B · stock`, `· yours` for your own

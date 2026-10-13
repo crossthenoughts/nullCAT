@@ -9,6 +9,13 @@ middle number carries breaking changes and the last carries fixes.
 Development branch. Nothing here is in a release yet.
 
 ### Added
+- A mute on every haptics tile (**M** in its corner): the effect goes
+  silent, its settings and readouts stay, no other tile changes. The
+  Master tile's **Mute** mutes every tile and **Unmute** brings them all
+  back, so Mute then one tile's M plays that effect on its own. Not saved.
+- The settings a car's entry sets (follow car, pull, save for this car)
+  have a faint tint on the tiles, so it shows what moves with the car and
+  what stays.
 - Road **model**. **suspension** (the default) replays each corner's
   suspension movement from the sim and adds the road's fine roughness a
   sim does not model: a random road laid out along the track (`rough
@@ -323,6 +330,9 @@ Development branch. Nothing here is in a release yet.
   rig keeps its own values: change them on the tile.
 
 ### Fixed
+- With the control loop stopped (shakers only), the haptics **Mute** and
+  the tiles' **Test** did nothing until the loop started; and Test refused
+  a tile routed only to shakers. Both now work on the shakers either way.
 - Shakers on one sound card drifted apart: after a few minutes channels 2
   and up played about a tenth of a second behind channel 1. Every channel
   now travels together and they stay in step.

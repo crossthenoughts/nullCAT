@@ -78,6 +78,10 @@ public:
     // The reverse: the car-owned fields of a haptics object as an entry.
     static QJsonObject fromHapticsObject(const QJsonObject& haptics,
                                          const std::string& name, const std::string& notes);
+    // The settings of one tile (its haptics key) that belong to the car:
+    // what a car's entry sets and "save for this car" stores. Empty for a
+    // tile the table never touches.
+    static std::vector<std::string> carKeys(const std::string& tileKey);
     // Lower case, letters and digits only.
     static std::string normalise(const std::string& s);
 

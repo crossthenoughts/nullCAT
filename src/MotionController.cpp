@@ -271,6 +271,34 @@ void MotionController::setEmergencyStop(bool active)
 
 bool MotionController::enqueueCommand(MotionCommand cmd)
 {
+    // The haptics commands are the layer's, and the layer is stepped by the
+    // idle clock while the loop is stopped (shakers), which never drains
+    // the queue: they go to slots the next haptics cycle takes, either way.
+    static_assert(haptics::EFFECT_COUNT <= 64, "the mute mask has a bit per tile");
+    switch (cmd.type)
+    {
+    case MotionCommand::Type::HapticsTest:
+        if (cmd.intVal < 0 || cmd.intVal >= haptics::EFFECT_COUNT) return false;
+        m_hapTestReq.store(cmd.intVal, std::memory_order_release);
+        return true;
+    case MotionCommand::Type::HapticsMute:
+        // The master: every tile muted, or every tile unmuted (mute all,
+        // then unmute one tile: that tile solo).
+        m_hapMasterMute.store(cmd.intVal != 0, std::memory_order_release);
+        m_hapMuteMask.store(cmd.intVal != 0 ? (haptics::EFFECT_COUNT >= 64 ? ~0ull : ((1ull << haptics::EFFECT_COUNT) - 1)) : 0ull,
+                            std::memory_order_release);
+        return true;
+    case MotionCommand::Type::HapticsMuteFx:
+    {
+        const int id = cmd.intVal & 0xFF;
+        if (id >= haptics::EFFECT_COUNT) return false;
+        if (cmd.intVal & 0x100) m_hapMuteMask.fetch_or(1ull << id, std::memory_order_acq_rel);
+        else                    m_hapMuteMask.fetch_and(~(1ull << id), std::memory_order_acq_rel);
+        return true;
+    }
+    default:
+        break;
+    }
     if (!m_cmdQueue.push(cmd))
     {
         LOG_WARNING(strf("MotionController: Command queue full -- command type %d dropped.",
@@ -309,25 +337,7 @@ void MotionController::drainCommands(A6Drive** /*drives*/, int /*numHwDrives*/)
         case MotionCommand::Type::ReleaseDevice:
             releaseDevices(cmd.intVal);
             break;
-        case MotionCommand::Type::HapticsTest:
-            // Runs on the RT thread (this dispatch), so fire()/preview writes
-            // never race the layer. Routing is the effect's own axis table;
-            // the overlay gate keeps non-live axes silent regardless.
-            // intVal = registry effect id: transients fire once, continuous
-            // and engine effects run a short full-level preview.
-            if (cmd.intVal >= 0 && cmd.intVal < haptics::EFFECT_COUNT)
-            {
-                const haptics::EffectInfo& info = haptics::effectInfo(cmd.intVal);
-                if (info.kind == haptics::Kind::Transient)
-                    m_haptics.fire(info.event, 1.0);
-                else
-                    haptics::startPreview(m_hapLaws, info.fx);
-            }
-            break;
-        case MotionCommand::Type::HapticsMute:
-            m_haptics.setMuted(cmd.intVal != 0);
-            break;
-        default:
+        default:   // the haptics commands never reach the queue (enqueueCommand)
             break;
         }
     }
@@ -709,7 +719,8 @@ void MotionController::publishHapticsStatusLocked()
     m_statusSnapshot.hapticsFired = m_haptics.fireCount();
     for (int i = 0; i < haptics::EVENT_TYPE_COUNT; ++i)
         m_statusSnapshot.hapticsFiredBy[i] = m_haptics.fireCount(static_cast<haptics::EventType>(i));
-    m_statusSnapshot.hapticsMuted = m_haptics.muted();
+    m_statusSnapshot.hapticsMuted    = m_hapMasterMute.load(std::memory_order_acquire);
+    m_statusSnapshot.hapticsMuteMask = m_hapMuteMask.load(std::memory_order_acquire);
     for (int i = 0; i < haptics::FX_TYPE_COUNT; ++i)
     {
         m_statusSnapshot.hapticsFxLevel[i] = m_haptics.fxOutputLevel(i);   // felt, not driven
@@ -1955,6 +1966,19 @@ void MotionController::stageHaptics(const AppConfig& c)
 void MotionController::applyStagedHaptics()
 {
     if (const int t = m_toneRequest.exchange(0, std::memory_order_acq_rel)) m_haptics.startShakerTone(t - 1, 1.0);
+    applyHapticMutes();
+    // A tile's Test, on this clock's thread (fire()/preview never race the
+    // layer). Routing is the effect's own table; the overlay gate keeps
+    // non-live axes silent regardless. Transients fire once, continuous and
+    // engine effects run a short full-level preview.
+    if (const int id = m_hapTestReq.exchange(-1, std::memory_order_acq_rel); id >= 0 && id < haptics::EFFECT_COUNT)
+    {
+        const haptics::EffectInfo& info = haptics::effectInfo(id);
+        if (info.kind == haptics::Kind::Transient)
+            m_haptics.fire(info.event, 1.0);
+        else
+            haptics::startPreview(m_hapLaws, info.fx);
+    }
     if (!m_hapStagePending.load(std::memory_order_acquire)) return;
     HapticsStage s;   // trivially copyable, no allocation on this thread
     { std::lock_guard<std::mutex> lk(m_hapStageLock); s = m_hapStage; }
@@ -1964,6 +1988,21 @@ void MotionController::applyStagedHaptics()
     m_haptics.setAxisDelayCycles(static_cast<int>(s.axisDelayMs / 1000.0 / std::max(1e-6, m_cycleTimeSec) + 0.5));
     applyHapticSinks();
     RT_LOG_INFO("MotionController: haptics settings applied live.");
+}
+
+// The tiles' mutes onto the layer, when they changed (the clock's thread).
+void MotionController::applyHapticMutes()
+{
+    const uint64_t mask = m_hapMuteMask.load(std::memory_order_acquire);
+    if (mask == m_hapMuteApplied) return;
+    for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+    {
+        const haptics::EffectInfo& info = haptics::effectInfo(i);
+        const bool m = (mask >> i) & 1ull;
+        if (info.kind == haptics::Kind::Transient) m_haptics.setEventMuted(info.event, m);
+        else                                       m_haptics.setFxMuted(info.fx, m);
+    }
+    m_hapMuteApplied = mask;
 }
 
 // One control cycle's shaker samples into the sound card, when one is

@@ -185,6 +185,45 @@ int main()
         const Span back  = run(mc, frame(100.0, true), 200, 100);
         check(muted.width() < 0.5,            "I-5 mute: silent");
         check(back.width()  > 5.0,            "I-5 unmute: plays again");
+
+        // The master mutes every tile; unmuting one under it plays that
+        // tile alone (a solo), the master still reading muted; the master's
+        // UNMUTE clears every tile.
+        const uint64_t skidBit = 1ull << static_cast<int>(haptics::Effect::Skid);
+        m.intVal = 1; mc.enqueueCommand(m);
+        run(mc, frame(100.0, true), 50, 1);
+        MotionStatus ms = mc.getMotionStatus();
+        check(ms.hapticsMuted && (ms.hapticsMuteMask & skidBit) && (ms.hapticsMuteMask & (1ull << static_cast<int>(haptics::Effect::Engine))),
+              "I-5 master mute: every tile reads muted");
+        MotionCommand f; f.type = MotionCommand::Type::HapticsMuteFx; f.intVal = static_cast<int>(haptics::Effect::Skid);   // unmute
+        mc.enqueueCommand(f);
+        const Span solo = run(mc, frame(100.0, true), 200, 100);
+        ms = mc.getMotionStatus();
+        check(solo.width() > 5.0 && ms.hapticsMuted && !(ms.hapticsMuteMask & skidBit),
+              "I-5 solo: one tile unmuted under the master plays, the master still muted");
+        f.intVal = static_cast<int>(haptics::Effect::Skid) | 0x100; mc.enqueueCommand(f);
+        const Span off = run(mc, frame(100.0, true), 200, 100);
+        check(off.width() < 0.5, "I-5 tile mute: that tile silent again");
+        m.intVal = 0; mc.enqueueCommand(m);
+        const Span all = run(mc, frame(100.0, true), 200, 100);
+        ms = mc.getMotionStatus();
+        check(all.width() > 5.0 && !ms.hapticsMuted && ms.hapticsMuteMask == 0, "I-5 master unmute: every tile back");
+    }
+
+    // ---- I-5b: with the loop stopped the idle clock steps the layer
+    // (shakers): tile mutes reach it too (the command queue is drained by
+    // the RT loop only) ----
+    {
+        MotionController mc;
+        mc.configure(makeBeltConfig(50.0, 1.0));
+        const int fx = static_cast<int>(haptics::FxType::Skid);
+        for (int i = 0; i < 300; ++i) mc.hapticsIdleTick(frame(100.0, true));
+        const double live = mc.getMotionStatus().hapticsFxLevel[fx];
+        MotionCommand f; f.type = MotionCommand::Type::HapticsMuteFx; f.intVal = static_cast<int>(haptics::Effect::Skid) | 0x100;
+        mc.enqueueCommand(f);
+        for (int i = 0; i < 5; ++i) mc.hapticsIdleTick(frame(100.0, true));
+        const double muted = mc.getMotionStatus().hapticsFxLevel[fx];
+        check(live > 0.5 && muted == 0.0, "I-5b loop stopped: a tile mute takes effect on the idle clock");
     }
 
     // ---- I-6: e-stop clears instantly ----

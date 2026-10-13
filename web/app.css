@@ -10,12 +10,14 @@
   --paper:#ece3d0; --surface:#f6f0e3; --raise:#faf5ea;
   --ink:#1c1b16; --ink-soft:#6f685a; --hair:rgba(28,27,22,.16);
   --ok:#2f7d4f; --warn:#b07d18; --danger:#bb3322; --live:#356c83;
+  --carkey:rgba(53,108,131,.09);
   --logo-blend:multiply;
 }
 html[data-theme="dark"]{
   --paper:#14171c; --surface:#1b1f25; --raise:#0f1216;
   --ink:#e7e9ec; --ink-soft:#8b94a0; --hair:rgba(231,233,236,.13);
   --ok:#33c75a; --warn:#ffb12e; --danger:#ff4d3d; --live:#27d3df;
+  --carkey:rgba(39,211,223,.08);
   --logo-blend:normal;
 }
 *{ box-sizing:border-box; margin:0; padding:0; }
@@ -361,6 +363,16 @@ body[data-view="setup"] .vw-op{ display:none !important; }
 .hap-tile .dh .sdot{ width:8px; height:8px; border-radius:50%; margin-left:auto; background:var(--ink-soft); opacity:.55; }
 .hap-tile .dh .sdot.d1{ background:var(--warn); opacity:1; }
 .hap-tile .dh .sdot.d2{ background:var(--ok); opacity:1; }
+/* A tile's mute: M in its header, lit while muted (by itself or the
+   master); the tile's wave and settings dim. */
+.hap-tile .dh .hmute{ font-family:var(--mono); font-size:.56rem; font-weight:700; line-height:1;
+  min-width:18px; height:16px; margin-left:6px; padding:0 3px; border:1.5px solid var(--ink-soft);
+  border-radius:4px; background:none; color:var(--ink-soft); cursor:pointer; }
+.hap-tile .dh .hmute.on{ background:var(--warn); border-color:var(--warn); color:var(--surface); }
+.hap-tile.muted .hap-wave, .hap-tile.muted .hrows{ opacity:.5; }
+/* A setting the car table sets (follow car, pull, save for this car): a
+   faint tint, so each tile shows what moves with the car. */
+.hr.carkey{ background:var(--carkey); border-radius:4px; margin:0 -4px; padding:1px 4px; }
 .hap-game{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
 /* Section headings on the Master tile: rig, profiles, car table, sim dots. */
 .hsec{ font-family:var(--mono); font-size:.55rem; letter-spacing:.12em; text-transform:uppercase;

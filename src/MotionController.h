@@ -52,10 +52,14 @@ struct MotionCommand
         TensionBelts,     // torque axes only: blend 0 -> live tension; others untouched
         EngageDevice,     // device axes only: blend force field in; intVal = axis (-1 = all)
         ReleaseDevice,    // device axes only: ease force to 0 (limp); intVal = axis (-1 = all)
-        HapticsTest,      // web Test button: intVal = -1 detent click, -2 gear
-                          // shift; 0..FX_TYPE_COUNT-1 previews that continuous
-                          // effect at full level ~2 s (routing = effect's table)
-        HapticsMute,      // intVal 1 = mute the whole layer, 0 = unmute
+        // The haptics commands below never wait in the queue: enqueueCommand
+        // hands them to whichever clock steps the layer next (the RT loop, or
+        // the idle clock with the loop stopped: shakers).
+        HapticsTest,      // web Test button: intVal = registry effect id; a
+                          // transient fires once, a continuous effect previews
+                          // at full level ~2 s (routing = effect's table)
+        HapticsMute,      // master: intVal 1 = mute every tile, 0 = unmute every tile
+        HapticsMuteFx,    // one tile: intVal = registry effect id | 0x100 to mute (without: unmute)
     };
     Type type   = Type::StartHoming;
     int  intVal = -1;
@@ -115,7 +119,8 @@ struct MotionStatus
     // actually delivering right now (the per-tile channel-health chips).
     uint64_t        hapticsFired                  = 0;
     uint64_t        hapticsFiredBy[haptics::EVENT_TYPE_COUNT] = {};
-    bool            hapticsMuted                  = false;
+    bool            hapticsMuted                  = false;   // the master MUTE was pressed (and not UNMUTE since)
+    uint64_t        hapticsMuteMask               = 0;       // muted tiles, bit = registry effect id
     double          hapticsFxLevel[haptics::FX_TYPE_COUNT] = {};
     bool            ncxHave[NcxValues::TokenCount]          = {};
     // What each effect is being DRIVEN with (0..1, before amp/route/mute
@@ -511,6 +516,12 @@ private:
     haptics::ShakerBank*   m_shakers = nullptr;
     std::atomic<bool>      m_hapticsBusy{false};
     std::atomic<int>       m_toneRequest{0};   // channel + 1, 0 = none
+    // Tile Test and mutes, taken by whichever clock steps the layer next.
+    std::atomic<int>       m_hapTestReq{-1};          // registry effect id, -1 = none
+    std::atomic<uint64_t>  m_hapMuteMask{0};          // muted tiles, bit = registry effect id
+    std::atomic<bool>      m_hapMasterMute{false};
+    uint64_t               m_hapMuteApplied = ~0ull;  // what the layer has (clock thread); ~0 = apply next cycle
+    void applyHapticMutes();
     void applyHaptics(const AppConfig& c);
     void applyHapticSinks();
     // Live-apply stage (trivially copyable - no allocation on either side):

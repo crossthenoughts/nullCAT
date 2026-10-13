@@ -219,6 +219,14 @@ int main()
     check(has(post("/api/haptics/mute", "{\"on\":true}"), "\"ok\":true")
           && has(post("/api/haptics/mute", "{\"on\":false}"), "\"ok\":true"),
           "POST /api/haptics/mute on/off accepted");
+    check(has(post("/api/haptics/mute", "{\"effect\":\"driveline\",\"on\":true}"), "\"ok\":true")
+          && has(post("/api/haptics/mute", "{\"effect\":\"driveline\",\"on\":false}"), "\"ok\":true")
+          && has(post("/api/haptics/mute", "{\"effect\":\"nope\",\"on\":true}"), "Unknown effect"),
+          "POST /api/haptics/mute one tile accepted, an unknown tile refused");
+    check(has(get("/api/status"), "\"hapMute\":[false,"), "GET /api/status carries each tile's mute");
+    check(has(get("/api/haptics/schema"), "\"carKeys\":[\"ampPct\",\"jitter\",\"clutch\"")
+          && has(get("/api/haptics/schema"), "\"carKeys\":[]") && has(get("/api/haptics/schema"), "\"id\":0"),
+          "GET /api/haptics/schema marks the settings that follow the car, per tile");
     // Sticky per-sim effect record: readable empty, clearable, and the
     // status carries the dots for the current game in registry order.
     check(has(get("/api/haptics/status"), "\"games\":[") && has(get("/api/haptics/status"), "\"effects\":{"),

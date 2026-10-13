@@ -1067,6 +1067,8 @@ function devAxes(){ return ((cfgObj&&cfgObj.drives)||[]).map((d,i)=>({d,i})).fil
    entry: label, kind, the channels it needs, the tunables with ranges (a
    param with opts renders as a choice), and the tip. */
 let HAP_FX=[], HAP_DEF={};
+// The hover note on a setting the car table sets (tinted on the tile).
+const HAP_CARKEY_TIP='Follows the car: the car table sets this when you drive a car it knows (follow car, or pull), and "save for this car" keeps yours. Untinted settings are general: a new car leaves them as they are.';
 /* The sim channel token registry also comes from the schema (NcxTokens.h):
    the bindings editor's list, the order of the status ncxHave[] array, the
    wire's slot count, and the route parts the per-wheel effects take. */
@@ -1077,7 +1079,7 @@ async function hapLoadSchema(){
     const j=await r.json();
     HAP_FX=(j.effects||[]).map(e=>({
       k:e.key, label:e.label, transient:e.kind==='transient', slip:e.kind==='slip', parts:!!e.parts, fxIdx:e.fxIdx,
-      chan:e.channels||[], tip:e.tip||'',
+      id:e.id, carKeys:e.carKeys||[], chan:e.channels||[], tip:e.tip||'',
       params:(e.params||[]).map(p=>[p.key,p.label,p.min,p.max,p.step,p.opts,p.help||''])}));
     HAP_DEF={};
     for(const e of j.effects||[]) HAP_DEF[e.key]=Object.assign({routes:[]},e.defaults||{});
@@ -1573,6 +1575,12 @@ function hapLive(s){
   }
   for(const k in hapTiles){
     const t=hapTiles[k];
+    // The tile's mute (the master's, or its own).
+    if(Array.isArray(s.hapMute)&&t.fx.id!==undefined){
+      const m=!!s.hapMute[t.fx.id];
+      t.tile.classList.toggle('muted',m);
+      const mb=t.tile.querySelector('[data-mute]'); if(mb) mb.classList.toggle('on',m);
+    }
     // Channel-health chip: token names with a live tick/cross.
     const ch=t.tile.querySelector('[data-chan]');
     if(ch&&t.fx.chan&&Array.isArray(s.ncxHave)){
@@ -1875,7 +1883,8 @@ function hapInit(){
     const dv=cfgObj.haptics[fx.k];
     const tile=document.createElement('div');
     tile.className='hap-tile'+(dv.ampPct>0?' on':''); tile.title=fx.tip; tile.dataset.fx=fx.k;
-    let h='<div class="dh"><span class="dot"></span><span class="nm">'+fx.label+'</span><span class="sdot" data-sdot="1" title="Sim: no channels seen from this game yet"></span></div>';
+    let h='<div class="dh"><span class="dot"></span><span class="nm">'+fx.label+'</span><span class="sdot" data-sdot="1" title="Sim: no channels seen from this game yet"></span>'
+      +'<button class="hmute" type="button" data-mute="1" title="Mute this effect: it goes silent, its settings and readouts stay as they are, and no other tile changes. The master MUTE mutes every tile and UNMUTE unmutes them all: mute all, then unmute one tile to hear it on its own. Not saved: a restart unmutes.">M</button></div>';
     // The chip row is always present (empty for channel-less effects) so
     // the wave line lands at the same height on every tile.
     h+=(fx.chan&&fx.chan.length)
@@ -1903,7 +1912,7 @@ function hapInit(){
     else if(!fx.transient&&fx.fxIdx!==undefined) h+='<div class="hk hwheels" data-in="1" title="What this effect is driven with: now/peak since Reset peaks (Test = 1.00)">in -</div>';
     h+='<div class="hrows">';
     for(const [key,lab,min,max,st,opts] of fx.params){
-      h+='<div class="hr" data-pk="'+key+'"><span class="hk">'+lab+'</span>';
+      h+='<div class="hr'+(fx.carKeys.includes(key)?' carkey':'')+'" data-pk="'+key+'"><span class="hk">'+lab+'</span>';
       if(opts&&opts.length===2&&/^(off|no)$/i.test(opts[0]))   // an on/off choice: a tickbox (value 0 / 1)
         h+='<input type="checkbox" data-k="'+key+'"'+(Math.round(+dv[key])===1?' checked':'')+'></div>';
       else if(opts)   // a choice, not a number: value = option index
@@ -1918,11 +1927,17 @@ function hapInit(){
     h+='<div class="hb"><button class="hap-routechip" type="button">'+hapChipText(dv)+'</button>'
       +'<button class="btn btn-sm btn-action" type="button" data-test="1">Test</button></div>';
     tile.innerHTML=h;
-    // Each setting's hover text: what it does, a range, starting points.
+    // Each setting's hover text: what it does, a range, starting points;
+    // a setting the car table sets says so first.
     for(const [key,,,,,,help] of fx.params){
-      if(!help) continue;
-      const row=tile.querySelector('[data-pk="'+key+'"]'); if(row){ row.dataset.help=help; row.title=help; }
+      const car=fx.carKeys.includes(key)?HAP_CARKEY_TIP:'';
+      if(!help&&!car) continue;
+      const row=tile.querySelector('[data-pk="'+key+'"]'); if(row){ const t=car+(car&&help?'\n\n':'')+(help||''); row.dataset.help=t; row.title=t; }
     }
+    tile.querySelector('[data-mute]').onclick=async()=>{
+      const on=!tile.classList.contains('muted');
+      try{ await fetch(API+'/api/haptics/mute',{method:'POST',body:JSON.stringify({effect:fx.k,on:on})}); }catch(_){}
+    };
     const svg=tile.querySelector('svg'); hapWave(svg,fx,dv);
     tile.querySelectorAll('input,select').forEach(inp=>{ inp.onchange=()=>{
       const box=(inp.type==='checkbox');
