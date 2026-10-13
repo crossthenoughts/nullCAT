@@ -174,6 +174,7 @@ int main(int argc, char* argv[])
         std::string webRoot = exeDir.toStdString() + "/web";
         webServer.setWebRoot(webRoot);
         webServer.setCarTablePath(exeDir.toStdString() + "/cars.json");
+        webServer.setPresetsPath(exeDir.toStdString() + "/presets.json");
     }
     webServer.setPort(cfg.webPort > 0 ? cfg.webPort : 8080);
     webServer.setBindAddr(cfg.webBindAddr);

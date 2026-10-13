@@ -43,6 +43,7 @@ fi
 cp "$REPO/resources/host.reference.json" "$STAGE/"
 cp "$REPO/resources/rig.reference.json"  "$STAGE/"
 cp "$REPO/resources/cars.json"           "$STAGE/"
+cp "$REPO/resources/presets.json"        "$STAGE/"
 cp "$REPO/LICENSE"                "$STAGE/LICENSE.txt"
 cp "$REPO/THIRD_PARTY_NOTICES.md" "$STAGE/"
 cp "$REPO/SAFETY.md"              "$STAGE/"
@@ -79,7 +80,7 @@ done
 for f in nullcat-pi provision manifest.json web/index.html \
          os-setup/nullcat-update.sh os-setup/nullcat-pi.service \
          os-setup/nullcat-update@.service SAFETY.md \
-         host.reference.json rig.reference.json cars.json docs/PI_SETUP.md; do
+         host.reference.json rig.reference.json cars.json presets.json docs/PI_SETUP.md; do
     if [ ! -e "$STAGE/$f" ]; then echo "MISSING from stage: $f" >&2; exit 1; fi
 done
 

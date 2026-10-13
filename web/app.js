@@ -1067,8 +1067,23 @@ function devAxes(){ return ((cfgObj&&cfgObj.drives)||[]).map((d,i)=>({d,i})).fil
    entry: label, kind, the channels it needs, the tunables with ranges (a
    param with opts renders as a choice), and the tip. */
 let HAP_FX=[], HAP_DEF={};
-// The hover note on a setting the car table sets (tinted on the tile).
+// The hover note on a setting the car table sets (tinted on the tile), and
+// the one it carries instead while the car has no entry and follow car put
+// these settings on their defaults (tinted pink).
 const HAP_CARKEY_TIP='Follows the car: a car\'s entry in the car table can set this (follow car, or pull), and "save for this car" keeps yours. Untinted settings are general: a new car leaves them as they are.';
+const HAP_CARDEFAULT_TIP='The car table has no entry for this car, so this setting is on its default rather than the last car\'s. Pick a car like it in the preset box and apply it, or tune it and "save for this car".';
+let hapCarDefaultOn=false;   // the car tiles are on the defaults (the car has no entry)
+function hapCarKeyTip(){ return hapCarDefaultOn?HAP_CARDEFAULT_TIP:HAP_CARKEY_TIP; }
+// Pink tint and the defaults note on every car-owned row while the car has
+// no entry; the faint car tint and the usual note otherwise.
+function hapCarDefaultMark(on){
+  hapCarDefaultOn=!!on;
+  const strip=$('hapStrip'); if(strip) strip.classList.toggle('cardefault',hapCarDefaultOn);
+  document.querySelectorAll('#hapStrip .hr.carkey').forEach(row=>{
+    const help=row.dataset.phelp||'';
+    row.dataset.help=hapCarKeyTip()+(help?'\n\n'+help:''); row.title=row.dataset.help;
+  });
+}
 /* The sim channel token registry also comes from the schema (NcxTokens.h):
    the bindings editor's list, the order of the status ncxHave[] array, the
    wire's slot count, and the route parts the per-wheel effects take. */
@@ -1470,15 +1485,35 @@ async function hapProfilesRender(sel,prefer){
     sel.innerHTML='<option value="">(none)</option>'+(j.profiles||[]).map(n=>'<option value="'+n.replace(/"/g,'&quot;')+'"'+(n===cur?' selected':'')+'>'+n+(bound[n]?' · '+bound[n].join(', '):'')+'</option>').join('');
   }catch(_){}
 }
+// Starting points selector: the shipped types of car in their order, each
+// option's hover its description; the chosen one stays chosen across a
+// rebuild of the strip.
+let hapPresetPick='';
+async function hapPresetsRender(sel){
+  if(!sel) return;
+  try{
+    const r=await fetch(API+'/api/haptics/presets'); if(!r.ok) return;
+    const list=(await r.json()).presets||[];
+    const esc=(t)=>String(t||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+    sel.innerHTML='<option value="">(pick a type)</option>'+list.map(p=>'<option value="'+esc(p.name)+'" title="'+esc(p.description)+'"'+(p.name===hapPresetPick?' selected':'')+'>'+esc(p.name)+'</option>').join('');
+    const o=sel.options[sel.selectedIndex]; sel.title=(o&&o.title)||'';
+  }catch(_){}
+}
 // Car table: the Master tile's car line (what the sim names, the entry
 // found for it and where from) and the Engine tile's folded notes.
 function hapCarText(c){
   if(!c||!c.car) return '(none)';
-  if(!c.source) return c.car+' · no entry';
-  return (c.name||c.car)+' · '+(c.source==='user'?'yours':'stock')+(c.applied?'':' · not applied');
+  if(!c.source) return c.car+' · no entry'+(c.defaults?' · defaults in use':'');
+  return (c.name||c.car)+' · '+(c.source==='user'?'yours':'stock')+(c.near?' · near match':'')+(c.applied?'':' · not applied');
 }
 function hapCarRow(c){
-  const now=$('hapCarNow'); if(now) now.textContent=hapCarText(c);
+  hapCarDefaultMark(!!(c&&c.defaults));
+  const now=$('hapCarNow');
+  if(now){
+    now.textContent=hapCarText(c);
+    now.title=(c&&c.defaults)?'The car table has no entry for '+c.car+', so follow car put the engine, limiter, driveline, ABS and TC on their defaults (the pink settings) rather than keep the last car\'s. Pick a car like it in the preset box and apply it, or tune them and save for this car.'
+      :(c&&c.near)?'No entry under this exact name: the table\'s '+(c.name||c.key)+' is the nearest (the name the sim gives starts with it). Save for this car to file your own under the sim\'s name.':'';
+  }
   const fb=$('hapCarForget'); if(fb) fb.disabled=!(c&&c.source==='user');
   const pb=$('hapCarPull'); if(pb) pb.disabled=!(c&&c.source);
   const sb=$('hapCarSave'); if(sb) sb.disabled=!(c&&c.car);
@@ -1563,7 +1598,7 @@ function hapLive(s){
     if(!first&&dirtyState().count===0) loadConfig();
   }
   if(typeof s.hapCarKey==='string'){
-    const sig=(s.hapCar||'')+'|'+s.hapCarKey+'|'+(s.hapCarSrc||'')+'|'+(s.hapCarApplied?1:0);
+    const sig=(s.hapCar||'')+'|'+s.hapCarKey+'|'+(s.hapCarSrc||'')+'|'+(s.hapCarApplied?1:0)+'|'+(s.hapCarDefault?1:0);
     if(sig!==hapCarLive){ hapCarLive=sig; hapCarRefresh(); }
   }
   // Sim dots: the remembered record for the game shown (the current one
@@ -1770,6 +1805,11 @@ function hapInit(){
       +'<button class="btn btn-sm" type="button" id="hapProfBind" title="Load this profile automatically whenever the sim names the current car (or game)">use for this car</button>'
       +'<button class="btn btn-sm" type="button" id="hapProfDel" title="Forget the chosen profile and its bindings">delete</button>'
       +'<span class="hk" id="hapProfMsg"></span></div>'
+      +'<div class="hsec" title="Pick the type of car closest to what you drive and apply it: it sets how the tyres let go, how stiff the road and kerbs feel, the wheels and the knocks for that type. Then pull the car (car table) for the engine, gearbox, ABS and TC. Your routes and master stay as they are.">starting point: the type of car</div>'
+      +'<div class="hr hap-game" title="Pick the type of car closest to what you drive, apply, then pull the car (car table) for the engine, gearbox, ABS and TC. It sets the slip, road, kerb, wheels and impacts settings for that type; your routes, master gain, pos budget and the car table\'s tiles stay as they are."><span class="hk">type</span>'
+      +'<select id="hapPresetSel"><option value="">(pick a type)</option></select>'
+      +'<button class="btn btn-sm" type="button" id="hapPresetApply" title="Set the slip, road, kerb, wheels and impacts settings for the chosen type of car. Routes, master gain, pos budget and the engine, limiter, driveline, ABS and TC stay as they are.">apply</button>'
+      +'<span class="hk" id="hapPresetMsg"></span></div>'
       +'<div class="hsec" title="The car table: only the engine, limiter, driveline, ABS and TC tiles, per car. Routes, master gain, pos budget and the other tiles stay as you saved them.">car table: engine, limiter, driveline, ABS, TC</div>'
       +'<div class="hr hap-game" title="The car table: how each car\'s engine, limiter, driveline, ABS and TC feel, shipped for the Assetto Corsa and Automobilista 2 rosters plus your own entries. Applying an entry moves those five tiles only; routes, master gain and every other tile stay yours."><span class="hk">car</span>'
       +'<span class="hk" id="hapCarNow">(none)</span>'
@@ -1831,6 +1871,23 @@ function hapInit(){
       const name=psel.value; if(!name){ say('pick a profile'); return; }
       if(!confirm('Forget profile "'+name+'" and its car/game bindings?')) return;
       try{ await post('/api/haptics/profiles/delete',{name}); say('deleted '+name); await hapProfilesRender(psel); }catch(e){ say(String(e.message||e)); }
+    };
+    // Starting points: the shipped types of car, each one's description as
+    // its hover. Applying rewrites a few tiles' settings on the server and
+    // the page reloads its config copy (unsaved edits would be lost: ask).
+    const tsel=mc.querySelector('#hapPresetSel'), tmsg=mc.querySelector('#hapPresetMsg');
+    const tsay=(t)=>{ if(tmsg) tmsg.textContent=t; };
+    hapPresetsRender(tsel);
+    tsel.onchange=()=>{ hapPresetPick=tsel.value; const o=tsel.options[tsel.selectedIndex]; tsel.title=(o&&o.title)||''; tsay(''); };
+    mc.querySelector('#hapPresetApply').onclick=async()=>{
+      const name=tsel.value; if(!name){ tsay('pick a type'); return; }
+      if(dirtyState().count>0&&!confirm('You have unsaved edits on this page; applying a starting point rewrites the saved slip, road, kerb, wheels and impacts settings and reloads the page state. Continue?')) return;
+      try{
+        const j=await post('/api/haptics/presets/apply',{name});
+        if(typeof j.gen==='number') hapCarGenLive=j.gen;   // this page reloads itself: the status need not again
+        await loadConfig();
+        const m=$('hapPresetMsg'); if(m) m.textContent='applied '+name+': now pull the car';   // the rebuilt tile's
+      }catch(e){ tsay(String(e.message||e)); }
     };
     // Car table row + search box. Applying an entry rewrites five tiles on
     // the server and the page reloads its config copy (unsaved edits on
@@ -1929,11 +1986,12 @@ function hapInit(){
       +'<button class="btn btn-sm btn-action" type="button" data-test="1">Test</button></div>';
     tile.innerHTML=h;
     // Each setting's hover text: what it does, a range, starting points;
-    // a setting the car table sets says so first.
+    // a setting the car table sets says so first (or, while the car has no
+    // entry, that it is on its default).
     for(const [key,,,,,,help] of fx.params){
-      const car=fx.carKeys.includes(key)?HAP_CARKEY_TIP:'';
+      const car=fx.carKeys.includes(key)?hapCarKeyTip():'';
       if(!help&&!car) continue;
-      const row=tile.querySelector('[data-pk="'+key+'"]'); if(row){ const t=car+(car&&help?'\n\n':'')+(help||''); row.dataset.help=t; row.title=t; }
+      const row=tile.querySelector('[data-pk="'+key+'"]'); if(row){ const t=car+(car&&help?'\n\n':'')+(help||''); row.dataset.phelp=help||''; row.dataset.help=t; row.title=t; }
     }
     tile.querySelector('[data-mute]').onclick=async()=>{
       const on=!tile.classList.contains('muted');

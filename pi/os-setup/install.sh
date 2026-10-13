@@ -389,8 +389,8 @@ DEST="/opt/nullcat/versions/v${NULLCAT_VERSION}"
 # hard way: bench-tuned device curves vanished on a same-version
 # re-install). carcache.json, devicepresets.json, effectstatus.json,
 # profiles.json and cars.local.json are learned/authored state and ferry
-# with the config (the shipped cars.json is NOT in this list: every
-# version brings its own).
+# with the config (the shipped cars.json and presets.json are NOT in this
+# list: every version brings its own).
 CFG_FILES="host.json rig.json buttons.json carcache.json devicepresets.json effectstatus.json profiles.json cars.local.json"
 CFG_STASH="$(mktemp -d)"
 for f in ${CFG_FILES}; do

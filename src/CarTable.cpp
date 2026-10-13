@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "CarTable.h"
+#include "Config.h"
 #include "HapticsRegistry.h"
 #include <QFile>
 #include <QFileInfo>
@@ -194,7 +195,7 @@ CarTable::Match CarTable::toMatch(const Row& row, const char* source)
     return m;
 }
 
-CarTable::Match CarTable::find(const std::string& game, const std::string& car) const
+CarTable::Match CarTable::find(const std::string& game, const std::string& car, bool nearOk) const
 {
     if (car.empty()) return Match{};
     {
@@ -208,7 +209,50 @@ CarTable::Match CarTable::find(const std::string& game, const std::string& car) 
     // ("Porsche 963 - Low Downforce", "Formula USA 2023 - Speedway") is
     // the same car to the engine and driveline: fall back to the base.
     const size_t dash = car.rfind(" - ");
-    if (dash != std::string::npos && dash > 0) return find(game, car.substr(0, dash));
+    if (dash != std::string::npos && dash > 0)
+        if (Match m = find(game, car.substr(0, dash), false); !m.source.empty()) return m;
+    return nearOk ? findNear(game, car) : Match{};
+}
+
+// A near match: a car the sim names with something after a name the table
+// has ("MINI Cooper S 1965 B", "Porsche 911 GT3 Cup 4.0 Evo") is taken as
+// that car. Words are what lies between spaces or underscores (the spaces
+// of a content folder id), each normalised like the rest of the lookup;
+// the longest prefix of whole words wins, and it must be at least two
+// words so a make alone ("Porsche ...") never matches a car. Only the
+// same game's entries: the game is part of every key and name.
+CarTable::Match CarTable::findNear(const std::string& game, const std::string& car) const
+{
+    std::vector<std::string> words;
+    std::string word;
+    for (const char c : car + " ")
+    {
+        if (c == '_' || std::isspace(static_cast<unsigned char>(c)))
+        {
+            word = normalise(word);
+            if (!word.empty()) words.push_back(word);
+            word.clear();
+        }
+        else word.push_back(c);
+    }
+    if (words.size() < 3) return Match{};   // two words for the entry, one more for the suffix
+    std::lock_guard<std::mutex> lk(m_mx);
+    std::string id = normalise(game);
+    if (const auto it = m_games.find(id); it != m_games.end()) id = it->second;
+    for (size_t k = words.size() - 1; k >= 2; --k)
+    {
+        std::string nk = id + ":";
+        for (size_t i = 0; i < k; ++i) nk += words[i];
+        const Row* r = lookup(m_user, nk);
+        const char* source = "user";
+        if (!r) { r = lookup(m_stock, nk); source = "stock"; }
+        if (r)
+        {
+            Match m = toMatch(*r, source);
+            m.nearMatch = true;
+            return m;
+        }
+    }
     return Match{};
 }
 
@@ -351,4 +395,11 @@ QJsonObject CarTable::fromHapticsObject(const QJsonObject& haptics,
     e["tc"]        = pick("tc",        kCarPulse);
     e["notes"]     = QString::fromStdString(notes);
     return e;
+}
+
+// The car-owned settings of a fresh install, through the same pick and
+// merge an entry takes, so it carries exactly the keys an entry can.
+QJsonObject CarTable::defaultHapticsObject()
+{
+    return toHapticsObject(fromHapticsObject(Config::writeHapticsObject(AppConfig()), "", ""));
 }

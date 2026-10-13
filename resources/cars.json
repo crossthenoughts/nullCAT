@@ -12926,7 +12926,8 @@
     "clutchHz": 8,
     "lug": 0.7,
     "lugHz": 5,
-    "jitter": 0.3
+    "jitter": 0.3,
+    "driven": 1
    },
    "abs": {
     "ampPct": 0,
@@ -12936,7 +12937,55 @@
     "ampPct": 0,
     "freqHz": 15
    },
-   "notes": "1965 Cooper S in the Copa Classic B: 1275 A-series four on twin SUs, about 100 hp race trim, the gearbox in the sump sharing the engine oil (constant gear whine, 0.5), 4-speed H-pattern, rubber-cone suspension transmitting everything. Nothing electronic."
+   "notes": "1965 Cooper S in the Copa Classic B: 1275 A-series four on twin SUs, about 100 hp race trim, the gearbox in the sump sharing the engine oil (constant gear whine, 0.5), 4-speed H-pattern, front-driven, rubber-cone suspension transmitting everything. Nothing electronic."
+  },
+  "ams2:MINI Cooper S 1965 B": {
+   "name": "MINI Cooper S 1965 B",
+   "engine": {
+    "ampPct": 42,
+    "cylinders": 4,
+    "litres": 1.3,
+    "layout": 0,
+    "turbo": 0,
+    "rock": 0.8,
+    "thump": 0.7,
+    "buzz": 0.6,
+    "jitter": 0.4,
+    "inertia": 0.45,
+    "liftoff": 0.7,
+    "pops": 0.5,
+    "limHit": 0.9,
+    "limHz": 12,
+    "limJit": 0.3,
+    "freqHz": 20
+   },
+   "limiter": {
+    "ampPct": 22,
+    "freqHz": 12,
+    "jitter": 0.25
+   },
+   "driveline": {
+    "ampPct": 30,
+    "gearbox": 0,
+    "whine": 0.5,
+    "shunt": 0.6,
+    "shuntHz": 32,
+    "clutch": 1.0,
+    "clutchHz": 8,
+    "lug": 0.7,
+    "lugHz": 5,
+    "jitter": 0.3,
+    "driven": 1
+   },
+   "abs": {
+    "ampPct": 0,
+    "freqHz": 12
+   },
+   "tc": {
+    "ampPct": 0,
+    "freqHz": 15
+   },
+   "notes": "The 1965 Cooper S under the second name the sim gives it (a B after the year). Same values as the MINI Cooper S 1965: the 1275 A-series four on twin SUs, gearbox-in-sump whine (0.5), 4-speed H-pattern, front-driven. Nothing electronic."
   },
   "ams2:Puma GTE": {
    "name": "Puma GTE",
@@ -19706,6 +19755,53 @@
    },
    "notes": "997 GT3 Cup: 3.8 flat-six at about 450 hp, 8500 rpm, six-speed sequential dog box. Cup cars run without ABS or TC."
   },
+  "ams2:Porsche 911 GT3 Cup 4.0": {
+   "name": "Porsche 911 GT3 Cup 4.0",
+   "engine": {
+    "ampPct": 50,
+    "cylinders": 6,
+    "litres": 4.0,
+    "layout": 2,
+    "turbo": 0,
+    "rock": 0.6,
+    "thump": 0.8,
+    "buzz": 0.9,
+    "jitter": 0.3,
+    "inertia": 0.35,
+    "liftoff": 1.1,
+    "pops": 0.8,
+    "limHit": 1.2,
+    "limHz": 15,
+    "limJit": 0.3,
+    "freqHz": 22
+   },
+   "limiter": {
+    "ampPct": 35,
+    "freqHz": 15,
+    "jitter": 0.25
+   },
+   "driveline": {
+    "ampPct": 35,
+    "gearbox": 1,
+    "whine": 0.9,
+    "shunt": 0.7,
+    "shuntHz": 45,
+    "clutch": 0.8,
+    "clutchHz": 11,
+    "lug": 0.4,
+    "lugHz": 6,
+    "jitter": 0.2
+   },
+   "abs": {
+    "ampPct": 0,
+    "freqHz": 12
+   },
+   "tc": {
+    "ampPct": 0,
+    "freqHz": 15
+   },
+   "notes": "The 4.0 GT3 Cup: 4.0 NA flat-six at about 485 hp, 8500 rpm, race exhaust (pops 0.8), six-speed sequential dog box, straight cut (whine 0.9). Same values as the AC GT3 Cup 2017 and the AMS2 992 Cup. No ABS, no TC."
+  },
   "ams2:Porsche 911 GT3 Cup (992)": {
    "name": "Porsche 911 GT3 Cup (992)",
    "engine": {
@@ -21480,7 +21576,8 @@
     "clutchHz": 8,
     "lug": 0.7,
     "lugHz": 5,
-    "jitter": 0.3
+    "jitter": 0.3,
+    "driven": 1
    },
    "abs": {
     "ampPct": 0,
@@ -21490,7 +21587,7 @@
     "ampPct": 0,
     "freqHz": 15
    },
-   "notes": "Vintage Touring Tier 2 Cooper S: the 1275 A-series on twin SUs, gearbox-in-sump whine (0.5), four-speed H-pattern. Same values as the Copa Classic B 1965 car. Nothing electronic."
+   "notes": "Vintage Touring Tier 2 Cooper S: the 1275 A-series on twin SUs, gearbox-in-sump whine (0.5), four-speed H-pattern, front-driven. Same values as the Copa Classic B 1965 car. Nothing electronic."
   },
   "ams2:BMW V12 LMR": {
    "name": "BMW V12 LMR",

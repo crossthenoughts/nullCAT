@@ -125,6 +125,10 @@ try {
     carNow:       (document.getElementById('hapCarNow') || {}).textContent || '',
     carFollow:    !!(document.getElementById('hapFollowCar') || {}).checked,
     carOpts:      (document.getElementById('hapCarList') || { options: [] }).options.length,
+    // Starting points: the type selector with the shipped types (plus its
+    // prompt) and its apply button.
+    presetRow:    !!document.getElementById('hapPresetSel') && !!document.getElementById('hapPresetApply'),
+    presetOpts:   (document.getElementById('hapPresetSel') || { options: [] }).options.length,
     carNotes:     !!document.querySelector('#hapStrip .hap-tile[data-fx="rpmVibe"] [data-car]'),
     carNotesHidden: (document.querySelector('#hapStrip .hap-tile[data-fx="rpmVibe"] [data-car]') || { hidden: true }).hidden,
   }));
@@ -174,6 +178,8 @@ try {
   if (!st.carFollow)            fails.push('follow car is not ticked by default');
   if (nCars < 450)              fails.push(`/api/cars/list carries ${nCars} entries, expected the shipped table (450+)`);
   if (st.carOpts !== nCars)     fails.push(`preset search lists ${st.carOpts} cars, expected ${nCars} from /api/cars/list`);
+  if (!st.presetRow)            fails.push('no starting point row (type selector and apply) on the Master tile');
+  if (st.presetOpts !== 5)      fails.push(`starting point selector has ${st.presetOpts} options, expected the 4 shipped types and the prompt`);
   if (!st.carNotes)             fails.push('no car notes block on the Engine tile');
   if (!st.carNotesHidden)       fails.push('car notes block is showing with no car named');
   if (!drawer.chip)             fails.push('no route chip on the Lateral slip tile');

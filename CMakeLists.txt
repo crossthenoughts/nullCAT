@@ -115,6 +115,7 @@ set(SOURCES
     src/EffectStatus.cpp
     src/HapticsProfiles.cpp
     src/CarTable.cpp
+    src/HapticsPresets.cpp
     src/ShakerOutput.cpp
     src/Logging.cpp
     src/WebServer.cpp
@@ -264,7 +265,11 @@ add_custom_command(TARGET nullCAT POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/resources/cars.json"
         "$<TARGET_FILE_DIR:nullCAT>/cars.json"
-    COMMENT "Copying host/rig reference files and the car table to output directory"
+    # ...and the starting points (HapticsPresets.h), shipped the same way.
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/resources/presets.json"
+        "$<TARGET_FILE_DIR:nullCAT>/presets.json"
+    COMMENT "Copying host/rig reference files, the car table and the starting points to output directory"
 )
 
 # License + safety texts belong in every distributed bundle (GPL binary
@@ -362,6 +367,7 @@ set(TEST_CORE_SOURCES
     src/EffectStatus.cpp
     src/HapticsProfiles.cpp
     src/CarTable.cpp
+    src/HapticsPresets.cpp
     src/ShakerOutput.cpp
     src/Logging.cpp
     src/DriveFaultMonitor.cpp
@@ -466,6 +472,12 @@ add_motion_test(TestConfigTwoFile tests/TestConfigTwoFile.cpp)
 # five-tile merge, and the shipped file itself ----
 add_motion_test(TestCarTable tests/TestCarTable.cpp)
 target_compile_definitions(TestCarTable PRIVATE NULLCAT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+
+# ---- Starting points (presets.json): the shipped file in its order, what
+# a starting point may set, and a merge that leaves routes, master gain and
+# the car's own settings alone ----
+add_motion_test(TestHapticsPresets tests/TestHapticsPresets.cpp)
+target_compile_definitions(TestHapticsPresets PRIVATE NULLCAT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 # ---- Build 222D: RT-safe logging tests ----
 add_motion_test(TestRTLogging tests/TestRTLogging.cpp)

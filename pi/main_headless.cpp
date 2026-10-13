@@ -166,6 +166,7 @@ int main(int argc, char* argv[])
     webServer.setComponents(&motion, &loop, &master, &config.get());
     webServer.setWebRoot(dir + "/web");
     webServer.setCarTablePath(dir + "/cars.json");
+    webServer.setPresetsPath(dir + "/presets.json");
     webServer.setConfigPath(cfgPath);
     webServer.setTelemetry(&telemetry);
 

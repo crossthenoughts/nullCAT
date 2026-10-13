@@ -24,7 +24,10 @@
 // hand-written feeder has whatever it has) and the table must recognise
 // the car from any of them. Lookups normalise both halves (lower case,
 // letters and digits only) so case and punctuation never miss an entry.
-// The user layer wins over stock whichever way it matched.
+// The user layer wins over stock whichever way it matched. A name with no
+// entry of its own can still land on a near match: the longest entry of
+// the same game that the name starts with, in whole words, at least two
+// ("MINI Cooper S 1965 B" is the "MINI Cooper S 1965").
 //
 // Main/web thread only, like HapticsProfiles.
 // ============================================================
@@ -45,6 +48,7 @@ public:
         std::string notes;
         std::string source;   // "stock", "user", or "" when nothing matched
         QJsonObject entry;
+        bool        nearMatch = false;   // the name only starts with this entry's
     };
     struct Item { std::string key, name, game, source; };
 
@@ -56,8 +60,10 @@ public:
     int userCount() const;
 
     // The entry for what the sender names, by its key (stable id) or its
-    // display name: the user layer first, then stock.
-    Match find(const std::string& game, const std::string& car) const;
+    // display name: the user layer first, then stock; then the base car of
+    // a " - " variant; then, with nearOk, a near match (the longest entry
+    // of the same game the name starts with, whole words, at least two).
+    Match find(const std::string& game, const std::string& car, bool nearOk = true) const;
     // An entry by its key only (either layer, user first), e.g. one picked
     // from the list to use as a starting point for another car.
     Match findKey(const std::string& key) const;
@@ -78,6 +84,11 @@ public:
     // The reverse: the car-owned fields of a haptics object as an entry.
     static QJsonObject fromHapticsObject(const QJsonObject& haptics,
                                          const std::string& name, const std::string& notes);
+    // Every car-owned setting at its default (what a fresh install has), as
+    // the partial haptics object readHapticsObject merges: what a car with
+    // no entry gets when the strip follows the car, so it never keeps the
+    // last car's engine, gearbox, ABS or TC.
+    static QJsonObject defaultHapticsObject();
     // The settings of one tile (its haptics key) that belong to the car:
     // what a car's entry sets and "save for this car" stores. Empty for a
     // tile the table never touches.
@@ -101,6 +112,7 @@ private:
     std::string normaliseKey(const std::string& key) const;
     void   rebuildNames(Layer& layer) const;
     const Row* lookup(const Layer& layer, const std::string& nk) const;   // key, then name
+    Match findNear(const std::string& game, const std::string& car) const;
     static Match toMatch(const Row& row, const char* source);
     static bool readRows(const QJsonObject& root, std::map<std::string, Row>& into,
                          std::map<std::string, std::string>* games);
