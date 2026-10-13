@@ -60,6 +60,7 @@ struct LawsState
     double rollCruiseSec = 0.0;    // cruising time with a wheel still unknown (the seed's axle agreement widens after a while)
     double rollOffSec = 0.0;       // how long the samples have disagreed with what was learned, one way, without a break
     int    rollOffSign[WHEEL_COUNT] = {};   // ...which way each wheel was off (+1 faster, -1 slower, 0 inside)
+    bool   rollOpen = false;               // ...escaped: learning until every wheel is back well inside
     // Which axle the engine drives, as the wheels show it: seconds of full
     // throttle with that axle running ahead of the other (0 front, 1 rear).
     double drivenSec[2] = {};
@@ -133,8 +134,7 @@ struct LawsState
     // speed), learned on the straights.
     double latRaw[WHEEL_COUNT] = {}, latBase[WHEEL_COUNT] = {}, latAngle[WHEEL_COUNT] = {};
     double latCreep[WHEEL_COUNT] = {};
-    double latLearnSec[WHEEL_COUNT] = {};   // straight-line time each wheel has learned over (rolling, no torque through it)
-    double latBaseSec = 0.0;   // ...the least of them: learned once every wheel is
+    double latBaseSec = 0.0;   // straight-line time the baseline has learned over
     int    latBaseMode = 0;    // the tile's baseline mode last cycle (leaving fixed starts the learning over)
 };
 
@@ -142,7 +142,7 @@ struct LawsState
 // button, and a new car.
 inline void relearnLatBase(LawsState& st)
 {
-    for (int w = 0; w < WHEEL_COUNT; ++w) st.latRaw[w] = st.latBase[w] = st.latAngle[w] = st.latCreep[w] = st.latLearnSec[w] = 0.0;
+    for (int w = 0; w < WHEEL_COUNT; ++w) st.latRaw[w] = st.latBase[w] = st.latAngle[w] = st.latCreep[w] = 0.0;
     st.latBaseSec = 0.0;
 }
 
@@ -223,6 +223,7 @@ namespace laws_k {
     // wrong first value, a real change), when the pull above applies.
     constexpr double kRollGate         = 0.015;
     constexpr double kRollGateEscapeSec = 5.0;
+    constexpr double kRollSettle       = 0.0075;   // ...once escaped, learning until every wheel is this close
     constexpr double kRollClutchLo     = 10.0, kRollClutchHi = 90.0;   // % clutch: slipping between, no learning
     // Engine braking (throttle under this, in gear, the clutch up) turns
     // the driven wheels slower than the road: no learning on that axle.
@@ -479,6 +480,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             st.rollOffSec = 0.0; st.drivenSec[0] = st.drivenSec[1] = 0.0;
             st.leadCruise = st.leadCruiseSec = 0.0;
             for (int& s : st.rollOffSign) s = 0;
+            st.rollOpen = false;
             st.rollCruiseSec = 0.0;
             st.maxRpmVal = st.maxRpmHeldSec = 0.0;
             st.absFlagSeen = false;
@@ -722,12 +724,10 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             // slide moved the rears 1.3 % before the baseline was learned).
             if (cruising && st.slipSrc == 3)
             {
+                const bool baseKnown = st.latBaseSec >= kLatBaseLearnSec || st.latBaseMode == 2;
                 for (int w = 0; w < WHEEL_COUNT; ++w)
-                {
-                    const bool baseKnown = st.latLearnSec[w] >= kLatBaseLearnSec || st.latBaseMode == 2;
                     if (baseKnown ? st.latRaw[w] - st.latBase[w] > kRollMaxSlipDeg : st.latRaw[w] > kRollPreBaseSlipDeg)
                         cruising = false;
-                }
             }
             // Engine braking: the driven axle (the one found running ahead
             // under full throttle) turns slower than the road; it neither
@@ -742,11 +742,12 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             };
             // The gate: a wheel off what was learned by more than kRollGate.
             // Only one-sided, steady disagreement counts towards the escape
-            // (a wrong first value, a real change), without a break: an
-            // axle's two wheels off opposite ways is a corner, a wheel
-            // changing its way is noise, and any moment the wheels agree
-            // starts it over (corners lap after lap added up and taught
-            // their split).
+            // (a wrong first value, a real change): an axle's two wheels off
+            // opposite ways is a corner and a wheel changing its way is
+            // noise, either starts it over (corners lap after lap added up
+            // and taught their split); moments the wheels agree count it
+            // back down (a value just outside the gate, its samples now in,
+            // now out, still gets there).
             // (A wheel left out for engine braking keeps the way it was
             // off: the others agreeing says nothing about it.)
             const bool calm = cruising;   // fit to learn from, the gate aside (the driven axle's lead reads it)
@@ -763,10 +764,23 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                     if (sign[w] != 0 && st.rollOffSign[w] != 0 && sign[w] != st.rollOffSign[w]) flip = true;
                 }
                 const bool corner = sign[WheelFL] * sign[WheelFR] < 0 || sign[WheelRL] * sign[WheelRR] < 0;
-                if (corner || flip || (!off && !held)) st.rollOffSec = 0.0;
-                else if (off) st.rollOffSec = std::min(kRollGateEscapeSec, st.rollOffSec + dtSec);
+                if (corner || flip) st.rollOffSec = 0.0;
+                else if (off)   st.rollOffSec = std::min(kRollGateEscapeSec, st.rollOffSec + dtSec);
+                else if (!held) st.rollOffSec = std::max(0.0, st.rollOffSec - dtSec);   // agreeing counts it back down
                 for (int w = 0; w < WHEEL_COUNT; ++w) st.rollOffSign[w] = sign[w];
-                if (off && st.rollOffSec < kRollGateEscapeSec) cruising = false;
+                // Once escaped, it stays open until every wheel looked at is
+                // well inside the gate (a value hovering just outside it was
+                // refused again and stalled a wrong first value for minutes).
+                // A corner never teaches.
+                if (st.rollOffSec >= kRollGateEscapeSec) st.rollOpen = true;
+                if (st.rollOpen)
+                {
+                    bool settled = true;
+                    for (int w = 0; w < WHEEL_COUNT; ++w)
+                        if (st.rollKnown[w] && !skipAxle(w) && std::fabs(kw[w] / st.rollK[w] - 1.0) > kRollSettle) settled = false;
+                    if (settled) { st.rollOpen = false; st.rollOffSec = 0.0; }
+                }
+                if (corner || (off && !st.rollOpen)) cruising = false;
             }
             if (cruising)
             {
@@ -961,7 +975,13 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 }
                 // Fixed: no learning.
                 if (baseMode == 2) straight = false;
+                // Learned once and held: no learning.
+                if (baseMode == 1 && st.latBaseSec >= kLatBaseLearnSec) straight = false;
+                if (straight) st.latBaseSec += dtSec;
+                const bool   learned = st.latBaseSec >= kLatBaseLearnSec;
+                const double up    = std::min(1.0, dtSec / (learned ? kLatBaseUpSec : kLatBaseSec));
                 const double down  = std::min(1.0, dtSec / kLatBaseDownSec);
+                const double creep = std::min(1.0, dtSec / (learned ? kLatCreepSec : kLatBaseSec));
                 // A sender with slip ratios or wheel speeds whose ratio is not
                 // known yet (the rolling factor still learning after a car
                 // change): that wheel's angle is unknown, not all sideways
@@ -977,29 +997,23 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                     // c and the baseline learn only while this wheel turns
                     // with the road (no torque through it: under power the
                     // rear baseline started at 2.3 to 2.9 deg against 0.5),
-                    // each wheel on its own clock (a front-driven car's
-                    // fronts roll only on a lift: a shared clock ran out on
-                    // the power and they never learned). Learned once: a
-                    // learned wheel is held.
-                    const bool learned = st.latLearnSec[w] >= kLatBaseLearnSec;
-                    const bool rolling = straight && std::fabs(r) < kLatCreepRatio && !(baseMode == 1 && learned);
+                    // on the car's shared straight-line clock. (A clock per
+                    // wheel left a rear-driven car's rears on the fast rates
+                    // for minutes, their along slip drifting high and their
+                    // corners reading low, and taught a Mini's fronts worse,
+                    // on the recordings.)
+                    const bool rolling = straight && std::fabs(r) < kLatCreepRatio;
                     if (rolling)
-                    {
-                        st.latLearnSec[w] += dtSec;
-                        const double creep = std::min(1.0, dtSec / (learned ? kLatCreepSec : kLatBaseSec));
                         st.latCreep[w] += creep * (std::max(kLatCreepMin, std::min(kLatCreepMax, ss / vms - r)) - st.latCreep[w]);
-                    }
                     const double along = std::fabs(r + st.latCreep[w]) * vms;
                     const double side  = std::sqrt(std::max(0.0, ss * ss - along * along));
                     st.latRaw[w] = std::asin(std::min(1.0, side / vms)) * 180.0 / wavesynth::kPi;
                     if (rolling)
                     {
-                        const double up = std::min(1.0, dtSec / (learned ? kLatBaseUpSec : kLatBaseSec));
-                        const double t  = std::min(kLatBaseMaxDeg, st.latRaw[w]);
+                        const double t = std::min(kLatBaseMaxDeg, st.latRaw[w]);
                         st.latBase[w] += ((t > st.latBase[w]) ? up : down) * (t - st.latBase[w]);
                     }
                 }
-                st.latBaseSec = *std::min_element(st.latLearnSec, st.latLearnSec + WHEEL_COUNT);
             }
             const bool combined = !perWheel && !fromSpeed && haveW(NcxValues::WheelSlipFL);
             const double peakC  = std::max(1.0, L.fxParams(FxType::Skid).peakPct);

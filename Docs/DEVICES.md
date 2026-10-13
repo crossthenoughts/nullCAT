@@ -502,8 +502,8 @@ sender's wheel-speed unit and staggered tyre sizes need no setting up.
 (Tyres of different sizes left and right, as on an oval car, take a
 little longer: about 20 seconds of cruising.) Once learned, a moment that
 disagrees with it (a slide, a reset, a curve) is ignored unless the same
-wheel keeps disagreeing the same way for 5 seconds without the wheels
-agreeing in between (a wrong first value), and engine braking
+wheel keeps disagreeing the same way, 5 seconds more than it agrees (a
+wrong first value); then it is learned until it agrees again, and engine braking
 teaches the driven wheels nothing (nullCAT finds which wheels are driven
 from which ones run ahead under full throttle). Nothing plays below 5
 km/h: slip means nothing at a standstill.

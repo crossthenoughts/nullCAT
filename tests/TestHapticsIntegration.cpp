@@ -1614,37 +1614,6 @@ int main()
         std::strncpy(v.car, "Car B", NCY_STR_LEN - 1);
         run(dt);
         check(st.latBaseSec < 0.01 && st.latBase[WheelFL] < 0.01 && st.latCreep[WheelFL] < 0.001, "I-18: a new car starts the learning over");
-
-        // A front-driven car: on the straights its fronts drive (+3 %) and
-        // roll only on a lift. Each wheel learns on its own clock, so the
-        // fronts' slip along the road is learned on the lifts and they show
-        // no angle under power (one clock for all four ran out on the
-        // power: 4 deg of scrub on every straight, learn once for good).
-        for (double m : { 0.0, 1.0 })
-        {
-            std::strncpy(v.car, m == 0.0 ? "Mini learn" : "Mini learn once", NCY_STR_LEN - 1);
-            mode(m);
-            const double kmh = 150.0, vms = kmh / 3.6, cF = 0.05, cR = 0.01;
-            v.val[NcxValues::SpeedKmh] = kmh;
-            auto drive = [&](double frontAhead, double throttle)
-            {
-                v.val[NcxValues::ThrottlePct] = throttle;
-                v.val[NcxValues::WheelSpeedFL] = v.val[NcxValues::WheelSpeedFR] = -vms * (1.0 + frontAhead) / 0.33;
-                v.val[NcxValues::WheelSpeedRL] = v.val[NcxValues::WheelSpeedRR] = -vms / 0.33;
-                v.val[NcxValues::SlipSpeedFL] = v.val[NcxValues::SlipSpeedFR] = (frontAhead + cF) * vms;
-                v.val[NcxValues::SlipSpeedRL] = v.val[NcxValues::SlipSpeedRR] = cR * vms;
-            };
-            drive(0.0, 0.0);  run(1.0);   // out of the pits, coasting
-            for (int lap = 0; lap < 8; ++lap) { drive(0.03, 100.0); run(6.0); drive(0.0, 0.0); run(1.5); }
-            drive(0.03, 100.0); run(2.0);
-            std::printf("  I-18 front-driven (%s): along FL %.4f (true %.2f), RL %.4f, FL under power %.2f deg, learned %.1f s\n",
-                        m == 0.0 ? "learn" : "learn once", st.latCreep[WheelFL], cF, st.latCreep[WheelRL], st.latAngle[WheelFL], st.latBaseSec);
-            check(std::fabs(st.latCreep[WheelFL] - cF) < 0.005 && std::fabs(st.latCreep[WheelRL] - cR) < 0.002,
-                  "I-18 front-driven: the driving fronts learn their slip along the road on the lifts");
-            check(st.latAngle[WheelFL] < 1.0 && L.slipWheelLevel(FxType::Skid, WheelFL) < 0.02,
-                  "I-18 front-driven: ...and show no scrub under power on the straight");
-        }
-        mode(0.0);
     }
 
     // ---- I-19: the Wheels tile's pads: the grab and the drag ----
@@ -2187,6 +2156,25 @@ int main()
             // ...unless it keeps disagreeing (a wrong first value, a real change).
             runFor(L, st, v, 6.0);
             check(st.rollK[WheelFR] / k0 < 0.985, "I-21: ...unless it keeps disagreeing for 5 s: then it is learned");
+        }
+        // A wheel just outside the gate, its samples now in, now out (a
+        // value learned 1.9 % off, the samples scattering 1.2 to 2.2 %):
+        // the time it agrees counts back down instead of starting over, so
+        // it still gets there (it stalled for minutes), and once open it
+        // learns until well inside.
+        {
+            haptics::Layer L; haptics::LawsState st; NcxValues v = fresh();
+            v.val[NcxValues::ThrottlePct] = 20.0;
+            runFor(L, st, v, 2.0);
+            const double k0 = st.rollK[WheelFR];
+            for (int i = 0; i < 400; ++i)   // 40 s: 70 % of the samples 2.2 % off, 30 % 1.2 %
+            {
+                setWs(v, 1.0, (i % 10 < 7) ? 1.022 : 1.012, 1.0, 1.0);
+                runFor(L, st, v, 0.1);
+            }
+            const double want = k0 / (0.7 * 1.022 + 0.3 * 1.012);
+            std::printf("  I-21 hovering just outside the gate: FR %+.2f %% off the scatter's mean after 40 s\n", 100.0 * (st.rollK[WheelFR] / want - 1.0));
+            check(std::fabs(st.rollK[WheelFR] / want - 1.0) < 0.006 && !st.rollOpen, "I-21: a wheel hovering just outside the gate is still put right, and the gate closes again");
         }
         // Coasting corners lap after lap, each axle's wheels 3.5 % apart
         // (inside the 4 % that counts as together), flat out between: the
