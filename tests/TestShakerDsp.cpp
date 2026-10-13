@@ -13,7 +13,10 @@
 //   S-5  a constant input is blocked to zero (DC block); overdrive soft
 //        clips below 1.0; per-channel gain; channels are independent;
 //   S-6  the ring is held at ~12 ms (and at least 2.5 device periods), not
-//        half its size: a pushed edge reaches the output that soon.
+//        half its size: a pushed edge reaches the output that soon;
+//   S-7  channels stay in step: after minutes of a bursty, drifting
+//        producer an edge on every channel lands on the same frame;
+//   S-8  the level meter reads a tone's level whenever it is read.
 #include "../src/ShakerDsp.h"
 #include <cmath>
 #include <cstdio>
@@ -211,6 +214,62 @@ int main()
         const double delayMs = 1000.0 * first / 48000.0;
         std::printf("  S-6 edge delay through the ring and filters: %.1f ms (target %.1f ms)\n", delayMs, h.dsp.targetMs());
         check(delayMs < 16.0, "S-6 a pushed edge reaches the output within ~15 ms");
+    }
+
+    // ---- S-7 ----
+    {
+        // Channels stay in step: four channels, a producer that pushes in
+        // bursts (ten frames per device period, the RT loop against a
+        // 240-frame callback) and runs 100 ppm fast or slow, for three
+        // minutes. Then an edge pushed on every channel in the same frame
+        // must come out on the same output frame on all four, and still
+        // within the ring's ~12 ms (channels 2 and up once drifted about
+        // 120 ms behind channel 1 in two minutes).
+        for (const double ratio : { 1.0 + 100e-6, 1.0 - 100e-6 })
+        {
+            Harness h(2000.0, 48000.0, 4, ratio); h.dsp.setPeriodFrames(240); prime(h);
+            h.run(48000 * 180, [](double t, double* s) { for (int c = 0; c < 4; ++c) s[c] = 0.3 * std::sin(2 * kPi * (30.0 + 10.0 * c) * t); });
+            h.run(48000, [](double, double* s) { for (int c = 0; c < 4; ++c) s[c] = 0.0; });   // settle on silence
+            const size_t from = h.out.size() / 4;
+            const double edgeAt = h.tCtrl;
+            h.run(4800, [&](double t, double* s) { for (int c = 0; c < 4; ++c) s[c] = (t >= edgeAt) ? 0.5 : 0.0; });
+            size_t first[4];
+            for (int c = 0; c < 4; ++c)
+            {
+                const auto v = h.chan(c, from, from + 4800);
+                first[c] = v.size();
+                for (size_t i = 0; i < v.size(); ++i) if (std::fabs(v[i]) > 0.1) { first[c] = i; break; }
+            }
+            const bool same = first[1] == first[0] && first[2] == first[0] && first[3] == first[0];
+            const double delayMs = 1000.0 * first[0] / 48000.0;
+            std::printf("  S-7 %s producer, after 3 min: edge at %.2f ms on ch1, %.2f / %.2f / %.2f on ch2-4\n",
+                        ratio > 1.0 ? "fast" : "slow", delayMs, 1000.0 * first[1] / 48000.0, 1000.0 * first[2] / 48000.0, 1000.0 * first[3] / 48000.0);
+            check(same, ratio > 1.0 ? "S-7 fast producer: after 3 min every channel lands on the same frame"
+                                    : "S-7 slow producer: after 3 min every channel lands on the same frame");
+            check(delayMs < 16.0, ratio > 1.0 ? "S-7 fast producer: still within ~15 ms after 3 min"
+                                              : "S-7 slow producer: still within ~15 ms after 3 min");
+        }
+    }
+
+    // ---- S-8 ----
+    {
+        // The level meter: a 0.5 tone on one channel reads its level at any
+        // moment it is read (not one point on the wave: a status read once
+        // lands anywhere from 0 to the peak), the quiet channels read
+        // nothing, and the reading releases after the tone stops.
+        Harness h(2000.0, 48000.0, 4); h.dsp.setPeriodFrames(240); prime(h);
+        h.run(24000, [](double t, double* s) { s[1] = 0.5 * std::sin(2 * kPi * 40.0 * t); });
+        double lo = 1.0, hi = 0.0, other = 0.0;
+        for (int k = 0; k < 37; ++k)   // read after blocks of 37 frames: every phase of the wave
+        {
+            h.run(37, [](double t, double* s) { s[1] = 0.5 * std::sin(2 * kPi * 40.0 * t); });
+            lo = std::min(lo, static_cast<double>(h.dsp.level(1))); hi = std::max(hi, static_cast<double>(h.dsp.level(1)));
+            other = std::max({ other, static_cast<double>(h.dsp.level(0)), static_cast<double>(h.dsp.level(2)), static_cast<double>(h.dsp.level(3)) });
+        }
+        check(lo > 0.45 && hi < 0.52, "S-8 a 0.5 tone reads 0.5 whenever the meter is read");
+        check(other < 0.01, "S-8 the silent channels read silent");
+        h.run(48000 * 2, [](double, double* s) { s[1] = 0.0; });
+        check(h.dsp.level(1) < 0.01, "S-8 the reading releases once the tone stops");
     }
 
     std::printf("\nTestShakerDsp: %d passed, %d failed\n", g_pass, g_fail);

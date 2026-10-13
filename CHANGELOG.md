@@ -323,6 +323,13 @@ Development branch. Nothing here is in a release yet.
   rig keeps its own values: change them on the tile.
 
 ### Fixed
+- Shakers on one sound card drifted apart: after a few minutes channels 2
+  and up played about a tenth of a second behind channel 1. Every channel
+  now travels together and they stay in step.
+- The levels on the shaker status line showed one instant of the
+  waveform, so a test tone could read anywhere from 0 to its full level
+  (a channel looked half as loud when it was not). They now show each
+  channel's level.
 - Longitudinal slip from wheel speeds was dead in Automobilista 2: the sim
   counts its wheels turning backwards going forward, and nullCAT never
   learned their size. The sign is ignored now (a car rolling backwards

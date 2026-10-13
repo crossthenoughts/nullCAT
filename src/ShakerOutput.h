@@ -67,7 +67,7 @@ public:
     uint64_t callbacks() const     { return m_callbacks.load(std::memory_order_relaxed); }
     uint64_t pushes() const        { return m_pushes.load(std::memory_order_relaxed); }
     int      fill() const          { return m_dsp.fill(0); }
-    float    level(int channel) const { return m_dsp.lastOut(channel); }
+    float    level(int channel) const { return m_dsp.level(channel); }
     // Latency the backend reports for its buffering, ms (0 when unknown).
     double   bufferMs() const      { return m_bufferMs; }
     // The whole delay from the control loop to the card's output, ms: the
