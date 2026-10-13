@@ -1159,6 +1159,7 @@ function hapDimFor(k,dv,have){
   if(k==='driveline'){
     const dim={};
     if(!(+dv.diff>0)) ['diffType','diffHz','driven'].forEach(x=>{ dim[x]='Diff x is 0: no differential chatter (an open diff)'; });
+    if(!(+dv.whine>0)) dim.whinePitch='Whine x is 0: no gear whine';
     return dim;
   }
   if(k==='kerb'){

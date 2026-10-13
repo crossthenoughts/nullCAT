@@ -357,7 +357,15 @@ Development branch. Nothing here is in a release yet.
   gear for one frame (a 5-4 downshift read 5, N, 3, 4). A gear now counts
   once it has held 45 ms, and with the Driveline tile's new **ignore
   neutral** (on by default) the neutral passed through is no shift: one
-  knock per shift.
+  knock per shift, as the box leaves its gear (knocking when the next gear
+  went in came about 200 ms late: Automobilista 2 shows neutral for 130 to
+  190 ms in every shift). A dog box shifted under power adds its
+  engagement knock as the next gear goes in.
+- The Driveline tile's gear whine beat against the Engine tile's buzz when
+  both played on one axis: a slow pulsing at speed in the top gears, where
+  the two sat a few Hz apart. The new **whine pitch** puts the whine below
+  the buzz (the default), an octave down or above it; "with the buzz"
+  keeps the old sound.
 - ABS played through its slip link with the ABS tile's amp at 0, so a car
   without ABS (its car-table amp 0) still judder-locked the tyres through
   half of every stop when slip link was ticked from the last car. Amp 0 is

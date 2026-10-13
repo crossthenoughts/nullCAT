@@ -245,7 +245,7 @@ struct DrivelineParams
     double lug      = 1.0;
     double lugHz    = 7.0;
     double gearbox  = 0.0;    // 0 synchro (road H-pattern), 1 dog (sequential / dogbox)
-    double whine    = 0.0;    // straight-cut gear whine mix 0..1 (0 = helical, quiet)
+    double whine    = 0.0;    // straight-cut gear whine mix 0..1 (0 = helical, quiet; its pitch: whinePitch)
     double shunt    = 0.5;    // driveline shunt (backlash take-up) on throttle tip-in / lift, 0..1
     double shuntHz  = 40.0;   // ...its knock carrier
     // The Gear shift tile's knock (0 off, 1 on): a pass through neutral on
@@ -261,6 +261,10 @@ struct DrivelineParams
     double diffType = 0.0;
     double diffHz   = 12.0;
     double driven   = 0.0;
+    // Where the whine sits against the engine buzz: 0 with it (in the top
+    // gears the two beat, a slow pulsing), 1 below it, 2 an octave down,
+    // 3 above it. Last, so positional initialisers stay as they were.
+    double whinePitch = 1.0;
 };
 
 // Per-effect tuning shared by every effect kind. ampPct 0 = the effect is

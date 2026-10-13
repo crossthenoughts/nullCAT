@@ -316,8 +316,10 @@ constexpr ParamHelp kHelp[] = {
       "Shapes the gear-shift thunk. Road car: synchro (a soft clunk). GT3: dog (a hard knock; a second knock "
       "on a shift under power). Single-seater: dog." },
     { "driveline", "ignoreN",
-      "The Gear shift tile's knock: on, the neutral a sim reports for a moment in every shift is no shift of its "
-      "own (one knock per shift); off, going into neutral knocks too. On for most." },
+      "The Gear shift tile's knock: on, one knock per shift, as the box leaves its gear; the neutral a sim reports "
+      "for a moment in every shift and the gear it lands in are the same shift (a dog box shifted under power adds "
+      "its engagement knock as the new gear goes in). Off, going into neutral and into the next gear knock "
+      "separately. On for most." },
     { "driveline", "diff",
       "The differential chattering, 0 to 1 (0 = off: an open diff, as most road cars have). A limited-slip's "
       "clutch plates stick and slip as the driven wheels turn apart in a slow, tight corner, harder under "
@@ -334,6 +336,10 @@ constexpr ParamHelp kHelp[] = {
     { "driveline", "whine",
       "Straight-cut gears singing, rising with each gear, 0 to 1 (0 = quiet helical gears). Road car: 0. "
       "GT3: 0.3 to 0.6. Single-seater: 0.4 to 0.8." },
+    { "driveline", "whinePitch",
+      "Where the whine sits against the Engine tile's buzz, both rising with the revs. With the buzz: close to it, "
+      "and in the top gears the two beat into a slow pulsing. Below the buzz: a little under it, no pulsing. "
+      "Octave down: a deeper hum under the engine. Above the buzz: a finer tone over it. Below for most." },
     { "driveline", "shunt",
       "Backlash taking up when the throttle snaps open or shut, 0 to 1. Road car: 0.3 to 0.5. GT3: 0.4 to 0.7. "
       "Single-seater: 0.5 to 0.8." },

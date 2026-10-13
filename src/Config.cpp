@@ -307,7 +307,7 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
                 const haptics::DrivelineParams& d = c.hapticsDriveline;
                 o["clutch"] = d.clutch; o["clutchHz"] = d.clutchHz; o["lug"] = d.lug; o["lugHz"] = d.lugHz;
                 o["gearbox"] = d.gearbox; o["whine"] = d.whine; o["shunt"] = d.shunt; o["shuntHz"] = d.shuntHz;
-                o["ignoreN"] = d.ignoreN;
+                o["whinePitch"] = d.whinePitch; o["ignoreN"] = d.ignoreN;
                 o["diff"] = d.diff; o["diffType"] = d.diffType; o["diffHz"] = d.diffHz; o["driven"] = d.driven;
             }
             h[info.key] = o;
@@ -485,6 +485,7 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                 d.lugHz    = o.value("lugHz").toDouble(d.lugHz);
                 d.gearbox  = o.value("gearbox").toDouble(d.gearbox);
                 d.whine    = o.value("whine").toDouble(d.whine);
+                d.whinePitch = o.value("whinePitch").toDouble(d.whinePitch);
                 d.shunt    = o.value("shunt").toDouble(d.shunt);
                 d.shuntHz  = o.value("shuntHz").toDouble(d.shuntHz);
                 d.ignoreN  = o.value("ignoreN").toDouble(d.ignoreN);
@@ -1413,6 +1414,8 @@ std::vector<std::string> AppConfig::validate() const
                     errors.push_back(pfx + "shuntHz out of range [20, 80]");
                 if (d.ignoreN != 0.0 && d.ignoreN != 1.0)
                     errors.push_back(pfx + "ignoreN must be 0 (off) or 1 (on)");
+                if (d.whinePitch != 0.0 && d.whinePitch != 1.0 && d.whinePitch != 2.0 && d.whinePitch != 3.0)
+                    errors.push_back(pfx + "whinePitch must be 0 (with the buzz), 1 (below), 2 (octave down) or 3 (above)");
                 if (d.diff < 0.0 || d.diff > 1.0) errors.push_back(pfx + "diff out of range [0, 1]");
                 if (d.diffType != 0.0 && d.diffType != 1.0) errors.push_back(pfx + "diffType must be 0 (limited slip) or 1 (spool)");
                 if (d.diffHz < 4.0 || d.diffHz > 30.0) errors.push_back(pfx + "diffHz out of range [4, 30]");

@@ -36,6 +36,8 @@ struct LawsState
     bool   gearSeen = false;
     int    gearCand = 0;
     double gearCandSec = 0.0;
+    double shiftOpenSec = -1.0;   // ignore neutral: since the box left its gear into N (-1 = not in a shift)
+    bool   dogAtLanding = false;  // ...a dog box left under power: its engagement knock comes as the gear goes in
     // The engine speed last sent that could be true (a junk frame's rpm is
     // replaced by it).
     double lastRpm = 0.0, rpmAgeSec = 0.0;
@@ -191,9 +193,13 @@ namespace laws_k {
     constexpr double kLugMinRpm        = 600.0;    // not while cranking or dying
     // Whine: pitch from the input shaft at an order the actuator carries,
     // stepping per gear (a lower gear meshes slower per engine rev).
-    constexpr double kWhineBandTopHz   = 120.0;    // auto order aims the redline here, like the engine buzz
-    constexpr double kWhineSamplesPerCycle = 8.0;
-    constexpr double kWhineGearStep    = 0.06;     // pitch x (1 - step x (6 - gear)): 1st lowest, 6th highest
+    // Whine pitch against the engine buzz, 1st gear to 6th, by the tile's
+    // whine pitch: with the buzz (70 to 100%: in the top gears the two sit
+    // a few Hz apart and beat, a slow pulsing), below it, an octave down,
+    // above it. All but the first stay at least 20% off the buzz.
+    constexpr double kWhineLow[4]      = { 0.70, 0.62, 0.35, 1.20 };
+    constexpr double kWhineHigh[4]     = { 1.00, 0.80, 0.50, 1.50 };
+    constexpr double kWhineSamplesPerCycle = 8.0;  // a pitch the loop cannot carry this well drops an octave
     constexpr double kWhineLoadFloor   = 0.3;      // straight-cut gears whine unloaded too, louder under load
     constexpr double kWhineMinRpm      = 500.0;
     // Shunt: the throttle crossing its zero-torque point fast.
@@ -210,7 +216,7 @@ namespace laws_k {
     constexpr double kDogKnockDelaySec = 0.06;
     constexpr double kDogKnockScale    = 0.7;
     constexpr double kGearSettleSec    = 0.045;    // a gear must hold this long to count (a junk frame lasts one 60 Hz sample, 17 ms, up to about 30 with timing jitter)
-    constexpr double kNeutralHeldSec   = 0.5;      // ignore neutral: held this long it is a real neutral (selecting the same gear again knocks)
+    constexpr double kNeutralHeldSec   = 0.5;      // ignore neutral: a gear going in within this of leaving the last is the same shift; a neutral held longer is a real one
     // Road and kerb laws
     constexpr double kPreviewKmh       = 80.0;     // the road speed a road, kerb or ABS Test preview runs at
     constexpr double kPreviewKerbOnSec = 0.6;      // kerb preview: on this long...
@@ -1348,7 +1354,8 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
 
         // Whine: straight-cut mesh following the input shaft, in gear with
         // the clutch driving; level from load with a floor (unloaded gears
-        // still sing). The carrier steps per gear.
+        // still sing). The carrier is placed against the engine buzz by the
+        // whine pitch choice and steps per gear.
         {
             double wl = 0.0, whz = 0.0;
             const DrivelineParams& dp = L.drivelineParams();
@@ -1362,10 +1369,12 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 if (g != 0 && !clutchOpen)
                 {
                     const double maxRpm = (L.engineParams().maxRpm > 0.0) ? L.engineParams().maxRpm : L.learnedMaxRpm();
-                    const double bandTop = std::min(kWhineBandTopHz, (1.0 / std::max(1e-4, dtSec)) / kWhineSamplesPerCycle);
-                    const double order = bandTop / std::max(1000.0, maxRpm) * 60.0;
-                    const double gearK = 1.0 - kWhineGearStep * std::max(0.0, 6.0 - std::min(6.0, static_cast<double>(std::abs(g))));
-                    whz = v.val[NcxValues::Rpm] / 60.0 * order * gearK;
+                    const int    pitch  = std::max(0, std::min(3, static_cast<int>(dp.whinePitch + 0.5)));
+                    const double gearX  = (std::min(6.0, static_cast<double>(std::abs(g))) - 1.0) / 5.0;
+                    const double ratio  = kWhineLow[pitch] + (kWhineHigh[pitch] - kWhineLow[pitch]) * gearX;
+                    whz = EngineModel::buzzHz(L.engineParams(), v.val[NcxValues::Rpm] / 60.0, maxRpm, dtSec) * ratio;
+                    const double top = (1.0 / std::max(1e-4, dtSec)) / kWhineSamplesPerCycle;
+                    while (whz > top) whz *= 0.5;
                     const double load = v.have[NcxValues::ThrottlePct] ? std::max(0.0, std::min(1.0, v.val[NcxValues::ThrottlePct] / 100.0)) : 0.5;
                     wl = kWhineLoadFloor + (1.0 - kWhineLoadFloor) * load;
                 }
@@ -1410,32 +1419,47 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
     // in (up or down), once the new gear has held kGearSettleSec: a sim
     // reports a junk gear for a frame mid-shift (Automobilista 2 read 5, N,
     // 3, 4 for a 5-4 downshift: three knocks). With ignore neutral (the
-    // Driveline tile's), the N passed through on the way is no shift of its
-    // own (a neutral held half a second is a real one: the gear after it
-    // knocks even if it is the same); off, going into neutral knocks too. A
-    // junk gear frame (dropped above) leaves it where it was. Edge state
-    // seeds on first sight and clears on staleness, so a returning stream
-    // never fires a stale crossing.
+    // Driveline tile's) the shift knocks once, as the box leaves its gear
+    // (the N the sim shows mid-shift, 130 to 190 ms in Automobilista 2,
+    // settled), and the gear it lands in within kNeutralHeldSec is the same
+    // shift: no knock of its own (knocking there came 200 ms late), only a
+    // dog box's engagement knock if it left under power, as the dogs go in.
+    // A neutral held longer is a real one: the gear after it knocks. Off,
+    // going into neutral and into the next gear knock separately. A junk
+    // gear frame (dropped above) leaves it where it was. Edge state seeds on
+    // first sight and clears on staleness, so a returning stream never
+    // fires a stale crossing.
     if (live && v.have[NcxValues::Gear])
     {
         const double g0 = v.val[NcxValues::Gear];
         const int g = static_cast<int>(g0 < 0.0 ? g0 - 0.5 : g0 + 0.5);
-        if (!st.gearSeen) { st.lastGear = st.gearCand = g; st.gearCandSec = 0.0; }
+        if (!st.gearSeen) { st.lastGear = st.gearCand = g; st.gearCandSec = 0.0; st.shiftOpenSec = -1.0; st.dogAtLanding = false; }
         else if (g != st.gearCand) { st.gearCand = g; st.gearCandSec = 0.0; }
         else st.gearCandSec += dtSec;
+        if (st.shiftOpenSec >= 0.0) st.shiftOpenSec += dtSec;
         const bool ignoreN = L.drivelineParams().ignoreN >= 0.5;
-        if (ignoreN && st.gearCand == 0 && st.gearCandSec >= kNeutralHeldSec) st.lastGear = 0;
-        if (st.gearSeen && st.gearCand != st.lastGear && st.gearCandSec >= kGearSettleSec
-            && !(ignoreN && st.gearCand == 0))
+        if (st.gearSeen && st.gearCand != st.lastGear && st.gearCandSec >= kGearSettleSec)
         {
             // Shaped by the gearbox: synchro = a softer, longer clunk; dog =
             // a harder, shorter knock and, shifted under power, a second
-            // knock a moment later when the dogs engage.
+            // knock when the dogs engage (a moment later, or as the gear goes
+            // in after a neutral).
             const bool dog = L.drivelineParams().gearbox >= 0.5;
-            if (dog) L.fire(EventType::GearShift, kDogScale, kDogDur, kDogFreq);
-            else     L.fire(EventType::GearShift, kSynchroScale, kSynchroDur, kSynchroFreq);
             const double thr = v.have[NcxValues::ThrottlePct] ? v.val[NcxValues::ThrottlePct] : 0.0;
-            if (dog && thr >= kDogPowerThrottle) st.dogKnockIn = kDogKnockDelaySec;
+            const bool departing = ignoreN && st.gearCand == 0;
+            const bool landing   = ignoreN && st.lastGear == 0 && st.shiftOpenSec >= 0.0 && st.shiftOpenSec < kNeutralHeldSec;
+            if (landing)
+            {
+                if (dog && (st.dogAtLanding || thr >= kDogPowerThrottle)) L.fire(EventType::GearShift, kDogKnockScale, kDogDur, kDogFreq);
+            }
+            else
+            {
+                if (dog) L.fire(EventType::GearShift, kDogScale, kDogDur, kDogFreq);
+                else     L.fire(EventType::GearShift, kSynchroScale, kSynchroDur, kSynchroFreq);
+                if (dog && thr >= kDogPowerThrottle && !departing) st.dogKnockIn = kDogKnockDelaySec;
+            }
+            st.dogAtLanding = departing && dog && thr >= kDogPowerThrottle;
+            st.shiftOpenSec = departing ? 0.0 : -1.0;
             st.lastGear = st.gearCand;
         }
         st.gearSeen = true;

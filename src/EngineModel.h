@@ -217,6 +217,20 @@ public:
 
     double learnedMaxRpm() const { return m_learnedMax; }
 
+    // The buzz carrier (Hz) at a crank rate: pitch proportional to rpm at an
+    // order the actuator can carry. The auto band top follows the control
+    // rate: 120 Hz on a 2 kHz loop, 62 Hz on a 500 Hz PC loop (4 samples per
+    // cycle at 120 Hz was a coarse, buzzy stair). Set order by hand to
+    // override. The driveline's gear whine is pitched against it.
+    static double buzzHz(const EngineParams& e, double crankHz, double maxRpm, double dtSec)
+    {
+        using namespace engine_k;
+        const double bandTop = std::min(kBuzzBandTopHz, (1.0 / std::max(1e-4, dtSec)) / kBuzzSamplesPerCycle);
+        const double order   = (e.order > 0.0) ? e.order
+                             : std::max(kBuzzOrderMin, std::min(kBuzzOrderMax, bandTop / (maxRpm / 60.0)));
+        return std::max(kBuzzCarrierMinHz, std::min(kBuzzCarrierMaxHz, crankHz * order));
+    }
+
     // One cycle. level = the effect's attack/release-smoothed drive level;
     // p the shared params (ampPct, freqHz, jitter); e the engine params;
     // rng the caller's xorshift state. Returns the value before routing
@@ -472,13 +486,7 @@ public:
         // Buzz: pitch proportional to rpm at an order the actuator can carry.
         if (m_fireHz >= 0.5 && (e.buzz > 0.0 || e.inertia > 0.0))
         {
-            // The auto band top follows the control rate: 120 Hz on a 2 kHz
-            // loop, 62 Hz on a 500 Hz PC loop (4 samples per cycle at 120 Hz
-            // was a coarse, buzzy stair). Set order by hand to override.
-            const double bandTop = std::min(kBuzzBandTopHz, (1.0 / std::max(1e-4, dtSec)) / kBuzzSamplesPerCycle);
-            const double order   = (e.order > 0.0) ? e.order
-                                 : std::max(kBuzzOrderMin, std::min(kBuzzOrderMax, bandTop / (maxRpm / 60.0)));
-            const double carrier = std::max(kBuzzCarrierMinHz, std::min(kBuzzCarrierMaxHz, crankHz * order));
+            const double carrier = buzzHz(e, crankHz, maxRpm, dtSec);
             m_buzzPhase = wrap(m_buzzPhase + carrier * dtSec);
             out.buzzHz = carrier;
             out.buzzPhase = 2.0 * wavesynth::kPi * m_buzzPhase;

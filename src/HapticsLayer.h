@@ -758,6 +758,7 @@ public:
     void driveDiff(double level, double rateHz)       { m_driveline.driveDiff(level, rateHz); }
     double diffLevel() const                          { return m_driveline.diffLevel(); }
     double drivelineWhineLevel() const                { return m_driveline.whineLevel(); }
+    double drivelineWhineHz() const                   { return m_driveline.out().whineHz; }
     double drivelineJudderLevel() const               { return m_driveline.judderLevel(); }
     double drivelineLugLevel() const                  { return m_driveline.lugLevel(); }
 

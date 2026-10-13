@@ -181,6 +181,7 @@ constexpr ParamSpec kDrivelineParams[] = {      // driveline: clutch judder + lu
     { "diffHz",   "diff hz",    4,   30,  1,    nullptr },   // the clacks' rate at full chatter
     { "driven",   "driven",     0,   2,   1,    "rear|front|all" },
     { "whine",    "whine x",    0,   1,   0.1,  nullptr },
+    { "whinePitch", "whine pitch", 0, 3,  1,    "with the buzz|below the buzz|octave down|above the buzz" },
     { "shunt",    "shunt x",    0,   1,   0.1,  nullptr },
     { "shuntHz",  "shunt hz",   20,  80,  1,    nullptr },
     { "jitter",   "jitter",     0,   1,   0.05, nullptr },
