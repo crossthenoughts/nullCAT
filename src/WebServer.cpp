@@ -854,7 +854,12 @@ bool WebServer::start()
     if (!m_stockCarsPath.empty() && !m_cars.loadStock(m_stockCarsPath))
         LOG_WARNING(strf("Haptics: car table %s not found or unreadable; the strip will not follow the car.",
                          m_stockCarsPath.c_str()));
-    if (!m_configPath.empty()) m_cars.loadUser(m_configPath);
+    if (!m_configPath.empty())
+    {
+        m_cars.loadUser(m_configPath);
+        std::ifstream f(siblingFile(m_configPath, "cardefaults.txt"));
+        if (f) std::getline(f, m_carDefaultsIdent);
+    }
     if (m_cars.stockCount() || m_cars.userCount())
         LOG_INFO(strf("Haptics: car table loaded, %d cars shipped, %d of yours.",
                       m_cars.stockCount(), m_cars.userCount()));
@@ -1255,6 +1260,9 @@ bool WebServer::start()
         postCmd("/api/rig", [this, errResp, writeConfigNamespace](const httplib::Request& req, httplib::Response& res)
         {
             if (m_configPath.empty()) { errResp(res, "No config path configured."); return; }
+            // One writer of rig.json at a time: a car entry, the car
+            // defaults, a starting point or a profile load writes it too.
+            std::lock_guard<std::mutex> io(m_profilesIo);
             std::string oldBody;
             const int wr = writeConfigNamespace("rig.json", Config::validateRigBody(m_configPath, req.body),
                                                 req.body, res, &oldBody);
@@ -2712,6 +2720,8 @@ void WebServer::carIdentity(const std::string& game, const std::string& car, con
     CarTable::Match m = findCar(game, car, carId);
     const std::string ident = game + "|" + car + "|" + carId;
     bool applied = false, defaults = false;
+    const int gen0 = m_carGen.load();   // a pull or load from the page meanwhile has the last word (below)
+    int bumps = 0;                      // ...this call's own rewrites of the set
     if (ident == m_carAppliedIdent)
     {
         // The same car, back after a dropout: the tiles already carry
@@ -2725,9 +2735,11 @@ void WebServer::carIdentity(const std::string& game, const std::string& car, con
     {
         std::string err;
         applied = applyCarEntry(m, err);
+        if (applied) ++bumps;
         if (applied)
         {
             m_carAppliedIdent = ident;
+            if (!m_carDefaultsIdent.empty()) saveCarDefaultsIdent("");
             LOG_INFO(strf("Haptics: car preset '%s' (%s%s) applied for %s.", m.key.c_str(), m.source.c_str(),
                           m.nearMatch ? ", near match" : "", car.c_str()));
         }
@@ -2744,14 +2756,26 @@ void WebServer::carIdentity(const std::string& game, const std::string& car, con
         // settings, as does a missing table.
         std::string err;
         const std::string& who = car.empty() ? carId : car;
-        defaults = applyCarDefaults(err);
-        if (defaults)
+        if (ident == m_carDefaultsIdent)
         {
+            // The car they were last applied for, before a restart: its
+            // tiles stay as they are (tuned by hand, perhaps, since).
+            defaults = true;
             m_carAppliedIdent = ident;
-            LOG_INFO(strf("Haptics: no car table entry for %s: its car settings are on the defaults.", who.c_str()));
         }
         else
-            LOG_WARNING(strf("Haptics: the car defaults could not be applied for %s: %s", who.c_str(), err.c_str()));
+        {
+            defaults = applyCarDefaults(err);
+            if (defaults) ++bumps;
+            if (defaults)
+            {
+                m_carAppliedIdent = ident;
+                saveCarDefaultsIdent(ident);
+                LOG_INFO(strf("Haptics: no car table entry for %s: its car settings are on the defaults.", who.c_str()));
+            }
+            else
+                LOG_WARNING(strf("Haptics: the car defaults could not be applied for %s: %s", who.c_str(), err.c_str()));
+        }
     }
     else
         m_carAppliedIdent.clear();   // a car the table did not act on
@@ -2760,8 +2784,22 @@ void WebServer::carIdentity(const std::string& game, const std::string& car, con
     m_carState.car      = car;
     m_carState.carId    = carId;
     m_carState.game     = game;
-    m_carState.applied  = applied;
-    m_carState.defaults = defaults;
+    // A pull, a starting point or a profile load from the page that landed
+    // while this applied set its own flags: they stand.
+    if (m_carGen.load() == gen0 + bumps)
+    {
+        m_carState.applied  = applied;
+        m_carState.defaults = defaults;
+    }
+}
+
+void WebServer::saveCarDefaultsIdent(const std::string& ident)
+{
+    m_carDefaultsIdent = ident;
+    if (m_configPath.empty()) return;
+    std::ofstream f(siblingFile(m_configPath, "cardefaults.txt"), std::ios::trunc);
+    if (f) f << ident << '\n';
+    else LOG_WARNING("Haptics: could not remember which car is on the defaults (cardefaults.txt).");
 }
 
 // The follow switch lives in rig.json's haptics object (saved from the

@@ -19,7 +19,7 @@
 //
 // The order is the file's. A missing or unreadable file is no presets.
 //
-// Main/web thread only, like CarTable.
+// Loaded once at start; read by the web thread only.
 // ============================================================
 
 #include <QJsonObject>

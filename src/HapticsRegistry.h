@@ -176,7 +176,7 @@ constexpr ParamSpec kDrivelineParams[] = {      // driveline: clutch judder + lu
     { "lugHz",    "lug hz",     3,   15,  0.5,  nullptr },
     { "gearbox",  "gearbox",    0,   1,   1,    "synchro|dog" },
     { "ignoreN",  "ignore neutral", 0, 1, 1,   "off|on" },   // the Gear shift knock: N passed through is no shift
-    { "diff",     "diff x",     0,   1,   0.05, nullptr },   // the differential's chatter (0 = off: an open diff)
+    { "diff",     "diff x",     0,   1,   0.05, nullptr },   // the differential's clunk (0 = off: an open diff)
     { "diffType", "diff",       0,   1,   1,    "limited slip|spool" },
     { "diffHz",   "diff hz",    2,   30,  1,    nullptr },   // the clunks' rate when the wheels turn apart briskly
     { "driven",   "driven",     0,   2,   1,    "rear|front|all" },

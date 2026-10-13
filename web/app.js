@@ -1175,7 +1175,7 @@ function hapDimFor(k,dv,have){
   }
   if(k==='driveline'){
     const dim={};
-    if(!(+dv.diff>0)) ['diffType','diffHz','driven'].forEach(x=>{ dim[x]='Diff x is 0: no differential chatter (an open diff)'; });
+    if(!(+dv.diff>0)) ['diffType','diffHz','driven'].forEach(x=>{ dim[x]='Diff x is 0: no differential clunk (an open diff)'; });
     if(!(+dv.whine>0)) dim.whinePitch='Whine x is 0: no gear whine';
     return dim;
   }
@@ -1807,7 +1807,7 @@ function hapInit(){
       +'<button class="btn btn-sm" type="button" id="hapProfDel" title="Forget the chosen profile and its bindings">delete</button>'
       +'<span class="hk" id="hapProfMsg"></span></div>'
       +'<div class="hsec" title="Pick the type of car closest to what you drive and apply it: it sets how the tyres let go, how stiff the road and kerbs feel, the wheels and the knocks for that type. Then pull the car (car table) for the engine, gearbox, ABS and TC. Your routes and master stay as they are.">starting point: the type of car</div>'
-      +'<div class="hr hap-game" title="Pick the type of car closest to what you drive, apply, then pull the car (car table) for the engine, gearbox, ABS and TC. It sets the slip, road, kerb, wheels and impacts settings for that type; your routes, master gain, pos budget and the car table\'s tiles stay as they are."><span class="hk">type</span>'
+      +'<div class="hr hap-game" title="Pick the type of car closest to what you drive, apply, then pull the car (car table) for the engine, gearbox, ABS and TC. It sets the slip, road, kerb, wheels and impacts settings for that type; your routes, master gain, pos budget and the settings the car table owns stay as they are."><span class="hk">type</span>'
       +'<select id="hapPresetSel"><option value="">(pick a type)</option></select>'
       +'<button class="btn btn-sm" type="button" id="hapPresetApply" title="Set the slip, road, kerb, wheels and impacts settings for the chosen type of car. Routes, master gain, pos budget and the engine, limiter, driveline, ABS and TC stay as they are.">apply</button>'
       +'<span class="hk" id="hapPresetMsg"></span></div>'
@@ -1879,7 +1879,9 @@ function hapInit(){
     const tsel=mc.querySelector('#hapPresetSel'), tmsg=mc.querySelector('#hapPresetMsg');
     const tsay=(t)=>{ if(tmsg) tmsg.textContent=t; };
     hapPresetsRender(tsel);
-    tsel.onchange=()=>{ hapPresetPick=tsel.value; const o=tsel.options[tsel.selectedIndex]; tsel.title=(o&&o.title)||''; tsay(''); };
+    // (A select's options show no hover in most browsers: the chosen
+    // type's description is written beside it.)
+    tsel.onchange=()=>{ hapPresetPick=tsel.value; const o=tsel.options[tsel.selectedIndex]; tsel.title=(o&&o.title)||''; tsay(tsel.title); };
     mc.querySelector('#hapPresetApply').onclick=async()=>{
       const name=tsel.value; if(!name){ tsay('pick a type'); return; }
       if(dirtyState().count>0&&!confirm('You have unsaved edits on this page; applying a starting point rewrites the saved slip, road, kerb, wheels and impacts settings and reloads the page state. Continue?')) return;
@@ -1887,7 +1889,7 @@ function hapInit(){
         const j=await post('/api/haptics/presets/apply',{name});
         if(typeof j.gen==='number') hapCarGenLive=j.gen;   // this page reloads itself: the status need not again
         await loadConfig();
-        const m=$('hapPresetMsg'); if(m) m.textContent='applied '+name+': now pull the car';   // the rebuilt tile's
+        const m=$('hapPresetMsg'); if(m) m.textContent='applied '+name+' (the engine, gearbox, ABS and TC come from the car table)';   // the rebuilt tile's
       }catch(e){ tsay(String(e.message||e)); }
     };
     // Car table row + search box. Applying an entry rewrites five tiles on

@@ -252,6 +252,12 @@ private:
     // strip follows CAR CHANGES, never a returning stream, or a tweak made
     // in the pits would be undone on unpause.
     std::string       m_carAppliedIdent;
+    // The car (identity) the defaults were last applied for, remembered
+    // beside the rig config: after a restart that same car keeps its tiles
+    // as they are (perhaps tuned by hand since), where applying the
+    // defaults again would undo it.
+    std::string       m_carDefaultsIdent;
+    void saveCarDefaultsIdent(const std::string& ident);
     void carIdentity(const std::string& game, const std::string& car, const std::string& carId, bool mayApply);
     CarTable::Match findCar(const std::string& game, const std::string& car, const std::string& carId) const;
     std::string carKeyFor(const std::string& game, const std::string& car, const std::string& carId) const;
@@ -261,7 +267,8 @@ private:
 
     // Starting points (presets.json beside the executable): a type of car's
     // slip, road, kerb, wheels and impacts settings, merged over the live
-    // set like a car entry; never routes, master or the car's own tiles.
+    // set like a car entry; never routes, master or the settings the car
+    // table owns.
     HapticsPresets    m_presets;
     std::string       m_presetsPath;
     bool applyPreset(const std::string& name, std::string& err);

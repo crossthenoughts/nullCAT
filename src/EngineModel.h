@@ -201,16 +201,17 @@ public:
 
     // A different car: the learned redline starts over (it is a peak hold, so
     // a lower-revving car would otherwise keep the last car's).
-    void forgetCar() { m_learnedMax = engine_k::kLearnSeedRpm; m_maxSeeded = false; }
+    void forgetCar() { m_learnedMax = engine_k::kLearnSeedRpm; m_peakRpm = 0.0; m_maxSeeded = false; }
 
-    // The sim's own max rpm, where it sends one: the redline starts there
-    // instead of the guess, once per car (the peak hold and the limiter
-    // flag still refine it). A truck no longer waits for its limiter to
-    // stop reading 3,700 rpm as half revs.
+    // The sim's own max rpm, where it sends one (the law passes it once it
+    // has held steady): the redline starts there instead of the guess,
+    // once per car, never below the highest rpm this car has shown (the
+    // peak hold and the limiter flag still refine it). A truck no longer
+    // waits for its limiter to stop reading 3,700 rpm as half revs.
     void seedMaxRpm(double rpm)
     {
         if (m_maxSeeded || !(rpm >= engine_k::kLearnMinRpm)) return;
-        m_learnedMax = rpm;
+        m_learnedMax = std::max(rpm, m_peakRpm);
         m_maxSeeded  = true;
     }
 
@@ -279,6 +280,7 @@ public:
         if (m_fireHz >= 0.5)
         {
             if (rpmNow > m_learnedMax) m_learnedMax = rpmNow;
+            if (rpmNow > m_peakRpm)    m_peakRpm = rpmNow;
             if (m_revLimiter && rpmNow > kLearnMinRpm) m_learnedMax = rpmNow / kLimiterFlagAt;
         }
 
@@ -577,6 +579,7 @@ private:
     double m_buzzPhase = 0.0, m_beatPhase = 0.0;
     double m_learnedMax = engine_k::kLearnSeedRpm;
     bool   m_maxSeeded  = false;
+    double m_peakRpm    = 0.0;    // the highest rpm this car has shown
     double m_pulseDur = 0.033;
     double m_pulseT[engine_k::kPulses]   = { 1e9, 1e9, 1e9, 1e9 };
     double m_pulseAmp[engine_k::kPulses] = { 0.0, 0.0, 0.0, 0.0 };

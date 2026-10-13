@@ -29,7 +29,8 @@
 // the same game that the name starts with, in whole words, at least two
 // ("MINI Cooper S 1965 B" is the "MINI Cooper S 1965").
 //
-// Main/web thread only, like HapticsProfiles.
+// Thread-safe: its own mutex guards the table (the web thread and the
+// status thread, following the car, both use it).
 // ============================================================
 
 #include <QJsonObject>

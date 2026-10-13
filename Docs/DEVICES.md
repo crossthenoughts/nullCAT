@@ -216,8 +216,8 @@ nullCAT ships four of them, on the **type** row of the Master tile:
 
 Each one sets how the tyres let go (Lateral and Longitudinal slip), how
 the road and kerbs move the car (Road, Kerb), the wheels' shake and brake
-judder (Wheels) and the ring of a knock (Impacts). Hover a type to read
-it. Everything else stays exactly as it is: your routes, master gain, pos
+judder (Wheels) and the ring of a knock (Impacts). Picking a type shows
+what it is for beside it. Everything else stays exactly as it is: your routes, master gain, pos
 budget, and the engine, limiter, driveline, ABS and TC (those come from
 the car table). So pick the type closest to what you drive, **apply** it,
 then pull the car from the car table for its engine, gearbox, ABS and TC,
@@ -263,9 +263,11 @@ With follow car on, a car the table has no entry for at all, in a game the
 table covers (Assetto Corsa, Automobilista 2, or any game you have saved a
 car for), does not keep the last car's engine, gearbox, ABS and TC: those
 five tiles go back to their defaults: a generic engine (a 2 litre inline
-four), gearbox, ABS and TC, each tile at the strength most cars in the
-table play it at. In a game the table does not cover, nothing changes:
-the tiles stay as you set them. The car row reads
+four), gearbox, ABS and TC, each tile at the strength the cars in the
+table that have it play it at (ABS and TC play only when they are
+working). In a game the table does not cover, nothing changes:
+the tiles stay as you set them. After a restart the same car keeps its
+tiles as they are, so what you tuned for it by hand stays. The car row reads
 `· no entry · defaults in use`, and the settings the car table owns are
 tinted pink instead of the usual faint tint (hover one to read why) until
 you pull a preset car or save for this car, or the next car comes on. The
@@ -497,8 +499,11 @@ but no slip ratios, nullCAT learns each wheel's rolling factor while you
 cruise (brake off, light throttle, clutch fully in or out, above 30 km/h,
 each axle's wheels turning together) and works the ratio out itself, so a
 sender's wheel-speed unit and staggered tyre sizes need no setting up.
-Once learned, a moment that disagrees with it (a slide, a reset, a curve)
-is ignored unless it keeps disagreeing for 5 seconds, and engine braking
+(Tyres of different sizes left and right, as on an oval car, take a
+little longer: about 20 seconds of cruising.) Once learned, a moment that
+disagrees with it (a slide, a reset, a curve) is ignored unless the same
+wheel keeps disagreeing the same way for 5 seconds without the wheels
+agreeing in between (a wrong first value), and engine braking
 teaches the driven wheels nothing (nullCAT finds which wheels are driven
 from which ones run ahead under full throttle). Nothing plays below 5
 km/h: slip means nothing at a standstill.

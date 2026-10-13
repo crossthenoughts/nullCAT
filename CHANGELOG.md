@@ -348,7 +348,8 @@ Development branch. Nothing here is in a release yet.
   12.9 litre engine). In a game the table covers (Assetto Corsa,
   Automobilista 2, or one you have saved a car for) those tiles now go
   back to their defaults for such a car (a generic engine, gearbox, ABS
-  and TC, at the strength most cars play them), the car row says `no entry ·
+  and TC, at the strength the cars that have them play them; the same
+  car after a restart keeps what you tuned), the car row says `no entry ·
   defaults in use`, and the settings the car table owns are tinted pink
   until you pull a preset car or save for this car. Other games are left
   as they are.

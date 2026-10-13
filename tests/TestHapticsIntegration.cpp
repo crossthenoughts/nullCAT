@@ -509,10 +509,10 @@ int main()
         // when the two together reach its limit. Onset 40% of 7 deg = 2.8 deg,
         // the ratio's limit 0.15; linear ease, no smoothing, fast attack.
         {
-            auto budgetRun = [&](double budget, double angle, double ratio, double& lat, double& lon, double ease = 0.0) {
+            auto budgetRun = [&](double budget, double angle, double ratio, double& lat, double& lon, double ease = 0.0, double onsetPct = 40.0) {
                 haptics::Layer B; haptics::LawsState bs;
                 B.configureFx(FxType::Skid, p); B.configureFx(FxType::Lockup, p);
-                haptics::SlipParams lp{ 1.0, 25.0, 1.0, 11.0, 7.0, 40.0, ease, 0.0, 8.0 }; lp.budget = budget;
+                haptics::SlipParams lp{ 1.0, 25.0, 1.0, 11.0, 7.0, onsetPct, ease, 0.0, 8.0 }; lp.budget = budget;
                 B.configureSlip(FxType::Skid, lp); B.configureSlip(FxType::Lockup, { 1.0, 9.0, 1.0, 10.0, 0.8 });
                 NcxValues bv{}; bv.fresh = true;
                 bv.have[NcxValues::SpeedKmh] = true; bv.val[NcxValues::SpeedKmh] = 100.0;
@@ -539,6 +539,15 @@ int main()
             check(std::fabs(lon - 0.5) < 0.05, "I-8 budget on, ease 2: pure braking is still the Longitudinal tile's 0.5");
             budgetRun(1.0, 4.9, 0.0, lat, lon, 2.0);
             check(std::fabs(lat - 0.125) < 0.03, "I-8 budget on, ease 2: pure sideways is cubed, as the Lateral tile");
+            // Onset 0 (the budget's angle limit a twentieth of peak): an
+            // ordinary 3 deg of cornering took the whole budget and a lock
+            // under it went nearly silent. Never less than each tile alone.
+            double latAlone = 0.0, lonAlone = 0.0, lat0 = 0.0, lon0 = 0.0;
+            budgetRun(0.0, 3.0, -0.475, latAlone, lonAlone, 2.0, 0.0);
+            budgetRun(1.0, 3.0, -0.475, lat0, lon0, 2.0, 0.0);
+            std::printf("  I-8 budget, onset 0: tiles alone lat %.2f lon %.2f, with the budget lat %.2f lon %.2f\n", latAlone, lonAlone, lat0, lon0);
+            check(lonAlone > 0.45 && lon0 >= lonAlone - 0.01 && lat0 >= latAlone - 0.01,
+                  "I-8 budget on, onset 0: a lock in a corner plays at least as the Longitudinal tile alone");
         }
 
         // Longitudinal from slip ratio: - locks, + spins; onset 0.15, full at
@@ -611,19 +620,31 @@ int main()
             check(crank > 0.5, "I-8 engine: 250 rpm on the starter plays cranking lumps");
             // The sim's own max rpm seeds the learned redline, once per car:
             // a truck's 3,700 no longer waits for its limiter.
+            // (Once it has held for half a second: a sender's may lag the
+            // car's name.)
             std::strncpy(v.car, "Truck", NCY_STR_LEN - 1);
             v.val[NcxValues::Rpm] = 900.0;
             v.have[NcxValues::MaxRpm] = true; v.val[NcxValues::MaxRpm] = 3700.0;
-            settleE(10);
-            check(std::fabs(L.learnedMaxRpm() - 3700.0) < 1e-9, "I-8 engine: the sim's max rpm seeds the redline");
+            settleE(100);
+            check(L.learnedMaxRpm() > 5000.0, "I-8 engine: the sim's max rpm is not taken at once");
+            settleE(200);
+            check(std::fabs(L.learnedMaxRpm() - 3700.0) < 1e-9, "I-8 engine: ...once it has held, it seeds the redline");
             v.val[NcxValues::Rpm] = 3800.0; settleE(1000);
             check(std::fabs(L.learnedMaxRpm() - 3800.0) < 1.0, "I-8 engine: ...the peak hold still refines it");
-            v.val[NcxValues::MaxRpm] = 3000.0; settleE(10);
+            v.val[NcxValues::Rpm] = 900.0; settleE(50);
+            v.val[NcxValues::MaxRpm] = 5000.0; settleE(500);
             check(std::fabs(L.learnedMaxRpm() - 3800.0) < 1.0, "I-8 engine: ...once per car (a later max rpm does not pull it back)");
+            // A new car whose max rpm arrives a moment after its name: the
+            // last car's is not taken.
             std::strncpy(v.car, "F2004", NCY_STR_LEN - 1);
-            v.val[NcxValues::Rpm] = 900.0; v.val[NcxValues::MaxRpm] = 18800.0;
-            settleE(10);
-            check(std::fabs(L.learnedMaxRpm() - 18800.0) < 1e-9, "I-8 engine: a new car seeds from its own max rpm");
+            v.val[NcxValues::MaxRpm] = 5000.0; settleE(50);
+            v.val[NcxValues::MaxRpm] = 18800.0; settleE(300);
+            check(std::fabs(L.learnedMaxRpm() - 18800.0) < 1e-9, "I-8 engine: a new car seeds from its own max rpm, not the last car's lagging one");
+            // Never below what the car has already shown.
+            std::strncpy(v.car, "GT3", NCY_STR_LEN - 1);
+            v.have[NcxValues::MaxRpm] = false; v.val[NcxValues::Rpm] = 9500.0; settleE(300);
+            v.have[NcxValues::MaxRpm] = true; v.val[NcxValues::MaxRpm] = 9000.0; settleE(300);
+            check(std::fabs(L.learnedMaxRpm() - 9500.0) < 1.0, "I-8 engine: the seed never lowers the redline below the revs already seen");
             v.have[NcxValues::MaxRpm] = false; v.car[0] = '\0';
         }
         // The idle rock follows the square root of heavy x balance: a smooth
@@ -1593,6 +1614,37 @@ int main()
         std::strncpy(v.car, "Car B", NCY_STR_LEN - 1);
         run(dt);
         check(st.latBaseSec < 0.01 && st.latBase[WheelFL] < 0.01 && st.latCreep[WheelFL] < 0.001, "I-18: a new car starts the learning over");
+
+        // A front-driven car: on the straights its fronts drive (+3 %) and
+        // roll only on a lift. Each wheel learns on its own clock, so the
+        // fronts' slip along the road is learned on the lifts and they show
+        // no angle under power (one clock for all four ran out on the
+        // power: 4 deg of scrub on every straight, learn once for good).
+        for (double m : { 0.0, 1.0 })
+        {
+            std::strncpy(v.car, m == 0.0 ? "Mini learn" : "Mini learn once", NCY_STR_LEN - 1);
+            mode(m);
+            const double kmh = 150.0, vms = kmh / 3.6, cF = 0.05, cR = 0.01;
+            v.val[NcxValues::SpeedKmh] = kmh;
+            auto drive = [&](double frontAhead, double throttle)
+            {
+                v.val[NcxValues::ThrottlePct] = throttle;
+                v.val[NcxValues::WheelSpeedFL] = v.val[NcxValues::WheelSpeedFR] = -vms * (1.0 + frontAhead) / 0.33;
+                v.val[NcxValues::WheelSpeedRL] = v.val[NcxValues::WheelSpeedRR] = -vms / 0.33;
+                v.val[NcxValues::SlipSpeedFL] = v.val[NcxValues::SlipSpeedFR] = (frontAhead + cF) * vms;
+                v.val[NcxValues::SlipSpeedRL] = v.val[NcxValues::SlipSpeedRR] = cR * vms;
+            };
+            drive(0.0, 0.0);  run(1.0);   // out of the pits, coasting
+            for (int lap = 0; lap < 8; ++lap) { drive(0.03, 100.0); run(6.0); drive(0.0, 0.0); run(1.5); }
+            drive(0.03, 100.0); run(2.0);
+            std::printf("  I-18 front-driven (%s): along FL %.4f (true %.2f), RL %.4f, FL under power %.2f deg, learned %.1f s\n",
+                        m == 0.0 ? "learn" : "learn once", st.latCreep[WheelFL], cF, st.latCreep[WheelRL], st.latAngle[WheelFL], st.latBaseSec);
+            check(std::fabs(st.latCreep[WheelFL] - cF) < 0.005 && std::fabs(st.latCreep[WheelRL] - cR) < 0.002,
+                  "I-18 front-driven: the driving fronts learn their slip along the road on the lifts");
+            check(st.latAngle[WheelFL] < 1.0 && L.slipWheelLevel(FxType::Skid, WheelFL) < 0.02,
+                  "I-18 front-driven: ...and show no scrub under power on the straight");
+        }
+        mode(0.0);
     }
 
     // ---- I-19: the Wheels tile's pads: the grab and the drag ----
@@ -2136,6 +2188,44 @@ int main()
             runFor(L, st, v, 6.0);
             check(st.rollK[WheelFR] / k0 < 0.985, "I-21: ...unless it keeps disagreeing for 5 s: then it is learned");
         }
+        // Coasting corners lap after lap, each axle's wheels 3.5 % apart
+        // (inside the 4 % that counts as together), flat out between: the
+        // disagreement never adds up to the escape (it did by the third
+        // lap and taught the corner's split).
+        {
+            haptics::Layer L; haptics::LawsState st; NcxValues v = fresh();
+            v.val[NcxValues::ThrottlePct] = 20.0;
+            runFor(L, st, v, 2.0);
+            const double kFL = st.rollK[WheelFL], kFR = st.rollK[WheelFR];
+            for (int lap = 0; lap < 6; ++lap)
+            {
+                v.val[NcxValues::ThrottlePct] = 20.0; setWs(v, 0.9825, 1.0175, 0.9825, 1.0175); runFor(L, st, v, 2.0);
+                v.val[NcxValues::ThrottlePct] = 100.0; setWs(v, 1.0, 1.0, 1.0, 1.0); runFor(L, st, v, 5.0);
+            }
+            std::printf("  I-21 six cornering laps: FL %+.2f %%, FR %+.2f %%\n", 100.0 * (st.rollK[WheelFL] / kFL - 1.0), 100.0 * (st.rollK[WheelFR] / kFR - 1.0));
+            check(std::fabs(st.rollK[WheelFL] / kFL - 1.0) < 0.001 && std::fabs(st.rollK[WheelFR] / kFR - 1.0) < 0.001,
+                  "I-21: corners lap after lap never teach their split");
+        }
+        // Engine braking on every lift (the driven rears 2 % slow) is
+        // left out of the disagreement: it no longer holds the gate open,
+        // so a reset moment afterwards (a front 3 % off for half a second)
+        // is still ignored.
+        {
+            haptics::Layer L; haptics::LawsState st; NcxValues v = fresh();
+            v.val[NcxValues::ThrottlePct] = 20.0;
+            runFor(L, st, v, 2.0);
+            v.have[NcxValues::Gear] = true; v.val[NcxValues::Gear] = 4.0;
+            v.have[NcxValues::ClutchPct] = true; v.val[NcxValues::ClutchPct] = 0.0;
+            for (int lap = 0; lap < 5; ++lap)
+            {
+                v.val[NcxValues::ThrottlePct] = 100.0; setWs(v, 1.0, 1.0, 1.02, 1.02); runFor(L, st, v, 3.0);
+                v.val[NcxValues::ThrottlePct] = 0.0;   setWs(v, 1.0, 1.0, 0.98, 0.98); runFor(L, st, v, 3.0);
+            }
+            const double kFR = st.rollK[WheelFR];
+            v.val[NcxValues::ThrottlePct] = 20.0; setWs(v, 1.0, 1.03, 1.0, 1.0); runFor(L, st, v, 0.5);
+            check(st.rollOffSec < haptics::laws_k::kRollGateEscapeSec && std::fabs(st.rollK[WheelFR] / kFR - 1.0) < 0.001,
+                  "I-21: engine braking does not hold the gate open: a later reset moment is still ignored");
+        }
         // The clutch slipping (10 to 90 %) teaches nothing.
         {
             haptics::Layer L; haptics::LawsState st; NcxValues v = fresh();
@@ -2167,6 +2257,34 @@ int main()
             runFor(L, st, v, 3.0);
             check(st.rollK[WheelRL] == kR, "I-21: engine braking teaches the driven rears nothing");
             check(st.rollK[WheelFL] < kF * 0.997, "I-21: ...the free fronts still learn");
+        }
+        // A Sigma at pit exit: both fronts 6 % slow while the first value is
+        // taken (they seeded 6 % off), then racing: flat out with the rears
+        // 2 % ahead, lifts in gear (engine braking the rears 1.5 %), a
+        // little part throttle. The driven rears are found against the
+        // cruising lead (the wrong fronts read as driving, and then never
+        // learned on a lift), and the fronts are put right within a minute
+        // (it took 270 s).
+        {
+            haptics::Layer L; haptics::LawsState st; NcxValues v = fresh();
+            const double truth = 120.0 / 104.0;
+            v.val[NcxValues::ThrottlePct] = 8.0;
+            setWs(v, 0.94, 0.94, 1.0, 1.0);
+            runFor(L, st, v, 2.0);
+            check(st.rollKnown[WheelFL] && st.rollK[WheelFL] / truth > 1.05, "I-21 pit exit: the fronts seeded 6 % off");
+            v.have[NcxValues::Gear] = true; v.val[NcxValues::Gear] = 3.0;
+            v.have[NcxValues::ClutchPct] = true; v.val[NcxValues::ClutchPct] = 0.0;
+            for (int lap = 0; lap < 10; ++lap)
+            {
+                v.val[NcxValues::ThrottlePct] = 100.0; setWs(v, 1.0, 1.0, 1.02, 1.02);   runFor(L, st, v, 3.0);
+                v.val[NcxValues::ThrottlePct] = 0.0;   setWs(v, 1.0, 1.0, 0.985, 0.985); runFor(L, st, v, 2.0);
+                v.val[NcxValues::ThrottlePct] = 15.0;  setWs(v, 1.0, 1.0, 1.0, 1.0);     runFor(L, st, v, 1.0);
+            }
+            std::printf("  I-21 pit-exit seed: driven F %.1f s R %.1f s, FL %+.2f %% off after 60 s\n",
+                        st.drivenSec[0], st.drivenSec[1], 100.0 * (st.rollK[WheelFL] / truth - 1.0));
+            check(st.drivenSec[1] > haptics::laws_k::kDrivenSec && st.drivenSec[0] < st.drivenSec[1], "I-21 pit exit: the rears are found driven, not the wrong fronts");
+            check(std::fabs(st.rollK[WheelFL] / truth - 1.0) < 0.01 && std::fabs(st.rollK[WheelRL] / truth - 1.0) < 0.005,
+                  "I-21 pit exit: ...and the fronts are put right within a minute, the rears untouched by engine braking");
         }
         // Automobilista 2: a slide before the straight-line baseline is
         // learned teaches nothing (a slide moved the rears 1.3 %).
