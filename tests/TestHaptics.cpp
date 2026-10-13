@@ -228,9 +228,11 @@ int main()
             CHECK(lim > 1.0, "mute: unmuted, straight back (no ramp up from silence)");
             double gk = 0.0;
             M.setEventMuted(EventType::GearShift, true);
+            const uint64_t fired0 = M.fireCount(EventType::GearShift);
             M.fire(EventType::GearShift);
             for (int i = 0; i < 100; ++i) { M.step(DT); gk = std::max(gk, std::fabs(M.overlayFor(4))); }
             CHECK(gk == 0.0, "mute: a muted transient plays nothing");
+            CHECK(M.fireCount(EventType::GearShift) == fired0, "mute: ...and does not count as played (the sim dot stays as it was)");
             M.setEventMuted(EventType::GearShift, false);
             M.fire(EventType::GearShift); gk = 0.0;
             for (int i = 0; i < 100; ++i) { M.step(DT); gk = std::max(gk, std::fabs(M.overlayFor(4))); }

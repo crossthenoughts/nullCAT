@@ -260,8 +260,9 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "A thunk on every gear change, ringing through the chassis: a short burst at freq hz on a belt or a shaker, "
       "one jolt (about 12 hz, longer for a synchro clunk, shorter for a dog knock) on a position axis, which cannot "
       "carry a buzz. A gear counts once it has held a few hundredths of a second (a sim's one-frame junk gear "
-      "mid-shift is none); with the Driveline tile's ignore neutral, the neutral passed through is no shift of its "
-      "own, and the gearbox there shapes the knock. Needs the gear channel.", nullptr, {} },
+      "mid-shift is none); with the Driveline tile's ignore neutral, one knock per shift as the box leaves its gear "
+      "(the neutral passed through and the gear it lands in are the same shift), and the gearbox there shapes the "
+      "knock. Needs the gear channel.", nullptr, {} },
     { Effect::Engine,      "rpmVibe",     "Engine",       Kind::Engine, EventType::COUNT, FxType::RpmVibe,
       { "rpm", "~throttlePct", "~limiter", "~boost" }, { 0.0, 30.0, 0.0, 0.15 }, kEngineParams, static_cast<int>(std::size(kEngineParams)),
       "Engine: the block rocking at crank rate at idle (lumpy, fades out by ~2500 rpm) with each firing as a "

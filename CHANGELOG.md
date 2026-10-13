@@ -13,9 +13,9 @@ Development branch. Nothing here is in a release yet.
   silent, its settings and readouts stay, no other tile changes. The
   Master tile's **Mute** mutes every tile and **Unmute** brings them all
   back, so Mute then one tile's M plays that effect on its own. Not saved.
-- The settings a car's entry sets (follow car, pull, save for this car)
-  have a faint tint on the tiles, so it shows what moves with the car and
-  what stays.
+- The settings a car's entry can set (follow car, pull, save for this
+  car) have a faint tint on the tiles, so it shows what moves with the car
+  and what stays.
 - Road **model**. **suspension** (the default) replays each corner's
   suspension movement from the sim and adds the road's fine roughness a
   sim does not model: a random road laid out along the track (`rough
@@ -375,7 +375,8 @@ Development branch. Nothing here is in a release yet.
   both played on one axis: a slow pulsing at speed in the top gears, where
   the two sat a few Hz apart. The new **whine pitch** puts the whine below
   the buzz (the default), an octave down or above it; "with the buzz"
-  keeps the old sound.
+  keeps the old placement. On a control loop slower than about 1.5 kHz
+  (a PC) "above" plays an octave down: the loop cannot carry it.
 - ABS played through its slip link with the ABS tile's amp at 0, so a car
   without ABS (its car-table amp 0) still judder-locked the tyres through
   half of every stop when slip link was ticked from the last car. Amp 0 is

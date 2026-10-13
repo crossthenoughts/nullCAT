@@ -17,7 +17,8 @@
 // Underrun (the RT loop stalled, or the loop stopped and the idle clock
 // has not taken over): the last frame is held and faded over a few
 // milliseconds, a pause rather than a click. Overrun (the audio side
-// stalled): the oldest frames are dropped, the cycle is never blocked.
+// stalled): new frames are dropped while the ring is full, the cycle is
+// never blocked, and the audio side skips to the newest when it wakes.
 //
 // Deterministic: render() is pure arithmetic on the ring, so the whole
 // chain is unit-tested without a device (ShakerOutput owns the device).
@@ -55,6 +56,9 @@ namespace shaker_k {
     // Level meter: the peak, released over this time constant, so a status
     // read at any moment sees the level, not one point on the waveform.
     constexpr double kMeterReleaseSec = 0.3;
+    // A ring within this of full at a callback: the audio side stalled and
+    // the producer has been dropping frames; skip to the target.
+    constexpr int    kSkipMargin   = 4;
 }
 
 class ShakerDsp
@@ -99,15 +103,18 @@ public:
         using namespace shaker_k;
         const int ch = m_channels;
         Read& rd = m_read;
+        // Woken after a stall to a full ring: the newest frames, at the
+        // target, not ones a stall old (only this side moves the read
+        // position, so no slot is ever written while it is read).
+        if (const int n = m_ring.size(); n >= SHAKER_RING - kSkipMargin) { m_ring.skip(n - m_target); rd.frac = 0.0; }
         for (int i = 0; i < frames; ++i)
         {
             // Servo: aim for the target; trim the step within +-kServoMaxTrim.
             const double err = (m_ring.size() - m_target) / static_cast<double>(m_target);
             m_trim = std::max(-kServoMaxTrim, std::min(kServoMaxTrim, kServoMaxTrim * err));
             const double step = m_stepNom * (1.0 + m_trim);
-            const float* a = m_ring.peek(0);
-            const float* b = a ? m_ring.peek(1) : nullptr;
-            const bool feeding = (a && b);
+            const float* a = nullptr; const float* b = nullptr;
+            const bool feeding = m_ring.pair(a, b);
             if (feeding)
             {
                 rd.fade = std::min(1.0, rd.fade + m_fadeStep);
@@ -165,7 +172,10 @@ private:
     }
 
     // Single-producer single-consumer ring of frames (every channel's
-    // sample for one control cycle in one slot, published together).
+    // sample for one control cycle in one slot, published together). Only
+    // the consumer moves the tail: a full ring drops the producer's new
+    // frame, so the producer never writes a slot the consumer may be
+    // reading (it writes at head, at least two past the two it reads).
     struct Ring
     {
         float buf[SHAKER_RING][MAX_SHAKERS] = {};
@@ -178,19 +188,22 @@ private:
         void push(const double* samples, int n, int channels)
         {
             const uint32_t h = head.load(std::memory_order_relaxed);
-            if (static_cast<int>(h - tail.load(std::memory_order_acquire)) >= SHAKER_RING)
-                tail.fetch_add(1, std::memory_order_acq_rel);   // full: drop the oldest
+            if (static_cast<int>(h - tail.load(std::memory_order_acquire)) >= SHAKER_RING) return;   // full: dropped
             float* slot = buf[h % SHAKER_RING];
             for (int c = 0; c < channels; ++c) slot[c] = static_cast<float>(c < n ? samples[c] : 0.0);
             head.store(h + 1, std::memory_order_release);
         }
-        const float* peek(int offset) const
+        // The two frames at the read position (false: not both there yet).
+        bool pair(const float*& a, const float*& b) const
         {
             const uint32_t t = tail.load(std::memory_order_relaxed);
-            if (static_cast<int>(head.load(std::memory_order_acquire) - t) <= offset) return nullptr;
-            return buf[(t + static_cast<uint32_t>(offset)) % SHAKER_RING];
+            if (static_cast<int>(head.load(std::memory_order_acquire) - t) < 2) return false;
+            a = buf[t % SHAKER_RING];
+            b = buf[(t + 1) % SHAKER_RING];
+            return true;
         }
-        void pop() { tail.fetch_add(1, std::memory_order_acq_rel); }
+        void pop()       { tail.store(tail.load(std::memory_order_relaxed) + 1, std::memory_order_release); }
+        void skip(int n) { if (n > 0) tail.store(tail.load(std::memory_order_relaxed) + static_cast<uint32_t>(n), std::memory_order_release); }
     };
     // The read position, shared by every channel.
     struct Read

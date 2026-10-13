@@ -8,15 +8,17 @@
 //        that runs 100 ppm fast, and against one 100 ppm slow;
 //   S-3  an underrun (producer stops) holds and fades to silence in a few
 //        ms, no click; counted once; refilling resumes;
-//   S-4  a producer that floods never blocks and never corrupts (oldest
-//        dropped), the ring stays bounded;
+//   S-4  a producer that floods never blocks and never corrupts (new
+//        frames dropped while full), the ring stays bounded;
 //   S-5  a constant input is blocked to zero (DC block); overdrive soft
 //        clips below 1.0; per-channel gain; channels are independent;
 //   S-6  the ring is held at ~12 ms (and at least 2.5 device periods), not
 //        half its size: a pushed edge reaches the output that soon;
 //   S-7  channels stay in step: after minutes of a bursty, drifting
 //        producer an edge on every channel lands on the same frame;
-//   S-8  the level meter reads a tone's level whenever it is read.
+//   S-8  the level meter reads a tone's level whenever it is read;
+//   S-9  after an audio stall that filled the ring, the next callback
+//        skips to the newest frames: the latency is back at once.
 #include "../src/ShakerDsp.h"
 #include <cmath>
 #include <cstdio>
@@ -50,7 +52,8 @@ struct Harness
     double fillSum = 0.0, trimSum = 0.0; int samples = 0;   // per rendered block, for averages
     Harness(double cHz, double oHz, int ch, double producerRatio = 1.0) : controlHz(cHz), outHz(oHz), ratio(producerRatio)
     { dsp.configure(cHz, oHz, ch); }
-    template <class Gen> void run(int frames, Gen gen, bool produce = true)
+    // keep = false: render without recording (a long run in a few MB).
+    template <class Gen> void run(int frames, Gen gen, bool produce = true, bool keep = true)
     {
         const int ch = dsp.channels();
         std::vector<float> blk;
@@ -73,7 +76,7 @@ struct Harness
             }
             blk.assign(static_cast<size_t>(n * ch), 0.0f);
             dsp.render(blk.data(), n);
-            out.insert(out.end(), blk.begin(), blk.end());
+            if (keep) out.insert(out.end(), blk.begin(), blk.end());
             done += n;
             fillSum += dsp.fill(0); trimSum += dsp.trim(); ++samples;
         }
@@ -228,7 +231,7 @@ int main()
         for (const double ratio : { 1.0 + 100e-6, 1.0 - 100e-6 })
         {
             Harness h(2000.0, 48000.0, 4, ratio); h.dsp.setPeriodFrames(240); prime(h);
-            h.run(48000 * 180, [](double t, double* s) { for (int c = 0; c < 4; ++c) s[c] = 0.3 * std::sin(2 * kPi * (30.0 + 10.0 * c) * t); });
+            h.run(48000 * 180, [](double t, double* s) { for (int c = 0; c < 4; ++c) s[c] = 0.3 * std::sin(2 * kPi * (30.0 + 10.0 * c) * t); }, true, false);
             h.run(48000, [](double, double* s) { for (int c = 0; c < 4; ++c) s[c] = 0.0; });   // settle on silence
             const size_t from = h.out.size() / 4;
             const double edgeAt = h.tCtrl;
@@ -270,6 +273,28 @@ int main()
         check(other < 0.01, "S-8 the silent channels read silent");
         h.run(48000 * 2, [](double, double* s) { s[1] = 0.0; });
         check(h.dsp.level(1) < 0.01, "S-8 the reading releases once the tone stops");
+    }
+
+    // ---- S-9 ----
+    {
+        // The audio side stalls 200 ms (the producer keeps pushing: the
+        // ring fills and new frames are dropped); on waking it skips to the
+        // newest, so an edge pushed right after lands within the ring's
+        // ~12 ms, not a full ring (128 ms) later.
+        Harness h(2000.0, 48000.0, 2); h.dsp.setPeriodFrames(240); prime(h);
+        h.run(48000, [](double, double* s) { s[0] = s[1] = 0.0; });
+        double z[haptics::MAX_SHAKERS] = {};
+        for (int i = 0; i < 400; ++i) { h.dsp.push(z, 2); h.tCtrl += 1.0 / 2000.0; }
+        check(h.dsp.fill(0) == haptics::SHAKER_RING, "S-9 a stall fills the ring (new frames dropped, none overwritten)");
+        const size_t from = h.out.size() / 2;
+        const double edgeAt = h.tCtrl;
+        h.run(4800, [&](double t, double* s) { s[0] = s[1] = (t >= edgeAt) ? 0.5 : 0.0; });
+        const auto v = h.chan(0, from, from + 4800);
+        size_t first = v.size();
+        for (size_t i = 0; i < v.size(); ++i) if (std::fabs(v[i]) > 0.1) { first = i; break; }
+        const double delayMs = 1000.0 * first / 48000.0;
+        std::printf("  S-9 edge delay right after a stall: %.1f ms\n", delayMs);
+        check(delayMs < 25.0, "S-9 after a stall the next callback skips to the newest: the delay is back at once (not a full ring, 128 ms)");
     }
 
     std::printf("\nTestShakerDsp: %d passed, %d failed\n", g_pass, g_fail);

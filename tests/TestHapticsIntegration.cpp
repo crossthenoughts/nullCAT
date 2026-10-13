@@ -223,7 +223,7 @@ int main()
         mc.enqueueCommand(f);
         for (int i = 0; i < 5; ++i) mc.hapticsIdleTick(frame(100.0, true));
         const double muted = mc.getMotionStatus().hapticsFxLevel[fx];
-        check(live > 0.5 && muted == 0.0, "I-5b loop stopped: a tile mute takes effect on the idle clock");
+        check(live > 0.5 && muted == 0.0, "I-5b loop stopped: a tile mute reaches the layer on the idle clock (its felt level 0)");
     }
 
     // ---- I-6: e-stop clears instantly ----
@@ -703,8 +703,41 @@ int main()
                 check(nearest[1] >= 0.199 && nearest[2] >= 0.199 && nearest[3] >= 0.199,
                       "I-8 whine pitch: below, octave down and above stay 20%+ off the buzz in every gear");
                 check(carried, "I-8 whine pitch: never past what the loop can carry");
+                // The octave is the gear's, chosen at the redline: an rpm
+                // sweep never steps the pitch down (picked from the revs now,
+                // above the buzz fell an octave mid-rev on this 500 Hz loop).
+                bool rising = true;
+                for (int pch = 0; pch < 4; ++pch)
+                {
+                    dd.whinePitch = pch; L.configureDriveline(dd);
+                    for (int g = 1; g <= 6; ++g)
+                    {
+                        // Back to 1000 rpm and held there first: 7000 to 1000
+                        // in one sample is a junk frame to the rpm guard.
+                        set(NcxValues::Gear, g); set(NcxValues::Rpm, 1000.0); settleD(300);
+                        double last = L.drivelineWhineHz();
+                        for (double rpm = 1250.0; rpm <= 7000.0; rpm += 250.0)
+                        {
+                            set(NcxValues::Rpm, rpm); settleD(2);
+                            rising = rising && L.drivelineWhineHz() >= last - 1e-9;
+                            last = L.drivelineWhineHz();
+                        }
+                    }
+                }
+                check(rising, "I-8 whine pitch: an rpm sweep never steps the pitch down (every choice and gear)");
+                // On the Pi's 2 kHz loop, above sits above the buzz in every gear.
+                const double dt2 = 0.0005;
+                dd.whinePitch = 3.0; L.configureDriveline(dd);
+                double lowest = 9.0;
+                for (int g = 1; g <= 6; ++g)
+                {
+                    set(NcxValues::Gear, g); set(NcxValues::Rpm, 6500.0);
+                    for (int i = 0; i < 4; ++i) { haptics::driveLaws(L, st, v, dt2); L.step(dt2); }
+                    lowest = std::min(lowest, L.drivelineWhineHz() / haptics::EngineModel::buzzHz(eg, 6500.0 / 60.0, 7000.0, dt2));
+                }
+                check(lowest >= 1.199, "I-8 whine pitch: above the buzz sits above it on a 2 kHz loop");
                 dd.whinePitch = 0.0; L.configureDriveline(dd);
-                set(NcxValues::Gear, 0.0); settleD(300);
+                set(NcxValues::Rpm, 3500.0); set(NcxValues::Gear, 0.0); settleD(300);
             }
 
             // Shunt: in 3rd, rolling, the throttle snapping from 0 to 80 within
@@ -1763,6 +1796,20 @@ int main()
             s0 = shifts();
             v.val[NcxValues::Gear] = 0.0; run(0.15); v.val[NcxValues::Gear] = 4.0; run(0.3);
             check(shifts() - s0 == 1, "I-15 gear: dog box off throttle, one knock (no engagement knock)");
+            // A blipped downshift: off the throttle as it leaves, on it as the
+            // next gear goes in: the dogs engage under power, so it knocks.
+            s0 = shifts();
+            v.val[NcxValues::Gear] = 0.0; run(0.15); v.val[NcxValues::ThrottlePct] = 80.0; v.val[NcxValues::Gear] = 3.0; run(0.3);
+            check(shifts() - s0 == 2, "I-15 gear: dog box, blipped downshift: the engagement knock as the gear goes in");
+            // Ignore neutral switched on mid-shift (after the knock into N):
+            // the gear going in knocks as with it off, no third knock.
+            v.val[NcxValues::ThrottlePct] = 0.0;
+            dpar.gearbox = 0.0; dpar.ignoreN = 0.0; L.configureDriveline(dpar);
+            s0 = shifts();
+            v.val[NcxValues::Gear] = 0.0; run(0.1);
+            dpar.ignoreN = 1.0; L.configureDriveline(dpar);
+            v.val[NcxValues::Gear] = 4.0; run(0.3);
+            check(shifts() - s0 == 2, "I-15 gear: ignore neutral switched on mid-shift: two knocks, as it was off when the shift began");
         }
         // A junk engine speed (Automobilista 2 sent 191,105 rpm once, with
         // the plugin's limiter flag set from it) is not taken: the last one

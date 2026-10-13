@@ -1068,7 +1068,7 @@ function devAxes(){ return ((cfgObj&&cfgObj.drives)||[]).map((d,i)=>({d,i})).fil
    param with opts renders as a choice), and the tip. */
 let HAP_FX=[], HAP_DEF={};
 // The hover note on a setting the car table sets (tinted on the tile).
-const HAP_CARKEY_TIP='Follows the car: the car table sets this when you drive a car it knows (follow car, or pull), and "save for this car" keeps yours. Untinted settings are general: a new car leaves them as they are.';
+const HAP_CARKEY_TIP='Follows the car: a car\'s entry in the car table can set this (follow car, or pull), and "save for this car" keeps yours. Untinted settings are general: a new car leaves them as they are.';
 /* The sim channel token registry also comes from the schema (NcxTokens.h):
    the bindings editor's list, the order of the status ncxHave[] array, the
    wire's slot count, and the route parts the per-wheel effects take. */

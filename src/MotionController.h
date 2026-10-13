@@ -363,6 +363,11 @@ public:
     void    requestLatRelearn() { m_hapLatRelearn.store(true, std::memory_order_release); }
     // The Wheels tile's fresh tyres: flat spots and hot discs gone.
     void    requestFreshTyres() { m_hapFreshTyres.store(true, std::memory_order_release); }
+    // A tile's mute as asked (registry effect id), before a clock applies it.
+    bool    hapticsTileMuted(int id) const
+    {
+        return id >= 0 && id < 64 && ((m_hapMuteMask.load(std::memory_order_acquire) >> id) & 1ull);
+    }
     CommandConditioner::GuardStats getGuardStats(int i) const
     {
         if (i < 0 || i >= MAX_DRIVES) return {};

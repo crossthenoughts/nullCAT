@@ -66,6 +66,7 @@ public:
         const EffectParams& p = m_params[static_cast<int>(t)];
         if (p.ampPct <= 0.0 || p.durMs <= 0.0) return;
         if (scale <= 0.0) return;
+        if (m_evMute[static_cast<int>(t)]) return;   // a muted tile: nothing plays, nothing counts as played
         if (scale > 1.0) scale = 1.0;
 
         Event* e = nullptr;

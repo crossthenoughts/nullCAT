@@ -199,7 +199,7 @@ namespace laws_k {
     // above it. All but the first stay at least 20% off the buzz.
     constexpr double kWhineLow[4]      = { 0.70, 0.62, 0.35, 1.20 };
     constexpr double kWhineHigh[4]     = { 1.00, 0.80, 0.50, 1.50 };
-    constexpr double kWhineSamplesPerCycle = 8.0;  // a pitch the loop cannot carry this well drops an octave
+    constexpr double kWhineSamplesPerCycle = 8.0;  // a gear whose redline pitch the loop cannot carry this well drops an octave
     constexpr double kWhineLoadFloor   = 0.3;      // straight-cut gears whine unloaded too, louder under load
     constexpr double kWhineMinRpm      = 500.0;
     // Shunt: the throttle crossing its zero-torque point fast.
@@ -1368,13 +1368,22 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 const bool clutchOpen = v.have[NcxValues::ClutchPct] && v.val[NcxValues::ClutchPct] > kClutchSlipHi;
                 if (g != 0 && !clutchOpen)
                 {
-                    const double maxRpm = (L.engineParams().maxRpm > 0.0) ? L.engineParams().maxRpm : L.learnedMaxRpm();
+                    const EngineParams& ep = L.engineParams();
+                    const double rpm    = v.val[NcxValues::Rpm];
+                    const double maxRpm = (ep.maxRpm > 0.0) ? ep.maxRpm : L.learnedMaxRpm();
                     const int    pitch  = std::max(0, std::min(3, static_cast<int>(dp.whinePitch + 0.5)));
                     const double gearX  = (std::min(6.0, static_cast<double>(std::abs(g))) - 1.0) / 5.0;
                     const double ratio  = kWhineLow[pitch] + (kWhineHigh[pitch] - kWhineLow[pitch]) * gearX;
-                    whz = EngineModel::buzzHz(L.engineParams(), v.val[NcxValues::Rpm] / 60.0, maxRpm, dtSec) * ratio;
+                    // A pitch the loop cannot carry drops an octave, chosen
+                    // from the gear's pitch at the redline (the revs now, past
+                    // it), so it holds through the rev range: picked from the
+                    // revs now it fell an octave mid-rev (above the buzz on a
+                    // 500 Hz loop turned below it from 4700 rpm).
                     const double top = (1.0 / std::max(1e-4, dtSec)) / kWhineSamplesPerCycle;
-                    while (whz > top) whz *= 0.5;
+                    const double ref = EngineModel::buzzHz(ep, std::max(rpm, maxRpm) / 60.0, maxRpm, dtSec) * ratio;
+                    double octave = 1.0;
+                    while (ref * octave > top) octave *= 0.5;
+                    whz = EngineModel::buzzHz(ep, rpm / 60.0, maxRpm, dtSec) * ratio * octave;
                     const double load = v.have[NcxValues::ThrottlePct] ? std::max(0.0, std::min(1.0, v.val[NcxValues::ThrottlePct] / 100.0)) : 0.5;
                     wl = kWhineLoadFloor + (1.0 - kWhineLoadFloor) * load;
                 }
@@ -1423,7 +1432,8 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
     // (the N the sim shows mid-shift, 130 to 190 ms in Automobilista 2,
     // settled), and the gear it lands in within kNeutralHeldSec is the same
     // shift: no knock of its own (knocking there came 200 ms late), only a
-    // dog box's engagement knock if it left under power, as the dogs go in.
+    // dog box's engagement knock as the dogs go in, if it left under power
+    // or goes in under power (a blipped downshift).
     // A neutral held longer is a real one: the gear after it knocks. Off,
     // going into neutral and into the next gear knock separately. A junk
     // gear frame (dropped above) leaves it where it was. Edge state seeds on

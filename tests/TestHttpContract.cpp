@@ -223,7 +223,10 @@ int main()
           && has(post("/api/haptics/mute", "{\"effect\":\"driveline\",\"on\":false}"), "\"ok\":true")
           && has(post("/api/haptics/mute", "{\"effect\":\"nope\",\"on\":true}"), "Unknown effect"),
           "POST /api/haptics/mute one tile accepted, an unknown tile refused");
-    check(has(get("/api/status"), "\"hapMute\":[false,"), "GET /api/status carries each tile's mute");
+    check(has(get("/api/status"), "\"hapMute\":[false,"), "GET /api/status carries the tiles' mute list");
+    check(has(post("/api/haptics/mute", "{\"effect\":\"driveline\",\"on\":1}"), "\"ok\":true")
+          && has(post("/api/haptics/mute", "{\"effect\":\"driveline\",\"on\":0}"), "\"ok\":true"),
+          "POST /api/haptics/mute takes 1/0 as well as true/false");
     check(has(get("/api/haptics/schema"), "\"carKeys\":[\"ampPct\",\"jitter\",\"clutch\"")
           && has(get("/api/haptics/schema"), "\"carKeys\":[]") && has(get("/api/haptics/schema"), "\"id\":0"),
           "GET /api/haptics/schema marks the settings that follow the car, per tile");

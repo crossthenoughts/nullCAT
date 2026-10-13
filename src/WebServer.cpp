@@ -1477,6 +1477,8 @@ bool WebServer::start()
             { errResp(res, "Effect has no route in the saved config: open its route chip, set a gain, then Save."); return; }
             if (sc.hapticsMasterGain <= 0.0)
             { errResp(res, "Master gain is 0: nothing can be felt."); return; }
+            if (m_motion->hapticsTileMuted(static_cast<int>(info->id)))
+            { errResp(res, "This effect is muted: unmute it (its M) to test it."); return; }
 
             const MotionStatus ms = m_motion->getMotionStatus();
             bool routedLive = false;
@@ -1926,7 +1928,9 @@ bool WebServer::start()
             if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
             const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(req.body));
             const QJsonObject o = doc.isObject() ? doc.object() : QJsonObject();
-            const bool on = o.contains("on") ? o.value("on").toBool() : (req.body.find("true") != std::string::npos);
+            const QJsonValue ov = o.value("on");
+            const bool on = ov.isBool() ? ov.toBool() : ov.isDouble() ? (ov.toDouble() != 0.0)
+                          : (req.body.find("true") != std::string::npos);
             MotionCommand cmd;
             if (o.contains("effect"))
             {

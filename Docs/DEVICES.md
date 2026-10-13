@@ -213,8 +213,9 @@ budget or the slip, road and kerb tiles. Those are your rig's, and they
 stay exactly as you set them when an entry is applied. So the rig-level
 trim lives in the routes (a 0.3 gain on the Engine route instead of 0.7)
 and the car-level feel moves with the car. On the tiles, the settings a
-car's entry sets have a faint tint; everything untinted stays put when the
-car changes.
+car's entry can set have a faint tint (your own saved entries carry all of
+them; the shipped ones all but the diff's strength and the engine's TC
+cut); everything untinted stays put when the car changes.
 
 The **car** row on the Master tile shows the car the sim is naming and
 what the table has for it (`Mazda 787B · stock`, `· yours` for your own

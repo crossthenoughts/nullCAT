@@ -339,7 +339,8 @@ constexpr ParamHelp kHelp[] = {
     { "driveline", "whinePitch",
       "Where the whine sits against the Engine tile's buzz, both rising with the revs. With the buzz: close to it, "
       "and in the top gears the two beat into a slow pulsing. Below the buzz: a little under it, no pulsing. "
-      "Octave down: a deeper hum under the engine. Above the buzz: a finer tone over it. Below for most." },
+      "Octave down: a deeper hum under the engine. Above the buzz: a finer tone over it (on a PC's slower control "
+      "loop it plays an octave down: the loop cannot carry it). Below for most." },
     { "driveline", "shunt",
       "Backlash taking up when the throttle snaps open or shut, 0 to 1. Road car: 0.3 to 0.5. GT3: 0.4 to 0.7. "
       "Single-seater: 0.5 to 0.8." },
