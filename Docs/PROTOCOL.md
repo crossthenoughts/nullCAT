@@ -58,7 +58,10 @@ state effects and the haptic layer. The wire carries numbers only;
 (each binding: channel slot, token, scale, offset). The recommended
 default slot order matches the token table below, making default configs
 scale 1, offset 0. A sender may stop at any slot: channels it does not
-send are simply absent (their effects stay inert).
+send are simply absent (their effects stay inert). Slots are counted by
+position: a field left empty, or holding something that is not a number,
+leaves that one slot absent and the slots after it keep their places. A motion line (`NULLCAT`) is different: there
+a bad field is skipped and the values after it close up.
 
 Channel staleness fail-safe: if the channel stream (NULLCATX or NULLCATY)
 stops for 500 ms, all channel-driven behaviour (shift blocking, grind,

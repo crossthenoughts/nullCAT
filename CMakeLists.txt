@@ -510,6 +510,17 @@ add_executable(TestShakerDsp tests/TestShakerDsp.cpp)
 target_include_directories(TestShakerDsp PRIVATE ${TEST_INCLUDE_DIRS})
 target_compile_options(TestShakerDsp PRIVATE /W3 /Zc:__cplusplus)
 add_test(NAME TestShakerDsp COMMAND TestShakerDsp)
+# The telemetry wire format and the channel store (parse, ingest, the
+# freshness verdicts, the recorder, the receive path on a loopback
+# socket): plain C++, no Qt. Was Pi-only; the parser is platform-neutral
+# and the socket part is Winsock-guarded in TelemetryInput.cpp.
+add_executable(TestTelemetryParse tests/TestTelemetryParse.cpp src/TelemetryInput.cpp src/Logging.cpp)
+target_include_directories(TestTelemetryParse PRIVATE ${TEST_INCLUDE_DIRS})
+target_compile_definitions(TestTelemetryParse PRIVATE ${TEST_COMPILE_DEFS})
+target_compile_options(TestTelemetryParse PRIVATE /W3 /Zc:__cplusplus)
+target_link_libraries(TestTelemetryParse PRIVATE ws2_32)
+add_test(NAME TestTelemetryParse COMMAND TestTelemetryParse)
+set_tests_properties(TestTelemetryParse PROPERTIES TIMEOUT 120)
 
 # ---- Build 72: TestInitSequence - EtherCATMaster init sequence (sim mode) ----
 #

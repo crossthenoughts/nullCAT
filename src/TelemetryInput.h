@@ -48,8 +48,13 @@ struct TelemetryData
     // packet (the two streams run at independent rates; an Ncx packet never
     // touches the motion fields and vice versa). ncxFresh is the fail-safe:
     // consumers go inert when the stream stops (<500 ms window).
+    // Slots are POSITIONAL: field k on the line is slot k, always. A field
+    // that is empty or not a number keeps its slot (ncxHave[k] false, value
+    // 0) so every later slot still means what the sender's order says;
+    // numNcx counts up to the last slot that is present.
     int             numNcx                   = 0;
     double          ncx[MAX_NCX_CHANNELS]    = {};
+    bool            ncxHave[MAX_NCX_CHANNELS] = {};
     bool            ncxFresh                 = false;
     bool            ncxFrozen                = false;   // arriving but unchanged for NCX_FROZEN_MS
     // NULLCATY named values: per token, present + value. A parsed Ncy
@@ -186,6 +191,7 @@ private:
     // separate from m_latestData so neither stream clobbers the other.
     int     m_ncxCount = 0;
     double  m_ncxVals[MAX_NCX_CHANNELS] = {};
+    bool    m_ncxHave[MAX_NCX_CHANNELS] = {};
     std::atomic<int64_t> m_lastNcxPacketMs{0};
     std::atomic<int64_t> m_lastNcxChangeMs{0};   // last packet whose numbers differed
     std::atomic<int64_t> m_frozenMs{0};          // guard window, 0 = off

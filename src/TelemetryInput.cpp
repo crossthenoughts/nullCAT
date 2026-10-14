@@ -16,8 +16,12 @@
 
 #ifdef _WIN32
   // Include Winsock BEFORE any other Windows headers
-  #define WIN32_LEAN_AND_MEAN
-  #define NOMINMAX
+  #ifndef WIN32_LEAN_AND_MEAN
+    #define WIN32_LEAN_AND_MEAN
+  #endif
+  #ifndef NOMINMAX
+    #define NOMINMAX
+  #endif
   #include <winsock2.h>
   #include <ws2tcpip.h>
 #else
@@ -307,9 +311,10 @@ bool TelemetryInput::ingest(const TelemetryData& parsed)
             {
                 numeric = parsed.numNcx > 0;
                 changed = parsed.numNcx != m_ncxCount;
-                for (int i = 0; i < parsed.numNcx && !changed; ++i) changed = parsed.ncx[i] != m_ncxVals[i];
+                for (int i = 0; i < parsed.numNcx && !changed; ++i)
+                    changed = parsed.ncxHave[i] != m_ncxHave[i] || parsed.ncx[i] != m_ncxVals[i];
                 m_ncxCount = parsed.numNcx;
-                for (int i = 0; i < parsed.numNcx; ++i) m_ncxVals[i] = parsed.ncx[i];
+                for (int i = 0; i < parsed.numNcx; ++i) { m_ncxVals[i] = parsed.ncx[i]; m_ncxHave[i] = parsed.ncxHave[i]; }
             }
             else
             {
@@ -460,7 +465,7 @@ TelemetryData TelemetryInput::getLatestData() const
     std::lock_guard<std::mutex> lock(m_dataMutex);
     TelemetryData d = m_latestData;
     d.numNcx = m_ncxCount;
-    for (int i = 0; i < m_ncxCount; ++i) d.ncx[i] = m_ncxVals[i];
+    for (int i = 0; i < m_ncxCount; ++i) { d.ncx[i] = m_ncxVals[i]; d.ncxHave[i] = m_ncxHave[i]; }
     for (int t = 0; t < NcxTok::TokenCount; ++t) { d.ncyHave[t] = m_ncyHave[t]; d.ncy[t] = m_ncyVals[t]; }
     std::memcpy(d.game,  m_ncyGame,  NCY_STR_LEN);
     std::memcpy(d.car,   m_ncyCar,   NCY_STR_LEN);
@@ -529,7 +534,10 @@ void TelemetryInput::shutdown()
 //                                          device state effects. The wire
 //                                          carries plain numbers; MEANING is
 //                                          assigned by the rig's ncxBindings
-//                                          config. Same port, own rate;
+//                                          config, by POSITION: field k is
+//                                          slot k, and a bad field leaves
+//                                          slot k absent (never shifts the
+//                                          rest). Same port, own rate;
 //                                          either stream runs without the
 //                                          other.
 //   NULLCATY,<key>=<value>,...\n         -- the same channels by NAME (a
@@ -646,11 +654,17 @@ bool TelemetryInput::parsePacket(const char* buf, int len, TelemetryData& out)
     double*   dst    = isNcx ? out.ncx : out.positions;
     const int dstCap = isNcx ? MAX_NCX_CHANNELS : MAX_DRIVES;
     int&      dstN   = isNcx ? out.numNcx : out.numPositions;
+    for (bool& h : out.ncxHave) h = false;
 
-    // Fields: comma-separated numerics; empty/garbage fields are skipped and
-    // the position array COMPACTS (pinned behavior).
+    // Fields: comma-separated numerics. Motion line: an empty/garbage field
+    // is skipped and the position array COMPACTS (pinned legacy behaviour).
+    // Channel line: slots are positional (field k is slot k, whatever the
+    // fields before it held), a bad field leaves its slot absent, so a
+    // sender that drops one value never shifts every value after it onto
+    // the wrong effect. TestTelemetryParse pins both.
     const char* f   = comma + 1;
-    while (f <= end && dstN < dstCap)
+    int slot = 0;                      // Ncx: the field's position on the line
+    while (f <= end && (isNcx ? slot : dstN) < dstCap)
     {
         const char* fc = static_cast<const char*>(
             std::memchr(f, ',', static_cast<size_t>(end - f)));
@@ -660,16 +674,26 @@ bool TelemetryInput::parsePacket(const char* buf, int len, TelemetryData& out)
         while (b > a && std::isspace(static_cast<unsigned char>(b[-1]))) --b;
 
         const int flen = static_cast<int>(b - a);
+        bool   have = false;
+        double val  = 0.0;
         if (flen > 0 && flen < kMaxFieldLen)
         {
             char fld[kMaxFieldLen];   // stack only; NUL terminator for strtod
             std::memcpy(fld, a, static_cast<size_t>(flen));
             fld[flen] = '\0';
             char* endp = nullptr;
-            const double val = std::strtod(fld, &endp);
-            if (endp != fld)
-                dst[dstN++] = val;
+            val  = std::strtod(fld, &endp);
+            have = (endp != fld);
         }
+        if (isNcx)
+        {
+            out.ncx[slot]     = have ? val : 0.0;
+            out.ncxHave[slot] = have;
+            if (have) dstN = slot + 1;   // up to the last present slot
+            ++slot;
+        }
+        else if (have)
+            dst[dstN++] = val;
 
         if (!fc) break;
         f = fc + 1;

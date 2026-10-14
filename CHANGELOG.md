@@ -356,6 +356,11 @@ Development branch. Nothing here is in a release yet.
   rig keeps its own values: change them on the tile.
 
 ### Fixed
+- A `NULLCATX` channel line with one field left empty or unreadable
+  shifted every channel after it one slot along (the gear binding would
+  read the clutch, and so on down the line). A bad field now leaves its
+  own slot empty and the rest stay where the sender put them. Motion
+  lines (`NULLCAT`) are unchanged.
 - With follow car on, a car the car table had no entry for kept the last
   car's engine, limiter, driveline, ABS and TC (a Mini played a truck's
   12.9 litre engine). In a game the table covers (Assetto Corsa,

@@ -135,8 +135,24 @@ int main()
         d = parse("nullcatx,1.0", &ok);
         check(ok && d.packetType == TelemetryPacketType::Ncx,
               "NULLCATX header is case-insensitive like NULLCAT");
+        // Slots are positional (B16): a bad field keeps its slot and is
+        // marked absent, so slot 3 is still 2.0 and the rpm/speed/gear
+        // bindings never slide onto a neighbour's value. Reverting the
+        // "if (isNcx)" branch of parsePacket to the compacting path gives
+        // numNcx == 2 with 2.0 in slot 1: every check below fails.
         d = parse("NULLCATX,1.0,,abc,2.0", &ok);
-        check(ok && d.numNcx == 2, "Ncx fields skip-and-compact like motion fields");
+        check(ok && d.numNcx == 4, "Ncx: a bad field keeps its slot (numNcx counts to the last present slot)");
+        check(d.ncxHave[0] && std::fabs(d.ncx[0] - 1.0) < 1e-12, "Ncx: slot 0 present");
+        check(!d.ncxHave[1] && d.ncx[1] == 0.0, "Ncx: an empty field is an absent slot (value 0)");
+        check(!d.ncxHave[2] && d.ncx[2] == 0.0, "Ncx: a non-numeric field is an absent slot (value 0)");
+        check(d.ncxHave[3] && std::fabs(d.ncx[3] - 2.0) < 1e-12, "Ncx: the field after the gap is STILL slot 3");
+        d = parse("NULLCATX,7,8,", &ok);
+        check(ok && d.numNcx == 2 && !d.ncxHave[2], "Ncx: a trailing empty field adds no slot");
+        parse("NULLCATX,,abc,", &ok);
+        check(!ok, "reject: an Ncx line with no present slot at all");
+        d = parse("NULLCAT,1.0,,abc,2.0", &ok);
+        check(ok && d.numPositions == 2 && std::fabs(d.positions[1] - 2.0) < 1e-12,
+              "the motion line still compacts (axis values, pinned legacy behaviour)");
         parse("NULLCATXX,1.0", &ok);
         check(!ok, "reject: NULLCATXX is not a header");
         parse("NULLCATX", &ok);
