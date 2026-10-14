@@ -24,12 +24,15 @@
 #include <QJsonArray>
 #include <QJsonValue>
 #include <QHash>
+#include <QSaveFile>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <cctype>
 #include <cmath>
 #include <stdexcept>
+#include <thread>
 
 // ---------- helpers ----------------------------------------------------------
 
@@ -758,22 +761,22 @@ Config::Config()
 void Config::setDefaults()
 {
     m_config = AppConfig{};
-    seedDefaultDrive();
+    seedDefaultDrive(m_config);
 }
 
-// Seed the default Drive 1 WITHOUT resetting m_config. load() calls this when
-// host.json exists but rig.json does not (a fresh install with a seeded
-// host.json): a full setDefaults() there would wipe the host fields that were
-// just read.
-void Config::seedDefaultDrive()
+// Seed the default Drive 1 WITHOUT resetting the rest of the config. load()
+// calls this when host.json exists but rig.json does not (a fresh install
+// with a seeded host.json): a full setDefaults() there would wipe the host
+// fields that were just read.
+void Config::seedDefaultDrive(AppConfig& c)
 {
     DriveConfig d;
     d.slaveIndex = 1;
     d.name       = "Drive 1";
     recomputeDerivedFields(d);
-    m_config.drives.clear();
-    m_config.drives.push_back(d);
-    m_config.numDrives = 1;
+    c.drives.clear();
+    c.drives.push_back(d);
+    c.numDrives = 1;
 }
 
 void Config::recomputeDerivedFields(DriveConfig& d)
@@ -794,25 +797,67 @@ static QString configDir(const std::string& anchorPath)
 static QString hostFile(const QString& dir) { return dir + "/host.json"; }
 static QString rigFile (const QString& dir) { return dir + "/rig.json";  }
 
-static bool readJsonObject(const QString& path, QJsonObject& out)
+// A JSON object file is one of three things to a load: not there (a cold
+// start, or the missing half of the pair), there but not readable as a JSON
+// object (truncated by a crash mid-write, a hand edit gone wrong; why in
+// err), or read. The two failures must never be confused: an absent file
+// gets defaults written, an unreadable one must not.
+enum class JsonRead { Absent, Unreadable, Ok };
+static JsonRead readJsonObject(const QString& path, QJsonObject& out, QString* err = nullptr)
 {
     QFile f(path);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
-    QByteArray data = f.readAll();
+    if (!f.exists()) return JsonRead::Absent;
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+    {
+        if (err) *err = f.errorString();
+        return JsonRead::Unreadable;
+    }
+    const QByteArray data = f.readAll();
     f.close();
     QJsonParseError pe;
-    QJsonDocument doc = QJsonDocument::fromJson(data, &pe);
-    if (pe.error != QJsonParseError::NoError || !doc.isObject()) return false;
+    const QJsonDocument doc = QJsonDocument::fromJson(data, &pe);
+    if (pe.error != QJsonParseError::NoError)
+    {
+        if (err) *err = pe.errorString() + QString(" at offset %1").arg(pe.offset);
+        return JsonRead::Unreadable;
+    }
+    if (!doc.isObject())
+    {
+        if (err) *err = "not a JSON object";
+        return JsonRead::Unreadable;
+    }
     out = doc.object();
-    return true;
+    return JsonRead::Ok;
 }
+// Written to a temporary file beside the target and renamed over it on
+// commit (QSaveFile), so a crash or a full disk mid-write leaves the old
+// file whole, never a truncated one: a truncated rig.json once read as
+// "no config" and the next start wrote defaults over the rig's tuning. A
+// stale <name>.tmp left by an interrupted web save is no obstacle
+// (QSaveFile names its own temporary). On Windows the rename can fail for
+// a few tens of ms while another reader (the native app's file watcher,
+// a virus scan) holds the target open; a short retry absorbs that.
 static bool writeJsonObject(const QString& path, const QJsonObject& obj)
 {
-    QFile f(path);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
-    f.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
-    f.close();
-    return true;
+    const QByteArray text = QJsonDocument(obj).toJson(QJsonDocument::Indented);
+    for (int attempt = 0; attempt < 8; ++attempt)
+    {
+        if (attempt > 0) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        QSaveFile f(path);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) continue;
+        f.write(text);
+        if (f.commit()) return true;
+    }
+    return false;
+}
+// A copy of a file beside it as <name>.bak, replacing an older one: taken
+// before load() rewrites a file (the retired-key migration), so the file
+// as the user had it is never gone.
+static bool backupFile(const QString& path)
+{
+    const QString bak = path + ".bak";
+    QFile::remove(bak);
+    return QFile::copy(path, bak);
 }
 // Overlay schema keys onto dst, leaving unknown keys already in dst untouched
 // (merge-on-save: user annotations / future-build fields survive).
@@ -867,22 +912,38 @@ bool Config::load(const std::string& anchorPath)
     const QString dir    = configDir(anchorPath);
 
     QJsonObject hostObj, rigObj;
-    const bool haveHost = readJsonObject(hostFile(dir), hostObj);
-    const bool haveRig  = readJsonObject(rigFile(dir),  rigObj);
+    QString hostErr, rigErr;
+    const JsonRead host = readJsonObject(hostFile(dir), hostObj, &hostErr);
+    const JsonRead rig  = readJsonObject(rigFile(dir),  rigObj,  &rigErr);
 
-    if (haveHost || haveRig)
+    // A file that is there but cannot be read is a hard stop, never a
+    // reason to run on defaults: the mains normalise the config to disk
+    // right after loading it, and every server-side apply saves, so
+    // defaults here would be written over whatever the file still holds.
+    // The config in memory stays as it was (a reload from the web keeps
+    // running on the set it had); the file is left for the user to fix.
+    if (host == JsonRead::Unreadable || rig == JsonRead::Unreadable)
+    {
+        const bool h = (host == JsonRead::Unreadable);
+        m_lastError = (h ? hostFile(dir) : rigFile(dir)).toStdString() + " cannot be read ("
+                    + (h ? hostErr : rigErr).toStdString()
+                    + "): fix or move the file; nothing has been written over it";
+        return false;
+    }
+
+    if (host == JsonRead::Ok || rig == JsonRead::Ok)
     {
         // ---- native two-file format (the steady state) ----
-        m_config = AppConfig{};
-        if (haveHost) readHostConfig(hostObj, m_config);
+        AppConfig c;
+        if (host == JsonRead::Ok) readHostConfig(hostObj, c);
         bool rewriteRig = false;
-        if (haveRig)
+        if (rig == JsonRead::Ok)
         {
-            m_config.configVersion = rigObj.value("configVersion").toInt(2);
-            readRigGlobal(rigObj.value("global").toObject(), m_config);
-            loadAxesArray(rigObj.value("axes").toArray(), m_config.drives);
-            int nd = rigObj.value("numDrives").toInt(static_cast<int>(m_config.drives.size()));
-            m_config.numDrives = std::max(1, std::min(nd, static_cast<int>(m_config.drives.size())));
+            c.configVersion = rigObj.value("configVersion").toInt(2);
+            readRigGlobal(rigObj.value("global").toObject(), c);
+            loadAxesArray(rigObj.value("axes").toArray(), c.drives);
+            int nd = rigObj.value("numDrives").toInt(static_cast<int>(c.drives.size()));
+            c.numDrives = std::max(1, std::min(nd, static_cast<int>(c.drives.size())));
             // A file carrying a haptic effect under a retired key (0.9.6
             // "skid"/"lockup") was read through the migration; rewrite it
             // once under the current keys so the web, which serves the file
@@ -896,9 +957,11 @@ bool Config::load(const std::string& anchorPath)
                 if (legacy && h.contains(legacy)) rewriteRig = true;
             }
         }
-        if (m_config.drives.empty()) seedDefaultDrive();
+        if (c.drives.empty()) seedDefaultDrive(c);
+        m_config = c;
         m_lastError.clear();
-        if (rewriteRig) saveRig(anchorPath);
+        // The one rewrite a load makes keeps the file as it was beside it.
+        if (rewriteRig && backupFile(rigFile(dir))) saveRig(anchorPath);
         return true;
     }
 
@@ -918,12 +981,14 @@ bool Config::load(const std::string& anchorPath)
 }
 
 // host.json - single writer (Qt on PC, web on Pi). Merge-on-save preserves
-// unknown keys already in the file.
+// unknown keys already in the file. A file that is there but unreadable is
+// never written over (the merge would have nothing to keep): the save
+// fails, as the load of it did.
 bool Config::saveHost(const std::string& anchorPath) const
 {
     const QString path = hostFile(configDir(anchorPath));
     QJsonObject existing;
-    readJsonObject(path, existing);            // ignore failure: empty -> fresh write
+    if (readJsonObject(path, existing) == JsonRead::Unreadable) return false;   // absent: a fresh write
     QJsonObject schema;
     writeHostConfig(m_config, schema);
     overlayKeys(existing, schema);
@@ -932,12 +997,13 @@ bool Config::saveHost(const std::string& anchorPath) const
 
 // rig.json - single writer (the web UI on both platforms). { configVersion,
 // numDrives, global:{...}, axes:[...] }. Unknown keys in global and per-axis
-// survive (merge-on-save); axes merge by slaveIndex.
+// survive (merge-on-save); axes merge by slaveIndex. Same rule as saveHost
+// for a file that is there but unreadable: never written over.
 bool Config::saveRig(const std::string& anchorPath) const
 {
     const QString path = rigFile(configDir(anchorPath));
     QJsonObject existing;
-    readJsonObject(path, existing);
+    if (readJsonObject(path, existing) == JsonRead::Unreadable) return false;
 
     QJsonObject globalMerged = existing.value("global").toObject();
     QJsonObject globalSchema;
@@ -979,7 +1045,7 @@ std::vector<std::string> Config::validateRigBody(const std::string& anchorPath,
 {
     AppConfig c;
     QJsonObject hostObj;
-    if (readJsonObject(hostFile(configDir(anchorPath)), hostObj))
+    if (readJsonObject(hostFile(configDir(anchorPath)), hostObj) == JsonRead::Ok)
         readHostConfig(hostObj, c);
 
     QJsonParseError pe;
@@ -1017,7 +1083,7 @@ std::vector<std::string> Config::validateHostBody(const std::string& anchorPath,
 {
     AppConfig c;
     QJsonObject rigObj;
-    if (readJsonObject(rigFile(configDir(anchorPath)), rigObj))
+    if (readJsonObject(rigFile(configDir(anchorPath)), rigObj) == JsonRead::Ok)
     {
         readRigGlobal(rigObj.value("global").toObject(), c);
         loadAxesArray(rigObj.value("axes").toArray(), c.drives);

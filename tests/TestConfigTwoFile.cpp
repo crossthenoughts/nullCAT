@@ -39,8 +39,87 @@ class TestConfigTwoFile : public QObject
     {
         QFile f(path); QVERIFY(f.open(QIODevice::WriteOnly)); f.write(bytes); f.close();
     }
+    static QByteArray readBytes(const QString& path)
+    {
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly)) return {};
+        return f.readAll();
+    }
 
 private slots:
+    // A rig.json that is there but cannot be read (truncated by a crash
+    // mid-write, the way a bench Pi lost its tuning) is a hard error: load
+    // fails naming the file, the file is left byte for byte as it was, the
+    // other file too, and the config in memory keeps what it had. Running
+    // on defaults instead let the boot normalise write them over the file.
+    // Reverting Config::load's Unreadable check (the "hard stop" block)
+    // makes load() return true here and the second QVERIFY fails.
+    void unreadableRig_loadFailsAndTouchesNothing()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        Config cfg; QVERIFY(cfg.load(anchor(dir).toStdString()));   // cold start writes the pair
+        cfg.get().drives[0].strokeMm = 123.0;
+        QVERIFY(cfg.saveRig(anchor(dir).toStdString()));
+        QVERIFY(cfg.load(anchor(dir).toStdString()));
+        QCOMPARE(cfg.get().drives[0].strokeMm, 123.0);
+
+        // Truncate rig.json mid-object, as a crash during a write would.
+        const QByteArray whole = readBytes(dir.path() + "/rig.json");
+        QVERIFY(whole.size() > 100);
+        const QByteArray cut = whole.left(whole.size() / 2);
+        writeText(dir.path() + "/rig.json", cut);
+        const QByteArray host0 = readBytes(dir.path() + "/host.json");
+
+        QVERIFY2(!cfg.load(anchor(dir).toStdString()), "an unreadable rig.json must fail the load, not read as defaults");
+        QVERIFY2(cfg.lastError().find("rig.json") != std::string::npos, cfg.lastError().c_str());
+        QCOMPARE(readBytes(dir.path() + "/rig.json"), cut);     // byte-identical: nothing written over it
+        QCOMPARE(readBytes(dir.path() + "/host.json"), host0);
+        QCOMPARE(cfg.get().drives[0].strokeMm, 123.0);          // the set in memory is kept
+
+        // The saves refuse too: the merge would have nothing to keep, and
+        // the file is the user's to fix.
+        QVERIFY(!cfg.saveRig(anchor(dir).toStdString()));
+        QCOMPARE(readBytes(dir.path() + "/rig.json"), cut);
+        // A zero-byte file is the common crash signature: the same hard stop.
+        writeText(dir.path() + "/rig.json", QByteArray());
+        QVERIFY(!cfg.load(anchor(dir).toStdString()));
+        QCOMPARE(readBytes(dir.path() + "/rig.json"), QByteArray());
+
+        // host.json unreadable with a good rig.json: the same, naming host.json.
+        writeText(dir.path() + "/rig.json", whole);
+        writeText(dir.path() + "/host.json", "{ \"nicName\": ");
+        QVERIFY(!cfg.load(anchor(dir).toStdString()));
+        QVERIFY2(cfg.lastError().find("host.json") != std::string::npos, cfg.lastError().c_str());
+        QCOMPARE(readBytes(dir.path() + "/host.json"), QByteArray("{ \"nicName\": "));
+        QCOMPARE(readBytes(dir.path() + "/rig.json"), whole);
+        QVERIFY(!cfg.saveHost(anchor(dir).toStdString()));
+        QCOMPARE(readBytes(dir.path() + "/host.json"), QByteArray("{ \"nicName\": "));
+        // Both good again: the load is back.
+        writeText(dir.path() + "/host.json", host0);
+        QVERIFY(cfg.load(anchor(dir).toStdString()));
+        QVERIFY(cfg.lastError().empty());
+    }
+
+    // The atomic writer (QSaveFile: a temporary of its own, renamed over
+    // the target on commit) must not be stopped by a stale rig.json.tmp
+    // beside the file, which an interrupted web save leaves behind, and
+    // must leave that file alone. (A truncating write passes this too; the
+    // truncation it guards against is a crash-time event, which the
+    // unreadable-file test above covers from the other side.)
+    void saveRig_landsBesideStaleTmp()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        Config cfg; QVERIFY(cfg.load(anchor(dir).toStdString()));
+        writeText(dir.path() + "/rig.json.tmp", "garbage left by an interrupted save");
+        cfg.get().drives[0].name = "Landed";
+        QVERIFY(cfg.saveRig(anchor(dir).toStdString()));
+        QJsonObject rig = readObj(dir.path() + "/rig.json");
+        QCOMPARE(rig.value("axes").toArray().at(0).toObject().value("name").toString(), QString("Landed"));
+        QCOMPARE(readBytes(dir.path() + "/rig.json.tmp"), QByteArray("garbage left by an interrupted save"));
+        Config back; QVERIFY(back.load(anchor(dir).toStdString()));
+        QCOMPARE(QString::fromStdString(back.get().drives[0].name), QString("Landed"));
+    }
+
     // Cold start: empty dir -> load() must leave a valid host.json + rig.json.
     void coldStart_writesValidTwoFiles()
     {
@@ -272,9 +351,14 @@ private slots:
         QJsonArray lr; { QJsonObject ro; ro["axis"] = 0; ro["gain"] = 0.8; lr.append(ro); } lockup["routes"] = lr;
         h["skid"] = skid; h["lockup"] = lockup;
         g["haptics"] = h; rig["global"] = g;
-        writeText(dir.path() + "/rig.json", QJsonDocument(rig).toJson());
+        const QByteArray legacyText = QJsonDocument(rig).toJson();
+        writeText(dir.path() + "/rig.json", legacyText);
 
         Config b; QVERIFY(b.load(anchor(dir).toStdString()));
+        // The one rewrite a load makes keeps the file as it was beside it
+        // (rig.json.bak, byte for byte). Reverting the backupFile call in
+        // Config::load fails the next line.
+        QCOMPARE(readBytes(dir.path() + "/rig.json.bak"), legacyText);
         const AppConfig& r = b.get();
         const haptics::EffectParams& lat = r.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)];
         const haptics::EffectParams& lon = r.hapticsFx[static_cast<size_t>(haptics::Effect::Lockup)];

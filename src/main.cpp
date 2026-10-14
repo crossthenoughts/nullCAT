@@ -98,10 +98,15 @@ int main(int argc, char* argv[])
 
     if (!config.load(cfgPath.toStdString()))
     {
-        // Config load failed - log the error but continue with defaults
-        // Logger not yet initialized, so print to stderr
-        fprintf(stderr, "Warning: Could not load config.json (%s). Using defaults.\n",
-                config.lastError().c_str());
+        // A host.json or rig.json that is there but cannot be read: refuse
+        // to start rather than run on defaults, which the first settings
+        // save would write over the file. The logger is not up yet, so the
+        // reason goes to stderr and a dialog; fix or move the file it names.
+        fprintf(stderr, "nullCAT: refusing to start: %s\n", config.lastError().c_str());
+        QMessageBox::critical(nullptr, "Config cannot be read",
+            QString::fromStdString(config.lastError()) + "\n\nnullCAT will not start until the file is fixed or moved.");
+        CloseHandle(hMutex);
+        return 1;
     }
 
     // ---- Initialize Logger ----

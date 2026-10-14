@@ -1487,7 +1487,7 @@ bool WebServer::start()
             // amp 0 / no route as "fires visually, nothing felt"). Disk is
             // truth: unsaved edits in the browser are not what would play.
             Config saved;
-            if (!saved.load(m_configPath)) { errResp(res, "Cannot read the saved config."); return; }
+            if (!saved.load(m_configPath)) { errResp(res, "Cannot read the saved config: " + saved.lastError()); return; }
             const AppConfig& sc = saved.get();
             const haptics::EffectParams& ep = sc.hapticsFx[static_cast<size_t>(info->id)];
             if (ep.ampPct <= 0.0)
@@ -1910,7 +1910,7 @@ bool WebServer::start()
             if (name.size() > 64) name.resize(64);
             if (notes.size() > 4000) notes.resize(4000);
             Config cfg;
-            if (!cfg.load(m_configPath)) { errResp(res, "Cannot read the config."); return; }
+            if (!cfg.load(m_configPath)) { errResp(res, "Cannot read the config: " + cfg.lastError()); return; }
             const std::string key = carKeyFor(game, car, carId);
             m_cars.putUser(key, CarTable::fromHapticsObject(Config::writeHapticsObject(cfg.get()), name, notes));
             if (!m_cars.saveUser(m_configPath)) { errResp(res, "Cannot write cars.local.json."); return; }
@@ -2854,7 +2854,7 @@ bool WebServer::applyHapticsObjectLocked(const QJsonObject& h, std::string& err)
 {
     if (m_configPath.empty()) { err = "no config path"; return false; }
     Config cfg;
-    if (!cfg.load(m_configPath)) { err = "cannot read the config"; return false; }
+    if (!cfg.load(m_configPath)) { err = "cannot read the config: " + cfg.lastError(); return false; }
     Config::readHapticsObject(h, cfg.get());
     const auto errs = cfg.get().validate();
     if (!errs.empty()) { err = "fails validation: " + errs.front(); return false; }
@@ -2890,7 +2890,7 @@ bool WebServer::snapshotProfile(const std::string& name, std::string& err)
     if (m_configPath.empty()) { err = "no config path"; return false; }
     std::lock_guard<std::mutex> lk(m_profilesIo);
     Config cfg;
-    if (!cfg.load(m_configPath)) { err = "cannot read the config"; return false; }
+    if (!cfg.load(m_configPath)) { err = "cannot read the config: " + cfg.lastError(); return false; }
     QJsonObject h = Config::writeHapticsObject(cfg.get());
     h.remove("followCar");
     m_profiles.put(name, h);

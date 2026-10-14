@@ -23,6 +23,15 @@ fields survive a save from the UI.
 There is no other config file: a `config.json` next to the executable is
 ignored (the flat-file migration from pre-release builds was retired).
 
+A file that is there but cannot be read (cut short by a crash mid-write, a
+hand edit with a bracket missing) stops nullCAT from starting: the log
+names the file and the parse error, and nothing is written over it. Fix or
+move the file and start again; a missing file is simply written fresh.
+Every save goes to a temporary file beside the target and is renamed over
+it, so a crash mid-save leaves the old file whole. The one time a load
+rewrites a file by itself (a `rig.json` from 0.9.6 with the old slip tile
+keys), the file as it was is kept beside it as `rig.json.bak`.
+
 ## host.json
 
 ### Network, telemetry, web

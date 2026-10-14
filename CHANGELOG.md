@@ -356,6 +356,14 @@ Development branch. Nothing here is in a release yet.
   rig keeps its own values: change them on the tile.
 
 ### Fixed
+- A `rig.json` cut short by a crash mid-write (or a hand edit gone wrong)
+  read as no config at all, and the next start wrote the defaults over it,
+  tuning and all. Such a file now stops nullCAT from starting, with the
+  file and the parse error in the log and nothing written over it; every
+  config save goes to a temporary file first and is renamed over the old
+  one, so a crash mid-save leaves the old file whole; and the one rewrite a
+  load makes by itself (the 0.9.6 slip tile keys) keeps the file as it was
+  in `rig.json.bak`.
 - With follow car on, a car the car table had no entry for kept the last
   car's engine, limiter, driveline, ABS and TC (a Mini played a truck's
   12.9 litre engine). In a game the table covers (Assetto Corsa,
