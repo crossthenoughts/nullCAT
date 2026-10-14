@@ -3,7 +3,8 @@
 // ============================================================
 // TestHapticsPresets.cpp - the shipped starting points (presets.json)
 //
-//   - the shipped file loads four starting points in the file's order,
+//   - the shipped file loads eight starting points in the file's order (four types,
+//     then each for Automobilista 2, only its slide sized up),
 //     each with its description
 //   - applying one through Config::readHapticsObject changes exactly the
 //     settings it lists: every route, master gain, the position budget,
@@ -63,23 +64,52 @@ class TestHapticsPresets : public QObject
     }
 
 private slots:
-    void shipped_fourInFileOrder()
+    void shipped_eightInFileOrder()
     {
         HapticsPresets p;
         QVERIFY2(p.load(shippedPath().toStdString()), "resources/presets.json missing or unreadable");
-        QCOMPARE(p.count(), 4);
+        QCOMPARE(p.count(), 8);
         const auto list = p.list();
-        const char* names[] = { "Road car", "Cup car", "GT3 / GT", "Open wheeler" };
-        for (size_t i = 0; i < 4; ++i)
+        const char* names[] = { "Road car", "Cup car", "GT3 / GT", "Open wheeler",
+                                "Road car (AMS2)", "Cup car (AMS2)", "GT3 / GT (AMS2)", "Open wheeler (AMS2)" };
+        for (size_t i = 0; i < 8; ++i)
         {
             QCOMPARE(list[i].name, std::string(names[i]));
             QVERIFY2(!list[i].description.empty(), names[i]);
             QVERIFY2(!list[i].haptics.isEmpty(), names[i]);
         }
-        QCOMPARE(list[0].description, std::string("Street car on road tyres: soft, long-travel suspension, progressive slides, iron brakes."));
+        QCOMPARE(list[0].description, std::string("Street car on road tyres: soft, long-travel suspension, progressive slides, iron brakes. Tuned on Assetto Corsa."));
         QVERIFY(p.has("Open wheeler"));
         QVERIFY(!p.has("open wheeler"));
         QVERIFY(p.get("nope").name.empty());
+    }
+
+    // Each Automobilista 2 starting point is its type's with only the slide
+    // sized up (its tyres reach their grip at larger slip angles): the same
+    // settings, the same values, peak deg larger.
+    void ams2_isItsTypeWithLargerPeakDeg()
+    {
+        HapticsPresets p;
+        QVERIFY(p.load(shippedPath().toStdString()));
+        for (const char* type : { "Road car", "Cup car", "GT3 / GT", "Open wheeler" })
+        {
+            const QJsonObject base = p.get(type).haptics;
+            const QJsonObject ams2 = p.get(std::string(type) + " (AMS2)").haptics;
+            QVERIFY2(!base.isEmpty() && !ams2.isEmpty(), type);
+            QCOMPARE(ams2.keys(), base.keys());
+            for (const QString& tile : base.keys())
+            {
+                const QJsonObject b = base.value(tile).toObject(), a = ams2.value(tile).toObject();
+                QCOMPARE(a.keys(), b.keys());
+                for (const QString& k : b.keys())
+                {
+                    if (tile == "slipLat" && k == "peakDeg")
+                        QVERIFY2(a.value(k).toDouble() > b.value(k).toDouble(), type);
+                    else
+                        QVERIFY2(a.value(k).toDouble() == b.value(k).toDouble(), qPrintable(QString(type) + " " + tile + "." + k));
+                }
+            }
+        }
     }
 
     void openWheeler_changesOnlyItsSettings()

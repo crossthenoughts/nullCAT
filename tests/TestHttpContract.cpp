@@ -327,10 +327,12 @@ int main()
         check(!presetsErr, "the shipped resources/presets.json is staged beside the config");
         const std::string ps = get("/api/haptics/presets");
         const size_t a = ps.find("\"name\":\"Road car\""), b = ps.find("\"name\":\"Cup car\""),
-                     c = ps.find("\"name\":\"GT3 / GT\""), d = ps.find("\"name\":\"Open wheeler\"");
+                     c = ps.find("\"name\":\"GT3 / GT\""), d = ps.find("\"name\":\"Open wheeler\""),
+                     e = ps.find("\"name\":\"Road car (AMS2)\""), f = ps.find("\"name\":\"Open wheeler (AMS2)\"");
         check(a != std::string::npos && b != std::string::npos && c != std::string::npos && d != std::string::npos
-              && a < b && b < c && c < d && has(ps, "\"description\":\"Street car on road tyres"),
-              "GET /api/haptics/presets lists the four starting points in order, with their descriptions");
+              && e != std::string::npos && f != std::string::npos
+              && a < b && b < c && c < d && d < e && e < f && has(ps, "\"description\":\"Street car on road tyres"),
+              "GET /api/haptics/presets lists the starting points in order (the four types, then for Automobilista 2), with their descriptions");
         check(has(post("/api/haptics/presets/apply", "{\"name\":\"nope\"}"), "\"ok\":false"),
               "POST /api/haptics/presets/apply refuses an unknown name");
         check(has(post("/api/haptics/presets/apply", "{}"), "\"ok\":false"),

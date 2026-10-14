@@ -203,7 +203,12 @@ manual only. Profiles live in `profiles.json` beside the rig config.
 
 A profile carries your routes, so it only fits your own rig. A starting
 point fits any rig: it sets only what depends on the type of car, and
-nullCAT ships four of them, on the **type** row of the Master tile:
+nullCAT ships four types, on the **type** row of the Master tile, each
+in two versions: one tuned on Assetto Corsa (also the one for other sims
+until they get their own) and one for Automobilista 2, marked **(AMS2)**.
+Automobilista 2's tyres reach their grip at larger slip angles, so its
+versions size the slides up (peak deg about 1.2 to 1.35 times);
+everything else is the same.
 
 - **Road car**: a street car on road tyres. Soft, long-travel suspension,
   slides that build gradually, iron brakes.

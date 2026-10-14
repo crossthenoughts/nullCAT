@@ -179,7 +179,7 @@ try {
   if (nCars < 450)              fails.push(`/api/cars/list carries ${nCars} entries, expected the shipped table (450+)`);
   if (st.carOpts !== nCars)     fails.push(`preset search lists ${st.carOpts} cars, expected ${nCars} from /api/cars/list`);
   if (!st.presetRow)            fails.push('no starting point row (type selector and apply) on the Master tile');
-  if (st.presetOpts !== 5)      fails.push(`starting point selector has ${st.presetOpts} options, expected the 4 shipped types and the prompt`);
+  if (st.presetOpts !== 9)      fails.push(`starting point selector has ${st.presetOpts} options, expected the 8 shipped starting points and the prompt`);
   if (!st.carNotes)             fails.push('no car notes block on the Engine tile');
   if (!st.carNotesHidden)       fails.push('car notes block is showing with no car named');
   if (!drawer.chip)             fails.push('no route chip on the Lateral slip tile');
