@@ -1285,13 +1285,15 @@ int main()
         // Every corner's travel a 12 Hz sine of amp mm at kmh: what is learned,
         // and the strongest corner's position peak over the last second.
         struct Run { double learned = 0.0, sec = 0.0, peak = 0.0; };
-        auto drive = [&](RoadModel& m, const RoadParams& q, double amp, double kmh, double secs)
+        // speed < 0: the road speed is not sent (a reset's hold); ground 0:
+        // every tyre in the air.
+        auto drive = [&](RoadModel& m, const RoadParams& q, double amp, double kmh, double secs, double ground = 1.0)
         {
             Run r; const int N = static_cast<int>(secs / dt);
             for (int i = 0; i < N; ++i)
             {
-                for (int w = 0; w < 4; ++w) m.driveTravel(w, amp * std::sin(2.0 * PI * 12.0 * i * dt));
-                m.driveSpeed(kmh / 3.6);
+                for (int w = 0; w < 4; ++w) { m.driveTravel(w, amp * std::sin(2.0 * PI * 12.0 * i * dt)); m.driveGround(w, ground); }
+                if (kmh >= 0.0) m.driveSpeed(kmh / 3.6);
                 m.step(dt, q);
                 if (i > N - static_cast<int>(1.0 / dt)) r.peak = std::max(r.peak, std::fabs(m.outputFor(haptics::Part::All).pos));
             }
@@ -1309,9 +1311,10 @@ int main()
         const double expect = 2.0 * 12.0 / std::hypot(12.0, 2.0) / 0.09;   // the sine's peak through the 2 Hz cut, at the 9 % share
         std::printf("  road learn full: 2 mm of travel learns %.1f mm (expected %.1f)\n", a1.learned, expect);
         CHECK(std::fabs(a1.learned / expect - 1.0) < 0.1, "road learn full: the car's travel at the 99th percentile, over the share");
-        // Ticked: the same car plays against what it learned.
+        // Ticked: the same car plays against what it learned (eased in over
+        // about a second).
         RoadParams on = q; on.fullLearn = 1.0;
-        const Run b1 = drive(m1, on, 2.0, 100.0, 2.0);
+        const Run b1 = drive(m1, on, 2.0, 100.0, 5.0);
         approx(b1.peak / a1.peak, q.fullMm / a1.learned, 0.03, "road learn full: ticked, the learned full mm plays instead of the set one");
         // A car whose suspension moves twice as far learns twice the full, so
         // both play at the same strength.
@@ -1321,8 +1324,56 @@ int main()
         // A new car starts over, and the set full mm plays until it has learned.
         m1.forgetFull();
         CHECK(m1.learnedFullMm() == 0.0 && m1.learnedFullSec() == 0.0, "road learn full: a new car starts over");
-        const Run c1 = drive(m1, on, 2.0, 100.0, 3.0);
+        const Run c1 = drive(m1, on, 2.0, 100.0, 5.0);
         approx(c1.peak / a1.peak, 1.0, 0.03, "road learn full: ...and plays the set full mm until it has learned");
+        // Nothing is learned while the road speed is not sent (a reset's
+        // hold: its jolt, against the speed from before, taught 50 mm), in
+        // the air, or in the tyre and chassis models.
+        { RoadModel m; drive(m, q, 2.0, 100.0, 2.0); const double s0 = m.learnedFullSec();
+          drive(m, q, 30.0, -1.0, 2.0);
+          CHECK(std::fabs(m.learnedFullSec() - s0) < 1e-9, "road learn full: nothing while the road speed is not sent"); }
+        { RoadModel m; const Run a = drive(m, q, 2.0, 100.0, 5.0, 0.0);
+          CHECK(a.sec < 0.05, "road learn full: nothing with the tyres in the air"); }
+        for (const double model : { 1.0, 2.0 })
+        { RoadModel m; RoadParams t = q; t.model = model; const Run a = drive(m, t, 2.0, 100.0, 5.0);
+          CHECK(a.sec == 0.0, "road learn full: nothing in the tyre or chassis model"); }
+        // The ends: a car that barely moves, one that moves past the range.
+        { RoadModel m; const Run a = drive(m, q, 0.01, 100.0, 25.0);
+          CHECK(a.learned >= 0.5 && a.learned < 1.0, "road learn full: a car that barely moves learns the 0.5 mm floor"); }
+        { RoadModel m; const Run a = drive(m, q, 300.0, 100.0, 25.0);
+          CHECK(a.learned == 50.0, "road learn full: one moving past the range learns the 50 mm ceiling"); }
+        // Older driving fades (a new track, a car the sim does not name):
+        // after five minutes on twice the travel it has followed.
+        {
+            RoadModel m; drive(m, q, 2.0, 100.0, 60.0);
+            const double before = m.learnedFullMm();
+            drive(m, q, 4.0, 100.0, 300.0);
+            std::printf("  road learn full: 2 mm for a minute %.1f, then 4 mm for five %.1f\n", before, m.learnedFullMm());
+            CHECK(m.learnedFullMm() > 1.8 * before, "road learn full: older driving fades, the learned value follows");
+        }
+        // Through the layer: a new car, or new cuts, start it over.
+        {
+            haptics::Layer L;
+            EffectParams rp; rp.ampPct = 100.0; rp.routes[0] = { 0, 1.0 };
+            L.configureFx(haptics::FxType::Road, rp); L.configureRoad(q);
+            for (int i = 0; i < static_cast<int>(2.0 / dt); ++i)
+            {
+                for (int w = 0; w < 4; ++w) L.driveRoadTravel(w, 2.0 * std::sin(2.0 * PI * 12.0 * i * dt));
+                L.driveRoadSpeed(100.0 / 3.6); L.step(dt);
+            }
+            CHECK(L.roadModel().learnedFullSec() > 1.5, "road learn full: the layer learns");
+            L.newCar();
+            CHECK(L.roadModel().learnedFullSec() == 0.0, "road learn full: a new car starts it over");
+            for (int i = 0; i < static_cast<int>(1.0 / dt); ++i)
+            {
+                for (int w = 0; w < 4; ++w) L.driveRoadTravel(w, 2.0 * std::sin(2.0 * PI * 12.0 * i * dt));
+                L.driveRoadSpeed(100.0 / 3.6); L.step(dt);
+            }
+            RoadParams same = q; L.configureRoad(same);
+            CHECK(L.roadModel().learnedFullSec() > 0.5, "road learn full: the same cuts saved again keep it");
+            RoadParams cut = q; cut.suspHz = 6.0; L.configureRoad(cut);
+            CHECK(L.roadModel().learnedFullSec() == 0.0, "road learn full: new cuts start it over (its mm are after them)");
+        }
     }
 
     // ================= road: the tyre and chassis models; the kerb =================

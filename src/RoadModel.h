@@ -104,19 +104,27 @@ namespace road_k {
     // the car rolls above kFullLearnMinKmh with the tyre on the ground. Full
     // = its kFullLearnQ quantile / kFullLearnShare, once kFullLearnMinSec of
     // driving is in it, refreshed every kFullLearnEverySec. Measured on 25
-    // recorded sessions (cut at 3 Hz): the 99th percentile is 2.6 mm for
-    // Assetto Corsa's Porsche GT3 R, which at this share is the 29 mm the
-    // GT3 starting point sets by hand; across the cars 1.3 to 4.1 mm, and
-    // Automobilista 2's cars move about half as far as Assetto Corsa's
-    // (with one full mm for both, its road played at half strength).
-    constexpr int    kFullLearnBins    = 128;   // 5 % wide
-    constexpr double kFullLearnLoMm    = 0.25, kFullLearnHiMm = 128.0;
+    // recorded sessions at the GT3 starting point's cuts (cut hz 3, susp
+    // cut hz 6): the 99th percentile is 2.6 mm for Assetto Corsa's Porsche
+    // GT3 R, which at this share is the 29 mm that starting point sets by
+    // hand; across the cars 1.3 to 4.1 mm, and Automobilista 2's cars move
+    // about half as far as Assetto Corsa's (with one full mm for both, its
+    // road played at half strength). It remembers about kFullLearnMemorySec
+    // of driving (older driving fades out: a new track, a car the sim does
+    // not name), learns only while the road speed is sent (a reset's jolt,
+    // its speed held from before, taught a full mm at the 50 limit), starts
+    // over when the cuts change (its millimetres are after them), and the
+    // full mm in use eases to a new value over kFullEaseSec.
+    constexpr int    kFullLearnBins    = 160;   // 5 % wide
+    constexpr double kFullLearnLoMm    = 0.05, kFullLearnHiMm = 128.0;
     constexpr double kFullLearnMinKmh  = 30.0;
     constexpr double kFullLearnQ       = 0.99;
     constexpr double kFullLearnShare   = 0.09;
     constexpr double kFullLearnMinSec  = 20.0;
     constexpr double kFullLearnEverySec = 0.5;
+    constexpr double kFullLearnMemorySec = 300.0;
     constexpr double kFullLearnMaxMm   = 50.0;   // the field's own range
+    constexpr double kFullEaseSec      = 1.0;
     // Chassis model.
     constexpr double kLearnSec   = 5.0;     // sign learning memory
     constexpr double kLearnCorr  = 0.3;     // correlation that sets a sign
@@ -415,15 +423,15 @@ public:
     void forgetFull()
     {
         for (double& b : m_fullHist) b = 0.0;
-        m_fullSec = m_fullMm = m_fullNextSec = 0.0;
+        m_fullMass = m_fullSec = m_fullMm = m_fullNextSec = 0.0;
     }
     // The travel (mm) at quantile q of what has been learned (0 if nothing):
     // the tests' and the tile's way in.
     double fullQuantileMm(double q) const
     {
         using namespace road_k;
-        if (m_fullSec <= 0.0) return 0.0;
-        const double want = std::max(0.0, std::min(1.0, q)) * m_fullSec;
+        if (m_fullMass <= 0.0) return 0.0;
+        const double want = std::max(0.0, std::min(1.0, q)) * m_fullMass;
         const double step = std::log(kFullLearnHiMm / kFullLearnLoMm) / kFullLearnBins;
         double acc = 0.0;
         for (int b = 0; b < kFullLearnBins; ++b)
@@ -505,10 +513,14 @@ private:
     void stepSuspension(double dtSec, const RoadParams& p, double hpHz)
     {
         using namespace road_k;
-        // Full: learned for this car with learn full mm (once it has), else as set.
+        // Full: learned for this car with learn full mm (once it has), else
+        // as set; eased to a new value.
         const bool learnedFull = p.fullLearn >= 0.5 && m_fullMm > 0.0;
-        const double full = std::max(kMinFullMm, learnedFull ? m_fullMm : p.fullMm);
-        const bool learning = m_speed * 3.6 > kFullLearnMinKmh;
+        const double fullTarget = std::max(kMinFullMm, learnedFull ? m_fullMm : p.fullMm);
+        if (m_fullUse <= 0.0) m_fullUse = fullTarget;
+        else m_fullUse += (fullTarget - m_fullUse) * std::min(1.0, dtSec / kFullEaseSec);
+        const double full = m_fullUse;
+        const bool learning = m_speedDriven && m_speed * 3.6 > kFullLearnMinKmh;
         const double smooth = 1.0 - std::exp(-2.0 * wavesynth::kPi * kSmoothHz * dtSec);
         const bool rough = p.rough > 0.0;
         double envA = 0.0, outA = 0.0, wb = 0.0;
@@ -542,11 +554,15 @@ private:
             w.out.pos = w.out.force = w.y;
             w.mm = total;
         }
-        // The learned full, worked out now and then (it moves slowly).
+        // The learned full, worked out now and then (it moves slowly), the
+        // older driving fading as it goes.
         if (m_fullSec >= kFullLearnMinSec * WHEEL_COUNT && m_fullSec >= m_fullNextSec)
         {
             m_fullMm = std::max(kMinFullMm, std::min(kFullLearnMaxMm, fullQuantileMm(kFullLearnQ) / kFullLearnShare));
             m_fullNextSec = m_fullSec + kFullLearnEverySec * WHEEL_COUNT;
+            const double keep = std::exp(-kFullLearnEverySec / kFullLearnMemorySec);
+            for (double& b : m_fullHist) b *= keep;
+            m_fullMass *= keep;
         }
     }
 
@@ -560,6 +576,7 @@ private:
                     : std::min(kFullLearnBins - 1, static_cast<int>(std::log(a / kFullLearnLoMm)
                                                     / std::log(kFullLearnHiMm / kFullLearnLoMm) * kFullLearnBins));
         m_fullHist[b] += dtSec;
+        m_fullMass += dtSec;
         m_fullSec += dtSec;
     }
 
@@ -817,10 +834,11 @@ private:
     int    m_signH = 1, m_signR = 0, m_signP = 0;
     int    m_pol = 0;   // the suspension against the body: -1 compression positive, +1 extension positive, 0 unknown
     // full mm learned for this car: the travel histogram (seconds per bin,
-    // the four corners pooled), the driving time in it, the value and when
-    // it is next worked out
+    // the four corners pooled, older driving fading) and its sum, the
+    // driving time learned over (never fading: the 20 s gate), the value,
+    // when it is next worked out, and the full mm in use (eased)
     double m_fullHist[road_k::kFullLearnBins] = {};
-    double m_fullSec = 0.0, m_fullMm = 0.0, m_fullNextSec = 0.0;
+    double m_fullMass = 0.0, m_fullSec = 0.0, m_fullMm = 0.0, m_fullNextSec = 0.0, m_fullUse = 0.0;
 };
 
 // ============================================================

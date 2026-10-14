@@ -647,7 +647,13 @@ public:
     // ---- per-corner road replay (the Road slot). Config apply for the
     // params; the law drives the corners per cycle when the sim sends
     // suspension velocities, and does not when it sends roadNoise.
-    void configureRoad(const RoadParams& r) { m_roadParams = r; }
+    void configureRoad(const RoadParams& r)
+    {
+        // The learned full mm is in millimetres after the cuts: new cuts, a
+        // fresh start.
+        if (r.hpHz != m_roadParams.hpHz || r.suspHz != m_roadParams.suspHz) m_road.forgetFull();
+        m_roadParams = r;
+    }
     const RoadParams& roadParams() const   { return m_roadParams; }
     void driveRoad(int wheel, double velMmS)
     {

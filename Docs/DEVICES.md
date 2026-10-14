@@ -207,8 +207,10 @@ nullCAT ships four types, on the **type** row of the Master tile, each
 in two versions: one tuned on Assetto Corsa (also the one for other sims
 until they get their own) and one for Automobilista 2, marked **(AMS2)**.
 Automobilista 2's tyres reach their grip at larger slip angles, so its
-versions size the slides up (peak deg about 1.2 to 1.35 times);
-everything else is the same.
+versions size the slides up (peak deg 1.2 to 1.4 times); everything else
+is the same. Its suspension also moves about half as far as Assetto
+Corsa's, so with the same full mm its road plays softer: try **learn full
+mm** on the Road tile.
 
 - **Road car**: a street car on road tyres. Soft, long-travel suspension,
   slides that build gradually, iron brakes.
@@ -576,10 +578,12 @@ like the car.
   movement is cut away, an Automobilista 2 car moves about half as far as
   an Assetto Corsa one, so with one full mm its road plays at half
   strength. Learned, every car plays its bumps at a similar strength
-  (set so Assetto Corsa's Porsche GT3 R comes out at the 29 mm of the GT3
-  starting point). It learns from the track too: a bumpy one teaches a
-  larger full mm than a smooth one, so a bumpy track plays a little softer
-  than it would with a fixed value. A new car starts over. **rough x** sets the roughness (1 is a smooth
+  (set so Assetto Corsa's Porsche GT3 R comes out at about the 29 mm of the GT3
+  starting point, with its cuts). It learns from the track too: a bumpy one
+  teaches a larger full mm than a smooth one, so a bumpy track plays a
+  little softer than it would with a fixed value. It remembers about the
+  last five minutes of driving, so it follows a change of track; a new car,
+  or a change of cut hz or susp cut hz, starts it over. **rough x** sets the roughness (1 is a smooth
   public road, 2 by default, more for a bumpy track, 0 for the sim's
   movement alone); where the sim says what is under the tyre
   (Automobilista 2) it is rougher on bumpy tarmac, cobbles,

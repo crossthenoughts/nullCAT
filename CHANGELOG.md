@@ -15,15 +15,16 @@ Development branch. Nothing here is in a release yet.
   On 25 recorded sessions the cars' movement differed by three times, and
   Automobilista 2's cars moved about half as far as Assetto Corsa's, so one
   full mm played their roads at half strength; learned, each plays at a
-  similar strength (Assetto Corsa's Porsche GT3 R learns 29 mm, the GT3
-  starting point's).
+  similar strength (Assetto Corsa's Porsche GT3 R learns about 29 mm, the GT3
+  starting point's, at its cuts). It remembers about five minutes of
+  driving; a new car or new cuts start it over.
 - **Starting points** for the haptics strip: a **type** row on the Master
   tile with four shipped types of car (**Road car**, **Cup car**, **GT3 /
   GT**, **Open wheeler**), each setting how the tyres let go, how the road
   and kerbs move the car, the wheels and the knocks for that type, in two
   versions: tuned on Assetto Corsa, and **(AMS2)** for Automobilista 2,
   whose tyres reach their grip at larger slip angles (its slides sized up
-  about 1.2 to 1.35 times; on recorded laps a Formula V8's hard scrub
+  1.2 to 1.4 times; on recorded laps a Formula V8's hard scrub
   mid-corner fell from 74 % to 47 % of the time). Applying
   one sets only those settings: your routes, master gain, pos budget and
   the engine, limiter, driveline, ABS and TC stay as they are. Pick the

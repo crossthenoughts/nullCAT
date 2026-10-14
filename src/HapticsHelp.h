@@ -267,8 +267,9 @@ constexpr ParamHelp kHelp[] = {
       "travel). GT3: 25 to 35. Single-seater: 15 to 20 (stiff, short travel)." },
     { "road", "fullLearn",
       "Suspension model: learn full mm for each car from how far its suspension moves while you drive, instead "
-      "of the value above. It learns over the first 20 seconds of driving above 30 km/h and keeps refining; a new "
-      "car starts over. While ticked, full mm is greyed and the learned value shows here; yours is kept for when "
+      "of the value above. It learns over the first 20 seconds of driving above 30 km/h and keeps following the "
+      "last five minutes or so (a bumpy track teaches a larger value than a smooth one); a new car, or a change "
+      "of cut hz or susp cut hz, starts over. While ticked, full mm is greyed and the learned value shows here; yours is kept for when "
       "it is off, and plays until the car has been learned. A soft car then plays its long travel and a stiff one "
       "its short travel at a similar strength. Try it: it can change the feel a lot." },
     { "road", "surface",
