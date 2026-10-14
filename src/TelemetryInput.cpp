@@ -319,6 +319,19 @@ bool TelemetryInput::ingest(const TelemetryData& parsed)
             }
             else
             {
+                // A line may carry any subset of tokens, so a token holds
+                // its value between lines. The hold ends with the session
+                // it belongs to: a line naming a different game, car or
+                // car id than the one known (not the first identity, not
+                // the same one repeating once a second) clears every
+                // token, so the old game's surface, slip speed, wet,
+                // on-ground and puncture values never play under the new
+                // one. TestTelemetryParse pins it.
+                const auto differs = [](const char* now, const char* known)
+                { return now[0] && known[0] && std::strcmp(now, known) != 0; };
+                if (differs(parsed.game, m_ncyGame) || differs(parsed.car, m_ncyCar) ||
+                    (parsed.car[0] && differs(parsed.carId, m_ncyCarId)))
+                    for (bool& h : m_ncyHave) h = false;
                 for (int t = 0; t < NcxTok::TokenCount; ++t)
                     if (parsed.ncyHave[t])
                     {

@@ -81,8 +81,10 @@ NULLCATY,<key>=<value>,<key>=<value>,...\n
 The same channels by **name**: each key is a token from the registry
 below and the value is in that token's canonical unit (no bindings, no
 scale or offset). A line may carry any subset of tokens, in any order;
-values persist until the stream goes stale. Two string keys ride on the
-same line type:
+values persist until the stream goes stale, or until a line names a
+different game, car or car id (every held value is dropped then, so a
+token one game sends and the next does not never carries over). Two
+string keys ride on the same line type:
 
 | Key | Value |
 |---|---|

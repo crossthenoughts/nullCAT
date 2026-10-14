@@ -198,7 +198,9 @@ private:
     mutable std::atomic<int> m_ncxStreamState{0}; // 0 stopped, 1 live, 2 frozen (getLatestData, any thread)
     // Persistent NULLCATY store: each Y packet merges the keys it names;
     // cleared when the channel stream has gone stale (so a returning
-    // sender never resurrects old values).
+    // sender never resurrects old values) and when a line names a
+    // different game, car or car id (so one game's tokens never play
+    // under the next).
     bool    m_ncyHave[NcxTok::TokenCount] = {};
     double  m_ncyVals[NcxTok::TokenCount] = {};
     char    m_ncyGame[NCY_STR_LEN]  = {};

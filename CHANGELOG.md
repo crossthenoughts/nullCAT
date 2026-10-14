@@ -356,6 +356,12 @@ Development branch. Nothing here is in a release yet.
   rig keeps its own values: change them on the tile.
 
 ### Fixed
+- Switching game or car without a pause in the channel stream kept the
+  named channels the new game never sends (the surface under each tyre,
+  the slip speeds, water on the road, wheels in the air, punctures) at the
+  last game's values. A line naming a different game, car or car id now
+  drops every held channel; the new game's own values land on its next
+  line.
 - A sim channel that arrived as `NaN` or `inf` (a property the game had
   not filled in yet, printed as it was) was taken as a number. It now
   counts as not sent, on both the numbered and the named channel lines,

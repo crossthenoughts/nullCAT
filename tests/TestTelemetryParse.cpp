@@ -241,6 +241,48 @@ int main()
               "snapshot: a NaN token is absent (have=false) and its value finite");
     }
 
+    // ---- named tokens do not outlive the game or car that sent them (B1) ----
+    // A NULLCATY line may carry any subset of tokens (PROTOCOL.md), so a
+    // token holds its value between lines; the hold used to end only after
+    // a 500 ms gap, so a game or car switch with no gap kept the old game's
+    // surface*, slipSpeed*, wet*, onGround*, deflated* (tokens the new game
+    // never sends) frozen at their last values. Reverting the identity
+    // change check in ingest() fails the "clears" checks below.
+    {
+        TelemetryInput ti;
+        auto feed = [&](const char* line) { TelemetryData p; TelemetryInput::parsePacket(line, (int)std::strlen(line), p); ti.ingest(p); };
+        feed("NULLCATY,rpm=1");
+        feed("NULLCATY,game=AMS2,car=Formula V8");
+        TelemetryData s = ti.getLatestData();
+        check(s.ncyHave[NcxTok::Rpm], "the first identity line (none known before) keeps the values already received");
+        feed("NULLCATY,rpm=5000,surfaceFL=3,surfaceFR=3,surfaceRL=3,surfaceRR=3,slipSpeedFL=1.5");
+        s = ti.getLatestData();
+        check(s.ncyHave[NcxTok::SurfaceFL] && s.ncyHave[NcxTok::SlipSpeedFL], "AMS2's own tokens are present");
+        feed("NULLCATY,game=AMS2,car=Formula V8");
+        s = ti.getLatestData();
+        check(s.ncyHave[NcxTok::SurfaceFL] && s.ncyHave[NcxTok::Rpm], "the identity line repeating (once a second) keeps every value");
+        feed("NULLCATY,game=AssettoCorsa,car=Mazda 787B,carId=ks_mazda_787b");   // a new game, no gap
+        s = ti.getLatestData();
+        check(!s.ncyHave[NcxTok::SurfaceFL] && !s.ncyHave[NcxTok::SurfaceRR] && !s.ncyHave[NcxTok::SlipSpeedFL] && !s.ncyHave[NcxTok::Rpm],
+              "a game switch with no gap clears every named token");
+        check(std::string(s.game) == "AssettoCorsa" && std::string(s.car) == "Mazda 787B" && std::string(s.carId) == "ks_mazda_787b",
+              "...and the new identity is in place");
+        feed("NULLCATY,rpm=3000,deflatedFL=1");
+        s = ti.getLatestData();
+        check(s.ncyHave[NcxTok::Rpm] && s.ncyHave[NcxTok::DeflatedFL] && !s.ncyHave[NcxTok::SurfaceFL],
+              "the new game's values land; the old game's stay gone");
+        feed("NULLCATY,game=AssettoCorsa,car=Porsche 911 GT3 R,carId=ks_porsche_911_gt3_r_2016");   // same game, new car
+        s = ti.getLatestData();
+        check(!s.ncyHave[NcxTok::DeflatedFL] && !s.ncyHave[NcxTok::Rpm], "a car change in the same game clears every named token too");
+        feed("NULLCATY,wet=0.5");
+        feed("NULLCATY,game=AssettoCorsa,car=Porsche 911 GT3 R,carId=ks_porsche_911_gt3_r_2016");
+        s = ti.getLatestData();
+        check(s.ncyHave[NcxTok::Wet], "the same car named again keeps its values");
+        feed("NULLCATY,game=AssettoCorsa,car=Porsche 911 GT3 R");   // an older plugin: no id on the line
+        s = ti.getLatestData();
+        check(s.ncyHave[NcxTok::Wet] && s.carId[0] == '\0', "a line without carId= drops the stale id (as before) and is not a car change");
+    }
+
     // ---- frozen-stream guard: OFF by default ----
     // An idling car at a standstill sends exactly the same numbers for as
     // long as it idles (integer idle rpm, zero speed, zero pedals), so the
