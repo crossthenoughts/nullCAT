@@ -440,7 +440,8 @@ std::string WebServer::buildStatusJson() const
         s += "\"hapAbs\":{\"flag\":" + jsonBool(ms.hapAbsFlag) + ",\"wheels\":" + jsonBool(ms.hapAbsWheels)
            + ",\"hz\":" + jsonDouble(ms.hapAbsWheelHz, 1) + ",\"seen\":" + jsonBool(ms.hapAbsFlagSeen) + "},";
         s += "\"hapLatBaseSec\":" + jsonDouble(ms.hapLatBaseSec, 1) + ",\"hapLatSrc\":" + std::to_string(ms.hapLatSrc)
-           + ",\"hapLatMode\":" + std::to_string(ms.hapLatMode) + ",\"hapLatLearned\":" + jsonBool(ms.hapLatLearned) + ",";
+           + ",\"hapLatMode\":" + std::to_string(ms.hapLatMode) + ",\"hapLatLearned\":" + jsonBool(ms.hapLatLearned) + ","
+           + "\"hapRoadFull\":{\"mm\":" + jsonDouble(ms.hapRoadFullMm, 1) + ",\"sec\":" + jsonDouble(ms.hapRoadFullSec, 0) + "},";
         // Sim identity from NULLCATY (empty until a sender names it).
         if (m_telemetry)
         {
@@ -1606,7 +1607,7 @@ bool WebServer::start()
                     d["surface"] = rd.surface; d["surfaceKmh"] = rd.surfaceKmh; d["surfaceHz"] = rd.surfaceHz;
                     d["model"] = rd.model; d["bodyMm"] = rd.bodyMm; d["bodyHz"] = rd.bodyHz;
                     d["hopHz"] = rd.hopHz; d["damping"] = rd.damping; d["rough"] = rd.rough;
-                    d["suspPct"] = rd.suspPct; d["suspHz"] = rd.suspHz;
+                    d["suspPct"] = rd.suspPct; d["suspHz"] = rd.suspHz; d["fullLearn"] = rd.fullLearn;
                 }
                 else if (info.kind == haptics::Kind::Kerb)
                 {

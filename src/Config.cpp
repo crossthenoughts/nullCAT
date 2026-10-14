@@ -266,6 +266,7 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
                 o["model"] = c.hapticsRoad.model; o["bodyMm"] = c.hapticsRoad.bodyMm; o["bodyHz"] = c.hapticsRoad.bodyHz;
                 o["hopHz"] = c.hapticsRoad.hopHz; o["damping"] = c.hapticsRoad.damping; o["rough"] = c.hapticsRoad.rough;
                 o["suspPct"] = c.hapticsRoad.suspPct; o["suspHz"] = c.hapticsRoad.suspHz;
+                o["fullLearn"] = c.hapticsRoad.fullLearn;
             }
             else if (info.kind == haptics::Kind::Kerb)
             {
@@ -417,6 +418,7 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                 c.hapticsRoad.rough      = o.value("rough").toDouble(c.hapticsRoad.rough);
                 c.hapticsRoad.suspPct    = o.value("suspPct").toDouble(c.hapticsRoad.suspPct);
                 c.hapticsRoad.suspHz     = o.value("suspHz").toDouble(c.hapticsRoad.suspHz);
+                c.hapticsRoad.fullLearn  = o.value("fullLearn").toDouble(c.hapticsRoad.fullLearn);
             }
             if (info.kind == haptics::Kind::Kerb)
             {
@@ -1423,6 +1425,8 @@ std::vector<std::string> AppConfig::validate() const
             }
             if (info.kind == haptics::Kind::Road)
             {
+                if (hapticsRoad.fullLearn != 0.0 && hapticsRoad.fullLearn != 1.0)
+                    errors.push_back(pfx + "fullLearn must be 0 (full mm as set) or 1 (learned per car)");
                 if (hapticsRoad.fullMm < 0.5 || hapticsRoad.fullMm > 50.0)
                     errors.push_back(pfx + "fullMm out of range [0.5, 50]");
                 if (hapticsRoad.hpHz < 0.5 || hapticsRoad.hpHz > 10.0)

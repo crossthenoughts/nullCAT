@@ -568,7 +568,18 @@ like the car.
   the tyre and the corner's spring and damper, so it rises with speed by
   itself, reaches the rears a wheelbase after the fronts and stops when
   the car does. **full mm** is the suspension movement that counts as
-  100 % (25 by default). **rough x** sets the roughness (1 is a smooth
+  100 % (25 by default). **learn full mm** (off by default) learns it
+  for each car instead, from how far its suspension moves while you drive
+  above 30 km/h: after 20 seconds of driving it plays the learned value,
+  shown on that row, and full mm is greyed (yours is kept for when it is
+  off). Cars differ a lot here, and so do sims: once the slow body
+  movement is cut away, an Automobilista 2 car moves about half as far as
+  an Assetto Corsa one, so with one full mm its road plays at half
+  strength. Learned, every car plays its bumps at a similar strength
+  (set so Assetto Corsa's Porsche GT3 R comes out at the 29 mm of the GT3
+  starting point). It learns from the track too: a bumpy one teaches a
+  larger full mm than a smooth one, so a bumpy track plays a little softer
+  than it would with a fixed value. A new car starts over. **rough x** sets the roughness (1 is a smooth
   public road, 2 by default, more for a bumpy track, 0 for the sim's
   movement alone); where the sim says what is under the tyre
   (Automobilista 2) it is rougher on bumpy tarmac, cobbles,

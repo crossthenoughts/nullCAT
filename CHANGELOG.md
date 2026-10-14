@@ -9,6 +9,14 @@ middle number carries breaking changes and the last carries fixes.
 Development branch. Nothing here is in a release yet.
 
 ### Added
+- Road tile, suspension model: **learn full mm** (off by default, to try):
+  full mm learned for each car from how far its suspension moves while you
+  drive, shown on the tile, with your own full mm kept for when it is off.
+  On 25 recorded sessions the cars' movement differed by three times, and
+  Automobilista 2's cars moved about half as far as Assetto Corsa's, so one
+  full mm played their roads at half strength; learned, each plays at a
+  similar strength (Assetto Corsa's Porsche GT3 R learns 29 mm, the GT3
+  starting point's).
 - **Starting points** for the haptics strip: a **type** row on the Master
   tile with four shipped types of car (**Road car**, **Cup car**, **GT3 /
   GT**, **Open wheeler**), each setting how the tyres let go, how the road

@@ -1145,9 +1145,9 @@ function hapWheelSet(k){ return k==='slipLat'?0:k==='slipLon'?1:k==='road'?2:k==
 const HAP_SURF_NAMES=['tarmac','bumpy','kerb','gravel','grass','dirt','cobbles','snow','ice','sand','mud','water'];
 // Road: the settings each model reads (the rest are dimmed), and the
 // roadNoise texture's, live only while the model has nothing to run on.
-const HAP_ROAD_MODEL_KEYS=[['fullMm','surface','surfaceHz','surfaceKmh','rough','suspPct','suspHz','bodyHz','hopHz','damping'],
+const HAP_ROAD_MODEL_KEYS=[['fullMm','fullLearn','surface','surfaceHz','surfaceKmh','rough','suspPct','suspHz','bodyHz','hopHz','damping'],
   ['bodyMm','rough','suspPct','suspHz','bodyHz','hopHz','damping'],['bodyMm']];
-const HAP_ROAD_ALL_KEYS=['fullMm','surface','surfaceHz','surfaceKmh','bodyMm','rough','suspPct','suspHz','bodyHz','hopHz','damping'];
+const HAP_ROAD_ALL_KEYS=['fullMm','fullLearn','surface','surfaceHz','surfaceKmh','bodyMm','rough','suspPct','suspHz','bodyHz','hopHz','damping'];
 const HAP_ROAD_TEX_KEYS=['freqHz','jitter','peakPct'];
 // The dimmed settings of the Road and Kerb tiles with the reason, from the
 // chosen model and what is arriving (null = the generic path trims).
@@ -1161,6 +1161,7 @@ function hapDimFor(k,dv,have){
     const dim={}; const name=['suspension','tyre','chassis'][m]||'suspension';
     HAP_ROAD_ALL_KEYS.forEach(x=>{ if(!HAP_ROAD_MODEL_KEYS[m].includes(x)) dim[x]='Not used by the '+name+' model'; });
     if(fed) HAP_ROAD_TEX_KEYS.forEach(x=>{ if(!(m===0&&x==='jitter')) dim[x]='The roadNoise texture: only when the model has nothing to run on'; });
+    if(m===0&&Math.round(+dv.fullLearn)===1) dim.fullMm='Learn full mm is on: the value learned for this car plays (shown on the learn full mm row). Yours is kept for when it is off, and plays until the car has been learned.';
     return dim;
   }
   if(k==='abs'){
@@ -1674,6 +1675,17 @@ function hapLive(s){
             :(learned?(mode===1?'learned, held':'learned'):'learning')+' ('+sec.toFixed(0)+' s of straights)'))
           :src===1?'the sim\'s own slip angle (no baseline needed)':src===2?'combined slip (no angle from this sim)':'angle -';
         as.classList.toggle('warn',src===3&&learning); }
+    }
+    // Road: full mm learned for this car, on the learn row (whether or not
+    // it is ticked, so it can be compared with yours); ticked, the full mm
+    // field is greyed and cannot be edited.
+    if(k==='road'){
+      const lr=t.tile.querySelector('[data-pk="fullLearn"] .hk'), fr=t.tile.querySelector('[data-pk="fullMm"] input');
+      const on=Math.round(+t.dv.fullLearn)===1&&(Math.round(+t.dv.model)||0)===0;
+      const f=s.hapRoadFull||{}, mm=+f.mm||0, sec=+f.sec||0;
+      if(lr){ lr.textContent='learn full mm'+(mm>0?' ('+mm.toFixed(1)+')':sec>0?' (learning '+sec.toFixed(0)+' s)':'');
+              lr.classList.toggle('warn',on&&!(mm>0)); }
+      if(fr) fr.disabled=on;
     }
     // ABS: what says it is working (the flag, the wheels and their rate).
     const ab=t.tile.querySelector('[data-abssrc]');

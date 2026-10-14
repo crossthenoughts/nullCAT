@@ -155,6 +155,9 @@ struct MotionStatus
     int             hapLatSrc = 0, hapLatMode = 0;
     double          hapLatBaseSec = 0.0;
     bool            hapLatLearned = false;
+    // Road: full mm learned for this car (0 = not yet), and the seconds of
+    // driving it has learned over.
+    double          hapRoadFullMm = 0.0, hapRoadFullSec = 0.0;
 };
 
 class MotionController

@@ -97,6 +97,26 @@ namespace road_k {
     constexpr double kSurfWaveM   = 2.0;
     constexpr double kSurfEaseSec = 0.1;
     constexpr double kGroundEaseSec = 0.02;   // a tyre leaving or meeting the ground eases over this
+    // Full mm learned per car (the suspension model, with learn full mm):
+    // each corner's travel as the model plays it (after cut hz and susp cut
+    // hz, before susp %), in a histogram of log-spaced bins from
+    // kFullLearnLoMm to kFullLearnHiMm, pooled over the four corners while
+    // the car rolls above kFullLearnMinKmh with the tyre on the ground. Full
+    // = its kFullLearnQ quantile / kFullLearnShare, once kFullLearnMinSec of
+    // driving is in it, refreshed every kFullLearnEverySec. Measured on 25
+    // recorded sessions (cut at 3 Hz): the 99th percentile is 2.6 mm for
+    // Assetto Corsa's Porsche GT3 R, which at this share is the 29 mm the
+    // GT3 starting point sets by hand; across the cars 1.3 to 4.1 mm, and
+    // Automobilista 2's cars move about half as far as Assetto Corsa's
+    // (with one full mm for both, its road played at half strength).
+    constexpr int    kFullLearnBins    = 128;   // 5 % wide
+    constexpr double kFullLearnLoMm    = 0.25, kFullLearnHiMm = 128.0;
+    constexpr double kFullLearnMinKmh  = 30.0;
+    constexpr double kFullLearnQ       = 0.99;
+    constexpr double kFullLearnShare   = 0.09;
+    constexpr double kFullLearnMinSec  = 20.0;
+    constexpr double kFullLearnEverySec = 0.5;
+    constexpr double kFullLearnMaxMm   = 50.0;   // the field's own range
     // Chassis model.
     constexpr double kLearnSec   = 5.0;     // sign learning memory
     constexpr double kLearnCorr  = 0.3;     // correlation that sets a sign
@@ -386,6 +406,38 @@ public:
         return false;
     }
 
+    // Full mm learned for this car (0 = not yet: too little driving), and
+    // the seconds of driving it has learned over. It learns whether or not
+    // learn full mm is ticked, so the tile can show it either way.
+    double learnedFullMm() const  { return m_fullMm; }
+    double learnedFullSec() const { return m_fullSec / WHEEL_COUNT; }
+    // A different car: its suspension starts over.
+    void forgetFull()
+    {
+        for (double& b : m_fullHist) b = 0.0;
+        m_fullSec = m_fullMm = m_fullNextSec = 0.0;
+    }
+    // The travel (mm) at quantile q of what has been learned (0 if nothing):
+    // the tests' and the tile's way in.
+    double fullQuantileMm(double q) const
+    {
+        using namespace road_k;
+        if (m_fullSec <= 0.0) return 0.0;
+        const double want = std::max(0.0, std::min(1.0, q)) * m_fullSec;
+        const double step = std::log(kFullLearnHiMm / kFullLearnLoMm) / kFullLearnBins;
+        double acc = 0.0;
+        for (int b = 0; b < kFullLearnBins; ++b)
+        {
+            if (acc + m_fullHist[b] >= want && m_fullHist[b] > 0.0)
+            {
+                const double f = (want - acc) / m_fullHist[b];   // within the bin, geometric
+                return kFullLearnLoMm * std::exp((b + f) * step);
+            }
+            acc += m_fullHist[b];
+        }
+        return kFullLearnHiMm;
+    }
+
     void clear()
     {
         for (W& w : m_w) w = W{};
@@ -453,7 +505,10 @@ private:
     void stepSuspension(double dtSec, const RoadParams& p, double hpHz)
     {
         using namespace road_k;
-        const double full = std::max(kMinFullMm, p.fullMm);
+        // Full: learned for this car with learn full mm (once it has), else as set.
+        const bool learnedFull = p.fullLearn >= 0.5 && m_fullMm > 0.0;
+        const double full = std::max(kMinFullMm, learnedFull ? m_fullMm : p.fullMm);
+        const bool learning = m_speed * 3.6 > kFullLearnMinKmh;
         const double smooth = 1.0 - std::exp(-2.0 * wavesynth::kPi * kSmoothHz * dtSec);
         const bool rough = p.rough > 0.0;
         double envA = 0.0, outA = 0.0, wb = 0.0;
@@ -480,23 +535,46 @@ private:
                 w.dHp = outA * (w.dHp + d - w.dPrev); w.dPrev = d;
                 add = w.dHp;
             }
-            const double total = simPart(w, w.x, dtSec, p) + add;
+            const double sim = simCut(w, w.x, dtSec, p);
+            if (learning && w.suspDriven && w.groundF > 0.9) learnFull(sim, dtSec);
+            const double total = sim * suspShare(p) + add;
             w.y += (softKnee(total / full) - w.y) * smooth;
             w.out.pos = w.out.force = w.y;
             w.mm = total;
         }
+        // The learned full, worked out now and then (it moves slowly).
+        if (m_fullSec >= kFullLearnMinSec * WHEEL_COUNT && m_fullSec >= m_fullNextSec)
+        {
+            m_fullMm = std::max(kMinFullMm, std::min(kFullLearnMaxMm, fullQuantileMm(kFullLearnQ) / kFullLearnShare));
+            m_fullNextSec = m_fullSec + kFullLearnEverySec * WHEEL_COUNT;
+        }
+    }
+
+    // One corner's travel as the model plays it, into the histogram.
+    void learnFull(double mm, double dtSec)
+    {
+        using namespace road_k;
+        if (!std::isfinite(mm)) return;
+        const double a = std::fabs(mm);
+        const int b = (a <= kFullLearnLoMm) ? 0
+                    : std::min(kFullLearnBins - 1, static_cast<int>(std::log(a / kFullLearnLoMm)
+                                                    / std::log(kFullLearnHiMm / kFullLearnLoMm) * kFullLearnBins));
+        m_fullHist[b] += dtSec;
+        m_fullSec += dtSec;
     }
 
     // The game's own movement as the tile plays it (the suspension model's
-    // suspension travel, the tyre model's road under the tyre): x susp %,
-    // through the steep susp cut first when that is set. The roughness the
-    // models add is not touched.
-    static double simPart(W& w, double x, double dtSec, const RoadParams& p)
+    // suspension travel, the tyre model's road under the tyre): through the
+    // steep susp cut first when that is set, then x susp %. The roughness
+    // the models add is not touched.
+    static double simCut(W& w, double x, double dtSec, const RoadParams& p)
     {
-        if (p.suspHz > 0.0) x = w.simHp.step(x, p.suspHz, dtSec);
-        else                w.simHp.seen = false;
-        return x * std::max(0.0, std::min(100.0, p.suspPct)) / 100.0;
+        if (p.suspHz > 0.0) return w.simHp.step(x, p.suspHz, dtSec);
+        w.simHp.seen = false;
+        return x;
     }
+    static double suspShare(const RoadParams& p) { return std::max(0.0, std::min(100.0, p.suspPct)) / 100.0; }
+    static double simPart(W& w, double x, double dtSec, const RoadParams& p) { return simCut(w, x, dtSec, p) * suspShare(p); }
 
     // The random road moves under the car with the distance it covers.
     void advanceRoad(double dtSec)
@@ -738,6 +816,11 @@ private:
     double m_cH = 0.0, m_eH = 0.0, m_eM = 0.0, m_cR = 0.0, m_eR = 0.0, m_eLR = 0.0, m_cP = 0.0, m_eP = 0.0, m_eFB = 0.0;
     int    m_signH = 1, m_signR = 0, m_signP = 0;
     int    m_pol = 0;   // the suspension against the body: -1 compression positive, +1 extension positive, 0 unknown
+    // full mm learned for this car: the travel histogram (seconds per bin,
+    // the four corners pooled), the driving time in it, the value and when
+    // it is next worked out
+    double m_fullHist[road_k::kFullLearnBins] = {};
+    double m_fullSec = 0.0, m_fullMm = 0.0, m_fullNextSec = 0.0;
 };
 
 // ============================================================

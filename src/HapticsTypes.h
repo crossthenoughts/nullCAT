@@ -144,6 +144,10 @@ struct RoadParams
     // bumps pass. 0 hz = off (cut hz alone, as before).
     double suspPct    = 100.0;
     double suspHz     = 0.0;
+    // Suspension model: full mm learned for each car from how far its
+    // suspension moves (1), or fullMm as set (0). Last, so positional
+    // initialisers stay as they were.
+    double fullLearn  = 0.0;
 };
 
 // The Kerb tile: a rumble strip under the tyre that is on one. Ribs at

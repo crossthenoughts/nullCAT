@@ -724,8 +724,9 @@ public:
     double groundContact(int wheel) const { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_ground[wheel] : 1.0; }   // as the law last drove it
 
     // A different car: what was learned about the last one starts over (the
-    // engine's redline; fresh tyres and cold discs). The law resets its own.
-    void newCar() { m_engine.forgetCar(); m_wheels.clear(); }
+    // engine's redline; fresh tyres and cold discs; the road's learned full
+    // mm). The law resets its own.
+    void newCar() { m_engine.forgetCar(); m_wheels.clear(); m_road.forgetFull(); }
 
     // ---- the Impacts tile. Config apply for the params; the law drives
     // each corner's suspension and the body's vertical acceleration.

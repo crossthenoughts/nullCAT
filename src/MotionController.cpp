@@ -760,6 +760,8 @@ void MotionController::publishHapticsStatusLocked()
     m_statusSnapshot.hapAbsWheelHz = m_hapLaws.absWheelHz;
     m_statusSnapshot.hapLatBaseSec = m_hapLaws.latBaseSec;
     m_statusSnapshot.hapLatLearned = m_hapLaws.latBaseSec >= haptics::laws_k::kLatBaseLearnSec;
+    m_statusSnapshot.hapRoadFullMm  = m_haptics.roadModel().learnedFullMm();
+    m_statusSnapshot.hapRoadFullSec = m_haptics.roadModel().learnedFullSec();
 }
 
 // Session peaks of the tile readouts, taken every haptics step (the

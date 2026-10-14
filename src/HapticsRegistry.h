@@ -161,6 +161,7 @@ constexpr ParamSpec kRoadParams[] = {           // road: the model, its settings
     { "hopHz",      "hop hz",      6,   30,  0.5,  nullptr },   // tyre, suspension roughness: wheel hop
     { "damping",    "damping",     0.05, 1.5, 0.05, nullptr },  // tyre, suspension roughness: damping ratio
     { "fullMm",     "full mm",     0.5, 50,  0.5,  nullptr },   // suspension: travel = 100%
+    { "fullLearn",  "learn full mm", 0, 1,   1,    "off|on" },  // ...learned per car from its suspension instead
     { "surface",    "surface x",   0,   1,   0.05, nullptr },   // suspension: tarmac grain rising with road speed
     { "surfaceHz",  "surface hz",  4,   40,  1,    nullptr },   // ...on its own carrier
     { "surfaceKmh", "surface km/h", 20, 300, 5,    nullptr },   // ...full by this speed
