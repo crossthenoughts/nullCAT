@@ -44,6 +44,7 @@
 #include <cstdlib>
 #include <cctype>
 #include <cstdint>
+#include <cmath>
 #include <string>
 #include <algorithm>
 
@@ -637,7 +638,10 @@ bool TelemetryInput::parsePacket(const char* buf, int len, TelemetryData& out)
                         fld[vlen] = '\0';
                         char* endp = nullptr;
                         const double val = std::strtod(fld, &endp);
-                        if (endp != fld) { out.ncyHave[tok] = true; out.ncy[tok] = val; ++landed; }
+                        // strtod reads "nan", "inf", "infinity" and
+                        // overflows to inf: a value that is not finite is
+                        // ABSENT, so nothing downstream ever sees it.
+                        if (endp != fld && std::isfinite(val)) { out.ncyHave[tok] = true; out.ncy[tok] = val; ++landed; }
                     }
                 }
             }
@@ -683,7 +687,10 @@ bool TelemetryInput::parsePacket(const char* buf, int len, TelemetryData& out)
             fld[flen] = '\0';
             char* endp = nullptr;
             val  = std::strtod(fld, &endp);
-            have = (endp != fld);
+            // A non-finite value (nan, inf, an overflow) is a bad field:
+            // an absent slot on the channel line, skipped on the motion
+            // line, never a number anything downstream can see.
+            have = (endp != fld) && std::isfinite(val);
         }
         if (isNcx)
         {

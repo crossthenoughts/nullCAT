@@ -206,6 +206,41 @@ int main()
         check(ok && std::strlen(d.car) == NCY_STR_LEN - 1, "an over-long name is truncated to the store, never overrun");
     }
 
+    // ---- non-finite values never land (A5) ----
+    // strtod happily reads "nan", "inf", "infinity" and overflows to inf;
+    // a sender that prints a NaN property (SimHub does, as "NaN") would
+    // otherwise push it through every law and freeze the status page.
+    // Reverting the std::isfinite(val) in either strtod branch of
+    // parsePacket fails these.
+    {
+        bool ok; TelemetryData d = parse("NULLCATX,nan,2", &ok);
+        check(ok && d.numNcx == 2 && !d.ncxHave[0] && d.ncx[0] == 0.0 && d.ncxHave[1],
+              "Ncx: a NaN field is an absent slot (value 0), the slot after it still lands");
+        d = parse("NULLCATX,1e999,-inf,infinity,3", &ok);
+        check(ok && d.numNcx == 4 && !d.ncxHave[0] && !d.ncxHave[1] && !d.ncxHave[2] && d.ncxHave[3],
+              "Ncx: an overflow, -inf and infinity are absent slots");
+        bool allFinite = true;
+        for (int i = 0; i < d.numNcx; ++i) allFinite = allFinite && std::isfinite(d.ncx[i]);
+        check(allFinite, "Ncx: every stored slot value is finite, present or not");
+        parse("NULLCATX,nan,inf", &ok);
+        check(!ok, "reject: an Ncx line with nothing finite on it");
+        d = parse("NULLCATY,rpm=nan,speedKmh=inf,gear=3", &ok);
+        check(ok && !d.ncyHave[NcxTok::Rpm] && !d.ncyHave[NcxTok::SpeedKmh] && d.ncyHave[NcxTok::Gear],
+              "Ncy: NaN and inf tokens are NOT present, the finite one lands");
+        check(d.ncy[NcxTok::Rpm] == 0.0 && d.ncy[NcxTok::SpeedKmh] == 0.0, "Ncy: an absent token's value stays 0");
+        parse("NULLCATY,rpm=NaN", &ok);
+        check(!ok, "reject: an Ncy line whose only value is NaN lands nothing");
+        d = parse("NULLCAT,1.0,nan,2.0", &ok);
+        check(ok && d.numPositions == 2 && std::fabs(d.positions[1] - 2.0) < 1e-12,
+              "motion: a NaN field is skipped like any bad field (compacting), never an axis target");
+        // Through the store: a NaN token ingested is absent in the snapshot.
+        TelemetryInput ti;
+        TelemetryData p; TelemetryInput::parsePacket("NULLCATY,rpm=nan,gear=2", 23, p); ti.ingest(p);
+        TelemetryData s = ti.getLatestData();
+        check(!s.ncyHave[NcxTok::Rpm] && s.ncyHave[NcxTok::Gear] && std::isfinite(s.ncy[NcxTok::Rpm]),
+              "snapshot: a NaN token is absent (have=false) and its value finite");
+    }
+
     // ---- frozen-stream guard: OFF by default ----
     // An idling car at a standstill sends exactly the same numbers for as
     // long as it idles (integer idle rpm, zero speed, zero pedals), so the

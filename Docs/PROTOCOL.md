@@ -59,8 +59,9 @@ state effects and the haptic layer. The wire carries numbers only;
 default slot order matches the token table below, making default configs
 scale 1, offset 0. A sender may stop at any slot: channels it does not
 send are simply absent (their effects stay inert). Slots are counted by
-position: a field left empty, or holding something that is not a number,
-leaves that one slot absent and the slots after it keep their places. A motion line (`NULLCAT`) is different: there
+position: a field left empty, or holding something that is not a finite
+number (`NaN`, `inf` and an overflow count as not a number), leaves that
+one slot absent and the slots after it keep their places. A motion line (`NULLCAT`) is different: there
 a bad field is skipped and the values after it close up.
 
 Channel staleness fail-safe: if the channel stream (NULLCATX or NULLCATY)
@@ -90,7 +91,8 @@ same line type:
 | `carId` | optional: the car's stable id in that sim (Assetto Corsa: the content folder, e.g. `ks_mazda_787b`), up to 47 characters. nullCAT's car table is keyed by it where a sim has one; without it the table matches on `car` |
 
 Unknown keys, keys without `=`, and non-numeric values for a numeric
-token are skipped; the rest of the line still lands. Whitespace around
+token (`NaN` and `inf` included) are skipped; the rest of the line still
+lands. Whitespace around
 keys, `=` and values is ignored. A line that lands nothing is rejected.
 Keys are case-sensitive.
 

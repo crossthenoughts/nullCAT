@@ -356,6 +356,10 @@ Development branch. Nothing here is in a release yet.
   rig keeps its own values: change them on the tile.
 
 ### Fixed
+- A sim channel that arrived as `NaN` or `inf` (a property the game had
+  not filled in yet, printed as it was) was taken as a number. It now
+  counts as not sent, on both the numbered and the named channel lines,
+  so no effect and no readout ever sees it.
 - A `NULLCATX` channel line with one field left empty or unreadable
   shifted every channel after it one slot along (the gear binding would
   read the clutch, and so on down the line). A bad field now leaves its
