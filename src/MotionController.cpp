@@ -2038,6 +2038,20 @@ void MotionController::applyHapticMutes()
     m_hapMuteApplied = mask;
 }
 
+// One haptics cycle, on whichever clock has the path (the RT loop, or the
+// idle clock with the loop stopped): the staged settings, the laws (or the
+// e-stop clear), the layer, the peaks, the shakers. One place, so the two
+// clocks cannot drift apart.
+void MotionController::stepHapticsCycle(const TelemetryData& td, bool estop)
+{
+    applyStagedHaptics();
+    if (estop) m_haptics.clearAll();
+    else       driveContinuousHaptics(td);
+    m_haptics.step(m_cycleTimeSec);
+    trackHapticPeaks();
+    pushShakers();
+}
+
 // One control cycle's shaker samples into the sound card, when one is
 // attached (ShakerOutput::push is lock-free and skips when closed).
 void MotionController::pushShakers()
@@ -2052,11 +2066,7 @@ void MotionController::pushShakers()
 void MotionController::hapticsIdleTick(const TelemetryData& td)
 {
     if (m_hapticsBusy.exchange(true, std::memory_order_acq_rel)) return;   // the RT loop has it
-    applyStagedHaptics();
-    driveContinuousHaptics(td);
-    m_haptics.step(m_cycleTimeSec);
-    trackHapticPeaks();
-    pushShakers();
+    stepHapticsCycle(td, false);
     {
         std::unique_lock<std::shared_mutex> lock(m_statusLock, std::try_to_lock);
         if (lock.owns_lock()) publishHapticsStatusLocked();
@@ -2200,12 +2210,7 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
     // over when the loop starts; the overlays are then last cycle's)
     if (!m_hapticsBusy.exchange(true, std::memory_order_acq_rel))
     {
-        applyStagedHaptics();
-        if (estopNow) m_haptics.clearAll();
-        else          driveContinuousHaptics(telemetryData);
-        m_haptics.step(m_cycleTimeSec);
-        trackHapticPeaks();
-        pushShakers();
+        stepHapticsCycle(telemetryData, estopNow);
         m_hapticsBusy.store(false, std::memory_order_release);
     }
 

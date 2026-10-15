@@ -215,6 +215,7 @@ public:
     // Haptics idle clock tick (a timer thread while the control loop is
     // stopped): laws + layer step + shaker push, nothing else.
     void hapticsIdleTick(const TelemetryData& td);
+    void stepHapticsCycle(const TelemetryData& td, bool estop);   // one haptics cycle (both clocks)
     // The layer itself, read-only, for tests that must see what reaches an
     // axis or a shaker rather than a readout that is 0 by construction.
     // Read it only while nothing steps the layer (no loop, no idle clock).

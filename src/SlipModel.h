@@ -178,8 +178,6 @@ public:
 
     // One wheel's sample this cycle (tests: the two wheels of an axle are
     // in phase).
-    double wheelSampleA(int wheel) const { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_w[wheel].sA : 0.0; }
-    double wheelSampleB(int wheel) const { return (wheel >= 0 && wheel < WHEEL_COUNT) ? m_w[wheel].sB : 0.0; }
 
     // Highest smoothed level anywhere, screech and pulse included (status /
     // wave; the layer renders nothing below it).

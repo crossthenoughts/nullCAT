@@ -174,7 +174,6 @@ public:
     }
     double buzz() const    { return m_buzzOut; }
     double buzzHz() const  { return m_buzzHz; }
-    double buzzPhase() const { return m_buzzOsc.phase; }
 
     void clear()
     {

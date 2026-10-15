@@ -49,10 +49,6 @@ public:
         m_params[static_cast<int>(t)] = p;
     }
 
-    const EffectParams& params(EventType t) const
-    {
-        return m_params[static_cast<int>(t)];
-    }
 
     // Fire one transient. scale in [0,1] multiplies the configured
     // amplitude (impact velocity). Inert when the effect's ampPct is 0 or
@@ -669,7 +665,6 @@ public:
         m_roadDriven = true;
     }
     double roadWheelTravelMm(int wheel) const { return m_road.wheelTravelMm(wheel); }
-    double roadReplayLevel() const            { return m_roadLevel; }
     bool   roadReplaying() const              { return m_road.active(); }
     // The road under each tyre (mm, world), the surface class there, the
     // car's speed, its body and geometry: the tyre and chassis models.
@@ -688,7 +683,6 @@ public:
     // The surface grain's level 0..1 for THIS cycle (the law: the surface
     // mix x how far up to surface km/h the car is). Not driven = releasing.
     void   driveRoadGrain(double level)       { m_surfTarget = std::max(0.0, std::min(1.0, level)); }
-    double roadGrainLevel() const             { return m_surfLevel; }
 
     // ---- kerb (the rumble strip). Config apply for the params; the law
     // says per wheel, per cycle, how much of the tyre is on a kerb.
@@ -854,7 +848,6 @@ public:
         m_engine.drive(fireHz, load01, limiterOn, boostBar, pitLimiter, inGearOverrun, tcCut);
     }
     uint64_t engineTcDrops() const  { return m_engine.tcDropCount(); }
-    uint64_t engineLiftOffs() const { return m_engine.liftOffCount(); }
     bool     engineRunning() const  { return m_engine.running(); }
     uint64_t engineStalls() const   { return m_engine.stallCount(); }
 
