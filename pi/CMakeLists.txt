@@ -250,6 +250,29 @@ add_executable(TestShakerDsp ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestShakerDsp.
 target_include_directories(TestShakerDsp PRIVATE ${SRC})
 add_test(NAME TestShakerDsp COMMAND TestShakerDsp)
 
+# Two sound cards as one row of shakers, on miniaudio's null backend:
+# the fan-out, the status, a card with fewer channels than asked for,
+# a card going away and coming back. ShakerOutput.cpp carries miniaudio.
+# Run with: ctest -R ShakerBank
+add_executable(TestShakerBank
+    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestShakerBank.cpp
+    ${SRC}/ShakerOutput.cpp)
+target_include_directories(TestShakerBank PRIVATE ${SRC})
+target_link_libraries(TestShakerBank PRIVATE Threads::Threads ${NULLCAT_AUDIO_LIBS})
+add_test(NAME TestShakerBank COMMAND TestShakerBank)
+set_tests_properties(TestShakerBank PROPERTIES TIMEOUT 120)
+
+# Which thread's RT_LOG_* lines go where (the ring for the armed RT
+# thread, the ordinary path for everyone else) and the drain thread's
+# lifetime. Logger only.
+# Run with: ctest -R LogRouting
+add_executable(TestLogRouting
+    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestLogRouting.cpp
+    ${SRC}/Logging.cpp)
+target_include_directories(TestLogRouting PRIVATE ${SRC})
+target_link_libraries(TestLogRouting PRIVATE Threads::Threads)
+add_test(NAME TestLogRouting COMMAND TestLogRouting)
+
 # Pins the WKC monitor semantics the recovery stack depends on:
 # time-based trigger threshold (configure -> max(3, hz*0.015)), signal
 # fires exactly at the threshold cycle, inRecovery latches (one signal per

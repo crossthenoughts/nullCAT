@@ -58,7 +58,11 @@ state effects and the haptic layer. The wire carries numbers only;
 (each binding: channel slot, token, scale, offset). The recommended
 default slot order matches the token table below, making default configs
 scale 1, offset 0. A sender may stop at any slot: channels it does not
-send are simply absent (their effects stay inert).
+send are simply absent (their effects stay inert). Slots are counted by
+position: a field left empty, or holding something that is not a finite
+number (`NaN`, `inf` and an overflow count as not a number), leaves that
+one slot absent and the slots after it keep their places. A motion line (`NULLCAT`) is different: there
+a bad field is skipped and the values after it close up.
 
 Channel staleness fail-safe: if the channel stream (NULLCATX or NULLCATY)
 stops for 500 ms, all channel-driven behaviour (shift blocking, grind,
@@ -77,8 +81,10 @@ NULLCATY,<key>=<value>,<key>=<value>,...\n
 The same channels by **name**: each key is a token from the registry
 below and the value is in that token's canonical unit (no bindings, no
 scale or offset). A line may carry any subset of tokens, in any order;
-values persist until the stream goes stale. Two string keys ride on the
-same line type:
+values persist until the stream goes stale, or until a line names a
+different game, car or car id (every held value is dropped then, so a
+token one game sends and the next does not never carries over). Two
+string keys ride on the same line type:
 
 | Key | Value |
 |---|---|
@@ -87,7 +93,8 @@ same line type:
 | `carId` | optional: the car's stable id in that sim (Assetto Corsa: the content folder, e.g. `ks_mazda_787b`), up to 47 characters. nullCAT's car table is keyed by it where a sim has one; without it the table matches on `car` |
 
 Unknown keys, keys without `=`, and non-numeric values for a numeric
-token are skipped; the rest of the line still lands. Whitespace around
+token (`NaN` and `inf` included) are skipped; the rest of the line still
+lands. Whitespace around
 keys, `=` and values is ignored. A line that lands nothing is rejected.
 Keys are case-sensitive.
 

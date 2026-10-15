@@ -64,7 +64,10 @@ public:
                 if (m_loop.isRunning()) { next = std::chrono::steady_clock::now(); continue; }   // the RT loop owns the layer and the socket
                 // The control loop normally pumps the telemetry socket; with
                 // it stopped this clock does (same bounded drain), so the sim
-                // channels reach the layer on a rig with no loop running.
+                // channels reach the layer on a rig with no loop running. The
+                // loop's running flag flips before its first drain, so the
+                // two can meet here once at loop start: receive() itself
+                // lets one caller in at a time (the other gets false).
                 for (int drained = 0; drained < 32 && m_telemetry.receive(); ++drained) {}
                 m_motion.hapticsIdleTick(m_telemetry.getLatestData());
             }

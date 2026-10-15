@@ -356,6 +356,47 @@ Development branch. Nothing here is in a release yet.
   rig keeps its own values: change them on the tile.
 
 ### Fixed
+- A shaker sound card that went away (unplugged, disabled, or the system
+  output moved to another device) still showed as open, and a stereo card
+  asked for four shakers showed four live channels while playing shakers
+  3 and 4 into 1 and 2. The status line now shows the card's own channel
+  count, the extra shakers are not live and stay silent, and a card that
+  stops or goes quiet is reported as lost (its shakers silent until it is
+  opened again).
+- One bad sample (not a number) into a shaker channel silenced that
+  channel for the rest of the session: it stuck in the output filters. It
+  now counts as silence for that one sample and the channel plays on.
+- With shakers playing and the control loop stopped (or on a rig with no
+  drives), the log never showed "sim channel stream started" and
+  "stopped", "haptics settings applied live" or the telemetry parse
+  warnings: those lines went into the control loop's log queue, which was
+  only emptied while the loop ran. They now reach the log at once, and
+  the queue is emptied for as long as the program runs.
+- For a moment at control loop start, the loop and the shaker clock that
+  plays while it is stopped could both be reading telemetry at once, into
+  the same buffer. One of them now backs off until the next tick; nothing
+  is lost.
+- The control loop could be held up by the status page: the loop and the
+  page's status poll shared a lock around the latest telemetry frame, so
+  the loop waited whenever the poll had the lock and was put aside by the
+  operating system (measured at up to 37 ms on a busy machine). The loop
+  now stores the frame without a lock and never waits; the page's copy is
+  retried if it caught a frame half written.
+- Switching game or car without a pause in the channel stream kept the
+  named channels the new game never sends (the surface under each tyre,
+  the slip speeds, water on the road, wheels in the air, punctures) at the
+  last game's values. A line naming a different game, car or car id now
+  drops every held channel; the new game's own values land on its next
+  line.
+- A sim channel that arrived as `NaN` or `inf` (a property the game had
+  not filled in yet, printed as it was) was taken as a number. It now
+  counts as not sent, on both the numbered and the named channel lines,
+  so no effect and no readout ever sees it.
+- A `NULLCATX` channel line with one field left empty or unreadable
+  shifted every channel after it one slot along (the gear binding would
+  read the clutch, and so on down the line). A bad field now leaves its
+  own slot empty and the rest stay where the sender put them. Motion
+  lines (`NULLCAT`) are unchanged.
 - With follow car on, a car the car table had no entry for kept the last
   car's engine, limiter, driveline, ABS and TC (a Mini played a truck's
   12.9 litre engine). In a game the table covers (Assetto Corsa,

@@ -510,6 +510,35 @@ add_executable(TestShakerDsp tests/TestShakerDsp.cpp)
 target_include_directories(TestShakerDsp PRIVATE ${TEST_INCLUDE_DIRS})
 target_compile_options(TestShakerDsp PRIVATE /W3 /Zc:__cplusplus)
 add_test(NAME TestShakerDsp COMMAND TestShakerDsp)
+# The telemetry wire format and the channel store (parse, ingest, the
+# freshness verdicts, the recorder, the receive path on a loopback
+# socket): plain C++, no Qt. Was Pi-only; the parser is platform-neutral
+# and the socket part is Winsock-guarded in TelemetryInput.cpp.
+add_executable(TestTelemetryParse tests/TestTelemetryParse.cpp src/TelemetryInput.cpp src/Logging.cpp)
+target_include_directories(TestTelemetryParse PRIVATE ${TEST_INCLUDE_DIRS})
+target_compile_definitions(TestTelemetryParse PRIVATE ${TEST_COMPILE_DEFS})
+target_compile_options(TestTelemetryParse PRIVATE /W3 /Zc:__cplusplus)
+target_link_libraries(TestTelemetryParse PRIVATE ws2_32)
+add_test(NAME TestTelemetryParse COMMAND TestTelemetryParse)
+set_tests_properties(TestTelemetryParse PROPERTIES TIMEOUT 120)
+# Two sound cards as one row of shakers, on miniaudio's null backend:
+# the fan-out, the status, a card with fewer channels than asked for,
+# a card going away and coming back. ShakerOutput.cpp carries miniaudio.
+add_executable(TestShakerBank tests/TestShakerBank.cpp src/ShakerOutput.cpp)
+target_include_directories(TestShakerBank PRIVATE ${TEST_INCLUDE_DIRS})
+target_compile_definitions(TestShakerBank PRIVATE ${TEST_COMPILE_DEFS})
+target_compile_options(TestShakerBank PRIVATE /W3 /Zc:__cplusplus)
+add_test(NAME TestShakerBank COMMAND TestShakerBank)
+set_tests_properties(TestShakerBank PROPERTIES TIMEOUT 120)
+# Which thread's RT_LOG_* lines go where (the ring for the armed RT
+# thread, the ordinary path for everyone else) and the drain thread's
+# lifetime. Logger only, no Qt.
+add_executable(TestLogRouting tests/TestLogRouting.cpp src/Logging.cpp)
+target_include_directories(TestLogRouting PRIVATE ${TEST_INCLUDE_DIRS})
+target_compile_definitions(TestLogRouting PRIVATE ${TEST_COMPILE_DEFS})
+target_compile_options(TestLogRouting PRIVATE /W3 /Zc:__cplusplus)
+add_test(NAME TestLogRouting COMMAND TestLogRouting)
+set_tests_properties(TestLogRouting PROPERTIES TIMEOUT 60)
 
 # ---- Build 72: TestInitSequence - EtherCATMaster init sequence (sim mode) ----
 #

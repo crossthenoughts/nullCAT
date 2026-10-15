@@ -186,6 +186,14 @@ install on its own is a complete haptics engine for the sim channels.
 Underruns in the status line mean the sender or the machine stalled;
 the chain holds the last sample and fades rather than clicking.
 
+The channel count on the status line is the card's own. Ask a stereo
+dongle for four shakers and it shows 2: shakers 3 and 4 on that card
+are not live (the route editor says so) and stay silent rather than
+playing into shakers 1 and 2. If a card goes away while nullCAT runs
+(unplugged, disabled, or the system output moved to another device),
+the status line says so and the shakers on it stay silent until it is
+back and opened again, which a restart does; the other cards play on.
+
 ### Profiles
 
 A profile is a named copy of everything on the strip: every tile's

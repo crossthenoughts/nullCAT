@@ -7,10 +7,17 @@
 // device 1 and another as device 2 give shakers 1..4. Each device keeps
 // its own rings and drift servo (its own crystal); push() fans one
 // control cycle's samples out to all of them, lock-free.
+//
+// Threads: open()/close()/reopen() main or web thread, never while the
+// RT side could be inside push() for a device being ADDED or REMOVED
+// (open and close rebuild the slot list; reopen does not: it works on
+// the devices in place, each gated by its own open flag). info() from
+// the web and status threads.
 // ============================================================
 
 #include "HapticsTypes.h"   // MAX_SHAKER_OUT
 #include "ShakerOutput.h"
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
@@ -53,24 +60,39 @@ public:
         m_total = 0;
     }
 
-    // RT side.
+    // RT side. Each device's own open flag is the gate (lock-free), so a
+    // device lost or being opened again from the web thread simply skips.
     void push(const double* samples, int n)
     {
         for (Slot& s : m_slots)
-            if (s.ok) s.out->push(samples + s.base, std::max(0, std::min(s.want, n - s.base)));
+            if (s.out) s.out->push(samples + s.base, std::max(0, std::min(s.want, n - s.base)));
     }
 
     // Any device open?
-    bool anyOpen() const { for (const Slot& s : m_slots) if (s.ok && s.out->isOpen()) return true; return false; }
+    bool anyOpen() const { for (const Slot& s : m_slots) if (s.out && s.out->isOpen()) return true; return false; }
     int  totalChannels() const { return m_total; }
     int  deviceCount() const   { return static_cast<int>(m_slots.size()); }
 
-    // Per device, for status.
+    // Web thread: open every device again with the same request (after a
+    // card came back, or the output moved). Numbering is unchanged.
+    // Returns true when every device is open afterwards.
+    bool reopen()
+    {
+        bool all = true;
+        for (Slot& s : m_slots) { if (s.out) s.ok = s.out->reopen(); all = all && s.ok; }
+        return all;
+    }
+
+    // Per device, for status. channels is what the card itself has (open)
+    // or what was asked for (not open); channelsWanted what was asked for,
+    // so a stereo card asked for four shows 2 of 4 and shakers 3 and 4 as
+    // not live. Taking info() also runs each device's health check (a card
+    // gone quiet is marked lost), so the status poll is the watchdog.
     struct Info
     {
         std::string wanted, name, error;
         bool   open = false;
-        int    firstShaker = 0, channels = 0, sampleRate = 0;
+        int    firstShaker = 0, channels = 0, channelsWanted = 0, sampleRate = 0;
         double bufferMs = 0.0, latencyMs = 0.0;   // the card's buffer; the whole delay to the output
         uint64_t underruns = 0;
         int    fill = 0;
@@ -82,14 +104,16 @@ public:
         for (const Slot& s : m_slots)
         {
             Info i;
-            i.wanted = s.spec.device; i.firstShaker = s.base; i.channels = s.want;
+            i.wanted = s.spec.device; i.firstShaker = s.base; i.channels = s.want; i.channelsWanted = s.want;
             if (s.out)
             {
-                i.open = s.ok && s.out->isOpen();
+                s.out->checkHealth();
+                i.open = s.out->isOpen();
+                if (i.open) i.channels = std::min(s.want, s.out->channelsActual());
                 i.name = s.out->deviceName(); i.error = s.out->error();
                 i.sampleRate = s.out->sampleRate(); i.bufferMs = s.out->bufferMs(); i.latencyMs = s.out->latencyMs();
                 i.underruns = s.out->underruns(); i.fill = s.out->fill();
-                for (int c = 0; c < s.want; ++c) i.levels.push_back(i.open ? s.out->level(c) : 0.0f);
+                for (int c = 0; c < s.want; ++c) i.levels.push_back((i.open && c < i.channels) ? s.out->level(c) : 0.0f);
             }
             out.push_back(i);
         }
@@ -105,11 +129,13 @@ public:
         return scratch.listDevices();
     }
 
-    // Is this shaker number backed by an open device?
+    // Is this shaker number backed by an open device, on a channel the card
+    // itself has?
     bool channelLive(int shaker) const
     {
         for (const Slot& s : m_slots)
-            if (shaker >= s.base && shaker < s.base + s.want) return s.ok && s.out->isOpen();
+            if (shaker >= s.base && shaker < s.base + s.want)
+                return s.out && s.out->isOpen() && (shaker - s.base) < s.out->channelsActual();
         return false;
     }
 
