@@ -868,6 +868,30 @@ static void overlayKeys(QJsonObject& dst, const QJsonObject& schema)
     for (auto it = schema.constBegin(); it != schema.constEnd(); ++it)
         dst[it.key()] = it.value();
 }
+// The haptics object merges per tile: a key inside a tile this build does
+// not know (a newer version's setting, read back by an older build, or a
+// hand annotation) survives a save the way the unknown top-level keys do;
+// a tile's schema keys (routes included, always written) land over it. A
+// tile that is not an object in the file is replaced. The retired keys
+// (0.9.6 "skid"/"lockup") are dropped: the migration rewrite means them
+// to be, and the web serves the file as is.
+static QJsonObject mergeHaptics(const QJsonObject& existing, const QJsonObject& schema)
+{
+    QJsonObject out = existing;
+    for (auto it = schema.constBegin(); it != schema.constEnd(); ++it)
+    {
+        if (it.value().isObject() && out.value(it.key()).isObject())
+        {
+            QJsonObject tile = out.value(it.key()).toObject();
+            overlayKeys(tile, it.value().toObject());
+            out[it.key()] = tile;
+        }
+        else out[it.key()] = it.value();
+    }
+    for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+        if (const char* legacy = haptics::legacyEffectKey(haptics::effectInfo(i).id)) out.remove(legacy);
+    return out;
+}
 // Merge a per-axis array by slaveIndex so unknown per-axis keys survive.
 static QJsonArray mergeAxes(const QJsonArray& existing, const QJsonArray& schema)
 {
@@ -1091,6 +1115,7 @@ bool Config::saveRig(const std::string& anchorPath) const
     QJsonObject globalMerged = existing.value("global").toObject();
     QJsonObject globalSchema;
     writeRigGlobal(m_config, globalSchema);
+    globalSchema["haptics"] = mergeHaptics(globalMerged.value("haptics").toObject(), globalSchema.value("haptics").toObject());
     overlayKeys(globalMerged, globalSchema);
 
     QJsonArray axesSchema;

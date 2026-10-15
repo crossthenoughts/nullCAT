@@ -948,6 +948,49 @@ private slots:
         QCOMPARE(a0.value("customGain").toDouble(), 1.23);
     }
 
+    // Unknown keys INSIDE the haptics object survive a save: a tile this
+    // build does not know and a setting inside a tile it does (a newer
+    // version's, read back by this one), the way the unknown top-level
+    // keys do; the tile's own keys land over it. The haptics object used
+    // to be replaced whole, so every server-side apply (a car entry, a
+    // starting point, a profile) dropped them. Reverting mergeHaptics (the
+    // globalSchema["haptics"] line in saveRig) fails the first QVERIFY.
+    void mergeOnSave_unknownHapticsKeysPreserved()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        Config seed; QVERIFY(seed.load(anchor(dir).toStdString()));
+        QJsonObject rig = readObj(dir.path() + "/rig.json");
+        QJsonObject g = rig.value("global").toObject();
+        QJsonObject h = g.value("haptics").toObject();
+        QJsonObject future; future["ampPct"] = 12.0; future["_note"] = "a tile this build does not have";
+        h["futureTile"] = future;
+        QJsonObject abs = h.value("abs").toObject(); abs["futureParam"] = 7.0; abs["_comment"] = "mine"; abs["ampPct"] = 20.0;
+        h["abs"] = abs;
+        g["haptics"] = h; rig["global"] = g;
+        writeText(dir.path() + "/rig.json", QJsonDocument(rig).toJson());
+
+        Config cfg; QVERIFY(cfg.load(anchor(dir).toStdString()));
+        cfg.get().hapticsFx[static_cast<size_t>(haptics::Effect::Abs)].ampPct = 25.0;   // an edit the save carries
+        QVERIFY(cfg.saveRig(anchor(dir).toStdString()));
+        const QJsonObject h2 = readObj(dir.path() + "/rig.json").value("global").toObject().value("haptics").toObject();
+        QVERIFY2(h2.value("futureTile").isObject(), "unknown tile dropped by saveRig");
+        QCOMPARE(h2.value("futureTile").toObject().value("ampPct").toDouble(), 12.0);
+        const QJsonObject abs2 = h2.value("abs").toObject();
+        QVERIFY2(abs2.contains("futureParam"), "unknown key inside a tile dropped by saveRig");
+        QCOMPARE(abs2.value("futureParam").toDouble(), 7.0);
+        QCOMPARE(abs2.value("_comment").toString(), QString("mine"));
+        QCOMPARE(abs2.value("ampPct").toDouble(), 25.0);                  // the schema's value lands
+        QVERIFY(abs2.value("routes").isArray());
+        // A tile that is not an object in the file is replaced by the schema's.
+        QJsonObject rig3 = readObj(dir.path() + "/rig.json");
+        QJsonObject g3 = rig3.value("global").toObject(); QJsonObject h3 = g3.value("haptics").toObject();
+        h3["kerb"] = 5; g3["haptics"] = h3; rig3["global"] = g3;
+        writeText(dir.path() + "/rig.json", QJsonDocument(rig3).toJson());
+        Config again; QVERIFY(again.load(anchor(dir).toStdString()));
+        QVERIFY(again.saveRig(anchor(dir).toStdString()));
+        QVERIFY(readObj(dir.path() + "/rig.json").value("global").toObject().value("haptics").toObject().value("kerb").isObject());
+    }
+
     // webUIEnabled is a HOST field: it must land in host.json and round-trip
     // both ways.
     void webUIEnabled_roundtripsInHost()

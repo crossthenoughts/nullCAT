@@ -403,6 +403,11 @@ Development branch. Nothing here is in a release yet.
   setting on the rig when the car came on. Only the settings a car owns
   cross over now; the shipped table is checked to carry nothing else, to
   name every car once, and to validate on a fresh rig.
+- A setting inside the haptics part of `rig.json` that this build does
+  not know (a newer version's, or a note of your own) was dropped by
+  every apply the controller made itself (a car entry, a starting point,
+  a profile). They survive now, like the unknown keys elsewhere in the
+  file.
 - With follow car on, a car the car table had no entry for kept the last
   car's engine, limiter, driveline, ABS and TC (a Mini played a truck's
   12.9 litre engine). In a game the table covers (Assetto Corsa,
