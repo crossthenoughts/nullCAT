@@ -238,6 +238,7 @@ public:
     bool     running() const      { return m_running; }   // combustion has taken hold
     uint64_t catchCount() const   { return m_catches; }
     uint64_t stallCount() const   { return m_stalls; }
+    double   fireHz() const       { return m_fireHz; }   // the firing rate it was last driven at
 
     double learnedMaxRpm() const { return m_learnedMax; }
 

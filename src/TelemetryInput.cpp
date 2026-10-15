@@ -47,6 +47,7 @@
 #include <cmath>
 #include <string>
 #include <algorithm>
+#include <thread>
 
 // ============================================================
 // Constructor / Destructor
@@ -493,7 +494,13 @@ void TelemetryInput::updateUdpRate(const TelemetryData& d)
 
 void TelemetryInput::storeBegin()
 {
-    m_seq.fetch_add(1, std::memory_order_acq_rel);
+    // The odd count must be visible before any store into the frame. An
+    // acq_rel RMW does not promise that for its store half (on a Pi 4's
+    // A72, without LSE atomics, the frame's stores could land first and a
+    // reader validate a half-new copy): increment, then a release fence,
+    // as Linux's write_seqcount_begin does (increment, smp_wmb).
+    m_seq.fetch_add(1, std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_release);
 }
 
 void TelemetryInput::storeEnd()
@@ -521,7 +528,7 @@ bool TelemetryInput::snapshot(Store& out) const
 // Get Latest Data (a consistent copy, any thread, never blocks)
 // ============================================================
 
-TelemetryData TelemetryInput::getLatestData() const
+TelemetryData TelemetryInput::getLatestData(bool wait) const
 {
     // Merge the two streams into one snapshot: the motion frame as stored,
     // plus the latest NULLCATX channels with a 500 ms freshness verdict.
@@ -538,7 +545,11 @@ TelemetryData TelemetryInput::getLatestData() const
     // another thread). Report no frame rather than a torn one: one
     // cycle's hold, the next snapshot is whole again.
     Store st;
-    if (!snapshot(st)) return TelemetryData{};
+    while (!snapshot(st))
+    {
+        if (!wait) return TelemetryData{};
+        std::this_thread::yield();   // a status thread: the writer finishes its store in microseconds once it runs
+    }
 
     TelemetryData d = st.motion;
     d.numNcx = st.ncxCount;

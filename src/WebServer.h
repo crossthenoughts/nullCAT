@@ -44,6 +44,7 @@
 #include <string>
 #include <thread>
 #include <atomic>
+#include <random>
 #include <functional>
 #include <mutex>
 #include <ctime>
@@ -254,13 +255,16 @@ private:
     struct CarState { CarTable::Match match; std::string car, carId, game; bool applied = false; bool defaults = false; };
     CarState          m_carState;            // guarded by m_carMx
     mutable std::mutex m_carMx;              // mutable: read by the const status builder
-    // Bumps on every rewrite of the live haptics set the server makes by
-    // itself or on request (a car entry, the car defaults, a starting
-    // point, a profile), so a page can refresh its copy. GET /api/rig
-    // hands it out with the file (X-Nullcat-Gen) and POST /api/rig refuses
-    // a save made against an older one (409), so a page with unsaved
-    // edits can never write a stale copy over such an apply.
-    std::atomic<int>  m_carGen{0};
+    // Bumps on every rewrite of the live haptics set: the server's own (a
+    // car entry, the car defaults, a starting point, a profile) and a web
+    // save that changed rig.json (the saving page takes the new value from
+    // the reply), so every page can refresh its copy. GET /api/rig hands it
+    // out with the file (X-Nullcat-Gen) and POST /api/rig refuses a save
+    // made against an older one (409), so a page with unsaved edits can
+    // never write a stale copy over an apply or another page's save.
+    // Starts at a value of its own each run, never 0: a page that loaded
+    // its copy before a restart can never match the new run's count.
+    std::atomic<int>  m_carGen{ static_cast<int>(std::random_device{}() & 0x3fffffffu) | 0x1000 };
     // The table's memory of the car it last acted on by itself: the
     // identity, and whether the tiles carry its entry (applied) or the
     // defaults. Unlike m_lastIdentity it survives a stream dropout, so a

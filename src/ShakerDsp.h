@@ -195,8 +195,10 @@ private:
             // The filters downstream are recursive: one NaN or inf in
             // would stay in their state for the rest of the run. A sample
             // that is not finite counts as 0 (TestShakerDsp S-10).
+            // A finite double beyond float range would still land as inf:
+            // clamp first (far past full scale; the soft clip owns the rest).
             for (int c = 0; c < channels; ++c)
-                slot[c] = (c < n && std::isfinite(samples[c])) ? static_cast<float>(samples[c]) : 0.0f;
+                slot[c] = (c < n && std::isfinite(samples[c])) ? static_cast<float>(std::max(-16.0, std::min(16.0, samples[c]))) : 0.0f;
             head.store(h + 1, std::memory_order_release);
         }
         // The two frames at the read position (false: not both there yet).

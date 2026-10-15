@@ -396,6 +396,10 @@ int main()
         h.run(24000, tone);
         double bad[haptics::MAX_SHAKERS] = { std::nan(""), INFINITY };
         h.dsp.push(bad, 2); h.tCtrl += 1.0 / 2000.0;
+        // A finite double past float range (a law dividing by a tiny
+        // number) is the same poison once cast: clamped before the cast.
+        double huge[haptics::MAX_SHAKERS] = { 1e300, -1e300 };
+        h.dsp.push(huge, 2); h.tCtrl += 1.0 / 2000.0;
         h.run(48000, tone);
         bool finite = true;
         for (size_t i = 24000 * 2; i < h.out.size(); ++i) finite = finite && std::isfinite(h.out[i]);

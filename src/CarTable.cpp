@@ -134,23 +134,38 @@ bool CarTable::loadStock(const std::string& path)
 
 bool CarTable::loadUser(const std::string& anchorPath)
 {
+    const QString path = userPath(anchorPath);
     bool ok = false;
-    const QJsonObject root = readJsonFile(userPath(anchorPath), ok);
-    if (!ok) return false;
+    const QJsonObject root = readJsonFile(path, ok);
+    if (!ok)
+    {
+        // Absent: no user layer yet. There but unreadable (cut short, a
+        // hand edit gone wrong): kept as it is, and saveUser refuses until
+        // it is fixed or moved and nullCAT restarted.
+        std::lock_guard<std::mutex> lk(m_mx);
+        m_userError = QFileInfo::exists(path)
+            ? path.toStdString() + " cannot be read: fix or move the file and restart (nothing is written over it)"
+            : std::string();
+        return false;
+    }
     std::map<std::string, Row> rows;
     readRows(root, rows, nullptr);
     std::lock_guard<std::mutex> lk(m_mx);
+    m_userError.clear();
     m_user.rows.clear();
     for (auto& kv : rows) m_user.rows[normaliseKey(kv.first)] = kv.second;
     rebuildNames(m_user);
     return true;
 }
 
+std::string CarTable::userError() const { std::lock_guard<std::mutex> lk(m_mx); return m_userError; }
+
 bool CarTable::saveUser(const std::string& anchorPath) const
 {
     QJsonObject root, cars;
     {
         std::lock_guard<std::mutex> lk(m_mx);
+        if (!m_userError.empty()) return false;   // never written over (see loadUser)
         for (const auto& kv : m_user.rows) cars[QString::fromStdString(kv.second.key)] = kv.second.entry;
     }
     root["_help"] = "nullCAT car table, your layer: how a car's engine, limiter, driveline, ABS and TC feel, "

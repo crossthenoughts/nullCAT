@@ -538,6 +538,25 @@ private slots:
         r4[3] = 50.0; c4[3] = true;
         QVERIFY(!cc.takeSession(r4, c4, true));
         QCOMPARE((int)cc.cars().size(), 3);
+
+        // What the takes changed stays pending until a write lands: a
+        // failed write (here: no folder to write into) is tried again, and
+        // a forced flush (shutdown) does not wait out the retry gap.
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const std::string bad  = (tmp.path() + "/missing/config.json").toStdString();
+        const std::string good = (tmp.path() + "/config.json").toStdString();
+        QVERIFY(cc.unsaved());
+        QVERIFY(!cc.flush(bad, true));
+        QVERIFY(cc.unsaved());
+        QVERIFY(!cc.flush(good));                  // inside the retry gap
+        QVERIFY(!QFile::exists(tmp.path() + "/carcache.json"));
+        QVERIFY(cc.flush(good, true));
+        QVERIFY(!cc.unsaved());
+        QVERIFY(!cc.flush(good, true));            // nothing pending: no write
+        CarCache back;
+        QVERIFY(back.load(good));
+        QCOMPARE((int)back.cars().size(), 3);
     }
 
     void o5_full_default_roundtrip_no_data_loss()

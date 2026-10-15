@@ -346,6 +346,15 @@ int main()
         feed("NULLCATY,game=AssettoCorsa,car=Porsche 911 GT3 R");   // an older plugin: no id on the line
         s = ti.getLatestData();
         check(s.ncyHave[NcxTok::Wet] && s.carId[0] == '\0', "a line without carId= drops the stale id (as before) and is not a car change");
+        // Two cars with the same name, told apart by their id alone (a mod
+        // and the original, both "Porsche 911 GT3 R"): a change of id is a
+        // car change. Breaks with the carId clause of the check removed.
+        feed("NULLCATY,game=AssettoCorsa,car=Porsche 911 GT3 R,carId=ks_porsche_911_gt3_r_2016");
+        feed("NULLCATY,wet=0.25");
+        feed("NULLCATY,game=AssettoCorsa,car=Porsche 911 GT3 R,carId=rss_gtm_lux_v8");
+        s = ti.getLatestData();
+        check(!s.ncyHave[NcxTok::Wet] && std::string(s.carId) == "rss_gtm_lux_v8",
+              "the same car name with another id is a car change: every named token clears");
     }
 
     // ---- frozen-stream guard: OFF by default ----

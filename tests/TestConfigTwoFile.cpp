@@ -170,6 +170,70 @@ private slots:
         QCOMPARE(more.get().controlLoopHz, 123);   // runs as read
     }
 
+    // The clamp never reaches the file. The two paths that load the set and
+    // save it back: the Pi's boot normalise (load as written, save, then
+    // clamp for running) and a server-side apply (load as written, change
+    // what it owns, save; run a clamped copy). Both used to load clamped
+    // and so wrote an amp of 500 back as 100, and dropped a route whose
+    // gain clamped to 0.
+    void outOfRange_neverWrittenBack()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        Config seed; QVERIFY(seed.load(anchor(dir).toStdString()));   // cold start: a valid pair
+        QJsonObject rig = readObj(dir.path() + "/rig.json");
+        QJsonObject g = rig.value("global").toObject();
+        QJsonObject h = g.value("haptics").toObject();
+        QJsonObject abs = h.value("abs").toObject();
+        abs["ampPct"] = 500.0;
+        // A position route on an axis whose haptic max is 0: the clamp takes
+        // its gain to 0, and the writer drops a route at 0.
+        QJsonArray routes; { QJsonObject ro; ro["axis"] = 0; ro["gain"] = 1.5; routes.append(ro); }
+        abs["routes"] = routes;
+        h["abs"] = abs; g["haptics"] = h; rig["global"] = g;
+        QJsonArray axes = rig.value("axes").toArray();
+        QJsonObject a0 = axes.at(0).toObject(); a0["hapticsMaxMm"] = 0.0; axes.replace(0, a0); rig["axes"] = axes;
+        writeText(dir.path() + "/rig.json", QJsonDocument(rig).toJson());
+        const auto absInFile = [&]() {
+            return readObj(dir.path() + "/rig.json").value("global").toObject().value("haptics").toObject().value("abs").toObject();
+        };
+
+        // Boot normalise.
+        Config boot;
+        QVERIFY(boot.load(anchor(dir).toStdString(), /*forRun=*/false));
+        QCOMPARE(boot.get().hapticsFx[static_cast<size_t>(haptics::Effect::Abs)].ampPct, 500.0);
+        QVERIFY2(boot.loadWarnings().empty(), "an as-written load clamps nothing and so warns of nothing");
+        QVERIFY(boot.save(anchor(dir).toStdString()));
+        boot.clampForRun();
+        QCOMPARE(boot.get().hapticsFx[static_cast<size_t>(haptics::Effect::Abs)].ampPct, 100.0);   // runs clamped
+        QVERIFY(!boot.loadWarnings().empty());
+        QCOMPARE(boot.get().hapticsFx[static_cast<size_t>(haptics::Effect::Abs)].routes[0].gain, 0.0);
+        QCOMPARE(absInFile().value("ampPct").toDouble(), 500.0);
+        QCOMPARE(absInFile().value("routes").toArray().size(), 1);
+        QCOMPARE(absInFile().value("routes").toArray().at(0).toObject().value("gain").toDouble(), 1.5);
+
+        // A server-side apply that moves another tile (a car entry's engine).
+        Config apply;
+        QVERIFY(apply.load(anchor(dir).toStdString(), /*forRun=*/false));
+        QJsonObject eng; eng["ampPct"] = 42.0;
+        QJsonObject applied; applied["rpmVibe"] = eng;
+        Config::readHapticsObject(applied, apply.get());
+        AppConfig run = apply.get();
+        std::vector<std::string> clamped;
+        Config::clampHaptics(run, clamped);
+        QVERIFY(!clamped.empty());
+        QCOMPARE(run.hapticsFx[static_cast<size_t>(haptics::Effect::Abs)].ampPct, 100.0);
+        QVERIFY(apply.saveRig(anchor(dir).toStdString()));
+        QCOMPARE(absInFile().value("ampPct").toDouble(), 500.0);
+        QCOMPARE(absInFile().value("routes").toArray().size(), 1);
+        QCOMPARE(readObj(dir.path() + "/rig.json").value("global").toObject().value("haptics").toObject()
+                     .value("rpmVibe").toObject().value("ampPct").toDouble(), 42.0);
+
+        // And a plain load still runs clamped (what the mains run).
+        Config plain;
+        QVERIFY(plain.load(anchor(dir).toStdString()));
+        QCOMPARE(plain.get().hapticsFx[static_cast<size_t>(haptics::Effect::Abs)].ampPct, 100.0);
+    }
+
     // The atomic writer (QSaveFile: a temporary of its own, renamed over
     // the target on commit) must not be stopped by a stale rig.json.tmp
     // beside the file, which an interrupted web save leaves behind, and

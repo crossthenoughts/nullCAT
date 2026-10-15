@@ -534,6 +534,7 @@ private:
     void driveContinuousHaptics(const TelemetryData& td);
     void applyStagedHaptics();
     void publishHapticsStatusLocked();
+    void publishLearnerLocked();
     void pushShakers();
     haptics::ShakerBank*   m_shakers = nullptr;
     std::atomic<bool>      m_hapticsBusy{false};

@@ -184,6 +184,7 @@ try {
   // followCar false and the apply generation the copy was loaded at; the
   // page reports the save and the file carries it.
   posts.length = 0;
+  const genBefore = (await fetch(`http://127.0.0.1:${PORT}/api/rig`)).headers.get('x-nullcat-gen');
   await page.evaluate(() => { const fc = document.getElementById('hapFollowCar'); fc.click(); });
   await sleep(200);
   const saveBarShown = await page.evaluate(() => !(document.getElementById('hapSaveBar') || { hidden: true }).hidden);
@@ -196,14 +197,32 @@ try {
     try { rigPostFollow = JSON.parse(rigPost.body).global.haptics.followCar; } catch {}
     rigPostGen = rigPost.headers['x-nullcat-gen'];
   }
-  const rigAfter = await (await fetch(`http://127.0.0.1:${PORT}/api/rig`)).json();
+  const rigAfterResp = await fetch(`http://127.0.0.1:${PORT}/api/rig`);
+  const genAfter = rigAfterResp.headers.get('x-nullcat-gen');
+  const rigAfter = await rigAfterResp.json();
   const followAfter = ((rigAfter.global || {}).haptics || {}).followCar;
+  const pageGen = await page.evaluate(() => cfgGenLoaded);
   // The shaker status line names each card's own error when none is open
   // (the status carries per-device errors, never one for the sink).
   const shakerLine = await page.evaluate(() => {
     shakerStatus({ shakers: { enabled: true, open: false, channels: 0,
       devices: [{ name: 'USB Audio', open: false, error: 'card gone', first: 0, channels: 2 }] } });
     return (document.getElementById('shakerStatus') || {}).textContent || '';
+  });
+  // A card that is down shows reopen; one that came back as a stereo card
+  // asked for four reads "2 of 4" with the reopen hidden and the line
+  // redrawn (it used to stay blank after a card dropped out and came back).
+  const shakerBack = await page.evaluate(() => {
+    const vis = id => { const e = document.getElementById(id); return !!e && !e.hidden; };
+    shakerStatus({ shakers: { enabled: true, open: true, channels: 4,
+      devices: [{ name: 'USB Audio', open: true, error: '', first: 0, channels: 4, channelsWanted: 4, rate: 48000, latencyMs: 20, bufferMs: 15, underruns: 0, levels: [0, 0, 0, 0] }] } });
+    shakerStatus({ shakers: { enabled: true, open: false, channels: 4,
+      devices: [{ name: 'USB Audio', open: false, error: 'card gone', first: 0, channels: 4, channelsWanted: 4 }] } });
+    const downReopen = vis('shakerReopen');
+    shakerStatus({ shakers: { enabled: true, open: true, channels: 4,
+      devices: [{ name: 'USB Audio', open: true, error: '', first: 0, channels: 2, channelsWanted: 4, rate: 48000, latencyMs: 20, bufferMs: 15, underruns: 0, levels: [0, 0, 0, 0] }] } });
+    return { downReopen, upReopen: vis('shakerReopen'), tests: vis('shakerTests'),
+             line: (document.getElementById('shakerLine') || {}).textContent || '' };
   });
 
   const fails = [];
@@ -219,11 +238,21 @@ try {
   if (!saveBarShown)            fails.push('unticking follow car did not show the strip\'s Save bar');
   if (!rigPost)                 fails.push('Save did not POST /api/rig');
   if (rigPostFollow !== false)  fails.push(`Save posted followCar ${JSON.stringify(rigPostFollow)}, expected false`);
-  if (rigPostGen !== '0')       fails.push(`Save sent X-Nullcat-Gen ${JSON.stringify(rigPostGen)}, expected "0" (the generation the page loaded)`);
+  if (!genBefore || rigPostGen !== genBefore)
+    fails.push(`Save sent X-Nullcat-Gen ${JSON.stringify(rigPostGen)}, expected ${JSON.stringify(genBefore)} (the generation the page loaded)`);
+  if (!genBefore || genAfter !== String(Number(genBefore) + 1))
+    fails.push(`after the save /api/rig hands out generation ${JSON.stringify(genAfter)}, expected one past ${JSON.stringify(genBefore)} (a save that changed the file moves it)`);
+  if (pageGen !== Number(genAfter))
+    fails.push(`the page holds generation ${JSON.stringify(pageGen)} after its save, expected ${JSON.stringify(genAfter)} (taken from the reply)`);
   if (!/^Saved/.test(saveStatus)) fails.push(`Save status reads "${saveStatus}", expected Saved`);
   if (followAfter !== false)    fails.push(`/api/rig carries followCar ${JSON.stringify(followAfter)} after the save, expected false`);
   if (!shakerLine.includes('card gone') || !shakerLine.includes('USB Audio'))
     fails.push(`shaker line reads "${shakerLine}" for a card that failed to open, expected the card and its error`);
+  if (!shakerBack.downReopen)   fails.push('shaker card down: the reopen button is not shown');
+  if (shakerBack.upReopen)      fails.push('shaker card back: the reopen button is still shown');
+  if (!shakerBack.tests)        fails.push('shaker card back: the test buttons are hidden');
+  if (!shakerBack.line.includes('2 of 4 channels') || !shakerBack.line.includes('shakers 3-4 silent'))
+    fails.push(`shaker line reads "${shakerBack.line}" for a stereo card asked for four, expected "2 of 4 channels" and "shakers 3-4 silent"`);
   if (pageErrors.length)        fails.push('page errors: ' + pageErrors.join(' | '));
   if (consoleErrors.length)     fails.push('console errors: ' + consoleErrors.join(' | '));
   if (st.badge !== 'Connected') fails.push(`badge is "${st.badge}" (poll loop never applied a status)`);

@@ -127,7 +127,12 @@ void Logger::startDrain()
         int sinceFlush = 0;
         while (m_drainRunning.load(std::memory_order_acquire))
         {
+            // Raised before the first pop, dropped after the last write:
+            // clearRTThread waits for both an empty ring and this, so the
+            // RT thread's last lines are written, not just taken.
+            m_draining.store(true);
             drainQueue();
+            m_draining.store(false);
             // While the RT path is armed, per-line flushing is off (see
             // writeEntry/writeDiagLine); commit the buffered sinks about
             // once a second from here, off the RT thread.
@@ -231,7 +236,7 @@ void Logger::clearRTThread()
     // for it to empty the ring so the lines this thread pushed are in the
     // file before the caller logs its own stop sequence through the
     // ordinary path. Bounded: a drain is a few ms at most.
-    for (int i = 0; i < 100 && !m_rtQueue.empty(); ++i)
+    for (int i = 0; i < 100 && (!m_rtQueue.empty() || m_draining.load()); ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
     std::lock_guard<std::mutex> lock(m_mutex);
     std::cout.flush();

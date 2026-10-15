@@ -177,9 +177,10 @@ int main()
         bank.open({ { "null", 2 }, { "null", 2 } }, 2000.0);
         check(bank.channelLive(2), "SB-3 bank: shaker 3 live on device 2");
         // (ShakerBank keeps its devices private; the loss is simulated on
-        // a device of its own above. Here: reopen() on a healthy bank is
-        // harmless and leaves every shaker live.)
-        check(bank.reopen(), "SB-3 bank.reopen() reopens every device");
+        // a device of its own above. Here: reopen() on a healthy bank
+        // touches no device, reports every one open, and leaves every
+        // shaker live.)
+        check(bank.reopen(), "SB-3 bank.reopen() on a healthy bank: every device open");
         info = bank.info();
         check(info.size() == 2 && info[0].open && info[1].open && info[0].firstShaker == 0 && info[1].firstShaker == 2,
               "SB-3 ...with the numbering unchanged");

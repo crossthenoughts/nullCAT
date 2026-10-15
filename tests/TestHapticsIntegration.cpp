@@ -313,6 +313,62 @@ int main()
         check(ms.gearRatioPrevSeq == 1, "I-5c: driving the new car does not step the finished count again");
     }
 
+    // ---- I-5d: a car driven earlier in the session (A, then B, then A
+    // again) adopts what it taught: two of its gears driven again bring
+    // the third back without driving it (the learner's cache was only the
+    // startup copy, so A relearned every gear from nothing) ----
+    {
+        MotionController mc;
+        mc.configure(makeBeltConfig(50.0, 1.0));
+        TelemetryData td = frame(0.0, true);
+        td.ncx[static_cast<int>(NcxValues::SpeedKmh)] = 100.0;
+        const auto drive = [&](const char* car, double gear, double rpm, int cycles)
+        {
+            std::snprintf(td.car, NCY_STR_LEN, "%s", car);
+            td.ncx[static_cast<int>(NcxValues::Gear)] = gear;
+            td.ncx[static_cast<int>(NcxValues::Rpm)]  = rpm;
+            for (int i = 0; i < cycles; ++i) mc.hapticsIdleTick(td);
+        };
+        drive("car_a", 2.0, 8000.0, 2000);   // 80 rpm per km/h
+        drive("car_a", 3.0, 6000.0, 2000);   // 60
+        drive("car_a", 4.0, 4500.0, 2000);   // 45
+        MotionStatus ms = mc.getMotionStatus();
+        check(ms.gearRatioConfident[2] && ms.gearRatioConfident[3] && ms.gearRatioConfident[4],
+              "I-5d car A: 2nd, 3rd and 4th learned");
+        drive("car_b", 5.0, 3000.0, 2000);   // another car: A is finished
+        ms = mc.getMotionStatus();
+        check(!ms.gearRatioKnown[4], "I-5d car B: A's 4th is not B's");
+        drive("car_a", 2.0, 8000.0, 2000);   // A again: 2nd and 3rd only
+        drive("car_a", 3.0, 6000.0, 2000);
+        ms = mc.getMotionStatus();
+        check(ms.gearRatioKnown[4] && std::fabs(ms.gearRatio[4] - 45.0) < 1.0,
+              "I-5d car A again: its 4th comes back from this session without being driven");
+    }
+
+    // ---- I-5e: an e-stop silences the shakers with the loop stopped too
+    // (the idle clock stepped the layer as if there were none) ----
+    {
+        MotionController mc;
+        mc.configure(makeBeltConfig(50.0, 1.0));
+        double live = 0.0, stopped = 0.0;
+        for (int i = 0; i < 300; ++i) { mc.hapticsIdleTick(frame(100.0, true)); live = std::max(live, std::fabs(mc.hapticsLayer().overlayFor(0))); }
+        mc.setEmergencyStop(true);
+        for (int i = 0; i < 50; ++i) { mc.hapticsIdleTick(frame(100.0, true)); if (i >= 1) stopped = std::max(stopped, std::fabs(mc.hapticsLayer().overlayFor(0))); }
+        mc.setEmergencyStop(false);
+        check(live > 1.0 && stopped == 0.0, "I-5e loop stopped: an e-stop clears the layer on the idle clock");
+    }
+
+    // ---- I-5f: the axis delay applies from configure(), not only from a
+    // live apply (after every start or Initialize the axes played
+    // undelayed until the next save) ----
+    {
+        AppConfig cfg = makeBeltConfig(50.0, 1.0);   // 500 Hz: 2 ms a cycle
+        cfg.hapticsAxisDelayMs = 12.0;
+        MotionController mc;
+        mc.configure(cfg);
+        check(mc.hapticsLayer().axisDelayCycles() == 6, "I-5f configure(): axis delay 12 ms is 6 cycles at 500 Hz");
+    }
+
     // ---- I-6: e-stop clears instantly ----
     {
         MotionController mc;
@@ -2450,11 +2506,13 @@ int main()
 
     // ---- I-22: a different car starts everything over, quietly ----
     // Car A driven hard (4th, 6000 rpm, throttle, rain, learned ratios and
-    // wheel sizes), then the sim names car B in 1st at 900 rpm with the
-    // throttle shut: no gear knock, no shunt, no stall kick, no puddles,
-    // and every learner fresh. Breaks with newCar(st) reverted to the old
-    // hand-kept list (the gear edge, the throttle crossing and the water
-    // film carried over) or EngineModel::forgetCar not clearing running.
+    // wheel sizes), then the sim names car B in 1st with its engine off (0
+    // rpm, as a car spawns) and the throttle shut: no gear knock, no shunt,
+    // no stall kick, no puddles, and every learner fresh. Breaks with
+    // newCar(st) reverted to the old hand-kept list (the gear edge, the
+    // throttle crossing and the water film carried over) or
+    // EngineModel::forgetCar not clearing running (car A's running engine
+    // meeting car B's 0 rpm reads as a stall).
     {
         using haptics::FxType; using haptics::Part;
         const double dt = 0.002;
@@ -2479,9 +2537,9 @@ int main()
               "I-22: car A learned (gear seen, rolling factor, a water film, the engine running)");
         const uint64_t knocks = L.fireCount(haptics::EventType::GearShift), stalls = L.engineStalls();
         const double shuntBefore = L.drivelineShuntLevel();
-        // Car B: 1st, 900 rpm, throttle shut, speed and wheels at a crawl.
+        // Car B: 1st, engine off, throttle shut, speed and wheels at a crawl.
         std::strncpy(v.car, "Car B", NCY_STR_LEN - 1);
-        set(NcxValues::Rpm, 900.0); set(NcxValues::Gear, 1.0); set(NcxValues::ThrottlePct, 0.0);
+        set(NcxValues::Rpm, 0.0); set(NcxValues::Gear, 1.0); set(NcxValues::ThrottlePct, 0.0);
         set(NcxValues::SpeedKmh, 5.0); st.lastSpeedKmh = 5.0;
         for (int w = 0; w < 4; ++w) v.val[NcxValues::WheelSpeedFL + w] = 5.0 / 3.6 / 0.33;
         double shuntPeak = 0.0, filmAfterChange = 1.0;
@@ -2497,7 +2555,24 @@ int main()
         check(filmAfterChange < 0.01, "I-22: the water film starts over");
         check(!st.rollKnown[WheelFL] && st.latBaseSec == 0.0 && st.loadRef == 0.0 && !st.absFlagSeen && st.drivenSec[1] == 0.0,
               "I-22: the learners start over (rolling factor, baseline, usual load, ABS flag, driven axle)");
-        check(st.lastSpeedKmh == 5.0 && st.speedSeen, "I-22: the road-speed tracker is kept (a jump on the change is still a glitch)");
+    }
+
+    // ---- I-22b: a car change that lands somewhere else in the same sample
+    // (a new car put in the pits) is still a speed glitch: newCar keeps the
+    // road-speed tracker. Breaks with the tracker left out of newCar's
+    // copy-back (a fresh state seeds on the jump and sees none) ----
+    {
+        const double dt = 0.002;
+        haptics::Layer L; haptics::LawsState st;
+        NcxValues v{}; v.fresh = true;
+        v.have[NcxValues::SpeedKmh] = true; v.val[NcxValues::SpeedKmh] = 150.0;
+        std::strncpy(v.car, "Car A", NCY_STR_LEN - 1);
+        for (int i = 0; i < static_cast<int>(1.0 / dt); ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
+        check(st.glitchSec == 0.0, "I-22b: car A at a steady 150 km/h: no glitch");
+        std::strncpy(v.car, "Car B", NCY_STR_LEN - 1);
+        v.val[NcxValues::SpeedKmh] = 0.0;
+        haptics::driveLaws(L, st, v, dt); L.step(dt);
+        check(st.glitchSec > 0.0, "I-22b: car B in the pits in the same sample: the speed jump is a glitch");
     }
 
     // ---- I-23: a reset's jump plays no road pop and no impact knock ----
@@ -2527,6 +2602,65 @@ int main()
         check(st.glitchSec > 0.0, "I-23: the jump to the pits is a glitch");
         check(pk < 1.0, "I-23: the suspension jump plays no road pop");
         check(L.impactModel().knocks(WheelFL) == knocks, "I-23: ...and no impact knock");
+    }
+
+    // ---- I-23b: the same jump at speed. I-23 lands at 0 km/h, where
+    // impacts are off anyway, and its travel had sat still long enough to
+    // count as no sample: its knock check passes either way. Here the car
+    // is still moving after the jump (120 to 60 km/h in one sample: a
+    // glitch) and the suspension is live up to it. Breaks with the glitch
+    // hold's token list reverted (the 60 mm step knocks every corner) ----
+    {
+        using haptics::FxType; using haptics::Part;
+        const double dt = 0.002;
+        haptics::Layer L; haptics::LawsState st;
+        haptics::EffectParams ip; ip.ampPct = 100.0; ip.freqHz = 40.0; ip.durMs = 50.0; ip.routes[0] = { 0, 1.0, Part::All };
+        L.configureFx(FxType::Impacts, ip);
+        L.configureImpacts(haptics::ImpactParams{});
+        NcxValues v{}; v.fresh = true;
+        v.have[NcxValues::SpeedKmh] = true; v.val[NcxValues::SpeedKmh] = 120.0;
+        for (int w = 0; w < 4; ++w) v.have[NcxValues::SuspTravelFL + w] = true;
+        double t = 0.0;
+        for (int i = 0; i < static_cast<int>(1.0 / dt); ++i, t += dt)
+        {
+            for (int w = 0; w < 4; ++w) v.val[NcxValues::SuspTravelFL + w] = 2.0 * std::sin(2.0 * 3.14159265358979 * 3.0 * t);   // a gentle live road
+            haptics::driveLaws(L, st, v, dt); L.step(dt);
+        }
+        uint32_t before = 0;
+        for (int w = 0; w < 4; ++w) before += L.impactModel().knocks(w);
+        v.val[NcxValues::SpeedKmh] = 60.0;
+        for (int i = 0; i < static_cast<int>(0.4 / dt); ++i)
+        {
+            for (int w = 0; w < 4; ++w) v.val[NcxValues::SuspTravelFL + w] = 60.0 + 0.1 * std::sin(2.0 * 3.14159265358979 * 3.0 * (t += dt));
+            haptics::driveLaws(L, st, v, dt); L.step(dt);
+        }
+        uint32_t after = 0;
+        for (int w = 0; w < 4; ++w) after += L.impactModel().knocks(w);
+        check(st.glitchSec > 0.0, "I-23b: 120 to 60 km/h in one sample is a glitch");
+        check(after == before, "I-23b: the suspension's 60 mm jump at speed plays no impact knock");
+    }
+
+    // ---- I-8c: the Engine tile's Test with the sim gone runs the canned
+    // idle, not the rate held from the last stream (quit at 7000 rpm, the
+    // preview played at 7000) ----
+    {
+        using haptics::FxType;
+        const double dt = 0.002;
+        haptics::Layer L; haptics::LawsState st;
+        haptics::EffectParams fx; fx.ampPct = 100.0; fx.routes[0] = { 0, 1.0 };
+        L.configureFx(FxType::RpmVibe, fx);
+        NcxValues v{}; v.fresh = true;
+        v.have[NcxValues::Rpm] = true; v.val[NcxValues::Rpm] = 7000.0;
+        for (int i = 0; i < static_cast<int>(1.0 / dt); ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
+        const double hzLive = L.engineFireHz();
+        v.fresh = false;   // the sim quits
+        for (int i = 0; i < static_cast<int>(1.0 / dt); ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
+        haptics::startPreview(st, FxType::RpmVibe);
+        for (int i = 0; i < 20; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
+        const double hzTest = L.engineFireHz();
+        std::printf("  I-8c engine firing rate: live %.1f Hz, Test with the sim gone %.1f Hz\n", hzLive, hzTest);
+        check(hzLive > 100.0 && hzTest > 0.0 && hzTest < 0.3 * hzLive,
+              "I-8c the Engine Test with the stream gone plays the canned idle, not the held 7000 rpm");
     }
 
     // ---- I-12: the Impacts tile through the laws ----

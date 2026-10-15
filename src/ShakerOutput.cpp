@@ -76,6 +76,10 @@ std::vector<ShakerDeviceInfo> ShakerOutput::listDevices() const
 {
     std::vector<ShakerDeviceInfo> out;
     if (!m_impl->contextOk) return out;
+    // The list is the context's own buffer, rewritten (and reallocated when
+    // a card appears) by every call: open() reads it under this lock, and a
+    // reopen from the page runs open() while the settings page lists.
+    std::lock_guard<std::mutex> lk(m_mx);
     ma_device_info* playback = nullptr; ma_uint32 count = 0;
     if (ma_context_get_devices(&m_impl->context, &playback, &count, nullptr, nullptr) != MA_SUCCESS) return out;
     for (ma_uint32 i = 0; i < count; ++i)

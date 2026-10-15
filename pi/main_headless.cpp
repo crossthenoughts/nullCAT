@@ -104,7 +104,7 @@ int main(int argc, char* argv[])
         cfgPath = dir + "/config.json";
 
     Config config;
-    if (!config.load(cfgPath))
+    if (!config.load(cfgPath, /*forRun=*/false))   // as written: the normalise below saves it
     {
         // A host.json or rig.json that is there but cannot be read: refuse
         // to start rather than run on defaults, because the normalise below
@@ -119,7 +119,10 @@ int main(int argc, char* argv[])
     // Normalize the on-disk config to the full schema: fills defaults and writes
     // the complete drives[] array, so the web config editor always has every
     // field to edit (and a fresh/minimal config.json self-heals on first boot).
+    // The values as written: the clamp for running comes after, so a value
+    // out of range stays in the file (and its warning at every start).
     config.save(cfgPath);
+    config.clampForRun();
 
     const AppConfig& cfg = config.get();
 
@@ -199,6 +202,10 @@ int main(int argc, char* argv[])
             else
                 LOG_WARNING(strf("Shakers %d-%d: %s -- those routes stay silent.",
                                  i.firstShaker + 1, i.firstShaker + i.channels, i.error.c_str()));
+            if (i.open && i.channels < i.channelsWanted)
+                LOG_WARNING(strf("Shakers %d-%d: the card has %d of the %d channels asked for; shakers %d-%d stay silent.",
+                                 i.firstShaker + 1, i.firstShaker + i.channelsWanted, i.channels, i.channelsWanted,
+                                 i.firstShaker + i.channels + 1, i.firstShaker + i.channelsWanted));
         }
     }
     motion.setShakerOutput(&shakers);
@@ -412,11 +419,8 @@ int main(int argc, char* argv[])
     auto rememberFinishedCar = [&]()
     {
         const MotionStatus ms = motion.getMotionStatus();
-        if (carCache.takeFinished(ms.gearRatioPrevSeq, ms.gearRatioPrev, ms.gearRatioPrevConfident, ms.gearRatiosPrevDirty))
-        {
-            carCache.save(cfgPath);
-            LOG_INFO("CarCache: the last car's gear ratios remembered.");
-        }
+        carCache.takeFinished(ms.gearRatioPrevSeq, ms.gearRatioPrev, ms.gearRatioPrevConfident, ms.gearRatiosPrevDirty);
+        if (carCache.flush(cfgPath)) LOG_INFO("CarCache: learned gear ratios saved.");
     };
 
     // ---- block until shutdown requested ----
@@ -457,11 +461,9 @@ int main(int argc, char* argv[])
     rememberFinishedCar();
     {
         const MotionStatus ms = motion.getMotionStatus();
-        if (carCache.takeSession(ms.gearRatio, ms.gearRatioConfident, ms.gearRatiosDirty))
-        {
-            carCache.save(cfgPath);
-            LOG_INFO("CarCache: session gear ratios remembered.");
-        }
+        carCache.takeSession(ms.gearRatio, ms.gearRatioConfident, ms.gearRatiosDirty);
+        if (carCache.flush(cfgPath, /*force=*/true)) LOG_INFO("CarCache: session gear ratios remembered.");
+        else if (carCache.unsaved()) LOG_WARNING("CarCache: learned gear ratios could not be saved.");
     }
 
     LOG_INFO(strf("Exited with code %d.", g_exitCode.load()));

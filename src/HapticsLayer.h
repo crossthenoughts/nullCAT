@@ -850,6 +850,7 @@ public:
     uint64_t engineTcDrops() const  { return m_engine.tcDropCount(); }
     bool     engineRunning() const  { return m_engine.running(); }
     uint64_t engineStalls() const   { return m_engine.stallCount(); }
+    double   engineFireHz() const   { return m_engine.fireHz(); }
 
     // Kill every active transient instantly (e-stop, park, loop stop).
     void clearAll()

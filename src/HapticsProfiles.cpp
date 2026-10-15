@@ -17,7 +17,19 @@ QString profilesPath(const std::string& anchorPath)
 bool HapticsProfiles::load(const std::string& anchorPath)
 {
     QFile f(profilesPath(anchorPath));
-    if (!f.open(QIODevice::ReadOnly)) return false;
+    if (!f.open(QIODevice::ReadOnly))
+    {
+        // Absent: no profiles yet. There but not openable (permissions, a
+        // lock): the same as unreadable, never written over.
+        if (f.exists())
+        {
+            std::lock_guard<std::mutex> lk(m_mx);
+            m_loadError = f.errorString().toStdString();
+            LOG_WARNING("Haptics: profiles.json cannot be opened (" + m_loadError
+                        + "): nothing will be written over it. Fix it and restart; a profile saved meanwhile goes to profiles.json.rejected.");
+        }
+        return false;
+    }
     QJsonParseError pe{};
     const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &pe);
     if (pe.error != QJsonParseError::NoError || !doc.isObject())

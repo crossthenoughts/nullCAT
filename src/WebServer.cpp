@@ -24,6 +24,7 @@
 #include <QJsonDocument>   // /api/test/start body parsing
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QSaveFile>
 #include "SdoWorker.h"     // IGBT temp readout for the drive cards (OP-time round-robin poll)
 #include "DriveProvisioner.h" // role check: drive-resident params vs axis role (PreOp, read-only)
 #include <vector>
@@ -119,6 +120,24 @@ static bool readWholeFile(const std::string& path, std::string& out)
     if (!f) return false;
     out.assign((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     return true;
+}
+
+// A file written whole or not at all: QSaveFile writes a temporary of its
+// own beside it (two saves of one file at once never share one), flushes
+// it to disk and renames it over the target on commit; a failed attempt
+// leaves the old file as it was and no temporary behind. Retried for a
+// moment: on Windows a reader (antivirus, the desktop app's file watcher)
+// holding the target for a few tens of ms after the last write fails the
+// replace with a sharing violation.
+static bool writeFileAtomic(const std::string& path, const QByteArray& data)
+{
+    for (int attempt = 0; attempt < 8; ++attempt)
+    {
+        QSaveFile f(QString::fromStdString(path));
+        if (f.open(QIODevice::WriteOnly) && f.write(data) == data.size() && f.commit()) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    return false;
 }
 
 // Structural JSON equality (key order and number formatting do not count),
@@ -483,7 +502,7 @@ std::string WebServer::buildStatusJson() const
         // Sim identity from NULLCATY (empty until a sender names it).
         if (m_telemetry)
         {
-            const TelemetryData td = m_telemetry->getLatestData();
+            const TelemetryData td = m_telemetry->getLatestData(/*wait=*/true);
             s += "\"simGame\":" + jsonStr((td.ncxFresh || td.ncxFrozen) ? td.game : "") + ",";
             s += "\"simCar\":"  + jsonStr((td.ncxFresh || td.ncxFrozen) ? td.car  : "") + ",";
             // Packets arriving but every value unchanged for 2 s (paused sim):
@@ -515,6 +534,7 @@ std::string WebServer::buildStatusJson() const
                     s += "\"error\":" + jsonStr(i.error) + ",";
                     s += "\"first\":" + jsonInt(i.firstShaker) + ",";
                     s += "\"channels\":" + jsonInt(i.channels) + ",";
+                    s += "\"channelsWanted\":" + jsonInt(i.channelsWanted) + ",";
                     s += "\"rate\":" + jsonInt(i.sampleRate) + ",";
                     s += "\"bufferMs\":" + jsonDouble(i.bufferMs, 1) + ",";
                     s += "\"latencyMs\":" + jsonDouble(i.latencyMs, 1) + ",";
@@ -1280,27 +1300,8 @@ bool WebServer::start()
                 LOG_INFO(std::string("WebServer: ") + which + " save received - no changes, not written.");
                 return 0;
             }
-            const std::string tmp  = path + ".tmp";
-            { std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
-              if (!o) { errResp(res, "Cannot write temp file."); return -1; } o << body; }
-            // std::filesystem::rename is an atomic replace-if-exists on BOTH
-            // platforms (MSVC -> MoveFileEx(MOVEFILE_REPLACE_EXISTING), Linux ->
-            // rename(2)). Plain std::rename fails with EEXIST on the Windows CRT
-            // when the target exists, which would break every save after the
-            // first on a Windows build.
-            // On Windows the replace fails with a sharing violation while
-            // another reader (AV scan, the native app's file watcher) has the
-            // target open for a few tens of ms after the previous write; a
-            // short retry turns that into a non-event instead of a refused save.
-            std::error_code ec;
-            for (int attempt = 0; attempt < 8; ++attempt)
-            {
-                std::filesystem::rename(tmp, path, ec);
-                if (!ec) break;
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            }
-            if (ec)
-            { std::error_code ec2; std::filesystem::remove(tmp, ec2); errResp(res, "Save failed (rename)."); return -1; }
+            if (!writeFileAtomic(path, QByteArray::fromStdString(body)))
+            { errResp(res, std::string("Save failed: ") + which + " could not be written (nothing changed)."); return -1; }
             return 1;
         };
 
@@ -1326,8 +1327,8 @@ bool WebServer::start()
                 {
                     res.status = 409;
                     res.set_content("{\"ok\":false,\"error\":\"The haptics settings changed on the controller after this page "
-                                    "loaded them (a car entry, the car defaults, a starting point or a profile was applied): "
-                                    "nothing was saved.\",\"gen\":" + jsonInt(m_carGen.load()) + "}", "application/json");
+                                    "loaded them (a car entry, the car defaults, a starting point or a profile was applied, "
+                                    "or another page saved): nothing was saved.\",\"gen\":" + jsonInt(m_carGen.load()) + "}", "application/json");
                     return;
                 }
             }
@@ -1338,9 +1339,13 @@ bool WebServer::start()
             if (wr == 0)
             {
                 res.set_content(std::string("{\"ok\":true,\"changed\":false,\"needsInit\":")
-                                + (m_rigNeedsInit.load() ? "true" : "false") + "}", "application/json");
+                                + (m_rigNeedsInit.load() ? "true" : "false") + ",\"gen\":" + jsonInt(m_carGen.load()) + "}", "application/json");
                 return;
             }
+            // The file changed: the generation moves, so another page holding
+            // the older copy cannot save it over this one (409); the saving
+            // page takes the new value from this reply.
+            const int gen = m_carGen.fetch_add(1) + 1;
             // What changed decides the pill: haptics + device feel apply live
             // below; anything else waits for the next Initialize.
             const bool liveOnly = rigDiffIsLiveOnly(oldBody, req.body);
@@ -1372,7 +1377,7 @@ bool WebServer::start()
                     m_motion->stageHaptics(fresh.get());
             }
             res.set_content(std::string("{\"ok\":true,\"changed\":true,\"needsInit\":")
-                            + (m_rigNeedsInit.load() ? "true" : "false") + "}", "application/json");
+                            + (m_rigNeedsInit.load() ? "true" : "false") + ",\"gen\":" + jsonInt(gen) + "}", "application/json");
         });
 
         // POST /api/host - only honored on headless builds (hostOwner == "web").
@@ -1797,7 +1802,7 @@ bool WebServer::start()
             root["active"]   = QString::fromStdString(m_profiles.active());
             root["bindings"] = binds;
             std::string car, game;
-            if (m_telemetry) { const TelemetryData td = m_telemetry->getLatestData(); if (td.ncxFresh || td.ncxFrozen) { car = td.car; game = td.game; } }
+            if (m_telemetry) { const TelemetryData td = m_telemetry->getLatestData(/*wait=*/true); if (td.ncxFresh || td.ncxFrozen) { car = td.car; game = td.game; } }
             root["car"] = QString::fromStdString(car); root["game"] = QString::fromStdString(game);
             res.set_content(QJsonDocument(root).toJson(QJsonDocument::Compact).toStdString(), "application/json");
         });
@@ -1844,7 +1849,7 @@ bool WebServer::start()
             else if (o.contains("game") && !o.value("game").toString().isEmpty()) key = HapticsProfiles::gameKey(o.value("game").toString().toStdString());
             else if (m_telemetry)
             {
-                const TelemetryData td = m_telemetry->getLatestData();
+                const TelemetryData td = m_telemetry->getLatestData(/*wait=*/true);
                 if (td.car[0])       key = HapticsProfiles::carKey(td.car);
                 else if (td.game[0]) key = HapticsProfiles::gameKey(td.game);
             }
@@ -1988,10 +1993,12 @@ bool WebServer::start()
             Config cfg;
             {
                 // The saved rig, read whole: an apply in flight writes it under the same lock.
+                // As written (no clamp): the entry keeps the values the file holds.
                 std::lock_guard<std::mutex> io(m_profilesIo);
-                if (!cfg.load(m_configPath)) { errResp(res, "Cannot read the config: " + cfg.lastError()); return; }
+                if (!cfg.load(m_configPath, /*forRun=*/false)) { errResp(res, "Cannot read the config: " + cfg.lastError()); return; }
             }
             const std::string key = carKeyFor(game, car, carId);
+            if (const std::string ue = m_cars.userError(); !ue.empty()) { errResp(res, ue); return; }
             m_cars.putUser(key, CarTable::fromHapticsObject(Config::writeHapticsObject(cfg.get()), name, notes));
             if (!m_cars.saveUser(m_configPath)) { errResp(res, "Cannot write cars.local.json."); return; }
             { std::lock_guard<std::mutex> lk(m_carMx); m_carState.match = findCar(game, car, carId); }
@@ -2015,6 +2022,7 @@ bool WebServer::start()
                 key = carKeyFor(game, car, carId);
                 if (!carId.empty() && m_cars.findKey(key).source != "user") key = m_cars.keyFor(game, car);
             }
+            if (const std::string ue = m_cars.userError(); !ue.empty()) { errResp(res, ue); return; }
             if (!m_cars.removeUser(key)) { errResp(res, "No entry of yours for " + key + "."); return; }
             m_cars.saveUser(m_configPath);
             if (!car.empty())
@@ -2052,6 +2060,17 @@ bool WebServer::start()
             if (!m_shakers->channelLive(ch)) { errResp(res, "That channel's device is not open."); return; }
             m_motion->requestShakerTone(ch);
             okResp(res);
+        });
+        // Open every shaker card again with the same request: a card
+        // unplugged and plugged back in, or the sound output moved. Shaker
+        // numbering is unchanged, and the RT side never waits for it (each
+        // card drops its gate first and raises it last).
+        postCmd("/api/shakers/reopen", [this, errResp](const httplib::Request&, httplib::Response& res)
+        {
+            if (!m_shakers || !(m_config && m_config->shakersEnabled))
+            { errResp(res, "Shakers are off: enable them in the host settings and restart."); return; }
+            const bool all = m_shakers->reopen();
+            res.set_content(std::string("{\"ok\":true,\"allOpen\":") + (all ? "true" : "false") + "}", "application/json");
         });
 
         // Haptics mutes (runtime only, not persisted). Body {"on":true|false}
@@ -2436,24 +2455,25 @@ bool WebServer::start()
             const std::string path = siblingFile(m_configPath, "devicepresets.json");
             QJsonObject root, presets;
             {
-                std::ifstream f(path, std::ios::binary);
-                if (f) { std::stringstream ss; ss << f.rdbuf();
-                    const QJsonDocument d0 = QJsonDocument::fromJson(
-                        QByteArray(ss.str().c_str(), (int)ss.str().size()));
-                    if (d0.isObject()) root = d0.object(); }
+                // A file that is there but cannot be read (cut short, a hand
+                // edit gone wrong) is refused, never taken as empty: the save
+                // would write this one preset over all the others.
+                std::string text;
+                if (readWholeFile(path, text))
+                {
+                    QJsonParseError pe{};
+                    const QJsonDocument d0 = QJsonDocument::fromJson(QByteArray::fromStdString(text), &pe);
+                    if (!d0.isObject())
+                    { errResp(res, "devicepresets.json cannot be read (" + pe.errorString().toStdString()
+                                   + "): fix or move the file; nothing was written."); return; }
+                    root = d0.object();
+                }
             }
             presets = root.value("presets").toObject();
             if (remove) presets.remove(name); else presets[name] = dev.toObject();
             root["presets"] = presets;
-            const QByteArray out = QJsonDocument(root).toJson(QJsonDocument::Indented);
-            const std::string tmp = path + ".tmp";
-            { std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
-              if (!o) { errResp(res, "Cannot write temp file."); return; }
-              o.write(out.constData(), out.size()); }
-            std::error_code ec;
-            std::filesystem::rename(tmp, path, ec);
-            if (ec) { std::error_code ec2; std::filesystem::remove(tmp, ec2);
-                      errResp(res, "Save failed (rename)."); return; }
+            if (!writeFileAtomic(path, QJsonDocument(root).toJson(QJsonDocument::Indented)))
+            { errResp(res, "Save failed: devicepresets.json could not be written (nothing changed)."); return; }
             res.set_content("{\"ok\":true}", "application/json");
         });
 
@@ -2472,13 +2492,8 @@ bool WebServer::start()
                 return;
             }
             const std::string path = siblingFile(m_configPath, "buttons.json");
-            const std::string tmp  = path + ".tmp";
-            { std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
-              if (!o) { errResp(res, "Cannot write temp file."); return; } o << req.body; }
-            std::error_code ec;
-            std::filesystem::rename(tmp, path, ec);
-            if (ec)
-            { std::error_code ec2; std::filesystem::remove(tmp, ec2); errResp(res, "Save failed (rename)."); return; }
+            if (!writeFileAtomic(path, QByteArray::fromStdString(req.body)))
+            { errResp(res, "Save failed: buttons.json could not be written (nothing changed)."); return; }
             if (m_buttonHooks.bindingsChanged) m_buttonHooks.bindingsChanged();
             LOG_INFO("WebServer: buttons.json updated via web - hot-applied.");
             res.set_content("{\"ok\":true,\"hotApplied\":true}", "application/json");
@@ -2728,7 +2743,7 @@ void WebServer::sampleEffectStatus()
     std::string game, car, carId;
     if (m_telemetry)
     {
-        const TelemetryData td = m_telemetry->getLatestData();
+        const TelemetryData td = m_telemetry->getLatestData(/*wait=*/true);
         live  = td.ncxFresh;
         game  = td.game;
         car   = td.car;
@@ -2865,11 +2880,18 @@ void WebServer::carIdentity(const std::string& game, const std::string& car, con
             m_carState.applied  = applied;
             m_carState.defaults = defaults;
         }
-        mem.ident    = acted;
-        mem.applied  = acted.empty() ? false : m_carState.applied;
-        mem.defaults = acted.empty() ? false : m_carState.defaults;
-        remember = (mem.ident != m_carMem.ident || mem.applied != m_carMem.applied || mem.defaults != m_carMem.defaults);
-        m_carMem = mem;
+        // A line that names the game but no car yet (the first line after
+        // a start can) is no car to remember or forget: the memory stands,
+        // so the real car's line that follows still reads as the same car
+        // and its hand tuning is not overwritten by its entry again.
+        if (!(car.empty() && carId.empty()))
+        {
+            mem.ident    = acted;
+            mem.applied  = acted.empty() ? false : m_carState.applied;
+            mem.defaults = acted.empty() ? false : m_carState.defaults;
+            remember = (mem.ident != m_carMem.ident || mem.applied != m_carMem.applied || mem.defaults != m_carMem.defaults);
+            m_carMem = mem;
+        }
     }
     if (remember) saveCarMemory(mem);
 }
@@ -2920,9 +2942,17 @@ void WebServer::loadCarMemory()
     m_carMem = mem;
 }
 
-void WebServer::saveCarMemory(const CarMemory& mem)
+void WebServer::saveCarMemory(const CarMemory&)
 {
     if (m_configPath.empty()) return;
+    // Called from the status thread (a new car) and from request threads
+    // (the row's flags), outside m_carMx: one writer at a time, and each
+    // writes the memory as it is at that moment, so an older snapshot can
+    // never land after a newer one.
+    static std::mutex saveMx;
+    std::lock_guard<std::mutex> sl(saveMx);
+    CarMemory mem;
+    { std::lock_guard<std::mutex> lk(m_carMx); mem = m_carMem; }
     QJsonObject o;
     o["ident"]    = QString::fromStdString(mem.ident);
     o["applied"]  = mem.applied;
@@ -2931,15 +2961,8 @@ void WebServer::saveCarMemory(const CarMemory& mem)
                     "its entry or the defaults, so the same car after a restart keeps its tiles as they are. Machine "
                     "state, not configuration: safe to delete, never edited by hand.";
     const std::string path = siblingFile(m_configPath, "carstate.json");
-    const std::string tmp  = path + ".tmp";
-    const QByteArray out = QJsonDocument(o).toJson(QJsonDocument::Indented);
-    { std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
-      if (!f) { LOG_WARNING("Haptics: could not remember the car the table acted on (carstate.json)."); return; }
-      f.write(out.constData(), out.size()); }
-    std::error_code ec;
-    std::filesystem::rename(tmp, path, ec);
-    if (ec) { std::error_code ec2; std::filesystem::remove(tmp, ec2);
-              LOG_WARNING("Haptics: could not remember the car the table acted on (carstate.json)."); return; }
+    if (!writeFileAtomic(path, QJsonDocument(o).toJson(QJsonDocument::Indented)))
+    { LOG_WARNING("Haptics: could not remember the car the table acted on (carstate.json)."); return; }
     std::error_code ec3;
     std::filesystem::remove(siblingFile(m_configPath, "cardefaults.txt"), ec3);   // the older memory, superseded
 }
@@ -2995,14 +3018,19 @@ bool WebServer::applyPreset(const std::string& name, std::string& err)
 bool WebServer::applyHapticsObjectLocked(const QJsonObject& h, std::string& err)
 {
     if (m_configPath.empty()) { err = "no config path"; return false; }
+    // The set as written (no clamp): it is saved back, and a clamped value
+    // must never reach the file. What runs is a clamped copy.
     Config cfg;
-    if (!cfg.load(m_configPath)) { err = "cannot read the config: " + cfg.lastError(); return false; }
+    if (!cfg.load(m_configPath, /*forRun=*/false)) { err = "cannot read the config: " + cfg.lastError(); return false; }
     Config::readHapticsObject(h, cfg.get());
-    const auto errs = cfg.get().validate();
+    AppConfig run = cfg.get();
+    std::vector<std::string> clamped;
+    Config::clampHaptics(run, clamped);
+    const auto errs = run.validate();
     if (!errs.empty()) { err = "fails validation: " + errs.front(); return false; }
     if (!cfg.saveRig(m_configPath)) { err = "cannot write rig.json"; return false; }
     m_rigKnownMtime.store(fileMtime(siblingFile(m_configPath, "rig.json")));
-    if (m_motion) m_motion->stageHaptics(cfg.get());
+    if (m_motion) m_motion->stageHaptics(run);
     return true;
 }
 
@@ -3021,12 +3049,9 @@ bool WebServer::loadProfile(const std::string& name, std::string& err)
     m_carGen.fetch_add(1);
     m_profiles.setActive(name);
     m_profiles.save(m_configPath);
-    {
-        // The profile's car settings replace the defaults (if they were on).
-        bool applied = false;
-        { std::lock_guard<std::mutex> ck(m_carMx); applied = m_carState.applied; }
-        setCarFlags(applied, false);
-    }
+    // The profile's whole set replaces the tiles, the car-owned ones
+    // included: they carry neither the car's entry nor the defaults now.
+    setCarFlags(false, false);
     return true;
 }
 
@@ -3035,8 +3060,8 @@ bool WebServer::snapshotProfile(const std::string& name, std::string& err)
 {
     if (m_configPath.empty()) { err = "no config path"; return false; }
     std::lock_guard<std::mutex> lk(m_profilesIo);
-    Config cfg;
-    if (!cfg.load(m_configPath)) { err = "cannot read the config: " + cfg.lastError(); return false; }
+    Config cfg;   // as written (no clamp): the profile keeps the values the file holds
+    if (!cfg.load(m_configPath, /*forRun=*/false)) { err = "cannot read the config: " + cfg.lastError(); return false; }
     QJsonObject h = Config::writeHapticsObject(cfg.get());
     h.remove("followCar");
     m_profiles.put(name, h);

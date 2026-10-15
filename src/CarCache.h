@@ -31,7 +31,7 @@ public:
     bool save(const std::string& anchorPath) const;
 
     // From the learner's published status; each returns true when the
-    // cache changed (the caller saves).
+    // cache changed (flush() writes it).
     //   takeSession:  the car being driven (MotionStatus gearRatio*): at
     //                 shutdown, when the snapshot is final. dirty = the
     //                 session taught something the cache did not have.
@@ -42,6 +42,12 @@ public:
     //                 keeps every car but the last.
     bool takeSession(const double r[MAX_GEARS], const bool confident[MAX_GEARS], bool dirty);
     bool takeFinished(uint32_t seq, const double r[MAX_GEARS], const bool confident[MAX_GEARS], bool dirty);
+    // Write what the takes changed. A failed write stays pending and is
+    // tried again (each poll calls this; after a failure it waits about
+    // ten seconds of calls, so a file held by another program does not
+    // flood the log); force (shutdown) always tries. True when it wrote.
+    bool flush(const std::string& anchorPath, bool force = false);
+    bool unsaved() const { return m_unsaved; }
 
     bool merge(const double r[MAX_GEARS], const bool confident[MAX_GEARS]);
 
@@ -50,4 +56,6 @@ public:
 private:
     std::vector<CachedCar> m_cars;   // front = most recently driven
     uint32_t m_finishedSeq = 0;      // the last gearRatioPrevSeq taken
+    bool     m_unsaved     = false;  // a take changed the cache and no write has landed since
+    int      m_retryWait   = 0;      // flush calls to skip after a failed write
 };

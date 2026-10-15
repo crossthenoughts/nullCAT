@@ -55,7 +55,11 @@ public:
 
     bool loadStock(const std::string& path);         // cars.json
     bool loadUser(const std::string& anchorPath);    // cars.local.json beside the config
+    // Refused (false) while the file is there but could not be read at
+    // load: a save would write this layer (empty, or only what was added
+    // since) over every car in it. userError() says why.
     bool saveUser(const std::string& anchorPath) const;
+    std::string userError() const;
 
     int stockCount() const;
     int userCount() const;
@@ -112,6 +116,7 @@ private:
         std::map<std::string, std::string> byName;   // normalised "<game>:<name>" -> normalised key
     };
     Layer m_stock, m_user;
+    std::string m_userError;   // cars.local.json there but unreadable at load ("" = fine)
     std::map<std::string, std::string> m_games;          // normalised game name -> short id
     mutable std::mutex m_mx;
 

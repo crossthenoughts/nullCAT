@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 Tim Palmgren (Ã˜ Werks) <tim@zerowerks.co.nz>
+// SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
 // TestHttpContract.cpp - pins Docs/COMMAND_CONTRACT.md at the HTTP layer.
@@ -422,10 +422,29 @@ int main()
           "GET /api/shakers/devices lists playback devices (possibly none)");
     check(has(post("/api/shakers/test", "{\"channel\":0}"), "No shaker output is open"),
           "POST /api/shakers/test refuses with a reason when shakers are off");
+    check(has(post("/api/shakers/reopen", "{}"), "\"ok\":false") && has(post("/api/shakers/reopen", "{}"), "Shakers are off"),
+          "POST /api/shakers/reopen refuses with a reason when shakers are off");
+    // Device presets: a save lands, and a devicepresets.json that is there
+    // but cannot be read (cut short) is refused and left as it is: it used
+    // to read as empty, and the save wrote one preset over all the others.
+    {
+        const std::filesystem::path dp = cfgDir / "devicepresets.json";
+        check(has(post("/api/devpresets", "{\"name\":\"Mine\",\"device\":{\"a\":1}}"), "\"ok\":true")
+              && has(get("/api/devpresets"), "\"Mine\""), "POST /api/devpresets saves a preset, GET lists it");
+        const std::string cut = "{\"presets\":{\"Mine\":{\"a\":1}";
+        { std::ofstream t(dp, std::ios::binary | std::ios::trunc); t << cut; }
+        const std::string r = post("/api/devpresets", "{\"name\":\"New\",\"device\":{\"b\":2}}");
+        std::string after;
+        { std::ifstream i(dp, std::ios::binary); after.assign(std::istreambuf_iterator<char>(i), std::istreambuf_iterator<char>()); }
+        check(has(r, "\"ok\":false") && has(r, "cannot be read") && after == cut,
+              "POST /api/devpresets over an unreadable file: refused with the reason, the file untouched");
+        std::filesystem::remove(dp);
+    }
     // Profiles: save snapshots the saved set, it lists, loads (the saved
     // rig's haptics object is the snapshot again, an edit made in between
     // undone), binds to a car name (naming that car loads it), and
     // deletes; an unknown name is refused.
+    int genAfterProfile = -1;
     {
         const auto hapticsOf = [](const std::string& body) -> QJsonObject
         {
@@ -452,6 +471,7 @@ int main()
         check(hapticsOf(get("/api/rig")) == snapshot && has(get("/api/status"), "\"hapProfile\":\"Bench\""),
               "profile load read back: the saved haptics object is the snapshot again, the status names it");
         check(genNow() == genBefore + 1, "a profile load moves the apply generation (a page refreshes its copy)");
+        genAfterProfile = genNow();
         check(has(post("/api/haptics/profiles/load", "{\"name\":\"nope\"}"), "\"ok\":false"),
               "POST /api/haptics/profiles/load refuses an unknown name");
         check(has(post("/api/haptics/profiles/bind", "{\"name\":\"Bench\",\"car\":\"Test Car\"}"), "\"key\":\"car:Test Car\""),
@@ -477,11 +497,11 @@ int main()
               && has(get("/api/cars/list"), "\"source\":\"stock\""),
               "GET /api/cars/list carries every entry with key, name and layer");
         const std::string st = get("/api/status");
-        // The apply generation moved once so far: the Bench profile load
-        // above is a rewrite of the live set like a pull is.
+        // The apply generation has not moved since the Bench profile load
+        // above (a rewrite of the live set like a pull is).
         check(has(st, "\"hapCar\":\"\"") && has(st, "\"hapCarKey\":\"\"") && has(st, "\"hapCarSrc\":\"\"")
-              && has(st, "\"hapCarApplied\":false") && has(st, "\"hapCarGen\":") && genNow() == 1,
-              "GET /api/status carries the car table fields (hapCar/Key/Src/Applied/Gen; the profile load moved Gen once)");
+              && has(st, "\"hapCarApplied\":false") && has(st, "\"hapCarGen\":") && genNow() == genAfterProfile,
+              "GET /api/status carries the car table fields (hapCar/Key/Src/Applied/Gen, where the profile load left it)");
         const int gen0 = genNow();
         check(has(post("/api/cars/pull", "{\"key\":\"ac:ks_ferrari_f40\"}"), "\"name\":\"Ferrari F40\""),
               "POST /api/cars/pull applies an entry by key");
@@ -523,7 +543,13 @@ int main()
         check(fresh.status == 200 && has(fresh.body, "\"ok\":true") && has(fresh.body, "\"changed\":true"),
               "POST /api/rig against the current generation: saved");
         check(has(compact(get("/api/rig")), "\"masterGain\":0.9"), "...and the file carries the edit");
-        check(genNow() == gen, "a web save does not move the apply generation");
+        check(genNow() == gen + 1 && has(fresh.body, ("\"gen\":" + std::to_string(gen + 1)).c_str()),
+              "a web save that changed the file moves the generation, and the reply carries the new one");
+        // A second page that loaded the same copy before that save: its save
+        // would write the first page's edit away, so it is refused too.
+        const Reply other = postHdr("/api/rig", rigWith(body, nullptr, "masterGain", 0.7), {{"X-Nullcat-Gen", std::to_string(gen)}});
+        check(other.status == 409 && has(compact(get("/api/rig")), "\"masterGain\":0.9"),
+              "a second page saving the copy it loaded before another page's save: 409, the first save stands");
         const Reply bare = postHdr("/api/rig", rigWith(body, nullptr, "masterGain", 0.8), {});
         check(bare.status == 200 && has(bare.body, "\"ok\":true") && has(compact(get("/api/rig")), "\"masterGain\":0.8"),
               "POST /api/rig without the header (a script) is taken as is");
@@ -624,6 +650,12 @@ int main()
                   "...and the car row no longer claims the entry is in force");
             check(has(post("/api/cars/pull", "{}"), "\"ok\":true") && has(get("/api/status"), "\"hapCarApplied\":true"),
                   "pull car preset: the entry is in force again");
+            // A profile replaces the whole set, the car's tiles included.
+            check(has(post("/api/haptics/profiles/load", "{\"name\":\"Other\"}"), "\"ok\":true")
+                  && has(get("/api/status"), "\"hapCarApplied\":false"),
+                  "a profile load: the car row no longer claims the entry is in force");
+            check(has(post("/api/cars/pull", "{}"), "\"ok\":true") && has(get("/api/status"), "\"hapCarApplied\":true"),
+                  "...and a pull puts it back in force");
             check(getRig(body, gen), "GET /api/rig for the rig-owned edit");
             const Reply r2 = postHdr("/api/rig", rigWith(body, nullptr, "masterGain", 0.7), {{"X-Nullcat-Gen", std::to_string(gen)}});
             check(r2.status == 200 && has(r2.body, "\"ok\":true") && has(get("/api/status"), "\"hapCarApplied\":true"),
@@ -920,18 +952,22 @@ int main()
     // The car the table last acted on, and whether its tiles carry its
     // entry or the defaults, is remembered in carstate.json beside the
     // config. A second server over the same directory (what a restart is),
-    // fed the same car, applies nothing: hapCarGen stays 0, the rig file is
-    // untouched (the hand-set engine amp stays) and the row reads as
-    // remembered; a different car is a car change as ever. Reverting the
-    // memory (carIdentity's "same car" branch reading m_carMem, loaded by
-    // loadCarMemory) re-applies the near-match entry on the second server:
-    // gen 1 and the engine's amp back to the entry's 45.
+    // fed the same car, applies nothing: hapCarGen stays where it started,
+    // the rig file is untouched (the hand-set engine amp stays) and the row
+    // reads as remembered; a different car is a car change as ever.
+    // Reverting the memory (carIdentity's "same car" branch reading
+    // m_carMem, loaded by loadCarMemory) re-applies the near-match entry on
+    // the second server: the generation moves and the engine's amp goes back
+    // to the entry's 45. The restarted server's generation is its own, so a
+    // page's save from before the restart is refused (it used to restart at
+    // 0, where an old page's copy could match it).
     {
         std::string body; int gen = -1;
         check(getRig(body, gen), "GET /api/rig before the restart");
         const Reply r = postHdr("/api/rig", rigWith(body, "rpmVibe", "ampPct", 37.0), {{"X-Nullcat-Gen", std::to_string(gen)}});
         check(r.status == 200 && has(r.body, "\"ok\":true"), "a hand-set engine amp (37) saved before the restart");
         check(waitStatus("\"hapCarApplied\":false", 2000), "...which clears the row's applied");
+        const int genOld = genNow();
         web.stop();
         check(std::filesystem::exists(cfgDir / "carstate.json"), "carstate.json is beside the config");
 
@@ -947,15 +983,20 @@ int main()
         else
         {
             check(waitUp(PORT, 10000), "the second server (a restart) answers on the port");
-            check(genNow() == 0 && has(get("/api/status"), "\"hapCar\":\"\""), "the restarted server starts with no car and gen 0");
+            const int gen2 = genNow();
+            check(gen2 > 0 && gen2 != genOld && has(get("/api/status"), "\"hapCar\":\"\""),
+                  "the restarted server starts with no car and a generation of its own (not the old run's)");
+            const Reply oldPage = postHdr("/api/rig", rigWith(body, nullptr, "masterGain", 0.5), {{"X-Nullcat-Gen", std::to_string(genOld)}});
+            check(oldPage.status == 409 && !has(compact(get("/api/rig")), "\"masterGain\":0.5"),
+                  "a page's save carrying the generation from before the restart: 409, nothing written");
             check(nameCar(telemetry, "AssettoCorsa", "Mazda 787B Le Mans", "\"hapCarKey\":\"ac:ks_mazda_787b\"", 10000),
                   "the same car after the restart is matched again");
             std::this_thread::sleep_for(std::chrono::milliseconds(600));   // two samples: an apply would have landed
-            check(genNow() == 0, "...but nothing is applied: hapCarGen stays 0");
+            check(genNow() == gen2, "...but nothing is applied: hapCarGen stays where it started");
             check(has(compact(get("/api/rig")), "\"ampPct\":37") && has(get("/api/status"), "\"hapCarApplied\":false")
                   && has(get("/api/status"), "\"hapCarDefault\":false"),
                   "...the hand-set amp stays and the row reads as remembered (not applied)");
-            check(nameCar(telemetry, "AssettoCorsa", "Ferrari F40", "\"hapCarApplied\":true", 10000) && genNow() == 1,
+            check(nameCar(telemetry, "AssettoCorsa", "Ferrari F40", "\"hapCarApplied\":true", 10000) && genNow() == gen2 + 1,
                   "a different car after the restart is applied as ever");
             web2.stop();
         }

@@ -215,6 +215,20 @@ private:
             any = any || done.has[g];
         }
         if (any) { m_prev = done; m_prevDirty = m_dirty; ++m_prevSeq; }
+        // The same car again later in the session (A, B, then A) adopts
+        // what it taught, as a car from an earlier session does: the
+        // finished set goes to the front of this learner's own cache (the
+        // startup copy never sees this session's cars). Fixed array, no
+        // allocation.
+        int n = 0;
+        for (int g = 1; g < MAX_GEARS; ++g) if (done.has[g]) ++n;
+        if (n >= ADOPT_MIN_GEARS)
+        {
+            const int keep = std::min(m_cacheN, MAX_CACHED_CARS - 1);
+            for (int i = keep; i > 0; --i) m_cache[i] = m_cache[i - 1];
+            m_cache[0] = done;
+            m_cacheN = keep + 1;
+        }
         for (Slot& s : m_g) s = Slot{};
         m_adoptedOnce = false; m_dirty = false;
         m_lastGear = -99; m_heldSec = 0.0; m_steadyOk = false;

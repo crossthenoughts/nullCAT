@@ -689,6 +689,10 @@ async function saveConfig(){
       const m=$('devMsg'); if(m) m.textContent='SAVE REFUSED - nothing was saved: '+(rj.error||'save failed');
       if(hm) hm.textContent='SAVE REFUSED - nothing was saved: '+(rj.error||'save failed');
       return; }
+    // A save that changed the file moved the generation: this page's copy
+    // is the new one (its next save carries it), and its own poll need not
+    // reload it. Another page holding the older copy is refused (409).
+    if(typeof rj.gen==='number'){ cfgGenLoaded=rj.gen; hapCarGenLive=rj.gen; }
     let hj=null;
     // host.json - only when the web owns it (headless; on "native" the
     // desktop app owns it) AND a host field actually changed. Posting it
@@ -1345,18 +1349,28 @@ async function shakerDevicesLoad(){
 function shakerStatus(s){
   const el=$('shakerStatus'); if(!el||!s) return;
   const k=s.shakers||{};
-  if(!k.enabled){ el.textContent='Shakers off.'; return; }
-  // Not one card open: say why, per card (the status carries each
-  // device's own error, never one for the whole sink).
-  if(!k.open){
-    const why=(k.devices||[]).map(d=>((d.name||'(default)')+': '+(d.error||'not open'))).join('; ');
-    el.textContent='Shakers: not open'+(why?' ('+why+')':'')+'.'; return; }
-  if(!el._built){
-    el._built=true;
-    el.innerHTML='<span id="shakerLine"></span> '+Array.from({length:k.channels||0},(_,c)=>'<button class="btn btn-sm" type="button" data-shtest="'+c+'" title="40 Hz for a second on this channel">test '+(c+1)+'</button>').join(' ');
+  if(!k.enabled){ el._built=0; el.textContent='Shakers off.'; return; }
+  // Built once per channel count: the line, the reopen button (shown while
+  // a card is not open) and one test button per shaker number.
+  if(el._built!==(k.channels||0)+1){
+    el._built=(k.channels||0)+1;
+    el.innerHTML='<span id="shakerLine"></span> <button class="btn btn-sm" type="button" id="shakerReopen" hidden title="Open the sound cards again (a card unplugged and back, or the sound output moved)">reopen</button> <span id="shakerTests">'
+      +Array.from({length:k.channels||0},(_,c)=>'<button class="btn btn-sm" type="button" data-shtest="'+c+'" title="40 Hz for a second on this channel">test '+(c+1)+'</button>').join(' ')+'</span>';
     el.querySelectorAll('[data-shtest]').forEach(b=>{ b.onclick=async()=>{ try{ await fetch(API+'/api/shakers/test',{method:'POST',body:JSON.stringify({channel:+b.dataset.shtest})}); }catch(_){} }; });
+    const ro=$('shakerReopen'); if(ro) ro.onclick=async()=>{ ro.disabled=true; try{ await postCmd('/api/shakers/reopen'); }finally{ ro.disabled=false; } };
   }
-  const line=$('shakerLine'); if(line) line.textContent='Shakers: '+(k.devices||[]).map(d=>(d.open?(d.name+' ('+(d.first+1)+'-'+(d.first+d.channels)+') '+d.rate+' Hz, latency '+(d.latencyMs!=null?d.latencyMs:d.bufferMs)+' ms (card '+d.bufferMs+' ms), underruns '+d.underruns+', levels '+(d.levels||[]).map(v=>(+v).toFixed(2)).join(' ')):((d.name||'(default)')+': '+(d.error||'not open')))).join(' | ')+'.';
+  const devs=k.devices||[];
+  // A card with fewer channels than asked for: the shakers past its own
+  // are silent, and the line says which.
+  const devText=d=>{
+    if(!d.open) return (d.name||'(default)')+': '+(d.error||'not open');
+    const want=d.channelsWanted||d.channels;
+    const short=d.channels<want?', '+d.channels+' of '+want+' channels: shakers '+(d.first+d.channels+1)+'-'+(d.first+want)+' silent':'';
+    return d.name+' ('+(d.first+1)+'-'+(d.first+d.channels)+short+') '+d.rate+' Hz, latency '+(d.latencyMs!=null?d.latencyMs:d.bufferMs)+' ms (card '+d.bufferMs+' ms), underruns '+d.underruns+', levels '+(d.levels||[]).map(v=>(+v).toFixed(2)).join(' ');
+  };
+  const line=$('shakerLine'); if(line) line.textContent='Shakers: '+(k.open?'':'not open: ')+devs.map(devText).join(' | ')+'.';
+  const ro=$('shakerReopen'); if(ro) ro.hidden=!devs.some(d=>!d.open);
+  const tests=$('shakerTests'); if(tests) tests.hidden=!k.open;
 }
 
 let hapOpenDrawer=null;
@@ -1615,9 +1629,10 @@ function hapLive(s){
     const first=(hapProfileLive===null); hapProfileLive=s.hapProfile;
     if(!first){ const sel=$('hapProfSel'); if(sel) hapProfilesRender(sel); if(dirtyState().count===0) loadConfig(); }
   }
-  // Car table: a new apply generation means the server rewrote the
-  // haptics (follow car, a pull, a starting point or a profile, from this
-  // page or another); a new match means the car line changed. A clean
+  // Car table: a new apply generation means the haptics were rewritten
+  // (follow car, a pull, a starting point or a profile, from this page or
+  // another, or another page's save; a restart starts a new count too); a
+  // new match means the car line changed. A clean
   // page reloads its copy; a page with unsaved edits keeps them and is
   // told: its Save will be refused (409) and reload then.
   if(typeof s.hapCarGen==='number'&&s.hapCarGen!==hapCarGenLive){
@@ -1625,7 +1640,7 @@ function hapLive(s){
     if(!first){
       if(dirtyState().count===0) loadConfig();
       else if(typeof cfgGenLoaded==='number'&&s.hapCarGen!==cfgGenLoaded){
-        const hm=$('hapMsg'); if(hm) hm.textContent='The controller applied new haptics settings (car table, starting point or profile) while you have unsaved edits: Save will reload them and ask you to make your edits again.';
+        const hm=$('hapMsg'); if(hm) hm.textContent='The haptics settings changed on the controller (car table, starting point, profile, a save from another page, or a restart) while you have unsaved edits: Save will reload them and ask you to make your edits again.';
       }
     }
   }

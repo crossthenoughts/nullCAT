@@ -360,9 +360,11 @@ Development branch. Nothing here is in a release yet.
   output moved to another device) still showed as open, and a stereo card
   asked for four shakers showed four live channels while playing shakers
   3 and 4 into 1 and 2. The status line now shows the card's own channel
-  count, the extra shakers are not live and stay silent, and a card that
-  stops or goes quiet is reported as lost (its shakers silent until it is
-  opened again).
+  count ("2 of 4 channels"), the extra shakers are not live and stay
+  silent, and a card that stops or goes quiet is reported as lost (its
+  shakers silent until it is opened again: a **reopen** button on the
+  status line does that once the card is back, no restart). The shaker
+  line also redraws when a card comes back; it used to stay blank.
 - One bad sample (not a number) into a shaker channel silenced that
   channel for the rest of the session: it stuck in the output filters. It
   now counts as silence for that one sample and the channel plays on.
@@ -432,11 +434,28 @@ Development branch. Nothing here is in a release yet.
   every control character is escaped.
 - A page with unsaved edits on the Haptics strip could save them over
   what follow car, a pull, a starting point or a profile had applied in
-  the meantime (the page only reloads when it has no edits). Every save
-  now says which copy of the settings it edited; a stale one is refused,
-  nothing is written, and the page reloads the controller's settings and
-  asks you to make the edits again. A save of yours that moves a setting
-  the car table owns also clears the car row's "applied".
+  the meantime (the page only reloads when it has no edits), and with
+  the strip open on two screens, one page's save could undo the other's.
+  Every save now says which copy of the settings it edited; a stale one
+  (an apply since, another page's save since, or a copy from before a
+  restart) is refused, nothing is written, and the page reloads the
+  controller's settings and asks you to make the edits again. A save of
+  yours that moves a setting the car table owns also clears the car
+  row's "applied", as a profile load does.
+- The axis delay (**axis delay ms** on the Master tile) only took effect
+  after a save from the strip: after every start or Initialize the axes
+  played undelayed again until the next save. It now applies from the
+  start.
+- An e-stop with the control loop stopped left the shakers playing (the
+  shaker clock that runs while the loop is stopped did not look at the
+  e-stop). They now go silent at once, as the drives' effects do.
+- A `cars.local.json` or `devicepresets.json` that could not be read (cut
+  short, a hand edit gone wrong) was taken as empty, and the next "save
+  for this car" or device preset save wrote that one entry over all the
+  others. Such a file is now left as it is and the save is refused with
+  the reason until it is fixed or moved. Every settings file the web
+  page writes now goes to disk whole or not at all, even with two pages
+  saving at once.
 - A car that got its entry from the car table had it applied again at
   every restart, over whatever you had tuned for it by hand (only a car
   on the defaults was remembered). nullCAT now remembers the car the

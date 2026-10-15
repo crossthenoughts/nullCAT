@@ -468,7 +468,20 @@ public:
     // parse error, the config in memory is left as it was, and nothing is
     // written. Running on defaults instead would let the next save write
     // those defaults over the file.
-    bool load(const std::string& anchorPath);
+    //
+    // forRun (the default): the haptics values out of the strip's range
+    // are clamped in memory and listed in loadWarnings(), ready to run.
+    // forRun false: the set exactly as the files hold it, nothing clamped
+    // and no warnings, for a caller that edits the set and saves it back
+    // (a server-side apply, the boot normalise): a save from a clamped
+    // set would write the clamp over the user's file. Such a caller runs
+    // a clamped copy (clampHaptics) and saves this one.
+    bool load(const std::string& anchorPath, bool forRun = true);
+    // What load() does for forRun, on a set loaded without it: clamp, then
+    // list the clamps and the remaining validate() errors in loadWarnings().
+    void clampForRun();
+    // The clamp alone, on any set: each value moved is one warning line.
+    static void clampHaptics(AppConfig& c, std::vector<std::string>& warnings);
     // Writes BOTH files (transitional convenience). Single-writer callers
     // should prefer saveHost()/saveRig() so each file has exactly one writer
     // per platform (Qt owns host on PC; the web owns rig on both) - that is
@@ -484,7 +497,8 @@ public:
     // What load() had to say about the files it read, one line each: the
     // haptics values it clamped to the range the strip offers (an amp of
     // 500 runs at 100) and every validate() error the set still has (it
-    // runs as read). The files themselves are left as written. The mains
+    // runs as read). The files themselves are left as written: no save
+    // from this code writes a clamped value (see load's forRun). The mains
     // log these once the logger is up; empty after a clean load.
     const std::vector<std::string>& loadWarnings() const { return m_loadWarnings; }
 

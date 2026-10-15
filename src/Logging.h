@@ -189,6 +189,7 @@ private:
     SpscQueue<LogEntry, 1024> m_rtQueue;
     std::thread               m_drainThread;
     std::atomic<bool>         m_drainRunning{false};
+    std::atomic<bool>         m_draining{false};   // the drain thread is between its first pop and its last write
     // Atomic - set/cleared by the RT thread lifecycle, compared on every
     // log() call from any thread.
     std::atomic<std::thread::id> m_rtThreadId{std::thread::id{}};

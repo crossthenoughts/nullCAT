@@ -942,9 +942,11 @@ static void loadAxesArray(const QJsonArray& axes, std::vector<DriveConfig>& driv
 // harmonic of 12, the master gain, the position budget and an axis's
 // haptic max. Everything else out of range is reported by validate() and
 // runs as read. The file is left as written, so the warning repeats at
-// every start until it is fixed. One small function, so a registry-driven
-// clamp over every ParamSpec row can replace it later.
-static void clampHapticsOnLoad(AppConfig& c, std::vector<std::string>& warnings)
+// every start until it is fixed: only the set that runs is clamped, and
+// every caller that saves the set back loads it without (load's forRun).
+// One small function, so a registry-driven clamp over every ParamSpec row
+// can replace it later.
+void Config::clampHaptics(AppConfig& c, std::vector<std::string>& warnings)
 {
     const auto clampD = [&warnings](double& v, double lo, double hi, const std::string& field)
     {
@@ -1007,7 +1009,14 @@ static const char* fileForError(const std::string& e)
     return "rig.json";
 }
 
-bool Config::load(const std::string& anchorPath)
+void Config::clampForRun()
+{
+    clampHaptics(m_config, m_loadWarnings);
+    for (const std::string& e : m_config.validate())
+        m_loadWarnings.push_back(std::string(fileForError(e)) + ": " + e);
+}
+
+bool Config::load(const std::string& anchorPath, bool forRun)
 {
     const QString dir    = configDir(anchorPath);
     m_loadWarnings.clear();
@@ -1066,9 +1075,7 @@ bool Config::load(const std::string& anchorPath)
         if (rewriteRig && backupFile(rigFile(dir))) saveRig(anchorPath);
         // Clamp and warn, never refuse: the rig runs at the edge of its
         // range instead of beyond it or not at all, and the log says so.
-        clampHapticsOnLoad(m_config, m_loadWarnings);
-        for (const std::string& e : m_config.validate())
-            m_loadWarnings.push_back(std::string(fileForError(e)) + ": " + e);
+        if (forRun) clampForRun();
         return true;
     }
 

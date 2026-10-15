@@ -19,6 +19,7 @@
 #include "ShakerOutput.h"
 #include <algorithm>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -75,11 +76,21 @@ public:
 
     // Web thread: open every device again with the same request (after a
     // card came back, or the output moved). Numbering is unchanged.
-    // Returns true when every device is open afterwards.
+    // Returns true when every device is open afterwards. One at a time:
+    // the web server runs requests in parallel.
     bool reopen()
     {
+        static std::mutex reopenMx;   // one bank per process
+        std::lock_guard<std::mutex> lk(reopenMx);
         bool all = true;
-        for (Slot& s : m_slots) { if (s.out) s.ok = s.out->reopen(); all = all && s.ok; }
+        // Only the cards that are not open: a healthy card keeps playing (a
+        // reopen of it would be a gap in its output for nothing, and a push
+        // already past its open check would meet a ring being reset).
+        for (Slot& s : m_slots)
+        {
+            if (s.out && !s.out->isOpen()) s.ok = s.out->reopen();
+            all = all && s.out && s.out->isOpen();
+        }
         return all;
     }
 

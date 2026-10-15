@@ -591,7 +591,9 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         else if (!live || !v.have[NcxValues::Rpm])
             fireHz = st.engineHoldHz;
         const double lv = previewOr(FxType::RpmVibe, level);
-        if (lv > 0.0 && fireHz < 0.5)
+        // A Test with no live rpm runs the canned idle, not the rate held
+        // from the last stream (the sim quit at 7000 rpm previewed at 7000).
+        if (lv > 0.0 && (level <= 0.0 || fireHz < 0.5))
             fireHz = kPreviewIdleRpm / 60.0 * perRev;
         // Boost in bar when the sim sends it (vacuum reads as 0 boost);
         // negative = unknown, the model falls back to rpm for the lift.

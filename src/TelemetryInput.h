@@ -115,7 +115,13 @@ public:
     // allow).
     bool initialize(int port, const std::string& bindAddr = "");
     bool receive();
-    TelemetryData getLatestData() const;
+    // A whole copy of the latest frame. The RT loop and the idle clock
+    // (wait false) never wait: a writer preempted inside its store gives
+    // them an empty frame (not valid, no channels) for one cycle. A status
+    // or web thread passes wait true and retries until it has a whole one,
+    // so a collision never reads as the stream stopping (which would clear
+    // the car identity there and rerun the profile and car table logic).
+    TelemetryData getLatestData(bool wait = false) const;
     bool hasData()        const { return m_hasData.load(); }
     bool hasRecentData()  const
     {

@@ -222,6 +222,10 @@ int main(int argc, char* argv[])
             else
                 LOG_WARNING(strf("Shakers %d-%d: %s -- those routes stay silent.",
                                  i.firstShaker + 1, i.firstShaker + i.channels, i.error.c_str()));
+            if (i.open && i.channels < i.channelsWanted)
+                LOG_WARNING(strf("Shakers %d-%d: the card has %d of the %d channels asked for; shakers %d-%d stay silent.",
+                                 i.firstShaker + 1, i.firstShaker + i.channelsWanted, i.channels, i.channelsWanted,
+                                 i.firstShaker + i.channels + 1, i.firstShaker + i.channelsWanted));
         }
     }
     motion.setShakerOutput(&shakers);
@@ -306,11 +310,8 @@ int main(int argc, char* argv[])
     auto rememberFinishedCar = [&]()
     {
         const MotionStatus ms = motion.getMotionStatus();
-        if (carCache.takeFinished(ms.gearRatioPrevSeq, ms.gearRatioPrev, ms.gearRatioPrevConfident, ms.gearRatiosPrevDirty))
-        {
-            carCache.save(cfgPath.toStdString());
-            LOG_INFO("CarCache: the last car's gear ratios remembered.");
-        }
+        carCache.takeFinished(ms.gearRatioPrevSeq, ms.gearRatioPrev, ms.gearRatioPrevConfident, ms.gearRatiosPrevDirty);
+        if (carCache.flush(cfgPath.toStdString())) LOG_INFO("CarCache: learned gear ratios saved.");
     };
     QTimer carCacheTimer;
     QObject::connect(&carCacheTimer, &QTimer::timeout, rememberFinishedCar);
@@ -346,11 +347,9 @@ int main(int argc, char* argv[])
     rememberFinishedCar();
     {
         const MotionStatus ms = motion.getMotionStatus();
-        if (carCache.takeSession(ms.gearRatio, ms.gearRatioConfident, ms.gearRatiosDirty))
-        {
-            carCache.save(cfgPath.toStdString());
-            LOG_INFO("CarCache: session gear ratios remembered.");
-        }
+        carCache.takeSession(ms.gearRatio, ms.gearRatioConfident, ms.gearRatiosDirty);
+        if (carCache.flush(cfgPath.toStdString(), /*force=*/true)) LOG_INFO("CarCache: session gear ratios remembered.");
+        else if (carCache.unsaved()) LOG_WARNING("CarCache: learned gear ratios could not be saved.");
     }
 
     LOG_INFO(strf("Application exited with code %d.", exitCode));

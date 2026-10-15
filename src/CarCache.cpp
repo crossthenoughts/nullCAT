@@ -8,6 +8,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSaveFile>
 #include <cmath>
 
 static QString cachePath(const std::string& anchorPath)
@@ -72,20 +73,35 @@ bool CarCache::save(const std::string& anchorPath) const
         "state, not configuration: safe to delete, never edited by hand.";
     root["cars"] = cars;
 
-    QFile f(cachePath(anchorPath));
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+    // Written while running (each finished car), so a box powered off
+    // mid-save is expected: a temporary file renamed over the old one
+    // leaves the old file whole.
+    QSaveFile f(cachePath(anchorPath));
+    if (!f.open(QIODevice::WriteOnly)
+        || f.write(QJsonDocument(root).toJson(QJsonDocument::Indented)) < 0
+        || !f.commit())
     {
         LOG_WARNING("CarCache: could not write carcache.json.");
         return false;
     }
-    f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
     return true;
 }
 
 bool CarCache::takeSession(const double r[MAX_GEARS], const bool confident[MAX_GEARS], bool dirty)
 {
     if (!dirty) return false;   // nothing the cache did not already know
-    return merge(r, confident);
+    const bool changed = merge(r, confident);
+    if (changed) m_unsaved = true;
+    return changed;
+}
+
+bool CarCache::flush(const std::string& anchorPath, bool force)
+{
+    if (!m_unsaved) return false;
+    if (!force && m_retryWait > 0) { --m_retryWait; return false; }
+    if (!save(anchorPath)) { m_retryWait = 40; return false; }   // ~10 s of 250 ms polls
+    m_unsaved = false; m_retryWait = 0;
+    return true;
 }
 
 bool CarCache::takeFinished(uint32_t seq, const double r[MAX_GEARS],

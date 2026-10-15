@@ -80,6 +80,12 @@ struct HapticsBusyGuard
     }
     ~HapticsBusyGuard() { flag.store(false, std::memory_order_release); }
 };
+
+// haptics.axisDelayMs in control cycles, for the layer's delay line.
+int axisDelayCycles(double ms, double cycleSec)
+{
+    return static_cast<int>(ms / 1000.0 / std::max(1e-6, cycleSec) + 0.5);
+}
 }
 
 void MotionController::configure(const AppConfig& config)
@@ -98,6 +104,9 @@ void MotionController::configure(const AppConfig& config)
     // a re-initialize).
     applyHaptics(config);
     m_hapPositionBudget = std::max(0.0, std::min(1.0, config.hapticsPositionBudget));
+    // The axis delay too: it was only set by a live apply, so after every
+    // start or Initialize the axes played undelayed until the next save.
+    m_haptics.setAxisDelayCycles(axisDelayCycles(config.hapticsAxisDelayMs, m_cycleTimeSec));
 
     // NULLCATX channel bindings (rig-level): resolve token strings once so
     // the RT path only does index lookups.
@@ -717,17 +726,23 @@ void MotionController::publishStatus()
         m_statusSnapshot.devPosMax[i]  = m_runtime[i].devPosMax;
     }
     publishHapticsStatusLocked();
+    // The learner steps inside the haptics cycle, which the idle clock may
+    // still be running for a tick at loop start: read it only holding the
+    // flag that cycle takes (a car change mid-read would publish the new
+    // count with the old car's set, and the cache would never get the car).
+    if (!m_hapticsBusy.exchange(true, std::memory_order_acq_rel))
+    {
+        publishLearnerLocked();
+        m_hapticsBusy.store(false, std::memory_order_release);
+    }
 }
 
-// The haptics part of the snapshot, shared by the RT publish and the idle
-// clock (which has no axes to publish but keeps the tiles, dots and
-// channel chips live while the loop is stopped). Caller holds the lock.
-void MotionController::publishHapticsStatusLocked()
+// Gear-ratio learner snapshot: the status surface reads it live; the car
+// cache reads the published copy (a finished car from the mains' poll, the
+// current one after the loop stops). Caller holds the status lock AND the
+// haptics busy flag (the learner's own thread at that moment).
+void MotionController::publishLearnerLocked()
 {
-    // Gear-ratio learner snapshot: the status surface reads it live; the
-    // car cache reads the published copy (a finished car from the mains'
-    // poll, the current one after the loop stops). The learner steps on
-    // the same clock as the haptics, so it publishes with them.
     for (int g = 1; g < MAX_GEARS; ++g)
     {
         m_statusSnapshot.gearRatio[g]          = m_ratioLearner.gearRatio(g);
@@ -739,7 +754,13 @@ void MotionController::publishHapticsStatusLocked()
     m_statusSnapshot.gearRatiosDirty     = m_ratioLearner.dirty();
     m_statusSnapshot.gearRatiosPrevDirty = m_ratioLearner.prevDirty();
     m_statusSnapshot.gearRatioPrevSeq    = m_ratioLearner.prevSeq();
+}
 
+// The haptics part of the snapshot, shared by the RT publish and the idle
+// clock (which has no axes to publish but keeps the tiles, dots and
+// channel chips live while the loop is stopped). Caller holds the lock.
+void MotionController::publishHapticsStatusLocked()
+{
     m_statusSnapshot.hapticsFired = m_haptics.fireCount();
     for (int i = 0; i < haptics::EVENT_TYPE_COUNT; ++i)
         m_statusSnapshot.hapticsFiredBy[i] = m_haptics.fireCount(static_cast<haptics::EventType>(i));
@@ -2020,7 +2041,7 @@ void MotionController::applyStagedHaptics()
     }
     applyHapticsTo(m_haptics, s.fx, s.engine, s.slipLat, s.slipLon, s.road, s.kerb, s.abs, s.tc, s.surface, s.wheels, s.impacts, s.driveline, s.masterGain);
     m_hapPositionBudget = std::max(0.0, std::min(1.0, s.positionBudget));
-    m_haptics.setAxisDelayCycles(static_cast<int>(s.axisDelayMs / 1000.0 / std::max(1e-6, m_cycleTimeSec) + 0.5));
+    m_haptics.setAxisDelayCycles(axisDelayCycles(s.axisDelayMs, m_cycleTimeSec));
     applyHapticSinks();
     RT_LOG_INFO("MotionController: haptics settings applied live.");
 }
@@ -2074,10 +2095,12 @@ void MotionController::pushShakers()
 void MotionController::hapticsIdleTick(const TelemetryData& td)
 {
     if (m_hapticsBusy.exchange(true, std::memory_order_acq_rel)) return;   // the RT loop has it
-    stepHapticsCycle(td, false);
+    // An e-stop silences the shakers with the loop stopped too (the GPIO
+    // button or the page's e-stop reach the flag whether or not it runs).
+    stepHapticsCycle(td, m_emergencyStop.load(std::memory_order_acquire));
     {
         std::unique_lock<std::shared_mutex> lock(m_statusLock, std::try_to_lock);
-        if (lock.owns_lock()) publishHapticsStatusLocked();
+        if (lock.owns_lock()) { publishHapticsStatusLocked(); publishLearnerLocked(); }   // this tick holds the flag
     }
     m_hapticsBusy.store(false, std::memory_order_release);
 }
