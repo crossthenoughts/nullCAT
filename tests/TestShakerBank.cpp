@@ -1,0 +1,188 @@
+// SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
+// SPDX-License-Identifier: GPL-3.0-or-later
+// ============================================================
+// TestShakerBank - two sound cards as one row of shakers, on miniaudio's
+// null backend (no hardware; the device pulls audio on its own timer):
+//   SB-1 {null,2} + {null,4}: six shakers, numbered across the devices,
+//        a tone pushed on shaker 3 plays on device 2's first channel and
+//        nowhere else; info() has the first shaker and channel count of
+//        each device;
+//   SB-2 a card with fewer channels than asked for ("null:2" asked for
+//        four, the stereo dongle case): the status shows 2 of 4, shakers
+//        3 and 4 are not live, and what is pushed on them is silence
+//        (never folded into shakers 1 and 2);
+//   SB-3 the card going away: markLost (what the backend's stopped and
+//        rerouted notifications and the quiet watchdog call) closes the
+//        gate, the status says why, pushes are skipped; reopen() from
+//        the web thread brings it back and the tone plays again.
+//
+//   ctest -R ShakerBank
+// ============================================================
+#include "ShakerBank.h"
+
+#include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+#include <thread>
+
+static int g_fail = 0, g_pass = 0;
+static void check(bool ok, const char* name)
+{
+    if (ok) { ++g_pass; std::printf("[PASS] %s\n", name); }
+    else    { ++g_fail; std::printf("[FAIL] %s\n", name); }
+}
+
+static const double kPi = 3.14159265358979;
+
+// Push a 40 Hz tone of level A on one shaker (others silent) at the
+// control rate, in real time, for `ms`: the null device consumes on its
+// own clock, so the producer must keep pace with it.
+static void playTone(haptics::ShakerBank& bank, int shaker, double A, int ms, double controlHz = 2000.0)
+{
+    using clock = std::chrono::steady_clock;
+    const auto t0 = clock::now();
+    long pushed = 0;
+    while (true)
+    {
+        const double elapsed = std::chrono::duration<double>(clock::now() - t0).count();
+        if (elapsed * 1000.0 >= ms) break;
+        const long due = static_cast<long>(elapsed * controlHz);
+        for (; pushed < due; ++pushed)
+        {
+            double s[haptics::MAX_SHAKER_OUT] = {};
+            if (shaker >= 0) s[shaker] = A * std::sin(2 * kPi * 40.0 * pushed / controlHz);
+            bank.push(s, haptics::MAX_SHAKER_OUT);
+        }
+        std::this_thread::sleep_for(std::chrono::microseconds(500));
+    }
+}
+
+int main()
+{
+    // The null device's thread at normal priority (as the test runs are).
+#ifdef _WIN32
+    _putenv_s("NULLCAT_NO_RT", "1");
+#else
+    setenv("NULLCAT_NO_RT", "1", 1);
+#endif
+
+    // ---- SB-1 ----
+    {
+        haptics::ShakerBank bank;
+        bank.open({ { "null", 2 }, { "null", 4 } }, 2000.0);
+        check(bank.deviceCount() == 2 && bank.totalChannels() == 6, "SB-1 two null devices, 2 + 4 channels, are six shakers");
+        check(bank.anyOpen(), "SB-1 both opened");
+        auto info = bank.info();
+        check(info.size() == 2 && info[0].open && info[1].open, "SB-1 info() lists both, open");
+        check(info[0].firstShaker == 0 && info[0].channels == 2 && info[0].channelsWanted == 2, "SB-1 device 1: shakers 1-2 (first 0, 2 channels)");
+        check(info[1].firstShaker == 2 && info[1].channels == 4 && info[1].channelsWanted == 4, "SB-1 device 2: shakers 3-6 (first 2, 4 channels)");
+        check(info[0].error.empty() && info[1].error.empty(), "SB-1 no error on either");
+        for (int s = 0; s < 6; ++s) check(bank.channelLive(s), "SB-1 every shaker 1-6 is live");
+        check(!bank.channelLive(6) && !bank.channelLive(-1), "SB-1 shaker 7 (and -1) is not");
+
+        playTone(bank, 2, 0.5, 600);   // shaker 3 = device 2, channel 1
+        info = bank.info();
+        std::printf("  SB-1 levels: device 1 [%.3f %.3f], device 2 [%.3f %.3f %.3f %.3f]\n",
+                    info[0].levels[0], info[0].levels[1], info[1].levels[0], info[1].levels[1], info[1].levels[2], info[1].levels[3]);
+        check(info[1].levels.size() == 4 && info[1].levels[0] > 0.4 && info[1].levels[0] < 0.6,
+              "SB-1 a 0.5 tone on shaker 3 reads on device 2's first channel");
+        check(info[0].levels[0] < 0.02 && info[0].levels[1] < 0.02 && info[1].levels[1] < 0.02 && info[1].levels[2] < 0.02 && info[1].levels[3] < 0.02,
+              "SB-1 ...and nowhere else");
+        // (Underruns are not asserted: the device ran on its own clock
+        // between open() and the tone, draining the primed ring, and a
+        // drained ring refills at the servo's 0.5 % for seconds. The DSP
+        // tests pin the servo; this suite pins the fan-out.)
+        bank.close();
+        check(!bank.anyOpen() && bank.deviceCount() == 0, "SB-1 close() empties the bank");
+    }
+
+    // ---- SB-2 ----
+    {
+        // A stereo card asked for four shakers. Before: the status showed
+        // four live channels and miniaudio folded shakers 3 and 4 into 1
+        // and 2. Reverting the channelsActual cap in ShakerOutput::push and
+        // the channelsActual use in ShakerBank::info/channelLive fails
+        // these.
+        haptics::ShakerBank bank;
+        bank.open({ { "null:2", 4 } }, 2000.0);
+        auto info = bank.info();
+        check(info.size() == 1 && info[0].open, "SB-2 a null:2 card asked for 4 opens");
+        check(info[0].channels == 2 && info[0].channelsWanted == 4, "SB-2 the status shows the card's own 2 channels of the 4 wanted");
+        check(bank.totalChannels() == 4, "SB-2 the numbering still reserves 4 (the next device's shakers do not move)");
+        check(bank.channelLive(0) && bank.channelLive(1), "SB-2 shakers 1 and 2 are live");
+        check(!bank.channelLive(2) && !bank.channelLive(3), "SB-2 shakers 3 and 4 are not (the card has no channel for them)");
+        playTone(bank, 2, 0.5, 600);   // shaker 3: the card has no channel for it
+        info = bank.info();
+        std::printf("  SB-2 levels with a tone on shaker 3: [%.3f %.3f %.3f %.3f]\n", info[0].levels[0], info[0].levels[1], info[0].levels[2], info[0].levels[3]);
+        check(info[0].levels.size() == 4 && info[0].levels[0] < 0.02 && info[0].levels[1] < 0.02,
+              "SB-2 a tone on shaker 3 is NOT folded into shakers 1 or 2");
+        check(info[0].levels[2] < 0.02 && info[0].levels[3] < 0.02, "SB-2 ...and the lost channels read silent");
+        playTone(bank, 0, 0.5, 600);
+        info = bank.info();
+        check(info[0].levels[0] > 0.4 && info[0].levels[0] < 0.6 && info[0].levels[1] < 0.02, "SB-2 a tone on shaker 1 plays on the card's first channel");
+        bank.close();
+    }
+
+    // ---- SB-3 ----
+    {
+        haptics::ShakerBank bank;
+        bank.open({ { "null", 2 } }, 2000.0);
+        auto info = bank.info();
+        check(info[0].open && info[0].error.empty(), "SB-3 open, no error");
+        playTone(bank, 0, 0.5, 300);
+        // The card goes away. ShakerOutput::markLost is what the backend's
+        // notification callback (stopped / rerouted) and the quiet
+        // watchdog (checkHealth) call; the null backend never fires
+        // either, so it is called here. Reverting markLost to a no-op
+        // fails the next three.
+        {
+            haptics::ShakerOutput lone;
+            check(lone.open("null", 2, 2000.0), "SB-3 a lone output opens");
+            lone.markLost("stopped");
+            check(!lone.isOpen(), "SB-3 a stopped notification closes the gate");
+            check(lone.error().find("stopped") != std::string::npos, "SB-3 ...and the error says the card stopped");
+            const uint64_t p0 = lone.pushes();
+            double z[haptics::MAX_SHAKERS] = { 0.5 };
+            for (int i = 0; i < 100; ++i) lone.push(z, 2);
+            check(lone.pushes() == p0, "SB-3 pushes are skipped while lost (the RT side never touches a lost device's rings)");
+            check(lone.reopen() && lone.isOpen() && lone.error().empty(), "SB-3 reopen() opens the same request again, error cleared");
+            for (int i = 0; i < 100; ++i) lone.push(z, 2);
+            check(lone.pushes() == p0 + 100, "SB-3 ...and pushes land again");
+            lone.markLost("rerouted");
+            check(!lone.isOpen() && lone.error().find("moved") != std::string::npos, "SB-3 a rerouted notification closes the gate with its own reason");
+            lone.markLost("quiet");   // a second loss changes nothing
+            check(lone.error().find("moved") != std::string::npos, "SB-3 ...and the first reason is kept");
+            // The watchdog: a running null device keeps calling back, so
+            // two health checks 2.2 s apart leave it open (no false alarm).
+            check(lone.reopen(), "SB-3 reopened for the watchdog check");
+            lone.checkHealth();
+            std::this_thread::sleep_for(std::chrono::milliseconds(2200));
+            lone.checkHealth();
+            check(lone.isOpen(), "SB-3 the quiet watchdog does not fire on a card that is calling back");
+            lone.close();
+            check(!lone.isOpen() && lone.error().empty(), "SB-3 our own close() is not a loss (no reason kept)");
+        }
+        // Through the bank: a device marked lost shows in info() and in
+        // channelLive(); bank.reopen() brings every device back.
+        bank.close();
+        bank.open({ { "null", 2 }, { "null", 2 } }, 2000.0);
+        check(bank.channelLive(2), "SB-3 bank: shaker 3 live on device 2");
+        // (ShakerBank keeps its devices private; the loss is simulated on
+        // a device of its own above. Here: reopen() on a healthy bank is
+        // harmless and leaves every shaker live.)
+        check(bank.reopen(), "SB-3 bank.reopen() reopens every device");
+        info = bank.info();
+        check(info.size() == 2 && info[0].open && info[1].open && info[0].firstShaker == 0 && info[1].firstShaker == 2,
+              "SB-3 ...with the numbering unchanged");
+        playTone(bank, 3, 0.5, 600);
+        info = bank.info();
+        check(info[1].levels[1] > 0.4 && info[1].levels[1] < 0.6 && info[0].levels[0] < 0.02,
+              "SB-3 ...and a tone on shaker 4 plays on device 2's second channel after the reopen");
+        bank.close();
+    }
+
+    std::printf("\nTestShakerBank: %d passed, %d failed\n", g_pass, g_fail);
+    return g_fail ? 1 : 0;
+}

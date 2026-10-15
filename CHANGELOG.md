@@ -356,6 +356,13 @@ Development branch. Nothing here is in a release yet.
   rig keeps its own values: change them on the tile.
 
 ### Fixed
+- A shaker sound card that went away (unplugged, disabled, or the system
+  output moved to another device) still showed as open, and a stereo card
+  asked for four shakers showed four live channels while playing shakers
+  3 and 4 into 1 and 2. The status line now shows the card's own channel
+  count, the extra shakers are not live and stay silent, and a card that
+  stops or goes quiet is reported as lost (its shakers silent until it is
+  opened again).
 - One bad sample (not a number) into a shaker channel silenced that
   channel for the rest of the session: it stuck in the output filters. It
   now counts as silence for that one sample and the channel plays on.

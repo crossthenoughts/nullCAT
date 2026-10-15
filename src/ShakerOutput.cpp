@@ -39,9 +39,9 @@
 #endif
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
-
 #include <cstring>
 
 namespace haptics {
@@ -91,6 +91,57 @@ void ShakerOutput::dataCallback(void* device, void* out, const void* /*in*/, uns
     self->m_dsp.render(static_cast<float*>(out), static_cast<int>(frames));
 }
 
+// The backend's word on the device (its audio or notification thread):
+// stopped by itself (WASAPI on a card unplugged or disabled; not our own
+// close) or moved to another route (the default output changed under
+// us). Either way the card we were asked for is no longer what plays:
+// the gate closes, the status says why, reopen() picks it up again.
+// Atomics only, nothing that can block the thread it runs on.
+void ShakerOutput::notificationCallback(const void* notification)
+{
+    const ma_device_notification* n = static_cast<const ma_device_notification*>(notification);
+    ShakerOutput* self = n && n->pDevice ? static_cast<ShakerOutput*>(n->pDevice->pUserData) : nullptr;
+    if (!self) return;
+    if (n->type == ma_device_notification_type_stopped && !self->m_closing.load(std::memory_order_acquire))
+        self->markLost("stopped");
+    else if (n->type == ma_device_notification_type_rerouted)
+        self->markLost("rerouted");
+}
+
+static constexpr int kLostStopped = 1, kLostRerouted = 2, kLostQuiet = 3;
+
+void ShakerOutput::markLost(const char* why)
+{
+    if (!m_open.load(std::memory_order_acquire)) return;
+    const int kind = (std::strcmp(why, "rerouted") == 0) ? kLostRerouted
+                   : (std::strcmp(why, "quiet")    == 0) ? kLostQuiet : kLostStopped;
+    m_lost.store(kind, std::memory_order_release);
+    m_open.store(false, std::memory_order_release);
+}
+
+void ShakerOutput::checkHealth()
+{
+    std::lock_guard<std::mutex> lk(m_mx);
+    if (!m_open.load(std::memory_order_acquire)) return;
+    const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const uint64_t calls = m_callbacks.load(std::memory_order_relaxed);
+    if (m_healthMs == 0 || calls != m_healthCallbacks) { m_healthMs = nowMs; m_healthCallbacks = calls; return; }
+    if (nowMs - m_healthMs >= static_cast<int64_t>(kQuietSec * 1000.0)) markLost("quiet");
+}
+
+std::string ShakerOutput::error() const
+{
+    std::lock_guard<std::mutex> lk(m_mx);
+    switch (m_lost.load(std::memory_order_acquire))
+    {
+        case kLostStopped:  return "the sound card stopped (unplugged or disabled?): those shakers are silent until it is opened again";
+        case kLostRerouted: return "the sound output moved to another device: those shakers are silent until it is opened again";
+        case kLostQuiet:    return "the sound card has gone quiet (no audio for 2 s; unplugged?): those shakers are silent until it is opened again";
+        default:            return m_error;
+    }
+}
+
 #if defined(__linux__)
 // A shaker card plays at full line level: the volume belongs on the amps and
 // the route gains, and many USB boxes come up at about -24 dB (a bench rig's
@@ -120,9 +171,12 @@ static void fullLineLevel(const std::string& alsaId)
 
 bool ShakerOutput::open(const std::string& deviceName, int channels, double controlHz, int sampleRate)
 {
-    close();
     std::lock_guard<std::mutex> lk(m_mx);
+    closeLocked();
     m_error.clear();
+    m_lost.store(0, std::memory_order_release);
+    m_healthMs = 0; m_healthCallbacks = 0;
+    m_reqDevice = deviceName; m_reqChannels = channels; m_reqControlHz = controlHz; m_reqRate = sampleRate; m_reqValid = true;
     std::string fallbackReason;   // why a shared device was opened instead of the raw one (empty = it was not)
     if (!m_impl->contextOk) { m_error = "no audio backend available"; return false; }
     channels = std::max(1, std::min(MAX_SHAKERS, channels));
@@ -132,6 +186,7 @@ bool ShakerOutput::open(const std::string& deviceName, int channels, double cont
     cfg.playback.channels = static_cast<ma_uint32>(channels);
     cfg.sampleRate        = static_cast<ma_uint32>(sampleRate);
     cfg.dataCallback      = reinterpret_cast<ma_device_data_proc>(&ShakerOutput::dataCallback);
+    cfg.notificationCallback = reinterpret_cast<ma_device_notification_proc>(&ShakerOutput::notificationCallback);
     cfg.pUserData         = this;
     cfg.periodSizeInFrames = 240;    // 5 ms at 48 kHz
     cfg.periods            = 3;
@@ -142,7 +197,9 @@ bool ShakerOutput::open(const std::string& deviceName, int channels, double cont
     // sysdefault:, front:, ...): prefer the card itself, then plughw:, then
     // whatever else matched.
     ma_device_id chosen; bool haveId = false;
-    const bool wantNull = (deviceName == "null");
+    // "null:N": the null backend as a pretend card with N channels of its own.
+    const bool wantNull = (deviceName == "null") || (deviceName.rfind("null:", 0) == 0);
+    const int  nullOwn  = (wantNull && deviceName.size() > 5) ? std::atoi(deviceName.c_str() + 5) : 0;
     const bool alsa = (m_impl->context.backend == ma_backend_alsa);
     if (!deviceName.empty() && !wantNull)
     {
@@ -204,6 +261,18 @@ bool ShakerOutput::open(const std::string& deviceName, int channels, double cont
 
     m_sampleRate = static_cast<int>(m_impl->device.sampleRate);
     m_dsp.configure(controlHz, m_sampleRate, static_cast<int>(m_impl->device.playback.channels));
+    // What the card itself has (its native channel count) as against what
+    // was asked for: miniaudio renders the asked-for count and folds the
+    // rest into the card's channels, so a stereo card asked for four would
+    // play shakers 3 and 4 into 1 and 2. push() pushes the channels
+    // beyond the card's own as silence instead, and the status shows the
+    // count that is real. A pretend "null:N" card has N.
+    {
+        int own = static_cast<int>(m_impl->device.playback.internalChannels);
+        if (own <= 0) own = static_cast<int>(m_impl->device.playback.channels);
+        if (nullOwn > 0) own = std::min(own, nullOwn);
+        m_channelsActual.store(std::min(own, static_cast<int>(m_impl->device.playback.channels)), std::memory_order_release);
+    }
     const int periodFrames = static_cast<int>(m_impl->device.playback.internalPeriodSizeInFrames);
     const int bufferFrames = periodFrames * static_cast<int>(m_impl->device.playback.internalPeriods);
     m_dsp.setPeriodFrames(periodFrames);
@@ -239,12 +308,32 @@ bool ShakerOutput::open(const std::string& deviceName, int channels, double cont
 
 void ShakerOutput::close()
 {
-    m_open.store(false, std::memory_order_release);
+    std::lock_guard<std::mutex> lk(m_mx);
+    closeLocked();
+}
+
+void ShakerOutput::closeLocked()
+{
+    m_open.store(false, std::memory_order_release);   // the RT side's pushes skip the rings from here
     if (m_impl->deviceOk)
     {
+        m_closing.store(true, std::memory_order_release);   // the stop we ask for is not a loss
         ma_device_uninit(&m_impl->device);   // stops the device and joins the audio thread
+        m_closing.store(false, std::memory_order_release);
         m_impl->deviceOk = false;
     }
+    m_channelsActual.store(0, std::memory_order_release);
+}
+
+bool ShakerOutput::reopen()
+{
+    std::string dev; int ch; double hz; int rate; bool asked;
+    {
+        std::lock_guard<std::mutex> lk(m_mx);
+        dev = m_reqDevice; ch = m_reqChannels; hz = m_reqControlHz; rate = m_reqRate; asked = m_reqValid;
+    }
+    if (!asked) return false;   // never opened: nothing to open again
+    return open(dev, ch, hz, rate);
 }
 
 void ShakerOutput::setControlHz(double hz)
