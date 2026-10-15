@@ -356,6 +356,12 @@ Development branch. Nothing here is in a release yet.
   rig keeps its own values: change them on the tile.
 
 ### Fixed
+- The control loop could be held up by the status page: the loop and the
+  page's status poll shared a lock around the latest telemetry frame, so
+  the loop waited whenever the poll had the lock and was put aside by the
+  operating system (measured at up to 37 ms on a busy machine). The loop
+  now stores the frame without a lock and never waits; the page's copy is
+  retried if it caught a frame half written.
 - Switching game or car without a pause in the channel stream kept the
   named channels the new game never sends (the surface under each tyre,
   the slip speeds, water on the road, wheels in the air, punctures) at the

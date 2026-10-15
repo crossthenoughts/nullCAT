@@ -3,6 +3,7 @@
 #pragma once
 #include <mutex>
 #include <functional>
+#include <type_traits>
 #include <atomic>
 #include <cstdint>
 #include <chrono>
@@ -67,6 +68,30 @@ struct TelemetryData
     char            car[NCY_STR_LEN]            = {};    // the car as the sim shows it (SimHub CarModel)
     char            carId[NCY_STR_LEN]          = {};    // its stable id (SimHub CarId: the content folder for AC); "" from an older plugin
 };
+static_assert(std::is_trivially_copyable<TelemetryData>::value, "TelemetryData is copied with memcpy by the snapshot reader");
+
+// ============================================================
+// Threads.
+//
+//   receive path   receive() -> parsePacket -> ingest. One caller at a
+//                  time: the RT loop while it runs, the haptics idle
+//                  clock while it does not. This is the store's only
+//                  writer. Never blocks, never allocates, never logs
+//                  through anything that can block.
+//   snapshot       getLatestData(). The receive path's own thread every
+//                  cycle, plus the web and status threads whenever they
+//                  like. A seqlock: the writer bumps a sequence number
+//                  around its store (odd = writing) and waits for nobody;
+//                  a reader copies, then checks the number did not move
+//                  and retries if it did. A reader on the RT side only
+//                  ever meets a write in progress during the hand-over,
+//                  and gives up after a bounded number of tries (the
+//                  frame is reported not valid: one cycle's hold).
+//   control        initialize()/shutdown()/setFrozenMs()/setOnNewData()
+//                  from the main thread before the loops start; the
+//                  recorder's start/stop from the web thread (its own
+//                  lock-free hand-off, see TelemetryRecorder.h).
+// ============================================================
 
 class TelemetryInput
 {
@@ -173,8 +198,34 @@ private:
     bool      m_winsockInitialized= false;
     int       m_port              = 4444;
 
-    mutable std::mutex m_dataMutex;
-    TelemetryData         m_latestData;
+    // The store: written by the receive path only (inside the seqlock
+    // window), copied whole by getLatestData().
+    struct Store
+    {
+        TelemetryData motion;                       // the last motion packet as parsed
+        // Latest NULLCATX channels, deliberately separate from the motion
+        // frame so neither stream clobbers the other.
+        int     ncxCount = 0;
+        double  ncxVals[MAX_NCX_CHANNELS] = {};
+        bool    ncxHave[MAX_NCX_CHANNELS] = {};
+        // Persistent NULLCATY store: each Y packet merges the keys it
+        // names; cleared when the channel stream has gone stale (so a
+        // returning sender never resurrects old values) and when a line
+        // names a different game, car or car id (so one game's tokens
+        // never play under the next).
+        bool    ncyHave[NcxTok::TokenCount] = {};
+        double  ncyVals[NcxTok::TokenCount] = {};
+        char    game[NCY_STR_LEN]  = {};
+        char    car[NCY_STR_LEN]   = {};
+        char    carId[NCY_STR_LEN] = {};
+    };
+    static_assert(std::is_trivially_copyable<Store>::value, "the snapshot reader copies the store with memcpy");
+    Store m_store;
+    std::atomic<uint32_t> m_seq{0};              // odd while the receive path writes m_store
+    static constexpr int kSnapshotTries = 16;    // a reader's bounded retry (each try is one copy)
+    void storeBegin();                           // receive path: open the write window
+    void storeEnd();                             //               close it
+    bool snapshot(Store& out) const;             // any thread: a whole copy, false if the retry ran out
     std::atomic<bool>  m_hasData{false};
 
     static constexpr int RECV_BUF_SIZE = 4096;
@@ -186,26 +237,10 @@ private:
 
     std::atomic<int64_t> m_lastMotionPacketMs{0};
 
-    // Latest NULLCATX channels (receive thread writes under m_dataMutex;
-    // getLatestData() merges them into the returned snapshot). Deliberately
-    // separate from m_latestData so neither stream clobbers the other.
-    int     m_ncxCount = 0;
-    double  m_ncxVals[MAX_NCX_CHANNELS] = {};
-    bool    m_ncxHave[MAX_NCX_CHANNELS] = {};
     std::atomic<int64_t> m_lastNcxPacketMs{0};
     std::atomic<int64_t> m_lastNcxChangeMs{0};   // last packet whose numbers differed
     std::atomic<int64_t> m_frozenMs{0};          // guard window, 0 = off
     mutable std::atomic<int> m_ncxStreamState{0}; // 0 stopped, 1 live, 2 frozen (getLatestData, any thread)
-    // Persistent NULLCATY store: each Y packet merges the keys it names;
-    // cleared when the channel stream has gone stale (so a returning
-    // sender never resurrects old values) and when a line names a
-    // different game, car or car id (so one game's tokens never play
-    // under the next).
-    bool    m_ncyHave[NcxTok::TokenCount] = {};
-    double  m_ncyVals[NcxTok::TokenCount] = {};
-    char    m_ncyGame[NCY_STR_LEN]  = {};
-    char    m_ncyCar[NCY_STR_LEN]   = {};
-    char    m_ncyCarId[NCY_STR_LEN] = {};
 
     // UDP-rate diagnostic: receive-thread-only counters + published atomics.
     void    updateUdpRate(const TelemetryData& d);

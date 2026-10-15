@@ -277,7 +277,7 @@ bool TelemetryInput::receive()
 
 // Everything after the parse: store the packet by stream. Public so a
 // test can feed parsed packets without a socket (the frozen-stream guard
-// is pinned that way).
+// is pinned that way). Receive path only: this is the store's one writer.
 bool TelemetryInput::ingest(const TelemetryData& parsed)
 {
     // NULLCATX channels: independent stream at its own rate. Stored beside
@@ -290,15 +290,16 @@ bool TelemetryInput::ingest(const TelemetryData& parsed)
     {
         auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count();
+        Store& st = m_store;
+        storeBegin();
         {
-            std::lock_guard<std::mutex> lock(m_dataMutex);
             // A stream that died and came back starts clean: nothing a
             // previous session named is still "present".
             const int64_t last = m_lastNcxPacketMs.load();
             if (last != 0 && (nowMs - last) >= 500)
             {
-                for (bool& h : m_ncyHave) h = false;
-                m_ncyGame[0] = m_ncyCar[0] = m_ncyCarId[0] = '\0';
+                for (bool& h : st.ncyHave) h = false;
+                st.game[0] = st.car[0] = st.carId[0] = '\0';
             }
             // Frozen-stream guard: a packet whose numeric payload is
             // bit-identical to the stored values is a repeat (a paused sim,
@@ -311,11 +312,11 @@ bool TelemetryInput::ingest(const TelemetryData& parsed)
             if (parsed.packetType == TelemetryPacketType::Ncx)
             {
                 numeric = parsed.numNcx > 0;
-                changed = parsed.numNcx != m_ncxCount;
+                changed = parsed.numNcx != st.ncxCount;
                 for (int i = 0; i < parsed.numNcx && !changed; ++i)
-                    changed = parsed.ncxHave[i] != m_ncxHave[i] || parsed.ncx[i] != m_ncxVals[i];
-                m_ncxCount = parsed.numNcx;
-                for (int i = 0; i < parsed.numNcx; ++i) { m_ncxVals[i] = parsed.ncx[i]; m_ncxHave[i] = parsed.ncxHave[i]; }
+                    changed = parsed.ncxHave[i] != st.ncxHave[i] || parsed.ncx[i] != st.ncxVals[i];
+                st.ncxCount = parsed.numNcx;
+                for (int i = 0; i < parsed.numNcx; ++i) { st.ncxVals[i] = parsed.ncx[i]; st.ncxHave[i] = parsed.ncxHave[i]; }
             }
             else
             {
@@ -329,33 +330,33 @@ bool TelemetryInput::ingest(const TelemetryData& parsed)
                 // one. TestTelemetryParse pins it.
                 const auto differs = [](const char* now, const char* known)
                 { return now[0] && known[0] && std::strcmp(now, known) != 0; };
-                if (differs(parsed.game, m_ncyGame) || differs(parsed.car, m_ncyCar) ||
-                    (parsed.car[0] && differs(parsed.carId, m_ncyCarId)))
-                    for (bool& h : m_ncyHave) h = false;
+                if (differs(parsed.game, st.game) || differs(parsed.car, st.car) ||
+                    (parsed.car[0] && differs(parsed.carId, st.carId)))
+                    for (bool& h : st.ncyHave) h = false;
                 for (int t = 0; t < NcxTok::TokenCount; ++t)
                     if (parsed.ncyHave[t])
                     {
                         numeric = true;
-                        if (!m_ncyHave[t] || m_ncyVals[t] != parsed.ncy[t]) changed = true;
-                        m_ncyHave[t] = true; m_ncyVals[t] = parsed.ncy[t];
+                        if (!st.ncyHave[t] || st.ncyVals[t] != parsed.ncy[t]) changed = true;
+                        st.ncyHave[t] = true; st.ncyVals[t] = parsed.ncy[t];
                     }
-                if (parsed.game[0]) std::memcpy(m_ncyGame, parsed.game, NCY_STR_LEN);
-                if (parsed.car[0])  std::memcpy(m_ncyCar,  parsed.car,  NCY_STR_LEN);
+                if (parsed.game[0]) std::memcpy(st.game, parsed.game, NCY_STR_LEN);
+                if (parsed.car[0])  std::memcpy(st.car,  parsed.car,  NCY_STR_LEN);
                 // The id travels with the name: a line naming the car
                 // without an id (an older plugin) clears the stale id.
-                if (parsed.car[0])  std::memcpy(m_ncyCarId, parsed.carId, NCY_STR_LEN);
+                if (parsed.car[0])  std::memcpy(st.carId, parsed.carId, NCY_STR_LEN);
             }
             if (changed || last == 0 || (nowMs - last) >= 500) m_lastNcxChangeMs.store(static_cast<int64_t>(nowMs));
             else if (!numeric && m_lastNcxChangeMs.load() == 0) m_lastNcxChangeMs.store(static_cast<int64_t>(nowMs));
         }
+        storeEnd();
         m_lastNcxPacketMs.store(static_cast<int64_t>(nowMs));
         return true;
     }
 
-    {
-        std::lock_guard<std::mutex> lock(m_dataMutex);
-        m_latestData = parsed;
-    }
+    storeBegin();
+    m_store.motion = parsed;
+    storeEnd();
 
     // Only timestamp motion packets for the receiving indicator
     if (parsed.packetType == TelemetryPacketType::Motion)
@@ -461,7 +462,41 @@ void TelemetryInput::updateUdpRate(const TelemetryData& d)
 }
 
 // ============================================================
-// Get Latest Data (thread-safe copy)
+// The store's seqlock. The writer (the receive path) bumps the sequence to
+// odd before it writes and to even after; the acquire on the first bump
+// keeps the writes after it, the release on the second keeps them before
+// it. A reader copies the whole store between two reads of the sequence
+// and retries if it was odd or moved. The writer never waits for anyone.
+// ============================================================
+
+void TelemetryInput::storeBegin()
+{
+    m_seq.fetch_add(1, std::memory_order_acq_rel);
+}
+
+void TelemetryInput::storeEnd()
+{
+    m_seq.fetch_add(1, std::memory_order_release);
+}
+
+bool TelemetryInput::snapshot(Store& out) const
+{
+    for (int attempt = 0; attempt < kSnapshotTries; ++attempt)
+    {
+        // A write in progress lasts a few hundred ns: wait it out with
+        // cheap loads (bounded) rather than copying into a tear.
+        uint32_t before = m_seq.load(std::memory_order_acquire);
+        for (int spin = 0; (before & 1u) && spin < 64; ++spin) before = m_seq.load(std::memory_order_acquire);
+        if (before & 1u) continue;
+        std::memcpy(&out, &m_store, sizeof(Store));
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (m_seq.load(std::memory_order_relaxed) == before) return true;
+    }
+    return false;                                         // the writer sat in its window for every try (preempted)
+}
+
+// ============================================================
+// Get Latest Data (a consistent copy, any thread, never blocks)
 // ============================================================
 
 TelemetryData TelemetryInput::getLatestData() const
@@ -476,14 +511,20 @@ TelemetryData TelemetryInput::getLatestData() const
 
     const int64_t lastChange = m_lastNcxChangeMs.load();
 
-    std::lock_guard<std::mutex> lock(m_dataMutex);
-    TelemetryData d = m_latestData;
-    d.numNcx = m_ncxCount;
-    for (int i = 0; i < m_ncxCount; ++i) { d.ncx[i] = m_ncxVals[i]; d.ncxHave[i] = m_ncxHave[i]; }
-    for (int t = 0; t < NcxTok::TokenCount; ++t) { d.ncyHave[t] = m_ncyHave[t]; d.ncy[t] = m_ncyVals[t]; }
-    std::memcpy(d.game,  m_ncyGame,  NCY_STR_LEN);
-    std::memcpy(d.car,   m_ncyCar,   NCY_STR_LEN);
-    std::memcpy(d.carId, m_ncyCarId, NCY_STR_LEN);
+    // The bounded retry gave up: the receive path was preempted inside its
+    // write window (only the loop-start hand-over can put a writer on
+    // another thread). Report no frame rather than a torn one: one
+    // cycle's hold, the next snapshot is whole again.
+    Store st;
+    if (!snapshot(st)) return TelemetryData{};
+
+    TelemetryData d = st.motion;
+    d.numNcx = st.ncxCount;
+    for (int i = 0; i < st.ncxCount; ++i) { d.ncx[i] = st.ncxVals[i]; d.ncxHave[i] = st.ncxHave[i]; }
+    for (int t = 0; t < NcxTok::TokenCount; ++t) { d.ncyHave[t] = st.ncyHave[t]; d.ncy[t] = st.ncyVals[t]; }
+    std::memcpy(d.game,  st.game,  NCY_STR_LEN);
+    std::memcpy(d.car,   st.car,   NCY_STR_LEN);
+    std::memcpy(d.carId, st.carId, NCY_STR_LEN);
     const bool arriving = (lastNcx != 0) && (nowMs - lastNcx) < 500;
     const int64_t frozenMs = m_frozenMs.load();
     const bool frozen   = frozenMs > 0 && arriving && lastChange != 0 && (nowMs - lastChange) >= frozenMs;
