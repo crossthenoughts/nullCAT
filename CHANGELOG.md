@@ -356,6 +356,12 @@ Development branch. Nothing here is in a release yet.
   rig keeps its own values: change them on the tile.
 
 ### Fixed
+- With shakers playing and the control loop stopped (or on a rig with no
+  drives), the log never showed "sim channel stream started" and
+  "stopped", "haptics settings applied live" or the telemetry parse
+  warnings: those lines went into the control loop's log queue, which was
+  only emptied while the loop ran. They now reach the log at once, and
+  the queue is emptied for as long as the program runs.
 - For a moment at control loop start, the loop and the shaker clock that
   plays while it is stopped could both be reading telemetry at once, into
   the same buffer. One of them now backs off until the next tick; nothing

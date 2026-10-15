@@ -113,6 +113,34 @@ void Logger::init(const std::string& logFilePath, bool toConsole)
         m_file.flush();
         rotateIfNeeded(m_file, m_filePath, m_fileBytes);   // inherited oversize file rotates immediately
     }
+    // The ring's drain thread runs for the logger's whole life, not only
+    // while the control loop is armed: whatever is in the ring reaches the
+    // file within a drain cycle whichever way the session goes.
+    startDrain();
+}
+
+void Logger::startDrain()
+{
+    if (m_drainRunning.exchange(true)) return;
+    m_drainThread = std::thread([this]()
+    {
+        int sinceFlush = 0;
+        while (m_drainRunning.load(std::memory_order_acquire))
+        {
+            drainQueue();
+            // While the RT path is armed, per-line flushing is off (see
+            // writeEntry/writeDiagLine); commit the buffered sinks about
+            // once a second from here, off the RT thread.
+            if (++sinceFlush >= 100)
+            {
+                sinceFlush = 0;
+                std::lock_guard<std::mutex> lock(m_mutex);
+                std::cout.flush();
+                if (m_diagFile.is_open()) m_diagFile.flush();
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    });
 }
 
 void Logger::initDiag(const std::string& diagFilePath)
@@ -192,44 +220,22 @@ LogLevel Logger::parseLevel(const std::string& s)
 void Logger::setRTThread()
 {
     m_rtThreadId = std::this_thread::get_id();
-
-    if (!m_drainRunning.exchange(true))
-    {
-        m_drainThread = std::thread([this]()
-        {
-            int sinceFlush = 0;
-            while (m_drainRunning.load(std::memory_order_acquire))
-            {
-                drainQueue();
-                // While the RT path is armed, per-line flushing is off (see
-                // writeEntry/writeDiagLine); commit the buffered sinks about
-                // once a second from here, off the RT thread.
-                if (++sinceFlush >= 100)
-                {
-                    sinceFlush = 0;
-                    std::lock_guard<std::mutex> lock(m_mutex);
-                    std::cout.flush();
-                    if (m_diagFile.is_open()) m_diagFile.flush();
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            }
-        });
-    }
+    startDrain();   // init() normally has; a test arming without init() gets one too
 }
 
 void Logger::clearRTThread()
 {
     m_rtThreadId = std::thread::id{};
 
-    if (m_drainRunning.exchange(false))
-    {
-        if (m_drainThread.joinable())
-            m_drainThread.join();
-        drainQueue();
-        std::lock_guard<std::mutex> lock(m_mutex);
-        std::cout.flush();
-        if (m_diagFile.is_open()) m_diagFile.flush();
-    }
+    // The drain thread stays up (it is the logger's, not the loop's); wait
+    // for it to empty the ring so the lines this thread pushed are in the
+    // file before the caller logs its own stop sequence through the
+    // ordinary path. Bounded: a drain is a few ms at most.
+    for (int i = 0; i < 100 && !m_rtQueue.empty(); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    std::lock_guard<std::mutex> lock(m_mutex);
+    std::cout.flush();
+    if (m_diagFile.is_open()) m_diagFile.flush();
 }
 
 void Logger::drainQueue()
@@ -338,6 +344,19 @@ void Logger::pushRT(LogLevel level, const char* fmt, ...) noexcept
         entry.msg[sizeof(entry.msg) - 3] = '.';
         entry.msg[sizeof(entry.msg) - 2] = '.';
         entry.msg[sizeof(entry.msg) - 1] = '\0';
+    }
+
+    // The ring has exactly one producer: the armed RT thread. Every other
+    // caller of RT_LOG_* (the haptics idle clock on the receive path and
+    // the staged apply, the web and status threads on the channel stream
+    // transitions) takes the ordinary synchronous path, formatted the same
+    // way. A diag line goes to the diag writer, as the drain would route it.
+    const std::thread::id rtId = m_rtThreadId.load(std::memory_order_relaxed);
+    if (rtId == std::thread::id{} || std::this_thread::get_id() != rtId)
+    {
+        if (level == LogLevel::LVL_DIAG) writeDiagLine(entry.msg);
+        else                             writeEntry(level, entry.msg);
+        return;
     }
 
     if (!m_rtQueue.push(entry))

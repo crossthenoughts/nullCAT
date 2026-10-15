@@ -521,6 +521,15 @@ target_compile_options(TestTelemetryParse PRIVATE /W3 /Zc:__cplusplus)
 target_link_libraries(TestTelemetryParse PRIVATE ws2_32)
 add_test(NAME TestTelemetryParse COMMAND TestTelemetryParse)
 set_tests_properties(TestTelemetryParse PROPERTIES TIMEOUT 120)
+# Which thread's RT_LOG_* lines go where (the ring for the armed RT
+# thread, the ordinary path for everyone else) and the drain thread's
+# lifetime. Logger only, no Qt.
+add_executable(TestLogRouting tests/TestLogRouting.cpp src/Logging.cpp)
+target_include_directories(TestLogRouting PRIVATE ${TEST_INCLUDE_DIRS})
+target_compile_definitions(TestLogRouting PRIVATE ${TEST_COMPILE_DEFS})
+target_compile_options(TestLogRouting PRIVATE /W3 /Zc:__cplusplus)
+add_test(NAME TestLogRouting COMMAND TestLogRouting)
+set_tests_properties(TestLogRouting PROPERTIES TIMEOUT 60)
 
 # ---- Build 72: TestInitSequence - EtherCATMaster init sequence (sim mode) ----
 #

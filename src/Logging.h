@@ -76,10 +76,16 @@ public:
     void initDiag(const std::string& diagFilePath);
     void logDiag(const std::string& line);
 
-    // Call once at RT thread start to arm the lock-free path.
+    // Call once at RT thread start to arm the lock-free path: from then on
+    // that thread's LOG_* and RT_LOG_* lines ride the ring.
     void setRTThread();
-    // Call at RT thread exit to stop the drain thread cleanly.
+    // Call at RT thread exit to disarm it. Waits (bounded) for the ring to
+    // drain so the thread's last lines are in the file before the caller's
+    // own stop lines; the drain thread itself keeps running.
     void clearRTThread();
+    // Is the ring's drain thread up? It starts at init() (or at the first
+    // setRTThread() without one) and runs for the logger's life.
+    bool drainRunning() const { return m_drainRunning.load(std::memory_order_acquire); }
 
     // Register a callback to receive formatted log lines.
     // Called from the drain thread (non-RT) or directly for non-RT logs.
@@ -102,7 +108,10 @@ public:
     // RT-safe log path: formats directly into a LogEntry char buffer via vsnprintf.
     // Zero heap allocation. No mutex. Pushes to the SPSC ring (same as the RT path
     // in log(), but callable directly without constructing a std::string argument).
-    // RT thread only - the SPSC ring has exactly one producer.
+    // The ring has exactly one producer, the armed RT thread: a call from any
+    // other thread (the haptics idle clock, the web and status threads reach
+    // RT_LOG_* through shared code) is routed to the ordinary synchronous
+    // path instead, so it may block there like LOG_* does.
     // Messages exceeding 475 chars are truncated and marked with "...".
 #if defined(__GNUC__) || defined(__clang__)
     // Non-static member: implicit `this` is arg 1, so fmt is arg 3, varargs arg 4.
@@ -151,7 +160,8 @@ private:
 
     void writeEntry(LogLevel level, const std::string& message);
     void writeDiagLine(const char* msg);   // shared diag-file writer
-    void drainQueue();
+    void drainQueue();                     // the drain thread only (the ring's one consumer)
+    void startDrain();                     // idempotent
 
     mutable std::mutex m_mutex;
     // Size-based rotation (appliance discipline: a debug-on rig must
@@ -196,8 +206,9 @@ inline void LOG_WARNING (const std::string& msg) { Logger::instance().warning(ms
 inline void LOG_ERROR   (const std::string& msg) { Logger::instance().error(msg);    }
 inline void LOG_CRITICAL(const std::string& msg) { Logger::instance().critical(msg); }
 
-// RT-safe variants: printf-style, zero heap allocation.
-// Use only from the RT thread. See Logger::pushRT() for semantics.
+// RT-safe variants: printf-style, zero heap allocation on the RT thread.
+// Safe to reach from any thread: only the armed RT thread's lines go into
+// the ring, the rest take the ordinary path. See Logger::pushRT().
 // MSVC: ##__VA_ARGS__ suppresses the trailing comma when no args are supplied.
 #define RT_LOG_DEBUG(fmt, ...)   Logger::instance().pushRT(LogLevel::LVL_DEBUG,   fmt, ##__VA_ARGS__)
 #define RT_LOG_INFO(fmt, ...)    Logger::instance().pushRT(LogLevel::LVL_INFO,    fmt, ##__VA_ARGS__)
