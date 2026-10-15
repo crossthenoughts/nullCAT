@@ -398,6 +398,11 @@ Development branch. Nothing here is in a release yet.
   emptiness over it. It is now left alone with the reason in the log; a
   profile saved meanwhile goes to `profiles.json.rejected` and the strip
   says so, until the file is fixed or moved and nullCAT restarted.
+- A car table entry written by hand with a setting the car does not own
+  (an ABS edge, the whine's pitch, the diff's strength) moved that
+  setting on the rig when the car came on. Only the settings a car owns
+  cross over now; the shipped table is checked to carry nothing else, to
+  name every car once, and to validate on a fresh rig.
 - With follow car on, a car the car table had no entry for kept the last
   car's engine, limiter, driveline, ABS and TC (a Mini played a truck's
   12.9 litre engine). In a game the table covers (Assetto Corsa,
