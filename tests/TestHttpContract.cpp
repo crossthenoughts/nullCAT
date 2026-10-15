@@ -77,6 +77,60 @@ static bool has(const std::string& body, const char* token)
     return body.find(token) != std::string::npos;
 }
 
+// A POST with extra headers, status code included (the 409 contract).
+struct Reply { int status = 0; std::string body; };
+static Reply postHdr(const char* path, const std::string& body, const httplib::Headers& headers)
+{
+    httplib::Client cli(HOST, PORT);
+    cli.set_read_timeout(5, 0);
+    auto r = cli.Post(path, headers, body, "application/json");
+    Reply out;
+    if (r) { out.status = r->status; out.body = r->body; }
+    return out;
+}
+
+// GET /api/rig: the body and the apply generation it belongs to
+// (X-Nullcat-Gen), -1 when the header is missing.
+static bool getRig(std::string& body, int& gen)
+{
+    httplib::Client cli(HOST, PORT);
+    cli.set_read_timeout(2, 0);
+    auto r = cli.Get("/api/rig");
+    if (!r) return false;
+    body = r->body;
+    gen  = r->has_header("X-Nullcat-Gen") ? std::atoi(r->get_header_value("X-Nullcat-Gen").c_str()) : -1;
+    return r->status == 200;
+}
+
+// The status's hapCarGen, -1 when missing.
+static int genNow()
+{
+    const std::string st = get("/api/status");
+    const size_t a = st.find("\"hapCarGen\":");
+    return (a == std::string::npos) ? -1 : std::atoi(st.c_str() + a + 12);
+}
+
+// The rig body with one haptics key (top level of the haptics object, or
+// inside a tile) set to a number, for the save tests.
+static std::string rigWith(const std::string& body, const char* tile, const char* key, double value)
+{
+    QJsonObject root = QJsonDocument::fromJson(QByteArray::fromStdString(body)).object();
+    QJsonObject g = root.value("global").toObject();
+    QJsonObject h = g.value("haptics").toObject();
+    if (tile) { QJsonObject t = h.value(tile).toObject(); t[key] = value; h[tile] = t; }
+    else h[key] = value;
+    g["haptics"] = h; root["global"] = g;
+    return QJsonDocument(root).toJson().toStdString();
+}
+
+// A body with its spaces removed (the file is indented, a space after each colon).
+static std::string compact(std::string s)
+{
+    s.erase(std::remove(s.begin(), s.end(), ' '), s.end());
+    s.erase(std::remove(s.begin(), s.end(), '\n'), s.end());
+    return s;
+}
+
 // Poll /api/status until it contains `token` (or timeout). The contract says
 // outcome truth is status polling - the tests obey their own contract.
 static bool waitStatus(const char* token, int timeoutMs)
@@ -370,6 +424,32 @@ int main()
         check(has(st, "\"hapCarDefault\":false") && has(get("/api/cars"), "\"defaults\":false"),
               "GET /api/status and /api/cars say whether the car tiles are on the defaults");
     }
+    // A page saves the copy of the rig it loaded, with the apply
+    // generation that copy belongs to (X-Nullcat-Gen from GET /api/rig).
+    // A save against a stale generation (the F40 pull above rewrote the
+    // haptics after an older copy was loaded) is refused with 409 and
+    // nothing is written; the current generation saves. Reverting the
+    // X-Nullcat-Gen check in POST /api/rig makes the first save land (200)
+    // and the "untouched" row fail. A request without the header (a
+    // script) is taken as is.
+    {
+        std::string body; int gen = -1;
+        check(getRig(body, gen) && gen >= 1 && gen == genNow(),
+              "GET /api/rig carries X-Nullcat-Gen equal to the status's hapCarGen");
+        const std::string edited = rigWith(body, nullptr, "masterGain", 0.9);
+        const Reply stale = postHdr("/api/rig", edited, {{"X-Nullcat-Gen", std::to_string(gen - 1)}});
+        check(stale.status == 409 && has(stale.body, "\"ok\":false") && has(stale.body, "nothing was saved"),
+              "POST /api/rig against a stale generation: 409 with the reason");
+        check(!has(compact(get("/api/rig")), "\"masterGain\":0.9"), "...and the file is untouched");
+        const Reply fresh = postHdr("/api/rig", edited, {{"X-Nullcat-Gen", std::to_string(gen)}});
+        check(fresh.status == 200 && has(fresh.body, "\"ok\":true") && has(fresh.body, "\"changed\":true"),
+              "POST /api/rig against the current generation: saved");
+        check(has(compact(get("/api/rig")), "\"masterGain\":0.9"), "...and the file carries the edit");
+        check(genNow() == gen, "a web save does not move the apply generation");
+        const Reply bare = postHdr("/api/rig", rigWith(body, nullptr, "masterGain", 0.8), {});
+        check(bare.status == 200 && has(bare.body, "\"ok\":true") && has(compact(get("/api/rig")), "\"masterGain\":0.8"),
+              "POST /api/rig without the header (a script) is taken as is");
+    }
     // Starting points: the shipped file beside the config lists its four
     // types in the file's order; apply refuses an unknown name and merges a
     // known one into the saved rig (its own settings only: the engine the
@@ -438,6 +518,25 @@ int main()
               && has(get("/api/cars"), "\"near\":true") && has(get("/api/status"), "\"hapCarDefault\":false")
               && has(get("/api/status"), "\"hapCarApplied\":true"),
               "follow car: a name that starts with an entry's is a near match, applied");
+        // A save that moves a setting the car table owns (the engine's amp)
+        // means the tiles no longer carry the entry: the car row stops
+        // claiming it. One that moves nothing the car owns (the master
+        // gain) leaves the claim. Reverting the carOwnedKeysChanged block
+        // in POST /api/rig leaves hapCarApplied true after the first save.
+        {
+            std::string body; int gen = -1;
+            check(getRig(body, gen), "GET /api/rig for the car-owned edit");
+            const Reply r = postHdr("/api/rig", rigWith(body, "rpmVibe", "ampPct", 33.0), {{"X-Nullcat-Gen", std::to_string(gen)}});
+            check(r.status == 200 && has(r.body, "\"ok\":true"), "a save moving the engine's amp (car-owned) lands");
+            check(has(get("/api/status"), "\"hapCarApplied\":false") && has(get("/api/cars"), "\"applied\":false"),
+                  "...and the car row no longer claims the entry is in force");
+            check(has(post("/api/cars/pull", "{}"), "\"ok\":true") && has(get("/api/status"), "\"hapCarApplied\":true"),
+                  "pull car preset: the entry is in force again");
+            check(getRig(body, gen), "GET /api/rig for the rig-owned edit");
+            const Reply r2 = postHdr("/api/rig", rigWith(body, nullptr, "masterGain", 0.7), {{"X-Nullcat-Gen", std::to_string(gen)}});
+            check(r2.status == 200 && has(r2.body, "\"ok\":true") && has(get("/api/status"), "\"hapCarApplied\":true"),
+                  "a save moving only the master gain leaves the claim");
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(700));   // the stream goes quiet before the loop starts
     }
 

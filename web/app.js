@@ -436,6 +436,11 @@ function applyHostOwnership(){
 const CFG_WATCH_IDS=[...HOST_INPUT_IDS.filter(id=>id!=='cf-ledtest'),
   'cf-blendt','cf-blendv','cf-condmode','cf-reqreset'];
 let cfgBaseline=null;
+/* The apply generation the loaded rig copy belongs to (X-Nullcat-Gen on
+   GET /api/rig). Sent back with every save: if the controller rewrote the
+   haptics meanwhile (follow car, a pull, a starting point, a profile) the
+   save is refused (409) instead of writing this page's stale copy over it. */
+let cfgGenLoaded=null;
 function fieldVal(el){ return el.type==='checkbox'?el.checked:el.value; }
 function snapshotCfg(){
   const f={}; for(const id of CFG_WATCH_IDS){ const el=$(id); if(el) f[id]=fieldVal(el); }
@@ -598,6 +603,7 @@ async function loadConfig(){
     updInit();
     const host=hR.ok?await hR.json():{};
     const g=(rR.ok?await rR.json():{}); const rig=g.global||{};
+    { const gh=rR.ok?rR.headers.get('X-Nullcat-Gen'):null; cfgGenLoaded=(gh!==null&&gh!==''&&isFinite(+gh))?+gh:null; }
     cfgObj=Object.assign({},host,rig,{ drives:g.axes||[], numDrives:(g.axes||[]).length, _configVersion:g.configVersion||2 });
     // host fields (per-machine)
     setField('cf-nic',host.nicName); setField('cf-hz',host.controlLoopHz); setField('cf-wd',host.pdoWatchdogMs);
@@ -663,7 +669,19 @@ async function saveConfig(){
   st.textContent='Saving…'; st.style.color='var(--ink-soft)';
   const hm=$('hapMsg');
   try{
-    const rr=await fetch(API+'/api/rig',{method:'POST',body:JSON.stringify(rig)}); const rj=await rr.json();
+    const hdr=(typeof cfgGenLoaded==='number')?{'X-Nullcat-Gen':String(cfgGenLoaded)}:{};
+    const rr=await fetch(API+'/api/rig',{method:'POST',headers:hdr,body:JSON.stringify(rig)}); const rj=await rr.json();
+    if(rr.status===409){
+      // The controller rewrote the haptics after this page loaded them
+      // (follow car, a pull, a starting point, a profile): the page's copy
+      // is stale and nothing was saved. Reload it (the edits on the strip
+      // are lost; the other sections are re-read too) and say what
+      // happened, rather than merge in silence.
+      const why='NOT SAVED: '+(rj.error||'the settings changed on the controller')+' The page has reloaded the controller\'s settings; make your edits again and Save.';
+      await loadConfig();
+      st.textContent='✗ '+why; st.style.color='var(--danger)';
+      if(hm) hm.textContent=why;
+      return; }
     if(!rj.ok){ st.textContent='✗ rig: '+(rj.error||'save failed'); st.style.color='var(--danger)';
       // Mirror the refusal where the user is likely editing: the Save bar
       // can be a screen away from the Devices card (a bench session lost
@@ -1593,11 +1611,19 @@ function hapLive(s){
     const first=(hapProfileLive===null); hapProfileLive=s.hapProfile;
     if(!first){ const sel=$('hapProfSel'); if(sel) hapProfilesRender(sel); if(dirtyState().count===0) loadConfig(); }
   }
-  // Car table: a new apply generation means five tiles moved (follow car,
-  // or a pull from another page); a new match means the car line changed.
+  // Car table: a new apply generation means the server rewrote the
+  // haptics (follow car, a pull, a starting point or a profile, from this
+  // page or another); a new match means the car line changed. A clean
+  // page reloads its copy; a page with unsaved edits keeps them and is
+  // told: its Save will be refused (409) and reload then.
   if(typeof s.hapCarGen==='number'&&s.hapCarGen!==hapCarGenLive){
     const first=(hapCarGenLive===null); hapCarGenLive=s.hapCarGen;
-    if(!first&&dirtyState().count===0) loadConfig();
+    if(!first){
+      if(dirtyState().count===0) loadConfig();
+      else if(typeof cfgGenLoaded==='number'&&s.hapCarGen!==cfgGenLoaded){
+        const hm=$('hapMsg'); if(hm) hm.textContent='The controller applied new haptics settings (car table, starting point or profile) while you have unsaved edits: Save will reload them and ask you to make your edits again.';
+      }
+    }
   }
   if(typeof s.hapCarKey==='string'){
     const sig=(s.hapCar||'')+'|'+s.hapCarKey+'|'+(s.hapCarSrc||'')+'|'+(s.hapCarApplied?1:0)+'|'+(s.hapCarDefault?1:0);

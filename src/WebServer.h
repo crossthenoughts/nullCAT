@@ -251,7 +251,10 @@ private:
     mutable std::mutex m_carMx;              // mutable: read by the const status builder
     // Bumps on every rewrite of the live haptics set the server makes by
     // itself or on request (a car entry, the car defaults, a starting
-    // point), so a page can refresh its copy.
+    // point, a profile), so a page can refresh its copy. GET /api/rig
+    // hands it out with the file (X-Nullcat-Gen) and POST /api/rig refuses
+    // a save made against an older one (409), so a page with unsaved
+    // edits can never write a stale copy over such an apply.
     std::atomic<int>  m_carGen{0};
     // The identity the table last applied for by itself. Unlike
     // m_lastIdentity it survives a stream dropout, so a pause (the plugin

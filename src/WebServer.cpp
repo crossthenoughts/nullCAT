@@ -159,6 +159,27 @@ static bool rigDiffIsLiveOnly(const std::string& oldBody, const std::string& new
     return a == b;
 }
 
+// True when two rig bodies differ in a setting the car table owns (the
+// car-owned keys of the engine, limiter, driveline, ABS and TC tiles, see
+// CarTable::carKeys): after such a save the tiles no longer carry the car's
+// entry. An unparseable body counts as changed.
+static bool carOwnedKeysChanged(const std::string& oldBody, const std::string& newBody)
+{
+    const QJsonDocument da = QJsonDocument::fromJson(QByteArray::fromStdString(oldBody));
+    const QJsonDocument db = QJsonDocument::fromJson(QByteArray::fromStdString(newBody));
+    if (!da.isObject() || !db.isObject()) return true;
+    const QJsonObject ha = da.object().value("global").toObject().value("haptics").toObject();
+    const QJsonObject hb = db.object().value("global").toObject().value("haptics").toObject();
+    for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+    {
+        const char* tile = haptics::effectInfo(i).key;
+        const QJsonObject ta = ha.value(tile).toObject(), tb = hb.value(tile).toObject();
+        for (const std::string& k : CarTable::carKeys(tile))
+            if (ta.value(QString::fromStdString(k)) != tb.value(QString::fromStdString(k))) return true;
+    }
+    return false;
+}
+
 // Who owns host.json on THIS build. Keyed off HAS_QT_CONFIG (a native config UI
 // is compiled in), NOT the OS - so a future headless x86/Windows NUC build,
 // which omits the Qt config UI, correctly reports "web" and lets the browser
@@ -1153,8 +1174,18 @@ bool WebServer::start()
                             "application/json");
         });
 
-        // GET /api/rig - the portable rig config (axes + global feel).
-        svr.Get("/api/rig",  [serveConfigFile](const httplib::Request&, httplib::Response& res) { serveConfigFile("rig.json",  res); });
+        // GET /api/rig - the portable rig config (axes + global feel), with
+        // the apply generation it belongs to in X-Nullcat-Gen: the file and
+        // the generation are read as one (a car entry, the car defaults, a
+        // starting point or a profile rewrites the file and bumps the
+        // generation under the same lock), so a save can say which copy it
+        // edited and be refused when that copy is stale.
+        svr.Get("/api/rig",  [this, serveConfigFile](const httplib::Request&, httplib::Response& res)
+        {
+            std::lock_guard<std::mutex> io(m_profilesIo);
+            serveConfigFile("rig.json", res);
+            res.set_header("X-Nullcat-Gen", std::to_string(m_carGen.load()));
+        });
         // GET /api/host - the per-machine host config (read-only display on PC).
         svr.Get("/api/host", [serveConfigFile](const httplib::Request&, httplib::Response& res) { serveConfigFile("host.json", res); });
 
@@ -1281,6 +1312,26 @@ bool WebServer::start()
             // One writer of rig.json at a time: a car entry, the car
             // defaults, a starting point or a profile load writes it too.
             std::lock_guard<std::mutex> io(m_profilesIo);
+            // The page sends the apply generation its copy was loaded at
+            // (X-Nullcat-Gen, from GET /api/rig). If the controller rewrote
+            // the haptics since (follow car, a pull, a starting point, a
+            // profile), the page's copy is stale and saving it would write
+            // that apply away: 409, nothing written, the page reloads and
+            // says so. A request without the header (a script) is taken as is.
+            if (req.has_header("X-Nullcat-Gen"))
+            {
+                const std::string g = req.get_header_value("X-Nullcat-Gen");
+                char* end = nullptr;
+                const long want = std::strtol(g.c_str(), &end, 10);
+                if (end == g.c_str() || *end != '\0' || want != m_carGen.load())
+                {
+                    res.status = 409;
+                    res.set_content("{\"ok\":false,\"error\":\"The haptics settings changed on the controller after this page "
+                                    "loaded them (a car entry, the car defaults, a starting point or a profile was applied): "
+                                    "nothing was saved.\",\"gen\":" + jsonInt(m_carGen.load()) + "}", "application/json");
+                    return;
+                }
+            }
             std::string oldBody;
             const int wr = writeConfigNamespace("rig.json", Config::validateRigBody(m_configPath, req.body),
                                                 req.body, res, &oldBody);
@@ -1299,6 +1350,15 @@ bool WebServer::start()
             LOG_INFO(liveOnly
                 ? "WebServer: rig.json updated via web - haptics/device tuning only, applied live (no re-initialize needed)."
                 : "WebServer: rig.json updated via web - applies on the next Initialize.");
+            // A save that moved a setting the car table owns: the tiles no
+            // longer carry the car's entry (or the defaults), so the car
+            // row stops saying they do.
+            if (carOwnedKeysChanged(oldBody, req.body))
+            {
+                std::lock_guard<std::mutex> lk(m_carMx);
+                m_carState.applied  = false;
+                m_carState.defaults = false;
+            }
             // Device live-apply: stage each device axis's fresh params with
             // the motion controller - they land the moment that device is
             // (or next becomes) limp. Feel tuning never needs a restart.
@@ -2894,6 +2954,9 @@ bool WebServer::loadProfile(const std::string& name, std::string& err)
     QJsonObject h = m_profiles.get(name);
     h.remove("followCar");
     if (!applyHapticsObjectLocked(h, err)) { err = "profile " + err; return false; }
+    // A rewrite of the live set like the others: the generation moves, so
+    // a page with a stale copy cannot save it over the profile.
+    m_carGen.fetch_add(1);
     m_profiles.setActive(name);
     m_profiles.save(m_configPath);
     {

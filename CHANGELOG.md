@@ -378,6 +378,13 @@ Development branch. Nothing here is in a release yet.
   character in a car name made the whole status unreadable to the page,
   which then showed the link as lost. Such a number now reads as 0 and
   every control character is escaped.
+- A page with unsaved edits on the Haptics strip could save them over
+  what follow car, a pull, a starting point or a profile had applied in
+  the meantime (the page only reloads when it has no edits). Every save
+  now says which copy of the settings it edited; a stale one is refused,
+  nothing is written, and the page reloads the controller's settings and
+  asks you to make the edits again. A save of yours that moves a setting
+  the car table owns also clears the car row's "applied".
 - With follow car on, a car the car table had no entry for kept the last
   car's engine, limiter, driveline, ABS and TC (a Mini played a truck's
   12.9 litre engine). In a game the table covers (Assetto Corsa,
