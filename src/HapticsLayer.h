@@ -203,8 +203,7 @@ public:
                     {
                         double f = sHz;
                         const double jit = std::max(p.jitter, kSurfaceMinJitter);
-                        m_surfRng ^= m_surfRng << 13; m_surfRng ^= m_surfRng >> 7; m_surfRng ^= m_surfRng << 17;
-                        f *= 1.0 + jit * (static_cast<double>(m_surfRng & 0xFFFF) / 65535.0 - 0.5);
+                        f *= 1.0 + jit * (wavesynth::rand01(m_surfRng) - 0.5);
                         const double v = p.ampPct * m_surfLevel * m_surfOsc.step(f, dtSec);
                         for (const Route& r : p.routes)
                         {
@@ -350,6 +349,9 @@ public:
                     m_absLinkLevel = (f.level >= 1e-4) ? f.level : 0.0;
                     if (m_absLinkLevel > 0.0) m_absModel.step(dtSec, f.freqHz, m_absParams);
                 }
+                // The engine learns its redline whether or not it plays (the
+                // Driveline tile reads it).
+                if (i == static_cast<int>(FxType::RpmVibe)) m_engine.learnRedline(m_engineParams);
                 if (p.ampPct <= 0.0 || f.level < 1e-4) continue;
             }
             else if (p.ampPct <= 0.0)
@@ -479,11 +481,8 @@ public:
             if (freq < 0.5) continue;   // no usable carrier = silence, not DC
             if (p.jitter > 0.0)
             {
-                // xorshift PRNG: pure arithmetic, RT-safe. Roughens the
-                // carrier so skid/road read as texture, not a tone.
-                f.rng ^= f.rng << 13; f.rng ^= f.rng >> 7; f.rng ^= f.rng << 17;
-                const double r = static_cast<double>(f.rng & 0xFFFF) / 65535.0; // 0..1
-                freq *= 1.0 + p.jitter * (r - 0.5);
+                // Roughens the carrier so skid/road read as texture, not a tone.
+                freq *= 1.0 + p.jitter * (wavesynth::rand01(f.rng) - 0.5);
             }
             const double v = p.ampPct * f.level * f.osc.step(freq, dtSec);
             for (const Route& r : p.routes)
@@ -538,9 +537,13 @@ public:
     bool shakerToneActive() const { return m_toneLeft > 0.0; }
 
     // Axis alignment delay in control cycles (0 = none; config apply).
+    // The delay buffer starts over only when the delay changes: every Save
+    // used to drop the axis overlay for the delay's length (a small click).
     void setAxisDelayCycles(int cycles)
     {
-        m_delayCycles = std::max(0, std::min(MAX_DELAY_CYCLES - 1, cycles));
+        const int c = std::max(0, std::min(MAX_DELAY_CYCLES - 1, cycles));
+        if (c == m_delayCycles) return;
+        m_delayCycles = c;
         for (auto& row : m_delayBuf) for (float& v : row) v = 0.0f;
         m_delayHead = 0;
     }
@@ -774,6 +777,7 @@ public:
     double drivelineWhineHz() const                   { return m_driveline.out().whineHz; }
     double drivelineJudderLevel() const               { return m_driveline.judderLevel(); }
     double drivelineLugLevel() const                  { return m_driveline.lugLevel(); }
+    double drivelineShuntLevel() const                { return std::fabs(m_driveline.out().shunt); }   // the knock in flight (tests)
 
     // Drive one continuous effect for THIS cycle: level 0..1 (silence to
     // full configured amplitude) and the carrier frequency to use (RpmVibe
@@ -852,6 +856,7 @@ public:
     uint64_t engineTcDrops() const  { return m_engine.tcDropCount(); }
     uint64_t engineLiftOffs() const { return m_engine.liftOffCount(); }
     bool     engineRunning() const  { return m_engine.running(); }
+    uint64_t engineStalls() const   { return m_engine.stallCount(); }
 
     // Kill every active transient instantly (e-stop, park, loop stop).
     void clearAll()
@@ -952,7 +957,7 @@ private:
         if (r.shaker >= 0 && r.shaker < MAX_SHAKER_OUT) m_shaker[r.shaker] += pct * r.gain / 100.0;
     }
 
-    static constexpr int MAX_DELAY_CYCLES = 128;   // 64 ms at 2 kHz, 256 ms at 500 Hz
+    static constexpr int MAX_DELAY_CYCLES = 256;   // 64 ms at 4 kHz (the tile allows 60 ms at any loop rate), 128 ms at 2 kHz
     double       m_shaker[MAX_SHAKER_OUT] = {};
     int          m_toneChannel = -1;
     double       m_toneLeft = 0.0;

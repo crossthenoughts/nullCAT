@@ -201,7 +201,14 @@ public:
 
     // A different car: the learned redline starts over (it is a peak hold, so
     // a lower-revving car would otherwise keep the last car's).
-    void forgetCar() { m_learnedMax = engine_k::kLearnSeedRpm; m_peakRpm = 0.0; m_maxSeeded = false; }
+    // A different car: the learned redline starts over, and whether its
+    // engine runs is unknown until its rpm says (the last car's "running"
+    // carried over, and a new car named with its engine off kicked a stall).
+    void forgetCar()
+    {
+        m_learnedMax = engine_k::kLearnSeedRpm; m_peakRpm = 0.0; m_maxSeeded = false;
+        m_running = false; m_sawCranking = false; m_catchFlare = 0.0;
+    }
 
     // The sim's own max rpm, where it sends one (the law passes it once it
     // has held steady): the redline starts there instead of the guess,
@@ -249,6 +256,23 @@ public:
     }
 
     // One cycle. level = the effect's attack/release-smoothed drive level;
+    // Redline: set, or learned (peak hold; the REV limiter flag snaps it
+    // exactly; a pit limiter cuts but teaches nothing). Its own call, so the
+    // Driveline's whine and lug (which read it) learn it with the Engine
+    // tile's amplitude at 0 too; step() runs it as well.
+    void learnRedline(const EngineParams& e)
+    {
+        using namespace engine_k;
+        if (m_fireHz < 0.5) return;
+        const double cyl    = std::max(1.0, e.cylinders);
+        const int    layout = static_cast<int>(e.layout + 0.5);
+        const double crankHz = (layout == 3 || layout == 4) ? m_fireHz / cyl : (layout == 5) ? m_fireHz : m_fireHz / (cyl / 2.0);
+        const double rpmNow  = crankHz * 60.0;
+        if (rpmNow > m_learnedMax) m_learnedMax = rpmNow;
+        if (rpmNow > m_peakRpm)    m_peakRpm = rpmNow;
+        if (m_revLimiter && rpmNow > kLearnMinRpm) m_learnedMax = rpmNow / kLimiterFlagAt;
+    }
+
     // p the shared params (ampPct, freqHz, jitter); e the engine params;
     // rng the caller's xorshift state. Returns the value before routing
     // gain, in % of rated, already capped at the effect's own amplitude.
@@ -274,15 +298,8 @@ public:
         const double balance = rotary ? kBalanceWankel : electric ? 0.0
                              : layoutK * std::max(kBalanceMin, std::min(kBalanceMax, kBalanceNum / std::sqrt(cyl)));
 
-        // Redline: set, or learned (peak hold; the REV limiter flag snaps it
-        // exactly; a pit limiter cuts but teaches nothing).
         const double rpmNow = crankHz * 60.0;
-        if (m_fireHz >= 0.5)
-        {
-            if (rpmNow > m_learnedMax) m_learnedMax = rpmNow;
-            if (rpmNow > m_peakRpm)    m_peakRpm = rpmNow;
-            if (m_revLimiter && rpmNow > kLearnMinRpm) m_learnedMax = rpmNow / kLimiterFlagAt;
-        }
+        learnRedline(e);
 
         // Running state: cranking below kCatchRpm until it catches; dying
         // below kDyingRpm once running; stopped with a kick when the revs
@@ -335,7 +352,7 @@ public:
             if (m_cutPhase >= 1.0)
             {
                 m_cutPhase = wrap(m_cutPhase);
-                m_cutRate  = cutBase * (1.0 + kCutJitSpan * std::max(0.0, std::min(1.0, e.limJit)) * (rand01(rng) - 0.5));
+                m_cutRate  = cutBase * (1.0 + kCutJitSpan * std::max(0.0, std::min(1.0, e.limJit)) * (wavesynth::rand01(rng) - 0.5));
             }
             cut = (m_cutPhase < kCutDuty);
         }
@@ -357,7 +374,7 @@ public:
             if (m_tcPhase >= 1.0)
             {
                 m_tcPhase = wrap(m_tcPhase);
-                m_tcRate  = kTcCutHz * (1.0 + kTcCutJit * (rand01(rng) - 0.5));
+                m_tcRate  = kTcCutHz * (1.0 + kTcCutJit * (wavesynth::rand01(rng) - 0.5));
             }
             tcInCut = (m_tcPhase < kTcDuty);
         }
@@ -371,7 +388,7 @@ public:
             if (m_crankPhase >= 1.0)
             {
                 m_crankPhase = wrap(m_crankPhase);
-                m_revScale = 1.0 + std::min(1.0, p.jitter + extraLope) * (rand01(rng) - 0.5) * 2.0;   // +-lope per rev
+                m_revScale = 1.0 + std::min(1.0, p.jitter + extraLope) * (wavesynth::rand01(rng) - 0.5) * 2.0;   // +-lope per rev
             }
             m_rockPhase = wrap(m_rockPhase + 0.5 * crankHz * dtSec);
 
@@ -379,7 +396,7 @@ public:
             if (m_firePhase >= 1.0)
             {
                 m_firePhase = wrap(m_firePhase);
-                const bool tcDrop = tcInCut && !cranking && rand01(rng) < tcDepth;
+                const bool tcDrop = tcInCut && !cranking && wavesynth::rand01(rng) < tcDepth;
                 if (tcDrop) ++m_tcDrops;
                 if (cranking)
                 {
@@ -470,8 +487,8 @@ public:
             if (m_popWait <= 0.0)
             {
                 const double rate = kPopsRateHz * std::min(1.0, e.pops) * x;
-                m_popWait = (0.3 + 1.4 * rand01(rng)) / std::max(0.5, rate);   // random spacing around 1/rate
-                const double hit = kPopsHitMin + (kPopsHitMax - kPopsHitMin) * rand01(rng);
+                m_popWait = (0.3 + 1.4 * wavesynth::rand01(rng)) / std::max(0.5, rate);   // random spacing around 1/rate
+                const double hit = kPopsHitMin + (kPopsHitMax - kPopsHitMin) * wavesynth::rand01(rng);
                 firePulse(p.ampPct * level * kThumpMix * heavy * std::min(1.0, e.pops) * hit);
             }
         }
@@ -551,11 +568,6 @@ public:
 
 private:
     static double wrap(double ph) { return ph - static_cast<double>(static_cast<int>(ph)); }
-    static double rand01(uint64_t& s)
-    {
-        s ^= s << 13; s ^= s >> 7; s ^= s << 17;
-        return static_cast<double>(s & 0xFFFF) / 65535.0;
-    }
     // lenMul stretches one pulse (the blow-off whoosh) past the thump length.
     void firePulse(double amp, double lenMul = 1.0)
     {

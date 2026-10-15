@@ -11,7 +11,9 @@
 // arithmetic, fixed state, no allocation.
 // ============================================================
 
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 namespace wavesynth
 {
@@ -28,6 +30,22 @@ inline double envelope(double t, double dur, double ramp)
     if (t < ramp)        return 0.5 * (1.0 - std::cos(kPi * t / ramp));
     if (t > dur - ramp)  return 0.5 * (1.0 - std::cos(kPi * (dur - t) / ramp));
     return 1.0;
+}
+
+// A severity or mix as 0..1: anything outside is clamped, and a value that
+// is not a number is 0 (std::min(1.0, NaN) is 1.0: a NaN drove full
+// severity through two models' clamps).
+inline double unit01(double x)
+{
+    return std::isfinite(x) ? std::max(0.0, std::min(1.0, x)) : 0.0;
+}
+
+// The models' shared pseudo-random source: xorshift64 on the caller's
+// state, uniform in [0, 1). One copy here instead of one per model.
+inline double rand01(uint64_t& s)
+{
+    s ^= s << 13; s ^= s >> 7; s ^= s << 17;
+    return static_cast<double>(s & 0xFFFFFF) / 16777215.0;
 }
 
 // Free-running sine oscillator: phase accumulates per step, so the

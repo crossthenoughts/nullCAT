@@ -126,12 +126,12 @@ public:
 
             // Stones: a Poisson stream, so many per metre.
             const double rate = kStonesPerM[w.cls] * v;        // per second
-            if (touching && rate > 0.0 && q.stones > 0.0 && rand01(w.rng) < rate * dtSec)
+            if (touching && rate > 0.0 && q.stones > 0.0 && wavesynth::rand01(w.rng) < rate * dtSec)
             {
                 Stone& s = w.pool[w.next]; w.next = (w.next + 1) % kPool;
                 s.t = 0.0;
-                s.amp = (0.3 + 0.7 * rand01(w.rng)) * ((rand01(w.rng) < kBigStoneShare) ? kBigStoneK : 1.0);
-                s.hz = kTickMinHz + (kTickMaxHz - kTickMinHz) * rand01(w.rng);
+                s.amp = (0.3 + 0.7 * wavesynth::rand01(w.rng)) * ((wavesynth::rand01(w.rng) < kBigStoneShare) ? kBigStoneK : 1.0);
+                s.hz = kTickMinHz + (kTickMaxHz - kTickMinHz) * wavesynth::rand01(w.rng);
                 s.bumpSec = std::max(0.01, kBumpM / std::max(kMinSpeedMs, v));
                 s.live = true;
                 ++w.struck;
@@ -151,7 +151,7 @@ public:
             const double cr = kCrunch[w.cls] * q.crunch * crunchK;
             const bool mud = (w.cls == SurfMud);
             const double lo = mud ? kMudLoHz : kCrunchLoHz, hi = mud ? kMudHiHz : kCrunchHiHz;
-            const double n = 2.0 * rand01(w.rng) - 1.0;
+            const double n = 2.0 * wavesynth::rand01(w.rng) - 1.0;
             const double hpA = std::exp(-2.0 * wavesynth::kPi * lo * dtSec);
             const double lpA = 1.0 - std::exp(-2.0 * wavesynth::kPi * hi * dtSec);
             w.nLp += (n - w.nLp) * lpA;
@@ -163,7 +163,7 @@ public:
             // Studs on ice and snow.
             if (q.studs >= 0.5 && (w.cls == SurfIce || w.cls == SurfSnow) && v > kMinSpeedMs)
             {
-                const double f = studHz * (1.0 + kStudJitter * (rand01(w.rng) - 0.5));
+                const double f = studHz * (1.0 + kStudJitter * (wavesynth::rand01(w.rng) - 0.5));
                 force += 0.6 * std::min(1.0, v / kCrunchFullMs) * w.studOsc.step(f, dtSec);
             }
 
@@ -291,11 +291,6 @@ public:
     }
 
 private:
-    static double rand01(uint64_t& r)
-    {
-        r ^= r << 13; r ^= r >> 7; r ^= r << 17;
-        return static_cast<double>(r & 0xFFFFFF) / 16777215.0;
-    }
     static double hash01(uint64_t& h)
     {
         h += 0x9E3779B97F4A7C15ull;

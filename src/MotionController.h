@@ -114,6 +114,14 @@ struct MotionStatus
     bool            gearRatioKnown[MAX_GEARS]     = {};  // usable (learned or adopted)
     bool            gearRatioConfident[MAX_GEARS] = {};  // session-observed (persistable)
     bool            gearRatiosDirty               = false;
+    // ...and the car the sim named before this one: its confident ratios,
+    // to merge into the cache once per gearRatioPrevSeq step (a car change
+    // starts the learner over; without this the old car's set was lost
+    // unless the service was shut down in order).
+    double          gearRatioPrev[MAX_GEARS]          = {};
+    bool            gearRatioPrevConfident[MAX_GEARS] = {};
+    bool            gearRatiosPrevDirty               = false;
+    uint32_t        gearRatioPrevSeq                  = 0;
     // Haptics surface: total transients fired, master mute, live smoothed
     // level per continuous effect, and which NCX tokens the wire is
     // actually delivering right now (the per-tile channel-health chips).
@@ -207,6 +215,10 @@ public:
     // Haptics idle clock tick (a timer thread while the control loop is
     // stopped): laws + layer step + shaker push, nothing else.
     void hapticsIdleTick(const TelemetryData& td);
+    // The layer itself, read-only, for tests that must see what reaches an
+    // axis or a shaker rather than a readout that is 0 by construction.
+    // Read it only while nothing steps the layer (no loop, no idle clock).
+    const haptics::Layer& hapticsLayer() const { return m_haptics; }
     // Shaker tone test: a 40 Hz tone on one channel for a second, picked up
     // by whichever clock is stepping the layer (RT loop or idle clock).
     void requestShakerTone(int channel) { m_toneRequest.store(channel + 1, std::memory_order_release); }

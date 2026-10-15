@@ -2078,13 +2078,27 @@ int main()
         }
         // Topping out: an extension stopped dead jolts the post down.
         {
-            ImpactModel m; std::vector<double> p;
-            run(m, [](double t) { return (t < 0.3) ? 0.0 : (t < 0.5 ? -100.0 : 0.0); }, 0.3, nullptr, nullptr);
-            m.knock(WheelFL, 0.0, 1.0);
+            std::vector<double> p;
             ImpactModel n; run(n, [](double t) { return (t < 0.2) ? -2000.0 : 0.0; }, 0.4, nullptr, &p);
             double dn = 0.0; for (double x : p) dn = std::min(dn, x);
             CHECK(n.knocks(WheelFL) == 1 && dn < -0.5, "impacts: topping out jolts the post down");
-            CHECK(m.knocks(WheelFL) == 0, "impacts: a small change is no knock");
+            // A small change is no knock: a 100 mm/s extension stopping dead
+            // sits under from mm/s (400). (The old version of this stopped its
+            // run before the step it meant to play, so it tested nothing.)
+            ImpactModel m;
+            run(m, [](double t) { return (t < 0.2) ? -100.0 : 0.0; }, 0.4, nullptr, nullptr);
+            CHECK(m.knocks(WheelFL) == 0, "impacts: a small change (100 mm/s stopping) is no knock");
+            // A slow ramp (no sudden change) never knocks however far it travels.
+            ImpactModel r;
+            run(r, [](double t) { return -3000.0 * t; }, 1.0, nullptr, nullptr);
+            CHECK(r.knocks(WheelFL) == 0, "impacts: a steady ramp to 3 m/s is no knock");
+            // Equal hits 100 ms apart each knock; one 20 ms pulse (a start and a
+            // stop 20 ms apart, equal hits) knocks once: the second is held off
+            // by the 80 ms gap.
+            ImpactModel g2; run(g2, [](double t) { const double u = std::fmod(t, 0.1); return (u < 0.02) ? 2000.0 : 0.0; }, 0.25, nullptr, nullptr);
+            ImpactModel g1; run(g1, [](double t) { return (t < 0.02) ? 2000.0 : 0.0; }, 0.12, nullptr, nullptr);
+            CHECK(g2.knocks(WheelFL) >= 2, "impacts: equal hits 100 ms apart each knock");
+            CHECK(g1.knocks(WheelFL) == 1, "impacts: ...20 ms apart, the second is held off (80 ms gap)");
         }
         // A harder hit straight after breaks through; an equal one does not.
         {

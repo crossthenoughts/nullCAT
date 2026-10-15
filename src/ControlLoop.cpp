@@ -562,31 +562,34 @@ void ControlLoopWorker::run()
             // post-stall socket backlog within a few cycles.
             for (int drained = 0; drained < 32 && m_telemetry->receive(); ++drained) {}
 
-            if (m_telemetry->hasData())
-            {
-                telemetryData = m_telemetry->getLatestData();
-                // Nominal frame interval (1/new_hz) for the Interpolate conditioning
-                // mode -- always-on estimate, independent of the diag flag.
-                telemetryData.nominalFrameSec = m_telemetry->getNominalFrameSec();
+            // The snapshot carries both streams: the motion frame and the sim
+            // channels. It is taken every cycle, so a sender with channels
+            // but no motion frame (a belt or shifter rig with the motion
+            // profile off, a shaker install) still feeds the haptics once
+            // the loop runs (they played with the loop stopped and went
+            // silent on Start); only the MOTION side is gated below.
+            telemetryData = m_telemetry->getLatestData();
+            // Nominal frame interval (1/new_hz) for the Interpolate conditioning
+            // mode -- always-on estimate, independent of the diag flag.
+            telemetryData.nominalFrameSec = m_telemetry->getNominalFrameSec();
 
-                // Telemetry-loss detection. getLatestData() keeps returning the
-                // last packet with valid=true after the stream stops, so without
-                // this the downstream staleness/standby logic never fires (the
-                // axis would hold the frozen last target forever, then lurch on
-                // reconnect). Mark stale once no fresh Motion frame has arrived
-                // within TELEMETRY_STALE_MS; MotionController's staged standby then
-                // owns the hold -> ease-to-center -> park timing from here. The
-                // window is short enough to detect a real loss promptly but well
-                // above any normal inter-packet gap (>=~10 Hz telemetry).
-                constexpr int TELEMETRY_STALE_MS = 300;
-                if (!m_telemetry->hasFreshData(TELEMETRY_STALE_MS))
-                    telemetryData.valid = false;
-
-                // hasData() is set solely for Motion packets. Motion gating
-                // comes from nullCAT's own readiness (auto-enable below)
-                // plus the web/GPIO Stop, never from any sender-side
-                // lifecycle signal.
-            }
+            // Telemetry-loss detection. getLatestData() keeps returning the
+            // last packet with valid=true after the stream stops, so without
+            // this the downstream staleness/standby logic never fires (the
+            // axis would hold the frozen last target forever, then lurch on
+            // reconnect). Mark stale once no fresh Motion frame has arrived
+            // within TELEMETRY_STALE_MS; MotionController's staged standby then
+            // owns the hold -> ease-to-center -> park timing from here. The
+            // window is short enough to detect a real loss promptly but well
+            // above any normal inter-packet gap (>=~10 Hz telemetry).
+            // hasData() is set solely for Motion packets: no motion frame
+            // yet means no motion target, whatever the channels say. Motion
+            // gating comes from nullCAT's own readiness (auto-enable below)
+            // plus the web/GPIO Stop, never from any sender-side lifecycle
+            // signal.
+            constexpr int TELEMETRY_STALE_MS = 300;
+            if (!m_telemetry->hasData() || !m_telemetry->hasFreshData(TELEMETRY_STALE_MS))
+                telemetryData.valid = false;
 
             if (!m_telemetryMotionActive && m_motion && m_motion->allAxesReady()
                 && m_motion->allAxesHomed())

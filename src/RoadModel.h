@@ -807,8 +807,7 @@ private:
         double s = 0.0;
         for (int i = 0; i < 4; ++i)
         {
-            m_rng ^= m_rng << 13; m_rng ^= m_rng >> 7; m_rng ^= m_rng << 17;
-            s += static_cast<double>(m_rng & 0xFFFFFF) / 16777215.0;
+            s += wavesynth::rand01(m_rng);
         }
         return (s - 2.0) * 1.7320508075688772;   // unit variance
     }
@@ -891,8 +890,8 @@ public:
             while (w.phase >= 2.0 * wavesynth::kPi)
             {
                 w.phase -= 2.0 * wavesynth::kPi;
-                w.ribH   = 1.0 - 0.4 * jit * rand01(w.rng);
-                w.pitchK = 1.0 + 0.2 * jit * (rand01(w.rng) - 0.5);
+                w.ribH   = 1.0 - 0.4 * jit * wavesynth::rand01(w.rng);
+                w.pitchK = 1.0 + 0.2 * jit * (wavesynth::rand01(w.rng) - 0.5);
             }
             const double rib = 0.5 * (1.0 - std::cos(w.phase));
             const double z = w.lvl * (k.riseMm + k.ribMm * w.ribH * rib);   // mm
@@ -939,11 +938,6 @@ public:
     KerbModel() { clear(); }
 
 private:
-    static double rand01(uint64_t& r)
-    {
-        r ^= r << 13; r ^= r >> 7; r ^= r << 17;
-        return static_cast<double>(r & 0xFFFFFF) / 16777215.0;
-    }
     struct W
     {
         double target = 0.0, lvl = 0.0, phase = 0.0, ribH = 1.0, pitchK = 1.0;

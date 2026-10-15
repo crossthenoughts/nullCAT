@@ -36,6 +36,7 @@
 
 #include "DeviceStateLayer.h"   // NcxValues, GearRatios, MAX_GEARS
 #include <algorithm>
+#include <cstring>
 #include <cmath>
 #include <cstdint>
 
@@ -92,9 +93,22 @@ public:
     void step(const NcxValues& v, double dtSec)
     {
         if (!v.fresh || dtSec <= 0.0) { m_steadyOk = false; m_heldSec = 0.0; return; }
+        // The sim naming a different car: this car's ratios are finished
+        // with (stashed for the cache) and the slots start over. Without
+        // that, every gear the new car had not yet driven kept the old
+        // car's ratio as known, and revmatch and the clutch judder read it.
+        if (v.car[0] != '\0')
+        {
+            if (m_carSeen && std::strncmp(v.car, m_car, NCY_STR_LEN) != 0) finishCar();
+            std::memcpy(m_car, v.car, NCY_STR_LEN);
+            m_car[NCY_STR_LEN - 1] = '\0';
+            m_carSeen = true;
+        }
         if (!v.have[NcxValues::Rpm] || !v.have[NcxValues::SpeedKmh] ||
             !v.have[NcxValues::Gear]) return;
-        const int g = (int)std::lround(v.val[NcxValues::Gear]);
+        const double gRaw = v.val[NcxValues::Gear];
+        if (!std::isfinite(gRaw) || gRaw < -100.0 || gRaw > 100.0) return;   // junk: the laws drop it, this path sees the raw frame
+        const int g = (int)std::lround(gRaw);
         // The gear held: any change (a shift, a one-frame junk gear) starts
         // the wait again.
         if (g != m_lastGear) { m_lastGear = g; m_heldSec = 0.0; m_steadyOk = false; }
@@ -178,8 +192,34 @@ public:
     bool     gearSessionConfident(int g) const
     { return g > 0 && g < MAX_GEARS && m_g[g].agreeSec >= CONFIDENT_SEC && consistent(g, false); }
     bool     dirty() const { return m_dirty; }
+    // The last car finished with (the sim named another): its session-
+    // confident ratios, whether they were new, and a count that steps once
+    // per finished car so a reader merges each set into the cache once.
+    double   prevRatio(int g)     const { return (g > 0 && g < MAX_GEARS) ? m_prev.r[g] : 0.0; }
+    bool     prevConfident(int g) const { return g > 0 && g < MAX_GEARS && m_prev.has[g]; }
+    bool     prevDirty()          const { return m_prevDirty; }
+    uint32_t prevSeq()            const { return m_prevSeq; }
 
 private:
+    // A different car: stash what this one taught (for the cache), then
+    // start the slots over. The adoption from the cache runs again for the
+    // new car once it has two confident gears of its own.
+    void finishCar()
+    {
+        CachedCar done{};
+        bool any = false;
+        for (int g = 1; g < MAX_GEARS; ++g)
+        {
+            done.has[g] = gearSessionConfident(g);
+            done.r[g]   = done.has[g] ? m_g[g].ratio : 0.0;
+            any = any || done.has[g];
+        }
+        if (any) { m_prev = done; m_prevDirty = m_dirty; ++m_prevSeq; }
+        for (Slot& s : m_g) s = Slot{};
+        m_adoptedOnce = false; m_dirty = false;
+        m_lastGear = -99; m_heldSec = 0.0; m_steadyOk = false;
+        publish();
+    }
     struct Slot
     {
         double ratio      = 0.0;
@@ -252,4 +292,9 @@ private:
     double     m_heldSec     = 0.0;
     double     m_steady      = 0.0;
     bool       m_steadyOk    = false;
+    char       m_car[NCY_STR_LEN] = {};
+    bool       m_carSeen     = false;
+    CachedCar  m_prev{};
+    bool       m_prevDirty   = false;
+    uint32_t   m_prevSeq     = 0;
 };

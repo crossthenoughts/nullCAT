@@ -65,21 +65,21 @@ public:
     // Per cycle, BEFORE step(): severities 0..1. Not driven = releasing.
     void drive(double judder, double lug)
     {
-        m_tJ = std::max(0.0, std::min(1.0, judder));
-        m_tL = std::max(0.0, std::min(1.0, lug));
+        m_tJ = wavesynth::unit01(judder);
+        m_tL = wavesynth::unit01(lug);
     }
     // Whine: level 0..1 and the carrier (Hz) the law derived from rpm and
     // the gear this cycle. Not driven = releasing.
     void driveWhine(double level, double hz)
     {
-        m_tW = std::max(0.0, std::min(1.0, level));
+        m_tW = wavesynth::unit01(level);
         m_whineHz = std::max(0.0, hz);
     }
     // The diff: how hard it chatters (0..1) and the clacks' rate (Hz) this
     // cycle. Not driven = quiet.
     void driveDiff(double level, double rateHz)
     {
-        m_tD = std::max(0.0, std::min(1.0, level));
+        m_tD = wavesynth::unit01(level);
         m_diffRate = std::max(0.0, rateHz);
     }
     // Shunt: one knock of the given strength (0..1 x mix), now.
@@ -138,8 +138,8 @@ public:
                 if (m_clackPh >= 1.0 && m_clackT >= cdur)
                 {
                     m_clackPh = 0.0;
-                    m_clackK = 1.0 / (1.0 + kClackSpacing * (2.0 * rand01() - 1.0));
-                    m_clackAmp = m_lD * (kClackHitMin + (1.0 - kClackHitMin) * rand01());
+                    m_clackK = 1.0 / (1.0 + kClackSpacing * (2.0 * wavesynth::rand01(m_rng) - 1.0));
+                    m_clackAmp = m_lD * (kClackHitMin + (1.0 - kClackHitMin) * wavesynth::rand01(m_rng));
                     m_clackT = 0.0;
                 }
             }
@@ -167,11 +167,6 @@ public:
     void clear() { *this = DrivelineModel{}; }
 
 private:
-    double rand01()
-    {
-        m_rng ^= m_rng << 13; m_rng ^= m_rng >> 7; m_rng ^= m_rng << 17;
-        return static_cast<double>(m_rng & 0xFFFFFF) / 16777215.0;
-    }
     static void ramp(double& level, double target, double dtSec)
     {
         using namespace driveline_k;
@@ -189,9 +184,7 @@ private:
         double f = carrier;
         if (jitter > 0.0)
         {
-            rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17;
-            const double r = static_cast<double>(rng & 0xFFFF) / 65535.0;
-            f *= 1.0 + jitter * (r - 0.5);
+            f *= 1.0 + jitter * (wavesynth::rand01(rng) - 0.5);
         }
         return osc.step(f, dtSec) * level * mix;
     }

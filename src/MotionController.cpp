@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <shared_mutex>
+#include <thread>
 
 static constexpr double TELEMETRY_CENTER = 32767.0;
 
@@ -64,8 +65,26 @@ MotionController::MotionController()
     }
 }
 
+// The haptics path (the Layer, the laws, the channel map, the sink kinds)
+// is stepped by the idle clock while the loop is stopped, which is when
+// configure() runs (a re-initialise, a rig save in the desktop app): hold
+// the flag the RT loop and the clock share, so no tick runs on half-written
+// settings. This thread is not real-time: a short spin is fine.
+namespace {
+struct HapticsBusyGuard
+{
+    std::atomic<bool>& flag;
+    explicit HapticsBusyGuard(std::atomic<bool>& f) : flag(f)
+    {
+        while (flag.exchange(true, std::memory_order_acq_rel)) std::this_thread::yield();
+    }
+    ~HapticsBusyGuard() { flag.store(false, std::memory_order_release); }
+};
+}
+
 void MotionController::configure(const AppConfig& config)
 {
+    HapticsBusyGuard busy(m_hapticsBusy);
     m_numDrives = std::min(config.numDrives, MAX_DRIVES);
     m_cycleTimeSec = 1.0 / std::max(100, config.controlLoopHz);
     m_blendTimeSec = config.blendTimeSec;
@@ -78,7 +97,6 @@ void MotionController::configure(const AppConfig& config)
     // shared with the live-apply staging path (a rig save applies without
     // a re-initialize).
     applyHaptics(config);
-    m_hapPositionBudget = std::max(0.0, std::min(1.0, config.hapticsPositionBudget));
     m_hapPositionBudget = std::max(0.0, std::min(1.0, config.hapticsPositionBudget));
 
     // NULLCATX channel bindings (rig-level): resolve token strings once so
@@ -705,8 +723,12 @@ void MotionController::publishStatus()
         m_statusSnapshot.gearRatio[g]          = m_ratioLearner.gearRatio(g);
         m_statusSnapshot.gearRatioKnown[g]     = m_ratioLearner.ratios().known[g];
         m_statusSnapshot.gearRatioConfident[g] = m_ratioLearner.gearSessionConfident(g);
+        m_statusSnapshot.gearRatioPrev[g]          = m_ratioLearner.prevRatio(g);
+        m_statusSnapshot.gearRatioPrevConfident[g] = m_ratioLearner.prevConfident(g);
     }
-    m_statusSnapshot.gearRatiosDirty = m_ratioLearner.dirty();
+    m_statusSnapshot.gearRatiosDirty     = m_ratioLearner.dirty();
+    m_statusSnapshot.gearRatiosPrevDirty = m_ratioLearner.prevDirty();
+    m_statusSnapshot.gearRatioPrevSeq    = m_ratioLearner.prevSeq();
 
     publishHapticsStatusLocked();
 }
@@ -1984,8 +2006,16 @@ void MotionController::applyStagedHaptics()
     }
     if (!m_hapStagePending.load(std::memory_order_acquire)) return;
     HapticsStage s;   // trivially copyable, no allocation on this thread
-    { std::lock_guard<std::mutex> lk(m_hapStageLock); s = m_hapStage; }
-    m_hapStagePending.store(false, std::memory_order_release);
+    {
+        // Never block this thread on the web thread: if a save is mid-copy
+        // the stage waits a cycle. The pending flag clears inside the lock,
+        // so a stage landing between the copy and the clear is kept (it
+        // was lost until the next save).
+        std::unique_lock<std::mutex> lk(m_hapStageLock, std::try_to_lock);
+        if (!lk.owns_lock()) return;
+        s = m_hapStage;
+        m_hapStagePending.store(false, std::memory_order_release);
+    }
     applyHapticsTo(m_haptics, s.fx, s.engine, s.slipLat, s.slipLon, s.road, s.kerb, s.abs, s.tc, s.surface, s.wheels, s.impacts, s.driveline, s.masterGain);
     m_hapPositionBudget = std::max(0.0, std::min(1.0, s.positionBudget));
     m_haptics.setAxisDelayCycles(static_cast<int>(s.axisDelayMs / 1000.0 / std::max(1e-6, m_cycleTimeSec) + 0.5));
@@ -2428,7 +2458,12 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
         if ((state == AxisMotionState::ONLINE || state == AxisMotionState::BLENDING)
             && (ac.torqueMode || ac.caps.isDevice()))
         {
-            const double ov = m_haptics.overlayFor(i);
+            double ov = m_haptics.overlayFor(i);
+            // A belt folded for overspeed (beltVelocityFold has taken its
+            // tension down, or away) takes its haptics down with it: the
+            // overlay used to ride over the fold and could keep pulling on
+            // a belt the guard had let go of.
+            if (!ac.caps.isDevice()) ov = beltVelocityFold(i, ov);
             if (ov != 0.0)
             {
                 double t = output.torques[i] + ov;

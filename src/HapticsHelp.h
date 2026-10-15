@@ -28,8 +28,9 @@ constexpr ParamHelp kHelp[] = {
       "Roughens the carrier so it reads as a texture, not a tone. 0 to 1; 0.2 to 0.5 suits most. The same "
       "for any car." },
     { "*", "peakPct",
-      "Only for the single-channel fallback: the channel value that counts as full severity, 1 to 400. "
-      "Drive a few laps, read the peak on the channel chip and set it there." },
+      "For the single-channel fallback (skid, lockup, curbs, roadNoise) and the combined-slip path: the channel "
+      "value that counts as full severity, 1 to 400. Drive a few laps, read the peak on the channel chip and set "
+      "it there." },
     { "*", "freqHz",
       "The carrier: lower is a heavier, slower shake, higher a finer buzz. A seat actuator carries up to "
       "about 20 Hz well; belts and shakers go higher." },
@@ -71,7 +72,7 @@ constexpr ParamHelp kHelp[] = {
       "The high buzz above idle, rising with revs, 0 to 1. Road car: 0.3 to 0.5. GT3: 0.6 to 0.8. "
       "Single-seater: 0.7 to 1 (a screaming engine)." },
     { "rpmVibe", "order",
-      "The buzz's pitch per engine revolution, 0 to 4 (0 = automatic, which suits most). Lower it (0.25 to "
+      "The buzz's pitch per engine revolution, 0 to 8 (0 = automatic, which suits most). Lower it (0.25 to "
       "0.5) for a high-revving engine so the top of the range still fits what the actuator can carry." },
     { "rpmVibe", "limHit",
       "How hard the rev limiter bounces, 0 to 2. Road car: 0.6 to 1 (a soft cut). GT3: 1 to 1.5. "

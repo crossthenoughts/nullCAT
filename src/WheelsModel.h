@@ -284,11 +284,6 @@ public:
     }
 
 private:
-    static double rand01(uint64_t& r)
-    {
-        r ^= r << 13; r ^= r >> 7; r ^= r << 17;
-        return static_cast<double>(r & 0xFFFFFF) / 16777215.0;
-    }
     // One of the pads' grains on one wheel: phase, this cycle's length and
     // depth (each cycle a little different), a post's share of it.
     struct Grain { double ph = 0.0, k = 1.0, d = 1.0, pos = 0.0, e = 0.0; };   // e: the eased strength
@@ -310,8 +305,8 @@ private:
         if (g.ph >= 1.0)
         {
             g.ph -= std::floor(g.ph);
-            g.k = 1.0 + kBitePeriodVar * (2.0 * rand01(rng) - 1.0);
-            g.d = 1.0 - kBiteDepthVar * rand01(rng);
+            g.k = 1.0 + kBitePeriodVar * (2.0 * wavesynth::rand01(rng) - 1.0);
+            g.d = 1.0 - kBiteDepthVar * wavesynth::rand01(rng);
         }
         const double a = 2.0 * wavesynth::kPi * g.ph;
         const bool   grit = 2.0 * hz * g.k <= top;

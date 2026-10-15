@@ -67,7 +67,7 @@ struct Route
 struct SlipParams
 {
     double aMix = 1.0;
-    double aHz  = 25.0;
+    double aHz  = 20.0;   // (the registry seeds the tiles: Lateral scrub 20, Longitudinal lock 9)
     double bMix = 1.0;
     double bHz  = 11.0;
     double peak = 8.0;

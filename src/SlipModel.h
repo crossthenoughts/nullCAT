@@ -70,8 +70,8 @@ public:
     {
         if (wheel < 0 || wheel >= WHEEL_COUNT) return;
         W& w = m_w[wheel];
-        w.tA = std::max(0.0, std::min(1.0, a));
-        w.tB = std::max(0.0, std::min(1.0, b));
+        w.tA = wavesynth::unit01(a);
+        w.tB = wavesynth::unit01(b);
     }
 
     // Per wheel, per cycle, after drive(): the screech and pulse levels 0..1
@@ -80,8 +80,8 @@ public:
     {
         if (wheel < 0 || wheel >= WHEEL_COUNT) return;
         W& w = m_w[wheel];
-        w.tC = std::max(0.0, std::min(1.0, screech));
-        w.tD = std::max(0.0, std::min(1.0, pulse));
+        w.tC = wavesynth::unit01(screech);
+        w.tD = wavesynth::unit01(pulse);
     }
 
     // Reshape a wheel's driven severities after drive() and before step()
@@ -251,9 +251,7 @@ private:
         const double jit = jitter * (1.0 + kStageRough * level);
         if (jit > 0.0)
         {
-            rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17;
-            const double r = static_cast<double>(rng & 0xFFFF) / 65535.0;
-            f *= 1.0 + jit * (r - 0.5);
+            f *= 1.0 + jit * (wavesynth::rand01(rng) - 0.5);
         }
         return osc.step(f, dtSec);
     }
@@ -270,9 +268,7 @@ private:
         if (x.dPhase >= 2.0 * wavesynth::kPi)
         {
             x.dPhase -= 2.0 * wavesynth::kPi;
-            x.rng ^= x.rng << 13; x.rng ^= x.rng >> 7; x.rng ^= x.rng << 17;
-            const double r1 = static_cast<double>(x.rng & 0xFFFF) / 65535.0;
-            const double r2 = static_cast<double>((x.rng >> 16) & 0xFFFF) / 65535.0;
+            const double r1 = wavesynth::rand01(x.rng), r2 = wavesynth::rand01(x.rng);
             x.dRate  = 1.0 + kPulseSpread * (2.0 * r1 - 1.0);
             x.dDepth = 1.0 - kPulseDepthVar * r2;
         }

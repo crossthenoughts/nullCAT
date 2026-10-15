@@ -42,6 +42,7 @@ struct LawsState
     // replaced by it).
     double lastRpm = 0.0, rpmAgeSec = 0.0;
     bool   rpmSeen = false;
+    double engineHoldHz = 0.0;   // the engine's last live firing rate: held while the stream is away
     double maxRpmVal = 0.0, maxRpmHeldSec = 0.0;   // the sim's max rpm, and how long it has held (the redline seed)
     // Rolling factor per wheel for the wheelSpeed fallback: speedKmh /
     // wheelSpeed learned while cruising (no brake, light throttle), so a
@@ -144,6 +145,27 @@ inline void relearnLatBase(LawsState& st)
 {
     for (int w = 0; w < WHEEL_COUNT; ++w) st.latRaw[w] = st.latBase[w] = st.latAngle[w] = st.latCreep[w] = 0.0;
     st.latBaseSec = 0.0;
+}
+
+// A different car: everything learned or remembered about the last one
+// starts over. By construction, not by list: a fresh state, with only what
+// outlives a car change copied back (a Test preview under way, the car's
+// name, the road-speed and body-angle glitch trackers, the baseline mode
+// the tile was last in), so a field that forgets to opt in is reset,
+// never carried over (the gear edge, the water film and the throttle
+// crossing were carried over: a knock, puddles and a shunt on the change).
+// The Layer's models have their own newCar(). RT-safe: one stack copy.
+inline void newCar(LawsState& st)
+{
+    LawsState fresh;
+    std::memcpy(fresh.previewSec, st.previewSec, sizeof fresh.previewSec);
+    std::memcpy(fresh.lastCar, st.lastCar, sizeof fresh.lastCar);
+    fresh.carSeen      = st.carSeen;
+    fresh.lastSpeedKmh = st.lastSpeedKmh; fresh.speedAgeSec = st.speedAgeSec; fresh.glitchSec = st.glitchSec;
+    fresh.speedSeen    = st.speedSeen;
+    fresh.lastPitch    = st.lastPitch;    fresh.lastRoll = st.lastRoll; fresh.anglesSeen = st.anglesSeen;
+    fresh.latBaseMode  = st.latBaseMode;
+    st = fresh;
 }
 
 namespace laws_k {
@@ -371,6 +393,14 @@ namespace laws_k {
         { 1.30, WheelRR, 0.6, 1.0 }, { 1.70, -1, 1.0, 1.0 } };
 }
 
+// A surface class as sent (any finite number): clamped to the table before
+// the cast (a value past the int range is undefined to cast).
+inline int surfaceClass(double sent)
+{
+    const double c = std::max(0.0, std::min(static_cast<double>(SURFACE_CLASS_COUNT - 1), sent + 0.5));
+    return static_cast<int>(c);
+}
+
 // Start a Test preview on a continuous/engine slot.
 inline void startPreview(LawsState& st, FxType t)
 {
@@ -464,10 +494,20 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             st.lastPitch = p; st.lastRoll = r; st.anglesSeen = true;
         }
         else st.anglesSeen = false;
-        // While untrusted: no speed, and no body (heave, pitch, roll).
+        // While untrusted: no speed, no body (heave, pitch, roll), and no
+        // suspension or road under the tyres (a reset's travel jump played
+        // a full-scale road pop and an impact knock).
         if (st.glitchSec > 0.0)
+        {
             for (NcxValues::Token t : { NcxValues::SpeedKmh, NcxValues::AccHeave, NcxValues::PitchDeg, NcxValues::RollDeg })
                 v.have[t] = false;
+            for (int w = 0; w < WHEEL_COUNT; ++w)
+            {
+                v.have[NcxValues::SuspVelFL + w] = false;
+                v.have[NcxValues::SuspTravelFL + w] = false;
+                v.have[NcxValues::RoadHeightFL + w] = false;
+            }
+        }
     }
 
     // A different car: what was learned about the last one starts over.
@@ -475,22 +515,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
     {
         if (st.carSeen && std::strncmp(v.car, st.lastCar, NCY_STR_LEN) != 0)
         {
-            for (int w = 0; w < WHEEL_COUNT; ++w) { st.rollK[w] = 0.0; st.rollKnown[w] = false; st.air[w] = false; }
-            st.rollSeedSec = st.rollSeedNextSec = 0.0; st.rollSeedN = 0;
-            st.rollOffSec = 0.0; st.drivenSec[0] = st.drivenSec[1] = 0.0;
-            st.leadCruise = st.leadCruiseSec = 0.0;
-            for (int& s : st.rollOffSign) s = 0;
-            st.rollOpen = false;
-            st.rollCruiseSec = 0.0;
-            st.maxRpmVal = st.maxRpmHeldSec = 0.0;
-            st.absFlagSeen = false;
-            st.loadRef = 0.0;
-            st.kerbSeen = false;
-            st.rpmSeen = false;
-            st.quietSec = 0.0;
-            relearnLatBase(st);
-            for (int w = 0; w < WHEEL_COUNT; ++w) { st.absArmed[w] = false; st.absSince[w] = 1e9; }
-            st.absWheelHoldSec = st.absWheelHz = 0.0;
+            newCar(st);
             L.newCar();
         }
         std::memcpy(st.lastCar, v.car, NCY_STR_LEN);
@@ -557,7 +582,14 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             fireHz = v.val[NcxValues::Rpm] / 60.0 * perRev;
             if (v.have[NcxValues::ThrottlePct])
                 load = std::max(0.0, std::min(1.0, v.val[NcxValues::ThrottlePct] / 100.0));
+            st.engineHoldHz = fireHz;
         }
+        // No stream, or no rpm in it: unknown, not an engine stopping. It
+        // keeps turning at its last rate with the level at 0, so the release
+        // ramp fades it (the sim reporting 0 rpm while live is a stall and
+        // kicks; every pause used to, the SimHub plugin goes quiet then).
+        else if (!live || !v.have[NcxValues::Rpm])
+            fireHz = st.engineHoldHz;
         const double lv = previewOr(FxType::RpmVibe, level);
         if (lv > 0.0 && fireHz < 0.5)
             fireHz = kPreviewIdleRpm / 60.0 * perRev;
@@ -1286,7 +1318,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         else if (travel) for (int w = 0; w < WHEEL_COUNT; ++w) L.driveRoadTravel(w, v.val[NcxValues::SuspTravelFL + w]);
         if (height)      for (int w = 0; w < WHEEL_COUNT; ++w) L.driveRoadHeight(w, v.val[NcxValues::RoadHeightFL + w]);
         for (int w = 0; w < WHEEL_COUNT; ++w)
-            L.driveRoadSurface(w, surf ? static_cast<int>(v.val[NcxValues::SurfaceFL + w] + 0.5) : SurfTarmac);
+            L.driveRoadSurface(w, surf ? surfaceClass(v.val[NcxValues::SurfaceFL + w]) : SurfTarmac);
         if (body)
             L.driveChassis(v.val[NcxValues::AccHeave],
                            v.have[NcxValues::PitchDeg] ? v.val[NcxValues::PitchDeg] : 0.0,
@@ -1347,7 +1379,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         else if (haveW(NcxValues::SurfaceFL))
         {
             for (int w = 0; w < WHEEL_COUNT; ++w)
-                lvl[w] = (static_cast<int>(v.val[NcxValues::SurfaceFL + w] + 0.5) == SurfKerb) ? 1.0 : 0.0;
+                lvl[w] = (surfaceClass(v.val[NcxValues::SurfaceFL + w]) == SurfKerb) ? 1.0 : 0.0;
         }
         else
         {
@@ -1563,7 +1595,9 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 else st.clutchBandSec = 0.0;
             }
             else st.clutchBandSec = 0.0;
-            if (inGear && v.have[NcxValues::ThrottlePct] && v.val[NcxValues::ThrottlePct] >= kLugThrottle && rpm > kLugMinRpm)
+            // (An electric motor has no lugging: full torque from a standstill.)
+            const bool electric = static_cast<int>(L.engineParams().layout + 0.5) == 5;
+            if (inGear && !electric && v.have[NcxValues::ThrottlePct] && v.val[NcxValues::ThrottlePct] >= kLugThrottle && rpm > kLugMinRpm)
             {
                 const double maxRpm = (L.engineParams().maxRpm > 0.0) ? L.engineParams().maxRpm : L.learnedMaxRpm();
                 const double x = rpm / std::max(1000.0, maxRpm);
@@ -1607,8 +1641,12 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 {
                     const int l = ax ? WheelRL : WheelFL, r = ax ? WheelRR : WheelFR;
                     if (!v.have[NcxValues::WheelSpeedFL + l] || !v.have[NcxValues::WheelSpeedFL + r]) return false;
-                    const double a = std::fabs(v.val[NcxValues::WheelSpeedFL + l]) * (st.rollKnown[l] ? st.rollK[l] : 1.0);
-                    const double b = std::fabs(v.val[NcxValues::WheelSpeedFL + r]) * (st.rollKnown[r] ? st.rollK[r] : 1.0);
+                    // The rolling factors only as a pair (a tyre set's stagger
+                    // is in them): one known and one not mixed a road speed
+                    // with the sender's raw unit, a 10 % split on a straight.
+                    const bool both = st.rollKnown[l] && st.rollKnown[r];
+                    const double a = std::fabs(v.val[NcxValues::WheelSpeedFL + l]) * (both ? st.rollK[l] : 1.0);
+                    const double b = std::fabs(v.val[NcxValues::WheelSpeedFL + r]) * (both ? st.rollK[r] : 1.0);
                     if (a + b < 1e-6) return false;
                     s = std::fabs(a - b) / (0.5 * (a + b));
                     // A wheel locking is no diff.

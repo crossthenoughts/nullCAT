@@ -101,8 +101,8 @@ public:
             if (ch.u >= 1.0)
             {
                 ch.u -= std::floor(ch.u);
-                ch.periodK = 1.0 / (1.0 + spread * kPeriodVar * (2.0 * rand01(ch.rng) - 1.0));
-                ch.depth   = synced ? 1.0 : 1.0 - spread * kDepthVar * rand01(ch.rng);
+                ch.periodK = 1.0 / (1.0 + spread * kPeriodVar * (2.0 * wavesynth::rand01(ch.rng) - 1.0));
+                ch.depth   = synced ? 1.0 : 1.0 - spread * kDepthVar * wavesynth::rand01(ch.rng);
             }
             ch.shapeU = ch.u + ((m_n > 1) ? spread * kCornerPhase[c] : 0.0);
             ch.out = ch.depth * pulseShape(ch.shapeU, drop);
@@ -112,7 +112,7 @@ public:
         m_buzzHz = 0.0; m_buzzOut = 0.0;
         if (q.buzz > 0.0 && q.buzzHz > 0.0)
         {
-            const double f = q.buzzHz * (1.0 + kBuzzJitter * (rand01(m_buzzRng) - 0.5));
+            const double f = q.buzzHz * (1.0 + kBuzzJitter * (wavesynth::rand01(m_buzzRng) - 0.5));
             m_buzzOut = std::min(1.0, q.buzz) * m_buzzOsc.step(f, dtSec);
             m_buzzHz = q.buzzHz;
         }
@@ -185,11 +185,6 @@ public:
     }
 
 private:
-    static double rand01(uint64_t& r)
-    {
-        r ^= r << 13; r ^= r >> 7; r ^= r << 17;
-        return static_cast<double>(r & 0xFFFFFF) / 16777215.0;
-    }
     struct Ch { double u = 0.0, periodK = 1.0, depth = 1.0, out = 0.0, shapeU = 0.0, syncHz = 0.0, syncLeft = 0.0; uint64_t rng = 1; };
     Ch     m_ch[WHEEL_COUNT];
     int    m_n;

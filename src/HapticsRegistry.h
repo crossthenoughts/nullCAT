@@ -238,7 +238,7 @@ constexpr ParamSpec kEngineParams[] = {    { "ampPct",    "amp %",              
     { "rock",      "rock x",                0,   1,     0.1,  nullptr },
     { "thump",     "thump x",               0,   1,     0.1,  nullptr },
     { "buzz",      "buzz x",                0,   1,     0.1,  nullptr },
-    { "order",     "buzz order (0=auto)",   0,   4,     0.25, nullptr },
+    { "order",     "buzz order (0=auto)",   0,   8,     0.25, nullptr },
     { "limHit",    "limiter x",             0,   2,     0.1,  nullptr },
     { "limHz",     "limiter hz",            4,   30,    1,    nullptr },
     { "limJit",    "limiter jit",           0,   1,     0.05, nullptr },
@@ -291,7 +291,7 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "one dipping towards a lock and spinning back up as its valve dumps), and each corner's pulse is timed to "
       "those dumps; for sims that report ABS only now and then. Route with a part so a post carries its own corner. Slip link on: while ABS works each corner's "
       "valve shapes that wheel's slip tiles, the lock texture held at the edge of locking and surging with each "
-      "cycle (lock x), the lateral slip easing after each dump (scrub x); this works with ABS's own amp at 0 too. "
+      "cycle (lock x), the lateral slip easing after each dump (scrub x); amp 0 is no ABS at all, the slip link included. "
       "Needs the absActive and brakePct channels (speed for slow x).",
       nullptr, {} },
     { Effect::Lockup,      "slipLon",     "Longitudinal slip", Kind::Slip, EventType::COUNT, FxType::Lockup,
