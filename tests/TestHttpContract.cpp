@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
+// SPDX-FileCopyrightText: 2026 Tim Palmgren (Ã˜ Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
 // TestHttpContract.cpp - pins Docs/COMMAND_CONTRACT.md at the HTTP layer.
@@ -110,6 +110,21 @@ static int genNow()
     return (a == std::string::npos) ? -1 : std::atoi(st.c_str() + a + 12);
 }
 
+// A freshly started server answers once its thread has bound the port,
+// which on a loaded machine is a second or two after start() returns.
+static bool waitUp(int port, int timeoutMs)
+{
+    for (int t = 0; t < timeoutMs; t += 100)
+    {
+        httplib::Client cli(HOST, port);
+        cli.set_read_timeout(1, 0);
+        auto r = cli.Get("/");
+        if (r) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    return false;
+}
+
 // The rig body with one haptics key (top level of the haptics object, or
 // inside a tile) set to a number, for the save tests.
 static std::string rigWith(const std::string& body, const char* tile, const char* key, double value)
@@ -129,6 +144,21 @@ static std::string compact(std::string s)
     s.erase(std::remove(s.begin(), s.end(), ' '), s.end());
     s.erase(std::remove(s.begin(), s.end(), '\n'), s.end());
     return s;
+}
+
+// Name a car the way a plugin does it (a NULLCATY line fed straight in)
+// while the status is polled for `want`.
+static bool nameCar(TelemetryInput& telemetry, const char* game, const char* car, const char* want, int timeoutMs)
+{
+    for (int t = 0, rpm = 2000; t < timeoutMs; t += 100, rpm += 7)
+    {
+        const std::string line = std::string("NULLCATY,game=") + game + ",car=" + car + ",rpm=" + std::to_string(rpm);
+        TelemetryData td;
+        if (TelemetryInput::parsePacket(line.c_str(), static_cast<int>(line.size()), td)) telemetry.ingest(td);
+        if (has(get("/api/status"), want)) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    return false;
 }
 
 // Poll /api/status until it contains `token` (or timeout). The contract says
@@ -253,7 +283,7 @@ int main()
         std::printf("[FAIL] WebServer failed to start on %s:%d\n", HOST, PORT);
         return 1;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    check(waitUp(PORT, 10000), "WebServer answers on its port");
 
     // ---- surface up before engine: status + meta respond ----
     check(has(get("/api/status"), "\"loopRunning\""), "GET /api/status responds pre-init");
@@ -402,9 +432,12 @@ int main()
               && has(get("/api/cars/list"), "\"source\":\"stock\""),
               "GET /api/cars/list carries every entry with key, name and layer");
         const std::string st = get("/api/status");
+        // The apply generation moved once so far: the Bench profile load
+        // above is a rewrite of the live set like a pull is.
         check(has(st, "\"hapCar\":\"\"") && has(st, "\"hapCarKey\":\"\"") && has(st, "\"hapCarSrc\":\"\"")
-              && has(st, "\"hapCarApplied\":false") && has(st, "\"hapCarGen\":0"),
-              "GET /api/status carries the car table fields (hapCar/Key/Src/Applied/Gen)");
+              && has(st, "\"hapCarApplied\":false") && has(st, "\"hapCarGen\":") && genNow() == 1,
+              "GET /api/status carries the car table fields (hapCar/Key/Src/Applied/Gen; the profile load moved Gen once)");
+        const int gen0 = genNow();
         check(has(post("/api/cars/pull", "{\"key\":\"ac:ks_ferrari_f40\"}"), "\"name\":\"Ferrari F40\""),
               "POST /api/cars/pull applies an entry by key");
         // /api/rig is the file itself (indented, a space after each colon).
@@ -412,7 +445,7 @@ int main()
         rig.erase(std::remove(rig.begin(), rig.end(), ' '), rig.end());
         check(has(rig, "\"cylinders\":8") && has(rig, "\"turbo\":1") && has(rig, "\"followCar\":true"),
               "the pulled entry is in the saved rig (engine description) and the follow switch stayed");
-        check(has(get("/api/status"), "\"hapCarGen\":1"), "GET /api/status hapCarGen bumped on the apply");
+        check(genNow() == gen0 + 1, "GET /api/status hapCarGen bumped on the apply");
         check(has(post("/api/cars/pull", "{\"key\":\"ac:nope\"}"), "\"ok\":false"),
               "POST /api/cars/pull refuses an unknown key");
         check(has(post("/api/cars/pull", "{}"), "has not named a car"),
@@ -469,6 +502,7 @@ int main()
               "POST /api/haptics/presets/apply refuses an unknown name");
         check(has(post("/api/haptics/presets/apply", "{}"), "\"ok\":false"),
               "POST /api/haptics/presets/apply refuses no name");
+        const int gen0 = genNow();
         check(has(post("/api/haptics/presets/apply", "{\"name\":\"Open wheeler\"}"), "\"ok\":true"),
               "POST /api/haptics/presets/apply applies a known one");
         std::string rig = get("/api/rig");
@@ -476,7 +510,7 @@ int main()
         check(has(rig, "\"peakDeg\":5.5") && has(rig, "\"fullMm\":18") && has(rig, "\"cylinders\":8")
               && has(rig, "\"turbo\":1") && has(rig, "\"followCar\":true"),
               "the starting point is in the saved rig; the pulled car's engine and the follow switch stayed");
-        check(has(get("/api/status"), "\"hapCarGen\":2"), "GET /api/status hapCarGen bumped on the starting point");
+        check(genNow() == gen0 + 1, "GET /api/status hapCarGen bumped on the starting point");
     }
     // Follow car: in a game the table does not cover, a car is left alone;
     // in one it covers, a car the table has no entry for puts the car tiles
@@ -485,27 +519,16 @@ int main()
     // entry as a near match. Named the way a plugin does it, a NULLCATY
     // line, fed straight in while the status is polled.
     {
-        const auto nameCar = [&](const char* game, const char* car, const char* want, int timeoutMs) -> bool
-        {
-            for (int t = 0, rpm = 2000; t < timeoutMs; t += 100, rpm += 7)
-            {
-                const std::string line = std::string("NULLCATY,game=") + game + ",car=" + car + ",rpm=" + std::to_string(rpm);
-                TelemetryData td;
-                if (TelemetryInput::parsePacket(line.c_str(), static_cast<int>(line.size()), td)) telemetry.ingest(td);
-                if (has(get("/api/status"), want)) return true;
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
-            return false;
-        };
-        check(nameCar("iRacing", "Some Car", "\"hapCar\":\"Some Car\"", 4000)
-              && has(get("/api/status"), "\"hapCarDefault\":false") && has(get("/api/status"), "\"hapCarGen\":2"),
+        const int gen0 = genNow();
+        check(nameCar(telemetry, "iRacing", "Some Car", "\"hapCar\":\"Some Car\"", 10000)
+              && has(get("/api/status"), "\"hapCarDefault\":false") && genNow() == gen0,
               "follow car: a car in a game the table does not cover is left alone (no defaults, no apply)");
         {
             std::string r = get("/api/rig");
             r.erase(std::remove(r.begin(), r.end(), ' '), r.end());
             check(has(r, "\"cylinders\":8") && has(r, "\"turbo\":1"), "...and the saved rig keeps the last car's engine");
         }
-        check(nameCar("AssettoCorsa", "Mystery Car", "\"hapCarDefault\":true", 4000),
+        check(nameCar(telemetry, "AssettoCorsa", "Mystery Car", "\"hapCarDefault\":true", 10000),
               "follow car: a car with no entry puts the car tiles on the defaults (status hapCarDefault)");
         std::string rig = get("/api/rig");
         rig.erase(std::remove(rig.begin(), rig.end(), ' '), rig.end());
@@ -514,7 +537,7 @@ int main()
         const std::string cars = get("/api/cars");
         check(has(cars, "\"car\":\"Mystery Car\"") && has(cars, "\"source\":\"\"") && has(cars, "\"defaults\":true"),
               "GET /api/cars: the car has no entry and the defaults are in use");
-        check(nameCar("AssettoCorsa", "Mazda 787B Le Mans", "\"hapCarKey\":\"ac:ks_mazda_787b\"", 4000)
+        check(nameCar(telemetry, "AssettoCorsa", "Mazda 787B Le Mans", "\"hapCarKey\":\"ac:ks_mazda_787b\"", 10000)
               && has(get("/api/cars"), "\"near\":true") && has(get("/api/status"), "\"hapCarDefault\":false")
               && has(get("/api/status"), "\"hapCarApplied\":true"),
               "follow car: a name that starts with an entry's is a near match, applied");
@@ -746,7 +769,7 @@ int main()
         }
         else
         {
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            check(waitUp(PORT + 1, 10000), "auth-enabled WebServer answers on its port");
             httplib::Client cli(HOST, PORT + 1);
             cli.set_read_timeout(2, 0);
             auto r1 = cli.Get("/api/status");
@@ -766,6 +789,51 @@ int main()
     }
     check(has(get("/api/status"), "\"loopRunning\""),
           "no-token server (shipped default) stays open throughout");
+
+    // ---- a restart is no new car ----
+    // The car the table last acted on, and whether its tiles carry its
+    // entry or the defaults, is remembered in carstate.json beside the
+    // config. A second server over the same directory (what a restart is),
+    // fed the same car, applies nothing: hapCarGen stays 0, the rig file is
+    // untouched (the hand-set engine amp stays) and the row reads as
+    // remembered; a different car is a car change as ever. Reverting the
+    // memory (carIdentity's "same car" branch reading m_carMem, loaded by
+    // loadCarMemory) re-applies the near-match entry on the second server:
+    // gen 1 and the engine's amp back to the entry's 45.
+    {
+        std::string body; int gen = -1;
+        check(getRig(body, gen), "GET /api/rig before the restart");
+        const Reply r = postHdr("/api/rig", rigWith(body, "rpmVibe", "ampPct", 37.0), {{"X-Nullcat-Gen", std::to_string(gen)}});
+        check(r.status == 200 && has(r.body, "\"ok\":true"), "a hand-set engine amp (37) saved before the restart");
+        check(waitStatus("\"hapCarApplied\":false", 2000), "...which clears the row's applied");
+        web.stop();
+        check(std::filesystem::exists(cfgDir / "carstate.json"), "carstate.json is beside the config");
+
+        WebServer web2;
+        web2.setComponents(&motion, &loop, &master, &cfg);
+        web2.setTelemetry(&telemetry);
+        web2.setConfigPath((cfgDir / "config.json").string());
+        web2.setCarTablePath((cfgDir / "cars.json").string());
+        web2.setPresetsPath((cfgDir / "presets.json").string());
+        web2.setPort(PORT);
+        web2.setBindAddr(HOST);
+        if (!web2.start()) check(false, "the second server (a restart) starts");
+        else
+        {
+            check(waitUp(PORT, 10000), "the second server (a restart) answers on the port");
+            check(genNow() == 0 && has(get("/api/status"), "\"hapCar\":\"\""), "the restarted server starts with no car and gen 0");
+            check(nameCar(telemetry, "AssettoCorsa", "Mazda 787B Le Mans", "\"hapCarKey\":\"ac:ks_mazda_787b\"", 10000),
+                  "the same car after the restart is matched again");
+            std::this_thread::sleep_for(std::chrono::milliseconds(600));   // two samples: an apply would have landed
+            check(genNow() == 0, "...but nothing is applied: hapCarGen stays 0");
+            check(has(compact(get("/api/rig")), "\"ampPct\":37") && has(get("/api/status"), "\"hapCarApplied\":false")
+                  && has(get("/api/status"), "\"hapCarDefault\":false"),
+                  "...the hand-set amp stays and the row reads as remembered (not applied)");
+            check(nameCar(telemetry, "AssettoCorsa", "Ferrari F40", "\"hapCarApplied\":true", 10000) && genNow() == 1,
+                  "a different car after the restart is applied as ever");
+            web2.stop();
+        }
+    }
 
     // ---- teardown ----
     if (loop.isRunning()) loop.stop();

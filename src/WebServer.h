@@ -256,18 +256,23 @@ private:
     // a save made against an older one (409), so a page with unsaved
     // edits can never write a stale copy over such an apply.
     std::atomic<int>  m_carGen{0};
-    // The identity the table last applied for by itself. Unlike
-    // m_lastIdentity it survives a stream dropout, so a pause (the plugin
-    // goes quiet) and the same car coming back is not a new car: the
-    // strip follows CAR CHANGES, never a returning stream, or a tweak made
-    // in the pits would be undone on unpause.
-    std::string       m_carAppliedIdent;
-    // The car (identity) the defaults were last applied for, remembered
-    // beside the rig config: after a restart that same car keeps its tiles
-    // as they are (perhaps tuned by hand since), where applying the
-    // defaults again would undo it.
-    std::string       m_carDefaultsIdent;
-    void saveCarDefaultsIdent(const std::string& ident);
+    // The table's memory of the car it last acted on by itself: the
+    // identity, and whether the tiles carry its entry (applied) or the
+    // defaults. Unlike m_lastIdentity it survives a stream dropout, so a
+    // pause (the plugin goes quiet) and the same car coming back is not a
+    // new car: the strip follows CAR CHANGES, never a returning stream, or
+    // a tweak made in the pits would be undone on unpause. Kept beside the
+    // rig config (carstate.json) so a restart is no new car either: the
+    // same car keeps its tiles as they are (tuned by hand since, perhaps),
+    // whether it got an entry or the defaults, and the car row reads the
+    // same. Guarded by m_carMx; written outside it.
+    struct CarMemory { std::string ident; bool applied = false; bool defaults = false; };
+    CarMemory         m_carMem;
+    void loadCarMemory();                       // start(): carstate.json, else the older cardefaults.txt
+    void saveCarMemory(const CarMemory& mem);
+    // The car row's flags; remembered too when the car is the one the
+    // table acted on, so a restart reads the row the same.
+    void setCarFlags(bool applied, bool defaults);
     void carIdentity(const std::string& game, const std::string& car, const std::string& carId, bool mayApply);
     CarTable::Match findCar(const std::string& game, const std::string& car, const std::string& carId) const;
     std::string carKeyFor(const std::string& game, const std::string& car, const std::string& carId) const;

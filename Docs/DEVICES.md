@@ -280,7 +280,12 @@ four), gearbox, ABS and TC, each tile at the strength the cars in the
 table that have it play it at (ABS and TC play only when they are
 working). In a game the table does not cover, nothing changes:
 the tiles stay as you set them. After a restart the same car keeps its
-tiles as they are, so what you tuned for it by hand stays. The car row reads
+tiles as they are, so what you tuned for it by hand stays, whether the
+table gave it its entry or the defaults: nullCAT remembers the car it
+last acted on in `carstate.json` beside the rig config (machine state,
+safe to delete), and the car row reads as it did before the restart. A
+different car is a car change as ever. The car row of a car on the
+defaults reads
 `· no entry · defaults in use`, and the settings the car table owns are
 tinted pink instead of the usual faint tint (hover one to read why) until
 you pull a preset car or save for this car, or the next car comes on. The

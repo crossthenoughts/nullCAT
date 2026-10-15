@@ -385,6 +385,12 @@ Development branch. Nothing here is in a release yet.
   nothing is written, and the page reloads the controller's settings and
   asks you to make the edits again. A save of yours that moves a setting
   the car table owns also clears the car row's "applied".
+- A car that got its entry from the car table had it applied again at
+  every restart, over whatever you had tuned for it by hand (only a car
+  on the defaults was remembered). nullCAT now remembers the car the
+  table last acted on, and whether it got its entry or the defaults, in
+  `carstate.json` beside the rig config: the same car after a restart
+  keeps its tiles as they are and its car row reads as before.
 - With follow car on, a car the car table had no entry for kept the last
   car's engine, limiter, driveline, ABS and TC (a Mini played a truck's
   12.9 litre engine). In a game the table covers (Assetto Corsa,

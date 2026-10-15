@@ -896,8 +896,7 @@ bool WebServer::start()
     if (!m_configPath.empty())
     {
         m_cars.loadUser(m_configPath);
-        std::ifstream f(siblingFile(m_configPath, "cardefaults.txt"));
-        if (f) std::getline(f, m_carDefaultsIdent);
+        loadCarMemory();
     }
     if (m_cars.stockCount() || m_cars.userCount())
         LOG_INFO(strf("Haptics: car table loaded, %d cars shipped, %d of yours.",
@@ -1353,12 +1352,7 @@ bool WebServer::start()
             // A save that moved a setting the car table owns: the tiles no
             // longer carry the car's entry (or the defaults), so the car
             // row stops saying they do.
-            if (carOwnedKeysChanged(oldBody, req.body))
-            {
-                std::lock_guard<std::mutex> lk(m_carMx);
-                m_carState.applied  = false;
-                m_carState.defaults = false;
-            }
+            if (carOwnedKeysChanged(oldBody, req.body)) setCarFlags(false, false);
             // Device live-apply: stage each device axis's fresh params with
             // the motion controller - they land the moment that device is
             // (or next becomes) limp. Feel tuning never needs a restart.
@@ -1956,11 +1950,11 @@ bool WebServer::start()
             std::string err;
             if (!applyCarEntry(m, err)) { errResp(res, "Could not apply the car preset: " + err); return; }
             {
-                std::lock_guard<std::mutex> lk(m_carMx);
                 // Applied by hand: the tiles carry this entry now, which is
                 // the car's own only when it was the car's own.
-                m_carState.applied  = key.empty() || (m.key == m_carState.match.key);
-                m_carState.defaults = false;
+                bool own = key.empty();
+                if (!own) { std::lock_guard<std::mutex> lk(m_carMx); own = (m.key == m_carState.match.key); }
+                setCarFlags(own, false);
             }
             LOG_INFO(strf("Haptics: car preset '%s' (%s) applied from the web.", m.key.c_str(), m.source.c_str()));
             res.set_content("{\"ok\":true,\"key\":" + jsonStr(m.key) + ",\"name\":" + jsonStr(m.name)
@@ -1991,12 +1985,8 @@ bool WebServer::start()
             const std::string key = carKeyFor(game, car, carId);
             m_cars.putUser(key, CarTable::fromHapticsObject(Config::writeHapticsObject(cfg.get()), name, notes));
             if (!m_cars.saveUser(m_configPath)) { errResp(res, "Cannot write cars.local.json."); return; }
-            {
-                std::lock_guard<std::mutex> lk(m_carMx);
-                m_carState.match    = findCar(game, car, carId);
-                m_carState.applied  = true;
-                m_carState.defaults = false;
-            }
+            { std::lock_guard<std::mutex> lk(m_carMx); m_carState.match = findCar(game, car, carId); }
+            setCarFlags(true, false);
             LOG_INFO(strf("Haptics: car preset '%s' saved to your layer.", key.c_str()));
             res.set_content("{\"ok\":true,\"key\":" + jsonStr(key) + "}", "application/json");
         });
@@ -2018,10 +2008,11 @@ bool WebServer::start()
             }
             if (!m_cars.removeUser(key)) { errResp(res, "No entry of yours for " + key + "."); return; }
             m_cars.saveUser(m_configPath);
+            if (!car.empty())
             {
-                std::lock_guard<std::mutex> lk(m_carMx);
                 // The tiles keep what they carried (yours): not the defaults.
-                if (!car.empty()) { m_carState.match = findCar(game, car, carId); m_carState.applied = false; m_carState.defaults = false; }
+                { std::lock_guard<std::mutex> lk(m_carMx); m_carState.match = findCar(game, car, carId); }
+                setCarFlags(false, false);
             }
             okResp(res);
         });
@@ -2803,24 +2794,26 @@ void WebServer::carIdentity(const std::string& game, const std::string& car, con
     bool applied = false, defaults = false;
     const int gen0 = m_carGen.load();   // a pull or load from the page meanwhile has the last word (below)
     int bumps = 0;                      // ...this call's own rewrites of the set
-    if (ident == m_carAppliedIdent)
+    CarMemory mem;
+    { std::lock_guard<std::mutex> lk(m_carMx); mem = m_carMem; }
+    std::string acted;                  // the identity the table acted on (or remembers), "" = none
+    if (ident == mem.ident)
     {
-        // The same car, back after a dropout: the tiles already carry
-        // what they carried (the entry or the defaults, or the user's
-        // edits since).
-        std::lock_guard<std::mutex> lk(m_carMx);
-        applied  = m_carState.applied;
-        defaults = m_carState.defaults;
+        // The same car, back after a dropout or a restart: the tiles
+        // already carry what they carried (the entry or the defaults, or
+        // the user's edits since), and the row reads as it did.
+        applied  = mem.applied;
+        defaults = mem.defaults;
+        acted    = ident;
     }
     else if (mayApply && !m.source.empty())
     {
         std::string err;
         applied = applyCarEntry(m, err);
-        if (applied) ++bumps;
         if (applied)
         {
-            m_carAppliedIdent = ident;
-            if (!m_carDefaultsIdent.empty()) saveCarDefaultsIdent("");
+            ++bumps;
+            acted = ident;
             LOG_INFO(strf("Haptics: car preset '%s' (%s%s) applied for %s.", m.key.c_str(), m.source.c_str(),
                           m.nearMatch ? ", near match" : "", car.c_str()));
         }
@@ -2837,50 +2830,109 @@ void WebServer::carIdentity(const std::string& game, const std::string& car, con
         // settings, as does a missing table.
         std::string err;
         const std::string& who = car.empty() ? carId : car;
-        if (ident == m_carDefaultsIdent)
+        defaults = applyCarDefaults(err);
+        if (defaults)
         {
-            // The car they were last applied for, before a restart: its
-            // tiles stay as they are (tuned by hand, perhaps, since).
-            defaults = true;
-            m_carAppliedIdent = ident;
+            ++bumps;
+            acted = ident;
+            LOG_INFO(strf("Haptics: no car table entry for %s: its car settings are on the defaults.", who.c_str()));
         }
         else
-        {
-            defaults = applyCarDefaults(err);
-            if (defaults) ++bumps;
-            if (defaults)
-            {
-                m_carAppliedIdent = ident;
-                saveCarDefaultsIdent(ident);
-                LOG_INFO(strf("Haptics: no car table entry for %s: its car settings are on the defaults.", who.c_str()));
-            }
-            else
-                LOG_WARNING(strf("Haptics: the car defaults could not be applied for %s: %s", who.c_str(), err.c_str()));
-        }
+            LOG_WARNING(strf("Haptics: the car defaults could not be applied for %s: %s", who.c_str(), err.c_str()));
     }
-    else
-        m_carAppliedIdent.clear();   // a car the table did not act on
-    std::lock_guard<std::mutex> lk(m_carMx);
-    m_carState.match    = m;
-    m_carState.car      = car;
-    m_carState.carId    = carId;
-    m_carState.game     = game;
-    // A pull, a starting point or a profile load from the page that landed
-    // while this applied set its own flags: they stand.
-    if (m_carGen.load() == gen0 + bumps)
+    // else: a car the table did not act on (follow car off, a game it does
+    // not cover): nothing to remember.
+    bool remember = false;
     {
-        m_carState.applied  = applied;
-        m_carState.defaults = defaults;
+        std::lock_guard<std::mutex> lk(m_carMx);
+        m_carState.match    = m;
+        m_carState.car      = car;
+        m_carState.carId    = carId;
+        m_carState.game     = game;
+        // A pull, a starting point or a profile load from the page that landed
+        // while this applied set its own flags: they stand.
+        if (m_carGen.load() == gen0 + bumps)
+        {
+            m_carState.applied  = applied;
+            m_carState.defaults = defaults;
+        }
+        mem.ident    = acted;
+        mem.applied  = acted.empty() ? false : m_carState.applied;
+        mem.defaults = acted.empty() ? false : m_carState.defaults;
+        remember = (mem.ident != m_carMem.ident || mem.applied != m_carMem.applied || mem.defaults != m_carMem.defaults);
+        m_carMem = mem;
     }
+    if (remember) saveCarMemory(mem);
 }
 
-void WebServer::saveCarDefaultsIdent(const std::string& ident)
+void WebServer::setCarFlags(bool applied, bool defaults)
 {
-    m_carDefaultsIdent = ident;
+    CarMemory mem; bool remember = false;
+    {
+        std::lock_guard<std::mutex> lk(m_carMx);
+        m_carState.applied  = applied;
+        m_carState.defaults = defaults;
+        const std::string ident = m_carState.game + "|" + m_carState.car + "|" + m_carState.carId;
+        if (!m_carMem.ident.empty() && ident == m_carMem.ident
+            && (m_carMem.applied != applied || m_carMem.defaults != defaults))
+        {
+            m_carMem.applied  = applied;
+            m_carMem.defaults = defaults;
+            remember = true;
+        }
+        mem = m_carMem;
+    }
+    if (remember) saveCarMemory(mem);
+}
+
+// carstate.json beside the rig config: {"ident","applied","defaults"}.
+// An older build kept only the defaults' car in cardefaults.txt (one
+// line): read as the memory of a car on the defaults when there is no
+// carstate.json yet, and replaced by it on the first write.
+void WebServer::loadCarMemory()
+{
+    CarMemory mem;
+    std::string text;
+    if (readWholeFile(siblingFile(m_configPath, "carstate.json"), text))
+    {
+        const QJsonObject o = QJsonDocument::fromJson(QByteArray::fromStdString(text)).object();
+        mem.ident    = o.value("ident").toString().toStdString();
+        mem.applied  = o.value("applied").toBool(false);
+        mem.defaults = o.value("defaults").toBool(false);
+    }
+    else
+    {
+        std::ifstream f(siblingFile(m_configPath, "cardefaults.txt"));
+        if (f) std::getline(f, mem.ident);
+        mem.defaults = !mem.ident.empty();
+    }
+    if (mem.ident.empty()) { mem.applied = false; mem.defaults = false; }
+    std::lock_guard<std::mutex> lk(m_carMx);
+    m_carMem = mem;
+}
+
+void WebServer::saveCarMemory(const CarMemory& mem)
+{
     if (m_configPath.empty()) return;
-    std::ofstream f(siblingFile(m_configPath, "cardefaults.txt"), std::ios::trunc);
-    if (f) f << ident << '\n';
-    else LOG_WARNING("Haptics: could not remember which car is on the defaults (cardefaults.txt).");
+    QJsonObject o;
+    o["ident"]    = QString::fromStdString(mem.ident);
+    o["applied"]  = mem.applied;
+    o["defaults"] = mem.defaults;
+    o["_help"]    = "nullCAT: the car the car table last acted on by itself (game|car|id), and whether its tiles carry "
+                    "its entry or the defaults, so the same car after a restart keeps its tiles as they are. Machine "
+                    "state, not configuration: safe to delete, never edited by hand.";
+    const std::string path = siblingFile(m_configPath, "carstate.json");
+    const std::string tmp  = path + ".tmp";
+    const QByteArray out = QJsonDocument(o).toJson(QJsonDocument::Indented);
+    { std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+      if (!f) { LOG_WARNING("Haptics: could not remember the car the table acted on (carstate.json)."); return; }
+      f.write(out.constData(), out.size()); }
+    std::error_code ec;
+    std::filesystem::rename(tmp, path, ec);
+    if (ec) { std::error_code ec2; std::filesystem::remove(tmp, ec2);
+              LOG_WARNING("Haptics: could not remember the car the table acted on (carstate.json)."); return; }
+    std::error_code ec3;
+    std::filesystem::remove(siblingFile(m_configPath, "cardefaults.txt"), ec3);   // the older memory, superseded
 }
 
 // The follow switch lives in rig.json's haptics object (saved from the
@@ -2961,8 +3013,9 @@ bool WebServer::loadProfile(const std::string& name, std::string& err)
     m_profiles.save(m_configPath);
     {
         // The profile's car settings replace the defaults (if they were on).
-        std::lock_guard<std::mutex> ck(m_carMx);
-        m_carState.defaults = false;
+        bool applied = false;
+        { std::lock_guard<std::mutex> ck(m_carMx); applied = m_carState.applied; }
+        setCarFlags(applied, false);
     }
     return true;
 }
