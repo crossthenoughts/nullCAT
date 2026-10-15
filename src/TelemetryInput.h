@@ -75,7 +75,11 @@ static_assert(std::is_trivially_copyable<TelemetryData>::value, "TelemetryData i
 //
 //   receive path   receive() -> parsePacket -> ingest. One caller at a
 //                  time: the RT loop while it runs, the haptics idle
-//                  clock while it does not. This is the store's only
+//                  clock while it does not. Both call receive(); the
+//                  first one in owns the socket until it returns and the
+//                  other gets false and drains next tick, so the two can
+//                  never read into the one receive buffer at once during
+//                  the hand-over at loop start. This is the store's only
 //                  writer. Never blocks, never allocates, never logs
 //                  through anything that can block.
 //   snapshot       getLatestData(). The receive path's own thread every
@@ -133,6 +137,9 @@ public:
         return (now - m_lastMotionPacketMs.load()) < withinMs;
     }
     bool isInitialized()  const { return m_socket != INVALID_SOCKET_VALUE; }
+    // The port the socket is bound to (what initialize() was given, or the
+    // system's choice when it was given 0).
+    int  port()           const { return m_port; }
     // NULLCATX stream indicator (web status): a channel packet arrived recently.
     // Same 1500 ms window as the motion RX indicator; the 500 ms EFFECT
     // freshness in getLatestData() is deliberately tighter (fail-safe first,
@@ -178,7 +185,9 @@ public:
     static bool parsePacket(const char* buf, int len, TelemetryData& out);
     // Store one parsed packet exactly as receive() would (no socket needed):
     // motion packets into the motion snapshot, channel packets into the
-    // channel store with the frozen-stream bookkeeping. Public for tests.
+    // channel store with the frozen-stream bookkeeping. Public for tests;
+    // it is the store's writer, so one thread at a time (receive() holds
+    // the owner flag around it).
     bool ingest(const TelemetryData& parsed);
 
     // Frozen-stream guard window in ms; 0 (the default) = off. Set once at
@@ -227,6 +236,8 @@ private:
     void storeEnd();                             //               close it
     bool snapshot(Store& out) const;             // any thread: a whole copy, false if the retry ran out
     std::atomic<bool>  m_hasData{false};
+    // The receive path's owner flag: one thread at a time in receive().
+    std::atomic<bool>  m_receiving{false};
 
     static constexpr int RECV_BUF_SIZE = 4096;
     char m_recvBuf[RECV_BUF_SIZE] = {};

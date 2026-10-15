@@ -197,12 +197,25 @@ bool TelemetryInput::initialize(int port, const std::string& bindAddr)
 
     m_socket = static_cast<uintptr_t>(sock);
 
+    // Port 0 asks the system for a free one (tests): read back what it gave.
+    if (port == 0)
+    {
+        sockaddr_in bound{};
+#ifdef _WIN32
+        int boundLen = sizeof(bound);
+#else
+        socklen_t boundLen = sizeof(bound);
+#endif
+        if (getsockname(sock, reinterpret_cast<sockaddr*>(&bound), &boundLen) == 0)
+            m_port = static_cast<int>(ntohs(bound.sin_port));
+    }
+
     // Log the address ACTUALLY bound (not a hardcoded guess) so a NUC/remote
     // setup can be verified from the log alone.
     {
         char boundStr[INET_ADDRSTRLEN] = "?";
         inet_ntop(AF_INET, &addr.sin_addr, boundStr, sizeof(boundStr));
-        LOG_INFO(strf("TelemetryInput: Listening for telemetry on UDP %s:%d", boundStr, port));
+        LOG_INFO(strf("TelemetryInput: Listening for telemetry on UDP %s:%d", boundStr, m_port));
     }
     return true;
 }
@@ -214,6 +227,15 @@ bool TelemetryInput::initialize(int port, const std::string& bindAddr)
 bool TelemetryInput::receive()
 {
     if (m_socket == INVALID_SOCKET_VALUE) return false;
+
+    // One caller at a time: the RT loop and the haptics idle clock both
+    // drain this socket, and at loop start the loop's running flag flips
+    // before its first drain while the idle clock checked it before its
+    // own, so for a moment both were in here (one receive buffer, one
+    // parser, one store writer). The second one in gets false and drains
+    // next tick; nothing is lost, the datagrams wait in the socket.
+    if (m_receiving.exchange(true, std::memory_order_acq_rel)) return false;
+    struct Release { std::atomic<bool>& f; ~Release() { f.store(false, std::memory_order_release); } } release{m_receiving};
 
     SOCKET sock = static_cast<SOCKET>(m_socket);
 

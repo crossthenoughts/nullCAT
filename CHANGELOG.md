@@ -356,6 +356,10 @@ Development branch. Nothing here is in a release yet.
   rig keeps its own values: change them on the tile.
 
 ### Fixed
+- For a moment at control loop start, the loop and the shaker clock that
+  plays while it is stopped could both be reading telemetry at once, into
+  the same buffer. One of them now backs off until the next tick; nothing
+  is lost.
 - The control loop could be held up by the status page: the loop and the
   page's status poll shared a lock around the latest telemetry frame, so
   the loop waited whenever the poll had the lock and was put aside by the

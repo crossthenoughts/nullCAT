@@ -44,6 +44,8 @@ static void check(bool ok, const char* name)
 #  ifndef NOMINMAX
 #    define NOMINMAX
 #  endif
+#  include <winsock2.h>
+#  include <ws2tcpip.h>
 #  include <windows.h>
 static void parkThread(std::thread& t)
 {
@@ -68,7 +70,30 @@ static void parkThread(std::thread& t)
     while (!g_parked.load()) std::this_thread::yield();
 }
 static void unparkThread(std::thread&) { sem_post(&g_parkSem); }
+#  include <sys/socket.h>
+#  include <netinet/in.h>
+#  include <arpa/inet.h>
+#  include <unistd.h>
 #endif
+
+// One datagram to the loopback port a TelemetryInput is listening on
+// (the socket library is already up: initialize() started it).
+static void sendUdp(int port, const char* line)
+{
+    sockaddr_in to{};
+    to.sin_family = AF_INET;
+    to.sin_port   = htons(static_cast<uint16_t>(port));
+    to.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+#ifdef _WIN32
+    SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    sendto(s, line, static_cast<int>(std::strlen(line)), 0, reinterpret_cast<sockaddr*>(&to), sizeof(to));
+    closesocket(s);
+#else
+    int s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    sendto(s, line, std::strlen(line), 0, reinterpret_cast<sockaddr*>(&to), sizeof(to));
+    close(s);
+#endif
+}
 
 static TelemetryData parse(const char* line, bool* okOut = nullptr)
 {
@@ -496,6 +521,56 @@ int main()
             std::printf("  B13 store with the reader parked mid-copy: max %.3f ms over 20 trials (%d waited for it)\n", maxMs, parkedInsideCopy);
             check(maxMs < 5.0, "B13 a reader stopped dead mid-copy never stalls the receive path's store");
         }
+    }
+
+    // ---- one thread at a time on the socket (B14) ----
+    // The RT loop drains the socket every cycle; the haptics idle clock
+    // drains it while the loop is stopped. At loop start the loop's
+    // running flag flips before its first drain, and the idle clock reads
+    // the flag before its own drain of up to 32 datagrams, so for a moment
+    // both were in receive(): two recvfrom calls into the one receive
+    // buffer, two parsers over it, two writers of the store. receive()
+    // now takes an owner flag: the second caller gets false and drains
+    // next tick. Two threads drain a pre-filled loopback socket here; the
+    // packet callback (inside receive) checks it is never entered twice
+    // at once and that every frame it sees is whole. Reverting the
+    // m_receiving exchange at the top of receive() fails the first two.
+    {
+        TelemetryInput ti;
+        check(ti.initialize(0, "127.0.0.1"), "B14 a loopback socket on a port of the system's choosing");
+        const int port = ti.port();
+        check(port > 0, "B14 the bound port is reported");
+        std::atomic<int> inside{0}, overlaps{0}, delivered{0}, torn{0};
+        ti.setOnNewData([&](const TelemetryData& d)
+        {
+            if (inside.fetch_add(1) != 0) ++overlaps;
+            for (int i = 1; i < d.numPositions; ++i) if (d.positions[i] != d.positions[0]) { ++torn; break; }
+            ++delivered;
+            const auto until = std::chrono::steady_clock::now() + std::chrono::microseconds(30);   // a parse's worth of work
+            while (std::chrono::steady_clock::now() < until) {}
+            inside.fetch_sub(1);
+        });
+        const int sent = 300;
+        char line[64];
+        for (int k = 1; k <= sent; ++k) { std::snprintf(line, sizeof line, "NULLCAT,%d,%d,%d,%d,%d,%d", k, k, k, k, k, k); sendUdp(port, line); }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        auto drain = [&]
+        {
+            const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+            while (std::chrono::steady_clock::now() < until)
+            {
+                if (ti.receive()) continue;
+                if (delivered.load() >= sent) break;
+                std::this_thread::yield();
+            }
+        };
+        std::thread a(drain), b(drain);
+        a.join(); b.join();
+        std::printf("  B14 two drainers: %d of %d delivered, %d overlaps, %d torn\n", delivered.load(), sent, overlaps.load(), torn.load());
+        check(overlaps.load() == 0, "B14 two threads draining the socket never run the receive path at once");
+        check(torn.load() == 0, "B14 ...and no frame is torn");
+        check(delivered.load() >= sent * 95 / 100, "B14 ...and the datagrams arrive (the second caller backs off, it does not lose them)");
+        ti.shutdown();
     }
 
     // ---- The telemetry recorder: every datagram, in order, to a file ----
