@@ -138,6 +138,17 @@ static std::string rigWith(const std::string& body, const char* tile, const char
     return QJsonDocument(root).toJson().toStdString();
 }
 
+// The same for a top-level haptics switch.
+static std::string rigWithBool(const std::string& body, const char* key, bool value)
+{
+    QJsonObject root = QJsonDocument::fromJson(QByteArray::fromStdString(body)).object();
+    QJsonObject g = root.value("global").toObject();
+    QJsonObject h = g.value("haptics").toObject();
+    h[key] = value;
+    g["haptics"] = h; root["global"] = g;
+    return QJsonDocument(root).toJson().toStdString();
+}
+
 // A body with its spaces removed (the file is indented, a space after each colon).
 static std::string compact(std::string s)
 {
@@ -377,6 +388,14 @@ int main()
           "GET /api/haptics/status returns the games list and the per-effect record");
     check(has(post("/api/haptics/status/clear", "{\"all\":true}"), "\"ok\":true"),
           "POST /api/haptics/status/clear accepted");
+    {
+        // ...and read back: no game remembered, every dot grey.
+        std::string dots = "\"hapDots\":[";
+        for (int i = 0; i < haptics::EFFECT_COUNT; ++i) dots += (i ? ",0" : "0");
+        dots += "]";
+        check(has(get("/api/haptics/status"), "\"games\":[]") && has(get("/api/status"), dots.c_str()),
+              "status/clear read back: no games remembered, every sim dot grey");
+    }
     check(has(get("/api/status"), "\"hapDots\":[") && has(get("/api/status"), "\"hapGame\":")
           && has(get("/api/status"), "\"ncxFrozen\":false") && has(get("/api/status"), "\"hapProfile\":"),
           "GET /api/status carries hapDots, hapGame, hapProfile and ncxFrozen");
@@ -403,23 +422,49 @@ int main()
           "GET /api/shakers/devices lists playback devices (possibly none)");
     check(has(post("/api/shakers/test", "{\"channel\":0}"), "No shaker output is open"),
           "POST /api/shakers/test refuses with a reason when shakers are off");
-    // Profiles: save snapshots the saved set, it lists, loads (applies
-    // live), binds to a car name, and deletes; an unknown name is refused.
-    check(has(post("/api/haptics/profiles/save", "{\"name\":\"Bench\"}"), "\"ok\":true"),
-          "POST /api/haptics/profiles/save snapshots the saved haptics set");
-    check(has(get("/api/haptics/profiles"), "\"profiles\":[\"Bench\"]") && has(get("/api/haptics/profiles"), "\"active\":\"Bench\""),
-          "GET /api/haptics/profiles lists it as active");
-    check(has(post("/api/haptics/profiles/load", "{\"name\":\"Bench\"}"), "\"ok\":true"),
-          "POST /api/haptics/profiles/load applies it");
-    check(has(post("/api/haptics/profiles/load", "{\"name\":\"nope\"}"), "\"ok\":false"),
-          "POST /api/haptics/profiles/load refuses an unknown name");
-    check(has(post("/api/haptics/profiles/bind", "{\"name\":\"Bench\",\"car\":\"Test Car\"}"), "\"key\":\"car:Test Car\""),
-          "POST /api/haptics/profiles/bind ties a car to it");
-    check(has(get("/api/haptics/profiles"), "\"car:Test Car\":\"Bench\""),
-          "GET /api/haptics/profiles shows the binding");
-    check(has(post("/api/haptics/profiles/delete", "{\"name\":\"Bench\"}"), "\"ok\":true")
-          && has(get("/api/haptics/profiles"), "\"profiles\":[]"),
-          "POST /api/haptics/profiles/delete forgets it and its binding");
+    // Profiles: save snapshots the saved set, it lists, loads (the saved
+    // rig's haptics object is the snapshot again, an edit made in between
+    // undone), binds to a car name (naming that car loads it), and
+    // deletes; an unknown name is refused.
+    {
+        const auto hapticsOf = [](const std::string& body) -> QJsonObject
+        {
+            QJsonObject h = QJsonDocument::fromJson(QByteArray::fromStdString(body)).object()
+                                .value("global").toObject().value("haptics").toObject();
+            h.remove("followCar");   // the rig's, never a profile's
+            return h;
+        };
+        const QJsonObject snapshot = hapticsOf(get("/api/rig"));
+        check(has(post("/api/haptics/profiles/save", "{\"name\":\"Bench\"}"), "\"ok\":true"),
+              "POST /api/haptics/profiles/save snapshots the saved haptics set");
+        check(has(get("/api/haptics/profiles"), "\"profiles\":[\"Bench\"]") && has(get("/api/haptics/profiles"), "\"active\":\"Bench\""),
+              "GET /api/haptics/profiles lists it as active");
+        // An edit after the snapshot, then the load: the file is the snapshot again.
+        {
+            std::string body; int gen = -1;
+            check(getRig(body, gen), "GET /api/rig for an edit after the snapshot");
+            const Reply r = postHdr("/api/rig", rigWith(body, nullptr, "masterGain", 0.6), {{"X-Nullcat-Gen", std::to_string(gen)}});
+            check(r.status == 200 && hapticsOf(get("/api/rig")) != snapshot, "the edit (master gain 0.6) lands and differs from the snapshot");
+        }
+        const int genBefore = genNow();
+        check(has(post("/api/haptics/profiles/load", "{\"name\":\"Bench\"}"), "\"ok\":true"),
+              "POST /api/haptics/profiles/load applies it");
+        check(hapticsOf(get("/api/rig")) == snapshot && has(get("/api/status"), "\"hapProfile\":\"Bench\""),
+              "profile load read back: the saved haptics object is the snapshot again, the status names it");
+        check(genNow() == genBefore + 1, "a profile load moves the apply generation (a page refreshes its copy)");
+        check(has(post("/api/haptics/profiles/load", "{\"name\":\"nope\"}"), "\"ok\":false"),
+              "POST /api/haptics/profiles/load refuses an unknown name");
+        check(has(post("/api/haptics/profiles/bind", "{\"name\":\"Bench\",\"car\":\"Test Car\"}"), "\"key\":\"car:Test Car\""),
+              "POST /api/haptics/profiles/bind ties a car to it");
+        check(has(get("/api/haptics/profiles"), "\"car:Test Car\":\"Bench\""),
+              "GET /api/haptics/profiles shows the binding");
+        // A second profile, so Bench is not the active one: whether the
+        // binding loads it when the sim names the bound car is checked
+        // after the car table rows below (naming a car sets the car row).
+        check(has(post("/api/haptics/profiles/save", "{\"name\":\"Other\"}"), "\"ok\":true")
+              && has(get("/api/haptics/profiles"), "\"active\":\"Other\""),
+              "a second profile saved is the active one");
+    }
     // Car table: the shipped file beside the config lists, an entry pulled
     // by key lands in the saved rig (five tiles only, routes untouched),
     // the status carries the car fields, and with no car named by the sim
@@ -537,6 +582,30 @@ int main()
         const std::string cars = get("/api/cars");
         check(has(cars, "\"car\":\"Mystery Car\"") && has(cars, "\"source\":\"\"") && has(cars, "\"defaults\":true"),
               "GET /api/cars: the car has no entry and the defaults are in use");
+        // Save for this car files the saved five tiles under the current
+        // car in the user layer (cars.local.json): the entry is then the
+        // car's own, applied, and listed; forget drops it and the row
+        // shows no entry again (the tiles keep what they carried).
+        check(has(post("/api/cars/save", "{\"name\":\"My Mystery\",\"notes\":\"mine\"}"), "\"key\":\"ac:Mystery Car\""),
+              "POST /api/cars/save files an entry under the current car");
+        check(std::filesystem::exists(cfgDir / "cars.local.json"), "...in cars.local.json beside the config");
+        {
+            const std::string c2 = get("/api/cars");
+            check(has(c2, "\"source\":\"user\"") && has(c2, "\"name\":\"My Mystery\"") && has(c2, "\"notes\":\"mine\"")
+                  && has(c2, "\"applied\":true") && has(c2, "\"defaults\":false") && has(c2, "\"user\":1"),
+                  "GET /api/cars: the saved entry is the car's own, applied, not the defaults");
+            check(has(get("/api/cars/list"), "\"name\":\"My Mystery\"") && has(get("/api/cars/list"), "\"source\":\"user\""),
+                  "GET /api/cars/list carries it as yours");
+            check(has(get("/api/status"), "\"hapCarSrc\":\"user\"") && has(get("/api/status"), "\"hapCarApplied\":true"),
+                  "GET /api/status carries the saved entry");
+        }
+        check(has(post("/api/cars/forget", "{}"), "\"ok\":true"), "POST /api/cars/forget drops the entry of yours");
+        {
+            const std::string c3 = get("/api/cars");
+            check(has(c3, "\"source\":\"\"") && has(c3, "\"applied\":false") && has(c3, "\"defaults\":false") && has(c3, "\"user\":0")
+                  && !has(get("/api/cars/list"), "\"name\":\"My Mystery\""),
+                  "GET /api/cars after forget: no entry, not applied, not the defaults; the list no longer carries it");
+        }
         check(nameCar(telemetry, "AssettoCorsa", "Mazda 787B Le Mans", "\"hapCarKey\":\"ac:ks_mazda_787b\"", 10000)
               && has(get("/api/cars"), "\"near\":true") && has(get("/api/status"), "\"hapCarDefault\":false")
               && has(get("/api/status"), "\"hapCarApplied\":true"),
@@ -560,6 +629,41 @@ int main()
             check(r2.status == 200 && has(r2.body, "\"ok\":true") && has(get("/api/status"), "\"hapCarApplied\":true"),
                   "a save moving only the master gain leaves the claim");
         }
+        // Follow car off: a covered car with an entry arriving is matched
+        // for the row but nothing is applied: the generation and the file
+        // stay as they are. Then on again.
+        {
+            std::string body; int gen = -1;
+            check(getRig(body, gen), "GET /api/rig to untick follow car");
+            const Reply off = postHdr("/api/rig", rigWithBool(body, "followCar", false), {{"X-Nullcat-Gen", std::to_string(gen)}});
+            check(off.status == 200 && has(off.body, "\"ok\":true") && has(get("/api/cars"), "\"follow\":false"),
+                  "follow car unticked and saved: /api/cars reports follow:false");
+            const std::string before = get("/api/rig");
+            const int genOff = genNow();
+            check(nameCar(telemetry, "AssettoCorsa", "Ferrari F40", "\"hapCarKey\":\"ac:ks_ferrari_f40\"", 10000),
+                  "follow car off: a covered car with an entry is matched for the row");
+            std::this_thread::sleep_for(std::chrono::milliseconds(600));
+            check(genNow() == genOff && get("/api/rig") == before && has(get("/api/status"), "\"hapCarApplied\":false")
+                  && has(get("/api/status"), "\"hapCarDefault\":false"),
+                  "...but nothing is applied: hapCarGen unchanged, /api/rig untouched, the row says not applied");
+            check(getRig(body, gen), "GET /api/rig to tick follow car again");
+            const Reply on = postHdr("/api/rig", rigWithBool(body, "followCar", true), {{"X-Nullcat-Gen", std::to_string(gen)}});
+            check(on.status == 200 && has(on.body, "\"ok\":true") && has(get("/api/cars"), "\"follow\":true"),
+                  "follow car ticked again");
+        }
+        // The profile binding fires: with Other active, the sim naming the
+        // bound Test Car (iRacing: no car of the table's) loads Bench by
+        // itself; then both profiles go, the binding with them.
+        check(nameCar(telemetry, "iRacing", "Test Car", "\"hapProfile\":\"Bench\"", 10000),
+              "the sim naming the bound car loads its profile (status hapProfile)");
+        check(has(post("/api/haptics/profiles/delete", "{\"name\":\"Bench\"}"), "\"ok\":true")
+              && has(post("/api/haptics/profiles/delete", "{\"name\":\"Other\"}"), "\"ok\":true")
+              && has(get("/api/haptics/profiles"), "\"profiles\":[]") && !has(get("/api/haptics/profiles"), "car:Test Car"),
+              "POST /api/haptics/profiles/delete forgets them and the binding");
+        // The 787B again (a car change: the table acted on none since),
+        // so the restart check at the end finds it remembered.
+        check(nameCar(telemetry, "AssettoCorsa", "Mazda 787B Le Mans", "\"hapCarApplied\":true", 10000),
+              "the near match applied again after the other cars");
         std::this_thread::sleep_for(std::chrono::milliseconds(700));   // the stream goes quiet before the loop starts
     }
 
@@ -610,6 +714,28 @@ int main()
             if (!tileBack) std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
         check(tileBack, "one tile's unmute reads back");
+    }
+    // ---- relearn and fresh tyres read back (the loop publishes them) ----
+    // Nothing drives here, so the fields can only read as reset: the
+    // lateral baseline at 0 s and not learned after relearn; the Wheels
+    // tile's flat spots (hapWheels set 4) all 0 after fresh tyres.
+    {
+        check(has(post("/api/haptics/relearn", "{}"), "\"ok\":true") && waitStatus("\"hapLatBaseSec\":0.0", 3000)
+              && has(get("/api/status"), "\"hapLatLearned\":false"),
+              "relearn read back: the lateral baseline at 0 s, not learned");
+        const auto wheelSet = [](const std::string& st, int k) -> std::string
+        {
+            size_t p = st.find("\"hapWheels\":[");
+            if (p == std::string::npos) return std::string();
+            p += 13;
+            for (int i = 0; i < k; ++i) { p = st.find('[', p + 1); if (p == std::string::npos) return std::string(); }
+            const size_t e = st.find(']', p);
+            return (e == std::string::npos) ? std::string() : st.substr(p, e - p + 1);
+        };
+        check(has(post("/api/haptics/fresh-tyres", "{}"), "\"ok\":true"), "POST /api/haptics/fresh-tyres accepted");
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        check(wheelSet(get("/api/status"), 4) == "[0.000,0.000,0.000,0.000]",
+              "fresh tyres read back: every flat spot 0 (hapWheels set 4)");
     }
     std::this_thread::sleep_for(std::chrono::seconds(2));   // let auto-home/unpark finish
     check(has(get("/api/status"), "\"beltsSlack\":true"),
