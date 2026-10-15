@@ -1977,18 +1977,21 @@ bool WebServer::start()
             okResp(res);
         });
 
-        // Haptics mutes (runtime only, not persisted). Body {"on":true|false}:
-        // the master, every tile muted or every tile unmuted. With
-        // "effect":"<registry key>": that one tile (mute all, then unmute
-        // one: a solo).
+        // Haptics mutes (runtime only, not persisted). Body {"on":true|false}
+        // (1/0 as well): the master, every tile muted or every tile unmuted.
+        // With "effect":"<registry key>": that one tile (mute all, then
+        // unmute one: a solo). A body without a boolean or numeric "on" is
+        // refused and changes nothing: it used to fall back to a substring
+        // search for "true", so a garbage body un-muted the rig.
         postCmd("/api/haptics/mute", [this, okResp, errResp](const httplib::Request& req, httplib::Response& res)
         {
             if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
             const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(req.body));
             const QJsonObject o = doc.isObject() ? doc.object() : QJsonObject();
             const QJsonValue ov = o.value("on");
-            const bool on = ov.isBool() ? ov.toBool() : ov.isDouble() ? (ov.toDouble() != 0.0)
-                          : (req.body.find("true") != std::string::npos);
+            if (!ov.isBool() && !ov.isDouble())
+            { errResp(res, "Body needs \"on\": true or false (nothing changed)."); return; }
+            const bool on = ov.isBool() ? ov.toBool() : (ov.toDouble() != 0.0);
             MotionCommand cmd;
             if (o.contains("effect"))
             {

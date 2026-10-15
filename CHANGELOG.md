@@ -371,6 +371,9 @@ Development branch. Nothing here is in a release yet.
   route's gain and harmonic, the master gain, the position budget, an
   axis's haptic max) to the range the strip offers; the rest runs as
   written. The file is left as it is.
+- A mute request whose body did not say on or off un-muted the rig (it
+  looked for the word true and found none). Such a body is now refused
+  and changes nothing.
 - With follow car on, a car the car table had no entry for kept the last
   car's engine, limiter, driveline, ABS and TC (a Mini played a truck's
   12.9 litre engine). In a game the table covers (Assetto Corsa,

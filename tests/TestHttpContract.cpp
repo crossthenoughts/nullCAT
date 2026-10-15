@@ -85,6 +85,24 @@ static bool waitStatus(const char* token, int timeoutMs)
     return false;
 }
 
+// One tile's mute from the status's hapMute[] (registry order), -1 when
+// the list is missing or short.
+static int muteAt(const std::string& st, int idx)
+{
+    const size_t a = st.find("\"hapMute\":[");
+    if (a == std::string::npos) return -1;
+    size_t p = a + 11;
+    for (int i = 0; i < idx; ++i)
+    {
+        p = st.find(',', p);
+        if (p == std::string::npos) return -1;
+        ++p;
+    }
+    if (st.compare(p, 4, "true") == 0) return 1;
+    if (st.compare(p, 5, "false") == 0) return 0;
+    return -1;
+}
+
 // BELT-ONLY rig: sim drives cannot complete a torque-hardstop homing search
 // (no sim torque model, and homing targets bypass the sim actuals) -- a KNOWN
 // sim-fidelity gap (backlog: sim homing model). A vertical axis would sit in
@@ -232,6 +250,15 @@ int main()
     check(has(post("/api/haptics/mute", "{\"effect\":\"driveline\",\"on\":1}"), "\"ok\":true")
           && has(post("/api/haptics/mute", "{\"effect\":\"driveline\",\"on\":0}"), "\"ok\":true"),
           "POST /api/haptics/mute takes 1/0 as well as true/false");
+    // A body without a boolean or numeric "on" is refused at the HTTP
+    // layer (it used to fall back to a substring search for "true", so
+    // "garbage" un-muted the rig). Whether it also changed nothing is read
+    // back once the loop publishes the mute state, below.
+    check(has(post("/api/haptics/mute", "garbage"), "\"ok\":false")
+          && has(post("/api/haptics/mute", "{}"), "\"ok\":false")
+          && has(post("/api/haptics/mute", "{\"on\":\"yes\"}"), "\"ok\":false")
+          && has(post("/api/haptics/mute", "{\"effect\":\"driveline\"}"), "\"ok\":false"),
+          "POST /api/haptics/mute refuses a body without a boolean or numeric on");
     check(has(get("/api/haptics/schema"), "\"carKeys\":[\"ampPct\",\"jitter\",\"clutch\"")
           && has(get("/api/haptics/schema"), "\"carKeys\":[]") && has(get("/api/haptics/schema"), "\"id\":0"),
           "GET /api/haptics/schema marks the settings that follow the car, per tile");
@@ -397,6 +424,46 @@ int main()
     check(has(post("/api/start"), "\"ok\":true"), "POST /api/start accepted");
     check(waitStatus("\"loopRunning\":true", 5000), "status reaches loopRunning:true");
     check(waitStatus("\"hasBelts\":true", 2000),    "status: hasBelts:true");
+
+    // ---- mutes read back (the loop publishes hapMuted / hapMute[]) ----
+    // The master mute lands; a garbage body, {} and a string "on" are
+    // refused AND leave it muted (reverting the "on" type check in the
+    // mute handler un-mutes on "garbage": the old fallback found no "true"
+    // and sent on=false); one tile's mute lands in hapMute[] at its
+    // registry index (driveline = 10); unmute brings everything back.
+    {
+        check(has(post("/api/haptics/mute", "{\"on\":true}"), "\"ok\":true") && waitStatus("\"hapMuted\":true", 3000),
+              "mute on: status reads hapMuted:true");
+        check(muteAt(get("/api/status"), 10) == 1, "mute on: every tile muted (driveline's hapMute[10] true)");
+        check(has(post("/api/haptics/mute", "garbage"), "\"ok\":false")
+              && has(post("/api/haptics/mute", "{}"), "\"ok\":false")
+              && has(post("/api/haptics/mute", "{\"on\":\"yes\"}"), "\"ok\":false"),
+              "garbage mute bodies refused while muted");
+        std::this_thread::sleep_for(std::chrono::milliseconds(400));   // several publishes
+        check(has(get("/api/status"), "\"hapMuted\":true") && muteAt(get("/api/status"), 10) == 1,
+              "garbage mute bodies changed NOTHING: still muted");
+        check(has(post("/api/haptics/mute", "{\"on\":false}"), "\"ok\":true") && waitStatus("\"hapMuted\":false", 3000),
+              "mute off: status reads hapMuted:false");
+        check(muteAt(get("/api/status"), 10) == 0, "mute off: the tiles are back (hapMute[10] false)");
+        check(has(post("/api/haptics/mute", "{\"effect\":\"driveline\",\"on\":true}"), "\"ok\":true"),
+              "one tile's mute accepted");
+        bool tileMuted = false;
+        for (int t = 0; t < 3000 && !tileMuted; t += 50)
+        {
+            tileMuted = (muteAt(get("/api/status"), 10) == 1);
+            if (!tileMuted) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        check(tileMuted && has(get("/api/status"), "\"hapMuted\":false") && muteAt(get("/api/status"), 9) == 0,
+              "one tile's mute reads back in hapMute[] alone (master and the kerb tile unmuted)");
+        check(has(post("/api/haptics/mute", "{\"effect\":\"driveline\",\"on\":0}"), "\"ok\":true"), "one tile's unmute accepted");
+        bool tileBack = false;
+        for (int t = 0; t < 3000 && !tileBack; t += 50)
+        {
+            tileBack = (muteAt(get("/api/status"), 10) == 0);
+            if (!tileBack) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        check(tileBack, "one tile's unmute reads back");
+    }
     std::this_thread::sleep_for(std::chrono::seconds(2));   // let auto-home/unpark finish
     check(has(get("/api/status"), "\"beltsSlack\":true"),
           "Option A: belt still SLACK after start/auto-unpark");
