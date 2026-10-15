@@ -3,13 +3,15 @@
 //
 // TestShakerDsp - the control-rate -> 48 kHz shaker chain, no device:
 //   S-1  a 40 Hz sine pushed at 2 kHz comes out at 40 Hz, near unity, with
-//        no DC and no stair-steps (second-order LPF);
-//   S-2  the fill servo holds the ring near half full against a producer
-//        that runs 100 ppm fast, and against one 100 ppm slow;
-//   S-3  an underrun (producer stops) holds and fades to silence in a few
-//        ms, no click; counted once; refilling resumes;
+//        no DC and no stair-steps (interpolation); a 600 Hz tone is cut
+//        to 0.18 and a 100 Hz one untouched (the 300 Hz low-pass);
+//   S-2  the fill servo parks the ring 0.32 frames off against a producer
+//        that runs 100 ppm fast, and against one 100 ppm slow (measured);
+//   S-3  an underrun (producer stops) holds and fades to silence; counted
+//        once; refilling resumes; S-3b pins the fade's 4 ms timing;
 //   S-4  a producer that floods never blocks and never corrupts (new
-//        frames dropped while full), the ring stays bounded;
+//        frames dropped while full), the ring stays bounded, and the next
+//        render skips to the newest frames;
 //   S-5  a constant input is blocked to zero (DC block); overdrive soft
 //        clips below 1.0; per-channel gain; channels are independent;
 //   S-6  the ring is held at ~12 ms (and at least 2.5 device periods), not
@@ -117,9 +119,27 @@ int main()
         // 0.8 is just past the 0.7 knee: 0.7 + 0.3 tanh(0.333) = 0.796.
         approx(peak(v), 0.796, 0.02, "S-1 level near unity (0.8 in, 0.796 out past the soft knee)");
         approx(mean(v), 0.0, 0.005, "S-1 no DC on the output");
-        check(maxStep(v) < 0.02, "S-1 no stair-steps (the low-pass smooths the 2 kHz feed)");
+        // The step size pins the interpolation (a zero-order hold would
+        // step 0.126 per control frame); the low-pass is pinned below.
+        check(maxStep(v) < 0.02, "S-1 no stair-steps (linear interpolation between the 2 kHz frames)");
         check(rms(h.chan(1, 24000, 72000)) < 1e-4, "S-1 the silent channel stays silent");
         check(h.dsp.underruns() == 0, "S-1 no underruns with a steady producer");
+        // The low-pass: a 600 Hz tone pushed at 2 kHz (3.3 frames per
+        // cycle) comes through the 300 Hz second-order Butterworth at
+        // 0.24 of its level, and the interpolator's own roll-off at 600 Hz
+        // is 0.74: 0.18 together. Without the filter it would be 0.74
+        // (with the interpolation images at 1400 and 2600 Hz on top), so
+        // this fails if the biquad is bypassed. A 100 Hz tone, well
+        // inside the band, passes at 0.98.
+        Harness hi(2000.0, 48000.0, 1); prime(hi);
+        hi.run(48000, [](double t, double* s) { s[0] = 0.5 * std::sin(2 * kPi * 600.0 * t); });
+        const double g600 = rms(hi.chan(0, 24000, 48000)) * std::sqrt(2.0) / 0.5;
+        Harness mid(2000.0, 48000.0, 1); prime(mid);
+        mid.run(48000, [](double t, double* s) { s[0] = 0.5 * std::sin(2 * kPi * 100.0 * t); });
+        const double g100 = rms(mid.chan(0, 24000, 48000)) * std::sqrt(2.0) / 0.5;
+        std::printf("  S-1 gain at 100 Hz %.3f, at 600 Hz %.3f (low-pass 300 Hz)\n", g100, g600);
+        check(g600 > 0.10 && g600 < 0.30, "S-1 the 300 Hz low-pass: a 600 Hz tone comes through at about 0.18 of its level");
+        check(g100 > 0.93 && g100 < 1.03, "S-1 ...and a 100 Hz tone untouched");
     }
 
     // ---- S-2 ----
@@ -139,13 +159,24 @@ int main()
         // by the averages over the run, not the last sample.
         const int tgt = exact.dsp.target();
         const double fastFill = fast.fillSum / fast.samples, fastTrim = fast.trimSum / fast.samples;
-        check(fastFill > tgt / 2.0 && fastFill < 2.0 * tgt, "S-2 a 100 ppm fast producer: the ring stays near its target over 20 s");
-        check(fastTrim > baseTrim && fastFill > baseFill + 0.2, "S-2 the servo trimmed the step up to match it (ring parked higher than at the exact rate)");
         Harness slow(2000.0, 48000.0, 1, 1.0 - 100e-6); prime(slow);
         slow.run(48000 * 20, [](double t, double* s) { s[0] = 0.5 * std::sin(2 * kPi * 30.0 * t); });
         const double slowFill = slow.fillSum / slow.samples, slowTrim = slow.trimSum / slow.samples;
-        check(slowFill > tgt / 2.0 && slowFill < 2.0 * tgt, "S-2 a 100 ppm slow producer: the ring stays near its target over 20 s");
-        check(slowTrim < baseTrim && slowFill < baseFill - 0.2, "S-2 the servo trimmed the step down to match it (ring parked lower than at the exact rate)");
+        std::printf("  S-2 target %d: fill exact %.2f, fast %.2f, slow %.2f; trim exact %.1f ppm, fast %.1f, slow %.1f\n",
+                    tgt, baseFill, fastFill, slowFill, 1e6 * baseTrim, 1e6 * fastTrim, 1e6 * slowTrim);
+        // What the proportional servo holds, measured at the block ends the
+        // harness samples (the low point of its 10-frame push ripple, so
+        // the exact producer reads 4.4 frames under the target and a trim
+        // of about -900 ppm there; the average over a block is the drift):
+        // 100 ppm of drift parks the ring 0.32 frames off the exact
+        // producer's level and moves the block-end trim by 70 ppm. The
+        // band used to be half to twice the target, which a servo holding
+        // nothing at all would have passed for a while.
+        check(std::fabs(fastFill - (baseFill + 0.32)) < 0.15, "S-2 a 100 ppm fast producer parks the ring 0.32 frames above the exact producer's level");
+        check(std::fabs((fastTrim - baseTrim) - 70e-6) < 20e-6, "S-2 ...with the block-end trim 70 ppm higher");
+        check(std::fabs(slowFill - (baseFill - 0.32)) < 0.15, "S-2 a 100 ppm slow producer parks the ring 0.32 frames below");
+        check(std::fabs((slowTrim - baseTrim) + 70e-6) < 20e-6, "S-2 ...with the block-end trim 70 ppm lower");
+        check(std::fabs(baseFill - (tgt - 4.4)) < 0.5, "S-2 the exact producer's ring reads the target less the harness ripple's low point (4.4 frames)");
         check(exact.dsp.underruns() == 0, "S-2 an exact producer never underruns");
         check(fast.dsp.underruns() == 0 && slow.dsp.underruns() == 0, "S-2 neither drift causes an underrun");
         // A 500 Hz control loop (PC) works the same.
@@ -165,10 +196,57 @@ int main()
         const auto gap = h.chan(0, 24000 + 12000, 48000);
         check(peak(gap) < 1e-3, "S-3 an underrun fades to silence");
         check(h.dsp.underruns() == 1, "S-3 one underrun counted for one stall");
-        const auto fade = h.chan(0, 24000, 24000 + 3600);
-        check(maxStep(fade) < 0.02, "S-3 the fade has no click");
         h.run(24000, [](double t, double* s) { s[0] = 0.7 * std::sin(2 * kPi * 25.0 * t); });
         check(rms(h.chan(0, 48000 + 12000, 72000)) > 0.3, "S-3 the chain resumes when the producer returns");
+    }
+    // ---- S-3b: the fade's timing ----
+    {
+        // The underrun fade is kFadeSec = 4 ms from the held level to 0.
+        // Seen at the output through the 300 Hz low-pass (about 1 ms of
+        // delay) and the 5 Hz DC block: 2 ms into the fade the output is
+        // still most of the held level, by 6 ms it is a small residue.
+        // Neither a hard cut (which the low-pass alone smears over about
+        // 2 ms, so "no click" passed with the fade removed) nor a plain
+        // hold (which the DC block bleeds off over 30 ms) gives both. A
+        // 50 Hz tone, pushed frame by frame so the producer stops exactly
+        // at a peak (the held sample is the full level), rendered in 1 ms
+        // blocks from the moment the ring runs dry. Removing the fade
+        // (rd.fade pinned at 1 in render) fails the 6 ms check at about
+        // 0.8 of the level; an instant cut (m_fadeStep = 1) fails the
+        // 2 ms check at about 0.05.
+        ShakerDsp d; d.configure(2000.0, 48000.0, 1);
+        const double A = 0.7;
+        { double z[haptics::MAX_SHAKERS] = {}; for (int i = 0; i < d.target(); ++i) d.push(z, 1); }   // prime to the target
+        auto pushN = [&](int n0, int n1) { for (int n = n0; n < n1; ++n) { double s[haptics::MAX_SHAKERS] = { A * std::sin(2 * kPi * 50.0 * n / 2000.0) }; d.push(s, 1); } };
+        std::vector<float> blk(48);
+        // Settle: a second of tone, pushed in tens between 240-frame renders.
+        int n = 0;
+        for (int b = 0; b < 200; ++b) { pushN(n, n + 10); n += 10; std::vector<float> big(240); d.render(big.data(), 240); }
+        check(d.underruns() == 0, "S-3b the settled chain has not underrun");
+        // Top up to the peak: 50 Hz at 2 kHz peaks every 40 frames at
+        // frame 10 + 40k; push up to and including the next such frame.
+        const int peakFrame = ((n + 39 - 10) / 40) * 40 + 10;
+        pushN(n, peakFrame + 1); n = peakFrame + 1;
+        // Render in 1 ms blocks until the ring runs dry, keeping the
+        // output; then 10 more ms.
+        std::vector<double> out; int dryAt = -1;
+        for (int b = 0; b < 60 && dryAt < 0; ++b)
+        {
+            d.render(blk.data(), 48);
+            for (float x : blk) out.push_back(x);
+            if (d.underruns() > 0) dryAt = static_cast<int>(out.size()) - 48;   // the block in which it ran dry
+        }
+        check(dryAt >= 0, "S-3b the ring ran dry once the producer stopped");
+        for (int b = 0; b < 10; ++b) { d.render(blk.data(), 48); for (float x : blk) out.push_back(x); }
+        // The held level: the output's peak over the last 2 ms before it
+        // ran dry (the tone at its peak, through the DC block).
+        auto blockPeak = [&](int ms) { double m = 0; for (int i = dryAt + 48 * ms; i < dryAt + 48 * (ms + 1) && i < (int)out.size(); ++i) m = std::max(m, std::fabs(out[i])); return m; };
+        double held = 0; for (int i = std::max(0, dryAt - 96); i < dryAt; ++i) held = std::max(held, std::fabs(out[i]));
+        std::printf("  S-3b held %.3f; after the ring ran dry: 1 ms %.3f, 2 ms %.3f, 3 ms %.3f, 4 ms %.3f, 5 ms %.3f, 6 ms %.3f, 8 ms %.3f (of %.3f)\n",
+                    held, blockPeak(1), blockPeak(2), blockPeak(3), blockPeak(4), blockPeak(5), blockPeak(6), blockPeak(8), A);
+        check(held > 0.5 * A, "S-3b the producer stopped at the tone's peak (the held sample is near full level)");
+        check(blockPeak(2) > 0.35 * held, "S-3b 2 ms into the underrun the output is still most of the held level (no hard cut)");
+        check(blockPeak(6) < 0.30 * held, "S-3b 6 ms in it is down to a residue (the 4 ms fade, not a hold the DC block bleeds off)");
     }
 
     // ---- S-4 ----
@@ -181,6 +259,13 @@ int main()
         h.dsp.render(blk.data(), 480);
         bool finite = true; for (float x : blk) finite = finite && std::isfinite(x) && std::fabs(x) <= 1.0f;
         check(finite, "S-4 rendering after a flood is finite and in range");
+        // The first render after a flood skips to the newest frames: the
+        // ring is back at its target less what the render consumed (480
+        // output frames = 20 control frames), not a full ring (256 less
+        // 20) of stale latency. Reverting the skip at the top of render()
+        // leaves 236 here.
+        std::printf("  S-4 fill after the first render following a flood: %d (target %d)\n", h.dsp.fill(0), h.dsp.target());
+        check(h.dsp.fill(0) <= h.dsp.target(), "S-4 the first render after a flood skips to the newest frames (fill at or under the target)");
     }
 
     // ---- S-5 ----
