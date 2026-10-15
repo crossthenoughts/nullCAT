@@ -31,6 +31,10 @@ writeFileSync(dir + '/host.json', JSON.stringify({
   configVersion: 2, simulationMode: true, webPort: PORT,
   gpioMode: 'off', gpioEnabled: false, logToConsole: true,
   webShowDevices: true,   // the Haptics strip and Devices section render
+  // Shakers on the null backend (no card): the haptics idle clock then
+  // steps the layer and publishes the mute state without the control
+  // loop, so the mute clicks below read back through /api/status.
+  shakersEnabled: true, audioDevice: 'null', audioChannels: 2,
 }));
 // A rig with one position axis and one belt (torque) axis: the strip only
 // renders when a torque-capable axis exists to route to.
@@ -74,7 +78,7 @@ const browser = await puppeteer.launch({
   executablePath: chrome, headless: true,
   args: ['--no-sandbox', '--disable-dev-shm-usage'],
 });
-const pageErrors = [], consoleErrors = [];
+const pageErrors = [], consoleErrors = [], posts = [];
 try {
   const page = await browser.newPage();
   page.on('pageerror', e => pageErrors.push(String(e)));
@@ -82,6 +86,9 @@ try {
     // favicon 404 is browser noise, not an app error.
     if (m.type() === 'error' && !m.text().includes('favicon')) consoleErrors.push(m.text());
   });
+  // Every POST the page makes, body and headers: the interaction checks
+  // below assert what the clicks actually sent.
+  page.on('request', r => { if (r.method() === 'POST') posts.push({ url: r.url(), body: r.postData() || '', headers: r.headers() }); });
   // networkidle never settles here (the app polls every 500 ms by design),
   // so wait for DOM, then give the poll and badge timers a few cycles.
   await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -150,7 +157,73 @@ try {
   const nEffects = (schema.effects || []).length;
   const nTokens  = (schema.tokens  || []).length;
 
+  // ---- interactions: the clicks send what they should, and the page
+  // shows what came back ----
+  // A tile's M posts that tile's mute; after a poll the tile carries the
+  // muted class (the idle clock publishes hapMute[]). The master MUTE
+  // posts {"on":true}; after a poll every tile is muted and the Master
+  // tile says MUTED. Then both back off.
+  const clickMute = async (sel) => { await page.evaluate((s) => { document.querySelector(s).click(); }, sel); await sleep(1200); };
+  posts.length = 0;
+  await clickMute('#hapStrip .hap-tile[data-fx="driveline"] [data-mute]');
+  const mute1 = await page.evaluate(() => ({
+    tileMuted: document.querySelector('#hapStrip .hap-tile[data-fx="driveline"]').classList.contains('muted'),
+    otherMuted: document.querySelector('#hapStrip .hap-tile[data-fx="abs"]').classList.contains('muted'),
+    master: (document.getElementById('hapMuteState') || {}).textContent || '' }));
+  await clickMute('#hapMuteBtn');
+  const mute2 = await page.evaluate(() => ({
+    allMuted: Array.from(document.querySelectorAll('#hapStrip .hap-tile[data-fx]')).every(t => t.classList.contains('muted')),
+    master: (document.getElementById('hapMuteState') || {}).textContent || '',
+    btn: (document.getElementById('hapMuteBtn') || {}).textContent || '' }));
+  await clickMute('#hapMuteBtn');
+  const mute3 = await page.evaluate(() => ({
+    anyMuted: Array.from(document.querySelectorAll('#hapStrip .hap-tile[data-fx]')).some(t => t.classList.contains('muted')),
+    master: (document.getElementById('hapMuteState') || {}).textContent || '' }));
+  const mutePosts = posts.filter(p => p.url.endsWith('/api/haptics/mute')).map(p => p.body);
+  // Untick follow car and Save: the strip's Save posts the whole rig with
+  // followCar false and the apply generation the copy was loaded at; the
+  // page reports the save and the file carries it.
+  posts.length = 0;
+  await page.evaluate(() => { const fc = document.getElementById('hapFollowCar'); fc.click(); });
+  await sleep(200);
+  const saveBarShown = await page.evaluate(() => !(document.getElementById('hapSaveBar') || { hidden: true }).hidden);
+  await page.evaluate(() => { document.getElementById('hapSave').click(); });
+  await sleep(1500);
+  const saveStatus = await page.evaluate(() => (document.getElementById('cfgStatus') || {}).textContent || '');
+  const rigPost = posts.find(p => p.url.endsWith('/api/rig'));
+  let rigPostFollow = null, rigPostGen = null;
+  if (rigPost) {
+    try { rigPostFollow = JSON.parse(rigPost.body).global.haptics.followCar; } catch {}
+    rigPostGen = rigPost.headers['x-nullcat-gen'];
+  }
+  const rigAfter = await (await fetch(`http://127.0.0.1:${PORT}/api/rig`)).json();
+  const followAfter = ((rigAfter.global || {}).haptics || {}).followCar;
+  // The shaker status line names each card's own error when none is open
+  // (the status carries per-device errors, never one for the sink).
+  const shakerLine = await page.evaluate(() => {
+    shakerStatus({ shakers: { enabled: true, open: false, channels: 0,
+      devices: [{ name: 'USB Audio', open: false, error: 'card gone', first: 0, channels: 2 }] } });
+    return (document.getElementById('shakerStatus') || {}).textContent || '';
+  });
+
   const fails = [];
+  if (!mute1.tileMuted)         fails.push('tile mute click: the driveline tile did not read back muted after a poll');
+  if (mute1.otherMuted)         fails.push('tile mute click: another tile read back muted');
+  if (mute1.master !== '')      fails.push(`tile mute click: the master reads "${mute1.master}", expected nothing`);
+  if (!mute2.allMuted)          fails.push('master mute click: not every tile read back muted');
+  if (mute2.master !== 'MUTED') fails.push(`master mute click: the master reads "${mute2.master}", expected MUTED`);
+  if (mute2.btn !== 'UNMUTE')   fails.push(`master mute click: the button reads "${mute2.btn}", expected UNMUTE`);
+  if (mute3.anyMuted || mute3.master !== '') fails.push('master unmute click: a tile or the master still reads muted');
+  if (JSON.stringify(mutePosts) !== JSON.stringify(['{"effect":"driveline","on":true}', '{"on":true}', '{"on":false}']))
+    fails.push('mute clicks posted ' + JSON.stringify(mutePosts) + ', expected the tile mute, the master mute, the master unmute');
+  if (!saveBarShown)            fails.push('unticking follow car did not show the strip\'s Save bar');
+  if (!rigPost)                 fails.push('Save did not POST /api/rig');
+  if (rigPostFollow !== false)  fails.push(`Save posted followCar ${JSON.stringify(rigPostFollow)}, expected false`);
+  if (rigPostGen !== '0')       fails.push(`Save sent X-Nullcat-Gen ${JSON.stringify(rigPostGen)}, expected "0" (the generation the page loaded)`);
+  if (!/^Saved/.test(saveStatus)) fails.push(`Save status reads "${saveStatus}", expected Saved`);
+  if (followAfter !== false)    fails.push(`/api/rig carries followCar ${JSON.stringify(followAfter)} after the save, expected false`);
+  if (!shakerLine.includes('card gone') || !shakerLine.includes('USB Audio'))
+    fails.push(`shaker line reads "${shakerLine}" for a card that failed to open, expected the card and its error`);
   if (pageErrors.length)        fails.push('page errors: ' + pageErrors.join(' | '));
   if (consoleErrors.length)     fails.push('console errors: ' + consoleErrors.join(' | '));
   if (st.badge !== 'Connected') fails.push(`badge is "${st.badge}" (poll loop never applied a status)`);

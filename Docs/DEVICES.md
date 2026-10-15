@@ -264,7 +264,13 @@ what the table has for it (`Mazda 787B · stock`, `· yours` for your own
 entry, `· no entry`). **Pull car preset** applies that entry to the five
 tiles. **Follow car** (on by default) does the same by itself whenever the
 sim names a car the table knows; untick it and the table only acts when
-asked. A profile bound to the car wins over the table.
+asked. A profile bound to the car wins over the table. If the table (or a
+starting point, or a profile) moves the tiles while you have unsaved edits
+on the strip, the page keeps your edits and says so; Save then refuses,
+reloads what the controller has, and asks you to make the edits again,
+rather than write your older copy over what was applied. A save of your
+own that moves a setting the car owns clears the car row's "applied" (the
+tiles are yours now, not the entry's) until you pull it again.
 
 A sim sometimes names a car with something after a name the table knows:
 a version letter or a year (Automobilista 2 has a `MINI Cooper S 1965 B`
@@ -282,7 +288,12 @@ four), gearbox, ABS and TC, each tile at the strength the cars in the
 table that have it play it at (ABS and TC play only when they are
 working). In a game the table does not cover, nothing changes:
 the tiles stay as you set them. After a restart the same car keeps its
-tiles as they are, so what you tuned for it by hand stays. The car row reads
+tiles as they are, so what you tuned for it by hand stays, whether the
+table gave it its entry or the defaults: nullCAT remembers the car it
+last acted on in `carstate.json` beside the rig config (machine state,
+safe to delete), and the car row reads as it did before the restart. A
+different car is a car change as ever. The car row of a car on the
+defaults reads
 `· no entry · defaults in use`, and the settings the car table owns are
 tinted pink instead of the usual faint tint (hover one to read why) until
 you pull a preset car or save for this car, or the next car comes on. The

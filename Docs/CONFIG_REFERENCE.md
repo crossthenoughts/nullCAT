@@ -23,6 +23,25 @@ fields survive a save from the UI.
 There is no other config file: a `config.json` next to the executable is
 ignored (the flat-file migration from pre-release builds was retired).
 
+A file that is there but cannot be read (cut short by a crash mid-write, a
+hand edit with a bracket missing) stops nullCAT from starting: the log
+names the file and the parse error, and nothing is written over it. Fix or
+move the file and start again; a missing file is simply written fresh.
+Every save goes to a temporary file beside the target and is renamed over
+it, so a crash mid-save leaves the old file whole. The one time a load
+rewrites a file by itself (a `rig.json` from 0.9.6 with the old slip tile
+keys), the file as it was is kept beside it as `rig.json.bak`.
+
+A value outside its range never stops a start either. The web refuses such
+a value when you save; a hand-edited file is taken as it is, and the log
+lists every value out of range with its file and field. The haptics
+values that would hurt past their range are clamped to it for the run
+(an effect's `ampPct` to 0..100, a route `gain` to 0..2 x, or to the
+axis's `hapticsMaxMm` for a position axis, a shaker `harm` to 1..8,
+`masterGain` to 0..2, `positionBudget` to 0..1, `hapticsMaxMm` to 0..10);
+everything else runs as written. The file is left as it is, so the
+warnings repeat at every start until you fix it.
+
 ## host.json
 
 ### Network, telemetry, web

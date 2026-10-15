@@ -39,8 +39,157 @@ class TestConfigTwoFile : public QObject
     {
         QFile f(path); QVERIFY(f.open(QIODevice::WriteOnly)); f.write(bytes); f.close();
     }
+    static QByteArray readBytes(const QString& path)
+    {
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly)) return {};
+        return f.readAll();
+    }
 
 private slots:
+    // A rig.json that is there but cannot be read (truncated by a crash
+    // mid-write, the way a bench Pi lost its tuning) is a hard error: load
+    // fails naming the file, the file is left byte for byte as it was, the
+    // other file too, and the config in memory keeps what it had. Running
+    // on defaults instead let the boot normalise write them over the file.
+    // Reverting Config::load's Unreadable check (the "hard stop" block)
+    // makes load() return true here and the second QVERIFY fails.
+    void unreadableRig_loadFailsAndTouchesNothing()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        Config cfg; QVERIFY(cfg.load(anchor(dir).toStdString()));   // cold start writes the pair
+        cfg.get().drives[0].strokeMm = 123.0;
+        QVERIFY(cfg.saveRig(anchor(dir).toStdString()));
+        QVERIFY(cfg.load(anchor(dir).toStdString()));
+        QCOMPARE(cfg.get().drives[0].strokeMm, 123.0);
+
+        // Truncate rig.json mid-object, as a crash during a write would.
+        const QByteArray whole = readBytes(dir.path() + "/rig.json");
+        QVERIFY(whole.size() > 100);
+        const QByteArray cut = whole.left(whole.size() / 2);
+        writeText(dir.path() + "/rig.json", cut);
+        const QByteArray host0 = readBytes(dir.path() + "/host.json");
+
+        QVERIFY2(!cfg.load(anchor(dir).toStdString()), "an unreadable rig.json must fail the load, not read as defaults");
+        QVERIFY2(cfg.lastError().find("rig.json") != std::string::npos, cfg.lastError().c_str());
+        QCOMPARE(readBytes(dir.path() + "/rig.json"), cut);     // byte-identical: nothing written over it
+        QCOMPARE(readBytes(dir.path() + "/host.json"), host0);
+        QCOMPARE(cfg.get().drives[0].strokeMm, 123.0);          // the set in memory is kept
+
+        // The saves refuse too: the merge would have nothing to keep, and
+        // the file is the user's to fix.
+        QVERIFY(!cfg.saveRig(anchor(dir).toStdString()));
+        QCOMPARE(readBytes(dir.path() + "/rig.json"), cut);
+        // A zero-byte file is the common crash signature: the same hard stop.
+        writeText(dir.path() + "/rig.json", QByteArray());
+        QVERIFY(!cfg.load(anchor(dir).toStdString()));
+        QCOMPARE(readBytes(dir.path() + "/rig.json"), QByteArray());
+
+        // host.json unreadable with a good rig.json: the same, naming host.json.
+        writeText(dir.path() + "/rig.json", whole);
+        writeText(dir.path() + "/host.json", "{ \"nicName\": ");
+        QVERIFY(!cfg.load(anchor(dir).toStdString()));
+        QVERIFY2(cfg.lastError().find("host.json") != std::string::npos, cfg.lastError().c_str());
+        QCOMPARE(readBytes(dir.path() + "/host.json"), QByteArray("{ \"nicName\": "));
+        QCOMPARE(readBytes(dir.path() + "/rig.json"), whole);
+        QVERIFY(!cfg.saveHost(anchor(dir).toStdString()));
+        QCOMPARE(readBytes(dir.path() + "/host.json"), QByteArray("{ \"nicName\": "));
+        // Both good again: the load is back.
+        writeText(dir.path() + "/host.json", host0);
+        QVERIFY(cfg.load(anchor(dir).toStdString()));
+        QVERIFY(cfg.lastError().empty());
+    }
+
+    // A hand-edited rig past the strip's ranges loads (never refused), with
+    // the values that would hurt clamped to their range, one warning each
+    // naming the file and the field, and the set then validates clean. The
+    // file itself is left as written. Reverting clampHapticsOnLoad (or
+    // the call in Config::load) leaves amp at 500 and no warnings.
+    void outOfRange_loadClampsAndWarns()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        Config seed; QVERIFY(seed.load(anchor(dir).toStdString()));   // cold start: a valid pair
+        QJsonObject rig = readObj(dir.path() + "/rig.json");
+        QJsonObject g = rig.value("global").toObject();
+        QJsonObject h = g.value("haptics").toObject();
+        QJsonObject abs = h.value("abs").toObject();
+        abs["ampPct"] = 500.0;
+        QJsonArray routes; { QJsonObject ro; ro["shaker"] = 0; ro["gain"] = 9.0; ro["harm"] = 12; routes.append(ro); }
+        abs["routes"] = routes;
+        h["abs"] = abs; g["haptics"] = h; rig["global"] = g;
+        const QByteArray text = QJsonDocument(rig).toJson();
+        writeText(dir.path() + "/rig.json", text);
+
+        Config cfg;
+        QVERIFY2(cfg.load(anchor(dir).toStdString()), "an out-of-range value must never refuse the load");
+        const haptics::EffectParams& p = cfg.get().hapticsFx[static_cast<size_t>(haptics::Effect::Abs)];
+        QCOMPARE(p.ampPct, 100.0);
+        QCOMPARE(p.routes[0].shaker, 0);
+        QCOMPARE(p.routes[0].gain, 2.0);
+        QCOMPARE(p.routes[0].harm, 8);
+        const std::vector<std::string>& w = cfg.loadWarnings();
+        QCOMPARE(static_cast<int>(w.size()), 3);
+        for (const std::string& line : w) QVERIFY2(line.find("rig.json: haptics.abs.") == 0, line.c_str());
+        QVERIFY(w[0].find("ampPct") != std::string::npos && w[0].find("500") != std::string::npos);
+        QVERIFY(w[1].find("routes[0].harm") != std::string::npos && w[1].find("12") != std::string::npos);
+        QVERIFY(w[2].find("routes[0].gain") != std::string::npos && w[2].find("9") != std::string::npos);
+        const auto errs = cfg.get().validate();
+        QVERIFY2(errs.empty(), errs.empty() ? "" : errs[0].c_str());
+        QCOMPARE(readBytes(dir.path() + "/rig.json"), text);   // left as written
+
+        // The rest of the clamped set: a position axis's haptic max and a
+        // route to it in mm, the master gain and the position budget; and
+        // a value the clamp does not touch is still reported, with its
+        // file, and runs as read (the load succeeds).
+        rig = readObj(dir.path() + "/rig.json"); g = rig.value("global").toObject(); h = g.value("haptics").toObject();
+        QJsonObject road = h.value("road").toObject();
+        QJsonArray rr; { QJsonObject ro; ro["axis"] = 0; ro["gain"] = 50.0; rr.append(ro); } road["routes"] = rr;
+        h["road"] = road; h["masterGain"] = 5.0; h["positionBudget"] = -1.0;
+        g["haptics"] = h; rig["global"] = g;
+        QJsonArray axes = rig.value("axes").toArray();
+        QJsonObject a0 = axes.at(0).toObject(); a0["hapticsMaxMm"] = 40.0; axes.replace(0, a0); rig["axes"] = axes;
+        writeText(dir.path() + "/rig.json", QJsonDocument(rig).toJson());
+        writeText(dir.path() + "/host.json", "{ \"controlLoopHz\": 123 }\n");
+        Config more;
+        QVERIFY(more.load(anchor(dir).toStdString()));
+        QCOMPARE(more.get().drives[0].hapticsMaxMm, 10.0);
+        QCOMPARE(more.get().hapticsFx[static_cast<size_t>(haptics::Effect::Road)].routes[0].gain, 10.0);   // capped by the axis's max
+        QCOMPARE(more.get().hapticsMasterGain, 2.0);
+        QCOMPARE(more.get().hapticsPositionBudget, 0.0);
+        const std::vector<std::string>& w2 = more.loadWarnings();
+        bool hz = false, maxMm = false, gain = false, master = false, budget = false;
+        for (const std::string& line : w2)
+        {
+            if (line.find("host.json: controlLoopHz") == 0) hz = true;
+            if (line.find("rig.json: axes[0].hapticsMaxMm") == 0) maxMm = true;
+            if (line.find("rig.json: haptics.road.routes[0].gain") == 0) gain = true;
+            if (line.find("rig.json: haptics.masterGain") == 0) master = true;
+            if (line.find("rig.json: haptics.positionBudget") == 0) budget = true;
+        }
+        QVERIFY2(hz && maxMm && gain && master && budget, "every clamp and the validate error must be reported with its file");
+        QCOMPARE(more.get().controlLoopHz, 123);   // runs as read
+    }
+
+    // The atomic writer (QSaveFile: a temporary of its own, renamed over
+    // the target on commit) must not be stopped by a stale rig.json.tmp
+    // beside the file, which an interrupted web save leaves behind, and
+    // must leave that file alone. (A truncating write passes this too; the
+    // truncation it guards against is a crash-time event, which the
+    // unreadable-file test above covers from the other side.)
+    void saveRig_landsBesideStaleTmp()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        Config cfg; QVERIFY(cfg.load(anchor(dir).toStdString()));
+        writeText(dir.path() + "/rig.json.tmp", "garbage left by an interrupted save");
+        cfg.get().drives[0].name = "Landed";
+        QVERIFY(cfg.saveRig(anchor(dir).toStdString()));
+        QJsonObject rig = readObj(dir.path() + "/rig.json");
+        QCOMPARE(rig.value("axes").toArray().at(0).toObject().value("name").toString(), QString("Landed"));
+        QCOMPARE(readBytes(dir.path() + "/rig.json.tmp"), QByteArray("garbage left by an interrupted save"));
+        Config back; QVERIFY(back.load(anchor(dir).toStdString()));
+        QCOMPARE(QString::fromStdString(back.get().drives[0].name), QString("Landed"));
+    }
+
     // Cold start: empty dir -> load() must leave a valid host.json + rig.json.
     void coldStart_writesValidTwoFiles()
     {
@@ -272,9 +421,14 @@ private slots:
         QJsonArray lr; { QJsonObject ro; ro["axis"] = 0; ro["gain"] = 0.8; lr.append(ro); } lockup["routes"] = lr;
         h["skid"] = skid; h["lockup"] = lockup;
         g["haptics"] = h; rig["global"] = g;
-        writeText(dir.path() + "/rig.json", QJsonDocument(rig).toJson());
+        const QByteArray legacyText = QJsonDocument(rig).toJson();
+        writeText(dir.path() + "/rig.json", legacyText);
 
         Config b; QVERIFY(b.load(anchor(dir).toStdString()));
+        // The one rewrite a load makes keeps the file as it was beside it
+        // (rig.json.bak, byte for byte). Reverting the backupFile call in
+        // Config::load fails the next line.
+        QCOMPARE(readBytes(dir.path() + "/rig.json.bak"), legacyText);
         const AppConfig& r = b.get();
         const haptics::EffectParams& lat = r.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)];
         const haptics::EffectParams& lon = r.hapticsFx[static_cast<size_t>(haptics::Effect::Lockup)];
@@ -431,6 +585,55 @@ private slots:
         QCOMPARE(back.active(), std::string(""));
         QCOMPARE(back.profileFor("Porsche 992 GT3 R", "AMS2"), std::string("Quiet"));   // the car binding went with it
         QVERIFY(!back.remove("GT3"));
+    }
+
+    // A profiles.json that is there but cannot be read keeps the set in
+    // memory, fails the load naming the error, and is never written over:
+    // a save goes to profiles.json.rejected and reports failure, until a
+    // later load reads the file. It used to parse to an empty set and
+    // return true, and the next save wrote that emptiness over the user's
+    // profiles. Reverting the parse check in HapticsProfiles::load makes
+    // the load succeed with an empty set and the "kept" row fail.
+    void hapticsProfiles_unreadableFileIsNeverWrittenOver()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        const std::string anchor = (dir.path() + "/config.json").toStdString();
+        HapticsProfiles ps;
+        QJsonObject h; h["masterGain"] = 0.5;
+        ps.put("Mine", h);
+        QVERIFY(ps.save(anchor));
+        const QByteArray good = readBytes(dir.path() + "/profiles.json");
+        QVERIFY(good.size() > 20);
+        const QByteArray cut = good.left(good.size() / 2);
+        writeText(dir.path() + "/profiles.json", cut);
+
+        HapticsProfiles back;
+        back.put("Before", h);
+        QVERIFY2(!back.load(anchor), "an unreadable profiles.json must fail the load");
+        QVERIFY(!back.lastError().empty());
+        QCOMPARE(back.names().size(), (size_t)1);
+        QCOMPARE(back.names()[0], std::string("Before"));            // kept
+        back.put("After", h);
+        QVERIFY2(!back.save(anchor), "a save after a refused load must report failure");
+        QCOMPARE(readBytes(dir.path() + "/profiles.json"), cut);       // never written over
+        QVERIFY(QFile::exists(dir.path() + "/profiles.json.rejected"));
+        QVERIFY(readBytes(dir.path() + "/profiles.json.rejected").contains("\"After\""));
+        // The file readable again: the load takes it and saves land.
+        writeText(dir.path() + "/profiles.json", good);
+        QVERIFY(back.load(anchor));
+        QVERIFY(back.lastError().empty());
+        QCOMPARE(back.names().size(), (size_t)1);
+        QCOMPARE(back.names()[0], std::string("Mine"));
+        back.put("Again", h);
+        QVERIFY(back.save(anchor));
+        QVERIFY(readBytes(dir.path() + "/profiles.json").contains("\"Again\""));
+        // No file at all is no error worth more than false, and saves are fine.
+        QTemporaryDir empty; QVERIFY(empty.isValid());
+        HapticsProfiles fresh;
+        QVERIFY(!fresh.load((empty.path() + "/config.json").toStdString()));
+        QVERIFY(fresh.lastError().empty());
+        fresh.put("New", h);
+        QVERIFY(fresh.save((empty.path() + "/config.json").toStdString()));
     }
 
     // Single-writer isolation: saveRig() must not rewrite host.json (and vice versa).
@@ -743,6 +946,49 @@ private slots:
         QCOMPARE(a0.value("futureExperimentalField").toString(), QString("keep me too"));
         QVERIFY2(a0.contains("customGain"), "Unknown per-axis number dropped.");
         QCOMPARE(a0.value("customGain").toDouble(), 1.23);
+    }
+
+    // Unknown keys INSIDE the haptics object survive a save: a tile this
+    // build does not know and a setting inside a tile it does (a newer
+    // version's, read back by this one), the way the unknown top-level
+    // keys do; the tile's own keys land over it. The haptics object used
+    // to be replaced whole, so every server-side apply (a car entry, a
+    // starting point, a profile) dropped them. Reverting mergeHaptics (the
+    // globalSchema["haptics"] line in saveRig) fails the first QVERIFY.
+    void mergeOnSave_unknownHapticsKeysPreserved()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        Config seed; QVERIFY(seed.load(anchor(dir).toStdString()));
+        QJsonObject rig = readObj(dir.path() + "/rig.json");
+        QJsonObject g = rig.value("global").toObject();
+        QJsonObject h = g.value("haptics").toObject();
+        QJsonObject future; future["ampPct"] = 12.0; future["_note"] = "a tile this build does not have";
+        h["futureTile"] = future;
+        QJsonObject abs = h.value("abs").toObject(); abs["futureParam"] = 7.0; abs["_comment"] = "mine"; abs["ampPct"] = 20.0;
+        h["abs"] = abs;
+        g["haptics"] = h; rig["global"] = g;
+        writeText(dir.path() + "/rig.json", QJsonDocument(rig).toJson());
+
+        Config cfg; QVERIFY(cfg.load(anchor(dir).toStdString()));
+        cfg.get().hapticsFx[static_cast<size_t>(haptics::Effect::Abs)].ampPct = 25.0;   // an edit the save carries
+        QVERIFY(cfg.saveRig(anchor(dir).toStdString()));
+        const QJsonObject h2 = readObj(dir.path() + "/rig.json").value("global").toObject().value("haptics").toObject();
+        QVERIFY2(h2.value("futureTile").isObject(), "unknown tile dropped by saveRig");
+        QCOMPARE(h2.value("futureTile").toObject().value("ampPct").toDouble(), 12.0);
+        const QJsonObject abs2 = h2.value("abs").toObject();
+        QVERIFY2(abs2.contains("futureParam"), "unknown key inside a tile dropped by saveRig");
+        QCOMPARE(abs2.value("futureParam").toDouble(), 7.0);
+        QCOMPARE(abs2.value("_comment").toString(), QString("mine"));
+        QCOMPARE(abs2.value("ampPct").toDouble(), 25.0);                  // the schema's value lands
+        QVERIFY(abs2.value("routes").isArray());
+        // A tile that is not an object in the file is replaced by the schema's.
+        QJsonObject rig3 = readObj(dir.path() + "/rig.json");
+        QJsonObject g3 = rig3.value("global").toObject(); QJsonObject h3 = g3.value("haptics").toObject();
+        h3["kerb"] = 5; g3["haptics"] = h3; rig3["global"] = g3;
+        writeText(dir.path() + "/rig.json", QJsonDocument(rig3).toJson());
+        Config again; QVERIFY(again.load(anchor(dir).toStdString()));
+        QVERIFY(again.saveRig(anchor(dir).toStdString()));
+        QVERIFY(readObj(dir.path() + "/rig.json").value("global").toObject().value("haptics").toObject().value("kerb").isObject());
     }
 
     // webUIEnabled is a HOST field: it must land in host.json and round-trip

@@ -330,11 +330,19 @@ bool CarTable::removeUser(const std::string& key)
 QJsonObject CarTable::toHapticsObject(const QJsonObject& entry)
 {
     QJsonObject h;
+    // Only the keys the car owns cross over (carKeys): a hand-written
+    // entry carrying a rig-owned key (an ABS "sharp", the driveline's
+    // "whinePitch", a route) used to move the rig's setting with the car.
     const auto section = [&](const char* from, const char* to)
     {
         if (!entry.value(from).isObject()) return;
-        QJsonObject o = entry.value(from).toObject();
-        o.remove("routes");
+        const QJsonObject src = entry.value(from).toObject();
+        QJsonObject o;
+        for (const std::string& k : carKeys(to))
+        {
+            const QString qk = QString::fromStdString(k);
+            if (src.contains(qk)) o[qk] = src.value(qk);
+        }
         h[to] = o;
     };
     section("engine", engineKey());

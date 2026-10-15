@@ -408,6 +408,58 @@ Development branch. Nothing here is in a release yet.
   car of the session. Each car's ratios are now remembered the moment the
   sim moves to another car (the car being driven is still written at
   close).
+- A `rig.json` cut short by a crash mid-write (or a hand edit gone wrong)
+  read as no config at all, and the next start wrote the defaults over it,
+  tuning and all. Such a file now stops nullCAT from starting, with the
+  file and the parse error in the log and nothing written over it; every
+  config save goes to a temporary file first and is renamed over the old
+  one, so a crash mid-save leaves the old file whole; and the one rewrite a
+  load makes by itself (the 0.9.6 slip tile keys) keeps the file as it was
+  in `rig.json.bak`.
+- A hand-edited `rig.json` or `host.json` was never checked on load (only
+  a save from the web was), so an amplitude of 500 % ran at 500 %. The
+  load now lists every value out of range in the log, with its file and
+  field, and clamps the haptics values that would hurt (an effect's amp, a
+  route's gain and harmonic, the master gain, the position budget, an
+  axis's haptic max) to the range the strip offers; the rest runs as
+  written. The file is left as it is.
+- A mute request whose body did not say on or off un-muted the rig (it
+  looked for the word true and found none). Such a body is now refused
+  and changes nothing.
+- A number that was not a number (a sender's nan or inf) or a control
+  character in a car name made the whole status unreadable to the page,
+  which then showed the link as lost. Such a number now reads as 0 and
+  every control character is escaped.
+- A page with unsaved edits on the Haptics strip could save them over
+  what follow car, a pull, a starting point or a profile had applied in
+  the meantime (the page only reloads when it has no edits). Every save
+  now says which copy of the settings it edited; a stale one is refused,
+  nothing is written, and the page reloads the controller's settings and
+  asks you to make the edits again. A save of yours that moves a setting
+  the car table owns also clears the car row's "applied".
+- A car that got its entry from the car table had it applied again at
+  every restart, over whatever you had tuned for it by hand (only a car
+  on the defaults was remembered). nullCAT now remembers the car the
+  table last acted on, and whether it got its entry or the defaults, in
+  `carstate.json` beside the rig config: the same car after a restart
+  keeps its tiles as they are and its car row reads as before.
+- The shaker status line said only "not open" when no card could be
+  opened; it now names each card and its own error.
+- A `profiles.json` that could not be read (cut short, a hand edit gone
+  wrong) read as no profiles at all, and the next profile save wrote that
+  emptiness over it. It is now left alone with the reason in the log; a
+  profile saved meanwhile goes to `profiles.json.rejected` and the strip
+  says so, until the file is fixed or moved and nullCAT restarted.
+- A car table entry written by hand with a setting the car does not own
+  (an ABS edge, the whine's pitch, the diff's strength) moved that
+  setting on the rig when the car came on. Only the settings a car owns
+  cross over now; the shipped table is checked to carry nothing else, to
+  name every car once, and to validate on a fresh rig.
+- A setting inside the haptics part of `rig.json` that this build does
+  not know (a newer version's, or a note of your own) was dropped by
+  every apply the controller made itself (a car entry, a starting point,
+  a profile). They survive now, like the unknown keys elsewhere in the
+  file.
 - With follow car on, a car the car table had no entry for kept the last
   car's engine, limiter, driveline, ABS and TC (a Mini played a truck's
   12.9 litre engine). In a game the table covers (Assetto Corsa,

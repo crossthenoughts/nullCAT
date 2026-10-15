@@ -25,8 +25,14 @@
 class HapticsProfiles
 {
 public:
+    // load: false with no file (nothing to load; saves are fine) and false
+    // for a file that is there but is not readable JSON: the set in memory
+    // is kept as it was, lastError() says why, and until a later load
+    // reads the file, save() writes to profiles.json.rejected and returns
+    // false, never over the file (it may be the user's to recover).
     bool load(const std::string& anchorPath);
     bool save(const std::string& anchorPath) const;
+    std::string lastError() const;   // why the last load refused the file, "" when it did not
 
     std::vector<std::string> names() const;                 // sorted
     bool        has(const std::string& name) const;
@@ -52,5 +58,6 @@ private:
     std::map<std::string, QJsonObject> m_profiles;
     std::map<std::string, std::string> m_bindings;
     std::string m_active;
+    std::string m_loadError;   // non-empty: the file on disk was refused, never write over it
     mutable std::mutex m_mx;
 };

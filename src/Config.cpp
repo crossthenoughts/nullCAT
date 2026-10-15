@@ -24,12 +24,15 @@
 #include <QJsonArray>
 #include <QJsonValue>
 #include <QHash>
+#include <QSaveFile>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <cctype>
 #include <cmath>
 #include <stdexcept>
+#include <thread>
 
 // ---------- helpers ----------------------------------------------------------
 
@@ -374,7 +377,9 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                     if (axis < 0 && shaker < 0) continue;
                     p.routes[n].axis   = (shaker >= 0) ? -1 : axis;
                     p.routes[n].shaker = shaker;
-                    p.routes[n].harm   = std::max(1, std::min(8, ro.value("harm").toInt(1)));
+                    // Read as written: validate() refuses a harm outside
+                    // 1..8 on a save, and load() clamps it with a warning.
+                    p.routes[n].harm   = ro.value("harm").toInt(1);
                     p.routes[n].gain   = ro.value("gain").toDouble(0.0);
                     p.routes[n].part   = haptics::partFromKey(ro.value("part").toString("all").toStdString().c_str());
                     ++n;
@@ -758,22 +763,22 @@ Config::Config()
 void Config::setDefaults()
 {
     m_config = AppConfig{};
-    seedDefaultDrive();
+    seedDefaultDrive(m_config);
 }
 
-// Seed the default Drive 1 WITHOUT resetting m_config. load() calls this when
-// host.json exists but rig.json does not (a fresh install with a seeded
-// host.json): a full setDefaults() there would wipe the host fields that were
-// just read.
-void Config::seedDefaultDrive()
+// Seed the default Drive 1 WITHOUT resetting the rest of the config. load()
+// calls this when host.json exists but rig.json does not (a fresh install
+// with a seeded host.json): a full setDefaults() there would wipe the host
+// fields that were just read.
+void Config::seedDefaultDrive(AppConfig& c)
 {
     DriveConfig d;
     d.slaveIndex = 1;
     d.name       = "Drive 1";
     recomputeDerivedFields(d);
-    m_config.drives.clear();
-    m_config.drives.push_back(d);
-    m_config.numDrives = 1;
+    c.drives.clear();
+    c.drives.push_back(d);
+    c.numDrives = 1;
 }
 
 void Config::recomputeDerivedFields(DriveConfig& d)
@@ -794,25 +799,67 @@ static QString configDir(const std::string& anchorPath)
 static QString hostFile(const QString& dir) { return dir + "/host.json"; }
 static QString rigFile (const QString& dir) { return dir + "/rig.json";  }
 
-static bool readJsonObject(const QString& path, QJsonObject& out)
+// A JSON object file is one of three things to a load: not there (a cold
+// start, or the missing half of the pair), there but not readable as a JSON
+// object (truncated by a crash mid-write, a hand edit gone wrong; why in
+// err), or read. The two failures must never be confused: an absent file
+// gets defaults written, an unreadable one must not.
+enum class JsonRead { Absent, Unreadable, Ok };
+static JsonRead readJsonObject(const QString& path, QJsonObject& out, QString* err = nullptr)
 {
     QFile f(path);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
-    QByteArray data = f.readAll();
+    if (!f.exists()) return JsonRead::Absent;
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+    {
+        if (err) *err = f.errorString();
+        return JsonRead::Unreadable;
+    }
+    const QByteArray data = f.readAll();
     f.close();
     QJsonParseError pe;
-    QJsonDocument doc = QJsonDocument::fromJson(data, &pe);
-    if (pe.error != QJsonParseError::NoError || !doc.isObject()) return false;
+    const QJsonDocument doc = QJsonDocument::fromJson(data, &pe);
+    if (pe.error != QJsonParseError::NoError)
+    {
+        if (err) *err = pe.errorString() + QString(" at offset %1").arg(pe.offset);
+        return JsonRead::Unreadable;
+    }
+    if (!doc.isObject())
+    {
+        if (err) *err = "not a JSON object";
+        return JsonRead::Unreadable;
+    }
     out = doc.object();
-    return true;
+    return JsonRead::Ok;
 }
+// Written to a temporary file beside the target and renamed over it on
+// commit (QSaveFile), so a crash or a full disk mid-write leaves the old
+// file whole, never a truncated one: a truncated rig.json once read as
+// "no config" and the next start wrote defaults over the rig's tuning. A
+// stale <name>.tmp left by an interrupted web save is no obstacle
+// (QSaveFile names its own temporary). On Windows the rename can fail for
+// a few tens of ms while another reader (the native app's file watcher,
+// a virus scan) holds the target open; a short retry absorbs that.
 static bool writeJsonObject(const QString& path, const QJsonObject& obj)
 {
-    QFile f(path);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
-    f.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
-    f.close();
-    return true;
+    const QByteArray text = QJsonDocument(obj).toJson(QJsonDocument::Indented);
+    for (int attempt = 0; attempt < 8; ++attempt)
+    {
+        if (attempt > 0) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        QSaveFile f(path);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) continue;
+        f.write(text);
+        if (f.commit()) return true;
+    }
+    return false;
+}
+// A copy of a file beside it as <name>.bak, replacing an older one: taken
+// before load() rewrites a file (the retired-key migration), so the file
+// as the user had it is never gone.
+static bool backupFile(const QString& path)
+{
+    const QString bak = path + ".bak";
+    QFile::remove(bak);
+    return QFile::copy(path, bak);
 }
 // Overlay schema keys onto dst, leaving unknown keys already in dst untouched
 // (merge-on-save: user annotations / future-build fields survive).
@@ -820,6 +867,30 @@ static void overlayKeys(QJsonObject& dst, const QJsonObject& schema)
 {
     for (auto it = schema.constBegin(); it != schema.constEnd(); ++it)
         dst[it.key()] = it.value();
+}
+// The haptics object merges per tile: a key inside a tile this build does
+// not know (a newer version's setting, read back by an older build, or a
+// hand annotation) survives a save the way the unknown top-level keys do;
+// a tile's schema keys (routes included, always written) land over it. A
+// tile that is not an object in the file is replaced. The retired keys
+// (0.9.6 "skid"/"lockup") are dropped: the migration rewrite means them
+// to be, and the web serves the file as is.
+static QJsonObject mergeHaptics(const QJsonObject& existing, const QJsonObject& schema)
+{
+    QJsonObject out = existing;
+    for (auto it = schema.constBegin(); it != schema.constEnd(); ++it)
+    {
+        if (it.value().isObject() && out.value(it.key()).isObject())
+        {
+            QJsonObject tile = out.value(it.key()).toObject();
+            overlayKeys(tile, it.value().toObject());
+            out[it.key()] = tile;
+        }
+        else out[it.key()] = it.value();
+    }
+    for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+        if (const char* legacy = haptics::legacyEffectKey(haptics::effectInfo(i).id)) out.remove(legacy);
+    return out;
 }
 // Merge a per-axis array by slaveIndex so unknown per-axis keys survive.
 static QJsonArray mergeAxes(const QJsonArray& existing, const QJsonArray& schema)
@@ -862,27 +933,118 @@ static void loadAxesArray(const QJsonArray& axes, std::vector<DriveConfig>& driv
     }
 }
 
+// ---- validate-and-warn on load -----------------------------------------------
+// A hand-edited file can carry a value past the range the strip offers.
+// The web refuses such a body on save; a load takes the file as it is,
+// so the values that would hurt past their range are clamped to it, each
+// with a warning that names the file and the field: an amplitude of 500 %
+// (five times what the strip can ask for), a route gain of 9 x, a shaker
+// harmonic of 12, the master gain, the position budget and an axis's
+// haptic max. Everything else out of range is reported by validate() and
+// runs as read. The file is left as written, so the warning repeats at
+// every start until it is fixed. One small function, so a registry-driven
+// clamp over every ParamSpec row can replace it later.
+static void clampHapticsOnLoad(AppConfig& c, std::vector<std::string>& warnings)
+{
+    const auto clampD = [&warnings](double& v, double lo, double hi, const std::string& field)
+    {
+        if (v >= lo && v <= hi) return;
+        const double was = v;
+        v = std::max(lo, std::min(hi, v));
+        char buf[200];
+        snprintf(buf, sizeof(buf), "rig.json: %s is %g, outside [%g, %g]: running at %g", field.c_str(), was, lo, hi, v);
+        warnings.push_back(buf);
+    };
+    const auto clampI = [&warnings](int& v, int lo, int hi, const std::string& field)
+    {
+        if (v >= lo && v <= hi) return;
+        const int was = v;
+        v = std::max(lo, std::min(hi, v));
+        warnings.push_back("rig.json: " + field + " is " + std::to_string(was) + ", outside [" + std::to_string(lo)
+                           + ", " + std::to_string(hi) + "]: running at " + std::to_string(v));
+    };
+    // The axes first: a position route's gain is capped by its axis's max.
+    for (size_t i = 0; i < c.drives.size(); ++i)
+        clampD(c.drives[i].hapticsMaxMm, 0.0, 10.0, "axes[" + std::to_string(i) + "].hapticsMaxMm");
+    for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+    {
+        const haptics::EffectInfo& info = haptics::effectInfo(i);
+        haptics::EffectParams& p = c.hapticsFx[static_cast<size_t>(i)];
+        const std::string pfx = std::string("haptics.") + info.key + ".";
+        double ampLo = 0.0, ampHi = 100.0;   // the registry's amp % row, every tile's
+        for (int k = 0; k < info.paramCount; ++k)
+            if (std::strcmp(info.params[k].key, "ampPct") == 0) { ampLo = info.params[k].min; ampHi = info.params[k].max; }
+        clampD(p.ampPct, ampLo, ampHi, pfx + "ampPct");
+        for (int n = 0; n < haptics::MAX_ROUTES; ++n)
+        {
+            haptics::Route& r = p.routes[n];
+            if (r.axis == -1 && r.shaker == -1 && r.gain <= 0.0) continue;   // unused slot
+            const std::string rpfx = pfx + "routes[" + std::to_string(n) + "].";
+            clampI(r.harm, 1, 8, rpfx + "harm");
+            // The gain's unit follows the destination (as validate() reads
+            // it): a shaker or a torque axis takes a multiplier up to 2, a
+            // position axis millimetres up to its own haptic max.
+            double hi = 2.0;
+            if (r.shaker < 0 && r.axis >= 0 && static_cast<size_t>(r.axis) < c.drives.size()
+                && c.drives[static_cast<size_t>(r.axis)].mode != "torque")
+                hi = c.drives[static_cast<size_t>(r.axis)].hapticsMaxMm;
+            clampD(r.gain, 0.0, hi, rpfx + "gain");
+        }
+    }
+    clampD(c.hapticsMasterGain, 0.0, 2.0, "haptics.masterGain");
+    clampD(c.hapticsPositionBudget, 0.0, 1.0, "haptics.positionBudget");
+}
+
+// Which file a validate() error belongs to, for the warning that reports
+// it: the host fields the validator checks are few and named first in
+// their message; everything else is the rig's.
+static const char* fileForError(const std::string& e)
+{
+    static const char* const kHostFields[] = { "controlLoopHz", "ncxFrozenMs", "pdoWatchdogMs", "sync0RecycleRounds",
+                                               "audioChannels", "audioDevices" };
+    for (const char* f : kHostFields)
+        if (e.rfind(f, 0) == 0) return "host.json";
+    return "rig.json";
+}
+
 bool Config::load(const std::string& anchorPath)
 {
     const QString dir    = configDir(anchorPath);
+    m_loadWarnings.clear();
 
     QJsonObject hostObj, rigObj;
-    const bool haveHost = readJsonObject(hostFile(dir), hostObj);
-    const bool haveRig  = readJsonObject(rigFile(dir),  rigObj);
+    QString hostErr, rigErr;
+    const JsonRead host = readJsonObject(hostFile(dir), hostObj, &hostErr);
+    const JsonRead rig  = readJsonObject(rigFile(dir),  rigObj,  &rigErr);
 
-    if (haveHost || haveRig)
+    // A file that is there but cannot be read is a hard stop, never a
+    // reason to run on defaults: the mains normalise the config to disk
+    // right after loading it, and every server-side apply saves, so
+    // defaults here would be written over whatever the file still holds.
+    // The config in memory stays as it was (a reload from the web keeps
+    // running on the set it had); the file is left for the user to fix.
+    if (host == JsonRead::Unreadable || rig == JsonRead::Unreadable)
+    {
+        const bool h = (host == JsonRead::Unreadable);
+        m_lastError = (h ? hostFile(dir) : rigFile(dir)).toStdString() + " cannot be read ("
+                    + (h ? hostErr : rigErr).toStdString()
+                    + "): fix or move the file; nothing has been written over it";
+        return false;
+    }
+
+    if (host == JsonRead::Ok || rig == JsonRead::Ok)
     {
         // ---- native two-file format (the steady state) ----
-        m_config = AppConfig{};
-        if (haveHost) readHostConfig(hostObj, m_config);
+        AppConfig c;
+        if (host == JsonRead::Ok) readHostConfig(hostObj, c);
         bool rewriteRig = false;
-        if (haveRig)
+        if (rig == JsonRead::Ok)
         {
-            m_config.configVersion = rigObj.value("configVersion").toInt(2);
-            readRigGlobal(rigObj.value("global").toObject(), m_config);
-            loadAxesArray(rigObj.value("axes").toArray(), m_config.drives);
-            int nd = rigObj.value("numDrives").toInt(static_cast<int>(m_config.drives.size()));
-            m_config.numDrives = std::max(1, std::min(nd, static_cast<int>(m_config.drives.size())));
+            c.configVersion = rigObj.value("configVersion").toInt(2);
+            readRigGlobal(rigObj.value("global").toObject(), c);
+            loadAxesArray(rigObj.value("axes").toArray(), c.drives);
+            int nd = rigObj.value("numDrives").toInt(static_cast<int>(c.drives.size()));
+            c.numDrives = std::max(1, std::min(nd, static_cast<int>(c.drives.size())));
             // A file carrying a haptic effect under a retired key (0.9.6
             // "skid"/"lockup") was read through the migration; rewrite it
             // once under the current keys so the web, which serves the file
@@ -896,9 +1058,17 @@ bool Config::load(const std::string& anchorPath)
                 if (legacy && h.contains(legacy)) rewriteRig = true;
             }
         }
-        if (m_config.drives.empty()) seedDefaultDrive();
+        if (c.drives.empty()) seedDefaultDrive(c);
+        m_config = c;
         m_lastError.clear();
-        if (rewriteRig) saveRig(anchorPath);
+        // The one rewrite a load makes keeps the file as it was beside it,
+        // and writes the values as read (the clamp below is in memory only).
+        if (rewriteRig && backupFile(rigFile(dir))) saveRig(anchorPath);
+        // Clamp and warn, never refuse: the rig runs at the edge of its
+        // range instead of beyond it or not at all, and the log says so.
+        clampHapticsOnLoad(m_config, m_loadWarnings);
+        for (const std::string& e : m_config.validate())
+            m_loadWarnings.push_back(std::string(fileForError(e)) + ": " + e);
         return true;
     }
 
@@ -918,12 +1088,14 @@ bool Config::load(const std::string& anchorPath)
 }
 
 // host.json - single writer (Qt on PC, web on Pi). Merge-on-save preserves
-// unknown keys already in the file.
+// unknown keys already in the file. A file that is there but unreadable is
+// never written over (the merge would have nothing to keep): the save
+// fails, as the load of it did.
 bool Config::saveHost(const std::string& anchorPath) const
 {
     const QString path = hostFile(configDir(anchorPath));
     QJsonObject existing;
-    readJsonObject(path, existing);            // ignore failure: empty -> fresh write
+    if (readJsonObject(path, existing) == JsonRead::Unreadable) return false;   // absent: a fresh write
     QJsonObject schema;
     writeHostConfig(m_config, schema);
     overlayKeys(existing, schema);
@@ -932,16 +1104,18 @@ bool Config::saveHost(const std::string& anchorPath) const
 
 // rig.json - single writer (the web UI on both platforms). { configVersion,
 // numDrives, global:{...}, axes:[...] }. Unknown keys in global and per-axis
-// survive (merge-on-save); axes merge by slaveIndex.
+// survive (merge-on-save); axes merge by slaveIndex. Same rule as saveHost
+// for a file that is there but unreadable: never written over.
 bool Config::saveRig(const std::string& anchorPath) const
 {
     const QString path = rigFile(configDir(anchorPath));
     QJsonObject existing;
-    readJsonObject(path, existing);
+    if (readJsonObject(path, existing) == JsonRead::Unreadable) return false;
 
     QJsonObject globalMerged = existing.value("global").toObject();
     QJsonObject globalSchema;
     writeRigGlobal(m_config, globalSchema);
+    globalSchema["haptics"] = mergeHaptics(globalMerged.value("haptics").toObject(), globalSchema.value("haptics").toObject());
     overlayKeys(globalMerged, globalSchema);
 
     QJsonArray axesSchema;
@@ -979,7 +1153,7 @@ std::vector<std::string> Config::validateRigBody(const std::string& anchorPath,
 {
     AppConfig c;
     QJsonObject hostObj;
-    if (readJsonObject(hostFile(configDir(anchorPath)), hostObj))
+    if (readJsonObject(hostFile(configDir(anchorPath)), hostObj) == JsonRead::Ok)
         readHostConfig(hostObj, c);
 
     QJsonParseError pe;
@@ -1017,7 +1191,7 @@ std::vector<std::string> Config::validateHostBody(const std::string& anchorPath,
 {
     AppConfig c;
     QJsonObject rigObj;
-    if (readJsonObject(rigFile(configDir(anchorPath)), rigObj))
+    if (readJsonObject(rigFile(configDir(anchorPath)), rigObj) == JsonRead::Ok)
     {
         readRigGlobal(rigObj.value("global").toObject(), c);
         loadAxesArray(rigObj.value("axes").toArray(), c.drives);

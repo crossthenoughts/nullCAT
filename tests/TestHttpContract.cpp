@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
+// SPDX-FileCopyrightText: 2026 Tim Palmgren (Ã˜ Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ============================================================
 // TestHttpContract.cpp - pins Docs/COMMAND_CONTRACT.md at the HTTP layer.
@@ -33,8 +33,12 @@
 #include "Config.h"
 #include "Logging.h"
 #include "httplib.h"
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <string>
@@ -73,6 +77,101 @@ static bool has(const std::string& body, const char* token)
     return body.find(token) != std::string::npos;
 }
 
+// A POST with extra headers, status code included (the 409 contract).
+struct Reply { int status = 0; std::string body; };
+static Reply postHdr(const char* path, const std::string& body, const httplib::Headers& headers)
+{
+    httplib::Client cli(HOST, PORT);
+    cli.set_read_timeout(5, 0);
+    auto r = cli.Post(path, headers, body, "application/json");
+    Reply out;
+    if (r) { out.status = r->status; out.body = r->body; }
+    return out;
+}
+
+// GET /api/rig: the body and the apply generation it belongs to
+// (X-Nullcat-Gen), -1 when the header is missing.
+static bool getRig(std::string& body, int& gen)
+{
+    httplib::Client cli(HOST, PORT);
+    cli.set_read_timeout(2, 0);
+    auto r = cli.Get("/api/rig");
+    if (!r) return false;
+    body = r->body;
+    gen  = r->has_header("X-Nullcat-Gen") ? std::atoi(r->get_header_value("X-Nullcat-Gen").c_str()) : -1;
+    return r->status == 200;
+}
+
+// The status's hapCarGen, -1 when missing.
+static int genNow()
+{
+    const std::string st = get("/api/status");
+    const size_t a = st.find("\"hapCarGen\":");
+    return (a == std::string::npos) ? -1 : std::atoi(st.c_str() + a + 12);
+}
+
+// A freshly started server answers once its thread has bound the port,
+// which on a loaded machine is a second or two after start() returns.
+static bool waitUp(int port, int timeoutMs)
+{
+    for (int t = 0; t < timeoutMs; t += 100)
+    {
+        httplib::Client cli(HOST, port);
+        cli.set_read_timeout(1, 0);
+        auto r = cli.Get("/");
+        if (r) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    return false;
+}
+
+// The rig body with one haptics key (top level of the haptics object, or
+// inside a tile) set to a number, for the save tests.
+static std::string rigWith(const std::string& body, const char* tile, const char* key, double value)
+{
+    QJsonObject root = QJsonDocument::fromJson(QByteArray::fromStdString(body)).object();
+    QJsonObject g = root.value("global").toObject();
+    QJsonObject h = g.value("haptics").toObject();
+    if (tile) { QJsonObject t = h.value(tile).toObject(); t[key] = value; h[tile] = t; }
+    else h[key] = value;
+    g["haptics"] = h; root["global"] = g;
+    return QJsonDocument(root).toJson().toStdString();
+}
+
+// The same for a top-level haptics switch.
+static std::string rigWithBool(const std::string& body, const char* key, bool value)
+{
+    QJsonObject root = QJsonDocument::fromJson(QByteArray::fromStdString(body)).object();
+    QJsonObject g = root.value("global").toObject();
+    QJsonObject h = g.value("haptics").toObject();
+    h[key] = value;
+    g["haptics"] = h; root["global"] = g;
+    return QJsonDocument(root).toJson().toStdString();
+}
+
+// A body with its spaces removed (the file is indented, a space after each colon).
+static std::string compact(std::string s)
+{
+    s.erase(std::remove(s.begin(), s.end(), ' '), s.end());
+    s.erase(std::remove(s.begin(), s.end(), '\n'), s.end());
+    return s;
+}
+
+// Name a car the way a plugin does it (a NULLCATY line fed straight in)
+// while the status is polled for `want`.
+static bool nameCar(TelemetryInput& telemetry, const char* game, const char* car, const char* want, int timeoutMs)
+{
+    for (int t = 0, rpm = 2000; t < timeoutMs; t += 100, rpm += 7)
+    {
+        const std::string line = std::string("NULLCATY,game=") + game + ",car=" + car + ",rpm=" + std::to_string(rpm);
+        TelemetryData td;
+        if (TelemetryInput::parsePacket(line.c_str(), static_cast<int>(line.size()), td)) telemetry.ingest(td);
+        if (has(get("/api/status"), want)) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    return false;
+}
+
 // Poll /api/status until it contains `token` (or timeout). The contract says
 // outcome truth is status polling - the tests obey their own contract.
 static bool waitStatus(const char* token, int timeoutMs)
@@ -83,6 +182,24 @@ static bool waitStatus(const char* token, int timeoutMs)
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     return false;
+}
+
+// One tile's mute from the status's hapMute[] (registry order), -1 when
+// the list is missing or short.
+static int muteAt(const std::string& st, int idx)
+{
+    const size_t a = st.find("\"hapMute\":[");
+    if (a == std::string::npos) return -1;
+    size_t p = a + 11;
+    for (int i = 0; i < idx; ++i)
+    {
+        p = st.find(',', p);
+        if (p == std::string::npos) return -1;
+        ++p;
+    }
+    if (st.compare(p, 4, "true") == 0) return 1;
+    if (st.compare(p, 5, "false") == 0) return 0;
+    return -1;
 }
 
 // BELT-ONLY rig: sim drives cannot complete a torque-hardstop homing search
@@ -177,10 +294,31 @@ int main()
         std::printf("[FAIL] WebServer failed to start on %s:%d\n", HOST, PORT);
         return 1;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    check(waitUp(PORT, 10000), "WebServer answers on its port");
 
     // ---- surface up before engine: status + meta respond ----
     check(has(get("/api/status"), "\"loopRunning\""), "GET /api/status responds pre-init");
+    // The hand-built status must be JSON whatever the numbers and strings
+    // hold: a non-finite number prints as 0 and a control character in a
+    // string is escaped (reverting either in WebServer::jsonDouble /
+    // jsonStr fails the unit rows; "nan" or a raw tab in the text made the
+    // page's poll loop swallow the whole status).
+    {
+        QJsonParseError pe;
+        const std::string st = get("/api/status");
+        QJsonDocument::fromJson(QByteArray(st.c_str(), (int)st.size()), &pe);
+        check(pe.error == QJsonParseError::NoError, "GET /api/status is parseable JSON");
+        check(WebServer::jsonDouble(std::nan(""), 3) == "0.000" && WebServer::jsonDouble(INFINITY, 1) == "0.0"
+              && WebServer::jsonDouble(-INFINITY, 0) == "0" && WebServer::jsonDouble(1.5, 2) == "1.50",
+              "jsonDouble: nan and inf print as 0, finite values as before");
+        check(WebServer::jsonStr("a\tb\x01" "c\"d\\e\n") == "\"a\\tb\\u0001c\\\"d\\\\e\\n\"",
+              "jsonStr: control characters, quote and backslash escaped");
+        const std::string esc = WebServer::jsonStr("\x1f" "x\x7f");
+        QJsonParseError pe2;
+        const QJsonDocument back = QJsonDocument::fromJson(QByteArray(("[" + esc + "]").c_str()), &pe2);
+        check(pe2.error == QJsonParseError::NoError && back.array().at(0).toString() == QString::fromUtf8("\x1f" "x\x7f"),
+              "jsonStr: every escape parses back to the same text");
+    }
     check(has(get("/api/meta"),   "hostOwner"),       "GET /api/meta exposes hostOwner");
     check(has(get("/api/meta"),   "\"rigPendingRestart\":false"),
           "GET /api/meta: pending-restart flags present, false with no saves");
@@ -232,6 +370,15 @@ int main()
     check(has(post("/api/haptics/mute", "{\"effect\":\"driveline\",\"on\":1}"), "\"ok\":true")
           && has(post("/api/haptics/mute", "{\"effect\":\"driveline\",\"on\":0}"), "\"ok\":true"),
           "POST /api/haptics/mute takes 1/0 as well as true/false");
+    // A body without a boolean or numeric "on" is refused at the HTTP
+    // layer (it used to fall back to a substring search for "true", so
+    // "garbage" un-muted the rig). Whether it also changed nothing is read
+    // back once the loop publishes the mute state, below.
+    check(has(post("/api/haptics/mute", "garbage"), "\"ok\":false")
+          && has(post("/api/haptics/mute", "{}"), "\"ok\":false")
+          && has(post("/api/haptics/mute", "{\"on\":\"yes\"}"), "\"ok\":false")
+          && has(post("/api/haptics/mute", "{\"effect\":\"driveline\"}"), "\"ok\":false"),
+          "POST /api/haptics/mute refuses a body without a boolean or numeric on");
     check(has(get("/api/haptics/schema"), "\"carKeys\":[\"ampPct\",\"jitter\",\"clutch\"")
           && has(get("/api/haptics/schema"), "\"carKeys\":[]") && has(get("/api/haptics/schema"), "\"id\":0"),
           "GET /api/haptics/schema marks the settings that follow the car, per tile");
@@ -241,6 +388,14 @@ int main()
           "GET /api/haptics/status returns the games list and the per-effect record");
     check(has(post("/api/haptics/status/clear", "{\"all\":true}"), "\"ok\":true"),
           "POST /api/haptics/status/clear accepted");
+    {
+        // ...and read back: no game remembered, every dot grey.
+        std::string dots = "\"hapDots\":[";
+        for (int i = 0; i < haptics::EFFECT_COUNT; ++i) dots += (i ? ",0" : "0");
+        dots += "]";
+        check(has(get("/api/haptics/status"), "\"games\":[]") && has(get("/api/status"), dots.c_str()),
+              "status/clear read back: no games remembered, every sim dot grey");
+    }
     check(has(get("/api/status"), "\"hapDots\":[") && has(get("/api/status"), "\"hapGame\":")
           && has(get("/api/status"), "\"ncxFrozen\":false") && has(get("/api/status"), "\"hapProfile\":"),
           "GET /api/status carries hapDots, hapGame, hapProfile and ncxFrozen");
@@ -267,23 +422,49 @@ int main()
           "GET /api/shakers/devices lists playback devices (possibly none)");
     check(has(post("/api/shakers/test", "{\"channel\":0}"), "No shaker output is open"),
           "POST /api/shakers/test refuses with a reason when shakers are off");
-    // Profiles: save snapshots the saved set, it lists, loads (applies
-    // live), binds to a car name, and deletes; an unknown name is refused.
-    check(has(post("/api/haptics/profiles/save", "{\"name\":\"Bench\"}"), "\"ok\":true"),
-          "POST /api/haptics/profiles/save snapshots the saved haptics set");
-    check(has(get("/api/haptics/profiles"), "\"profiles\":[\"Bench\"]") && has(get("/api/haptics/profiles"), "\"active\":\"Bench\""),
-          "GET /api/haptics/profiles lists it as active");
-    check(has(post("/api/haptics/profiles/load", "{\"name\":\"Bench\"}"), "\"ok\":true"),
-          "POST /api/haptics/profiles/load applies it");
-    check(has(post("/api/haptics/profiles/load", "{\"name\":\"nope\"}"), "\"ok\":false"),
-          "POST /api/haptics/profiles/load refuses an unknown name");
-    check(has(post("/api/haptics/profiles/bind", "{\"name\":\"Bench\",\"car\":\"Test Car\"}"), "\"key\":\"car:Test Car\""),
-          "POST /api/haptics/profiles/bind ties a car to it");
-    check(has(get("/api/haptics/profiles"), "\"car:Test Car\":\"Bench\""),
-          "GET /api/haptics/profiles shows the binding");
-    check(has(post("/api/haptics/profiles/delete", "{\"name\":\"Bench\"}"), "\"ok\":true")
-          && has(get("/api/haptics/profiles"), "\"profiles\":[]"),
-          "POST /api/haptics/profiles/delete forgets it and its binding");
+    // Profiles: save snapshots the saved set, it lists, loads (the saved
+    // rig's haptics object is the snapshot again, an edit made in between
+    // undone), binds to a car name (naming that car loads it), and
+    // deletes; an unknown name is refused.
+    {
+        const auto hapticsOf = [](const std::string& body) -> QJsonObject
+        {
+            QJsonObject h = QJsonDocument::fromJson(QByteArray::fromStdString(body)).object()
+                                .value("global").toObject().value("haptics").toObject();
+            h.remove("followCar");   // the rig's, never a profile's
+            return h;
+        };
+        const QJsonObject snapshot = hapticsOf(get("/api/rig"));
+        check(has(post("/api/haptics/profiles/save", "{\"name\":\"Bench\"}"), "\"ok\":true"),
+              "POST /api/haptics/profiles/save snapshots the saved haptics set");
+        check(has(get("/api/haptics/profiles"), "\"profiles\":[\"Bench\"]") && has(get("/api/haptics/profiles"), "\"active\":\"Bench\""),
+              "GET /api/haptics/profiles lists it as active");
+        // An edit after the snapshot, then the load: the file is the snapshot again.
+        {
+            std::string body; int gen = -1;
+            check(getRig(body, gen), "GET /api/rig for an edit after the snapshot");
+            const Reply r = postHdr("/api/rig", rigWith(body, nullptr, "masterGain", 0.6), {{"X-Nullcat-Gen", std::to_string(gen)}});
+            check(r.status == 200 && hapticsOf(get("/api/rig")) != snapshot, "the edit (master gain 0.6) lands and differs from the snapshot");
+        }
+        const int genBefore = genNow();
+        check(has(post("/api/haptics/profiles/load", "{\"name\":\"Bench\"}"), "\"ok\":true"),
+              "POST /api/haptics/profiles/load applies it");
+        check(hapticsOf(get("/api/rig")) == snapshot && has(get("/api/status"), "\"hapProfile\":\"Bench\""),
+              "profile load read back: the saved haptics object is the snapshot again, the status names it");
+        check(genNow() == genBefore + 1, "a profile load moves the apply generation (a page refreshes its copy)");
+        check(has(post("/api/haptics/profiles/load", "{\"name\":\"nope\"}"), "\"ok\":false"),
+              "POST /api/haptics/profiles/load refuses an unknown name");
+        check(has(post("/api/haptics/profiles/bind", "{\"name\":\"Bench\",\"car\":\"Test Car\"}"), "\"key\":\"car:Test Car\""),
+              "POST /api/haptics/profiles/bind ties a car to it");
+        check(has(get("/api/haptics/profiles"), "\"car:Test Car\":\"Bench\""),
+              "GET /api/haptics/profiles shows the binding");
+        // A second profile, so Bench is not the active one: whether the
+        // binding loads it when the sim names the bound car is checked
+        // after the car table rows below (naming a car sets the car row).
+        check(has(post("/api/haptics/profiles/save", "{\"name\":\"Other\"}"), "\"ok\":true")
+              && has(get("/api/haptics/profiles"), "\"active\":\"Other\""),
+              "a second profile saved is the active one");
+    }
     // Car table: the shipped file beside the config lists, an entry pulled
     // by key lands in the saved rig (five tiles only, routes untouched),
     // the status carries the car fields, and with no car named by the sim
@@ -296,9 +477,12 @@ int main()
               && has(get("/api/cars/list"), "\"source\":\"stock\""),
               "GET /api/cars/list carries every entry with key, name and layer");
         const std::string st = get("/api/status");
+        // The apply generation moved once so far: the Bench profile load
+        // above is a rewrite of the live set like a pull is.
         check(has(st, "\"hapCar\":\"\"") && has(st, "\"hapCarKey\":\"\"") && has(st, "\"hapCarSrc\":\"\"")
-              && has(st, "\"hapCarApplied\":false") && has(st, "\"hapCarGen\":0"),
-              "GET /api/status carries the car table fields (hapCar/Key/Src/Applied/Gen)");
+              && has(st, "\"hapCarApplied\":false") && has(st, "\"hapCarGen\":") && genNow() == 1,
+              "GET /api/status carries the car table fields (hapCar/Key/Src/Applied/Gen; the profile load moved Gen once)");
+        const int gen0 = genNow();
         check(has(post("/api/cars/pull", "{\"key\":\"ac:ks_ferrari_f40\"}"), "\"name\":\"Ferrari F40\""),
               "POST /api/cars/pull applies an entry by key");
         // /api/rig is the file itself (indented, a space after each colon).
@@ -306,7 +490,7 @@ int main()
         rig.erase(std::remove(rig.begin(), rig.end(), ' '), rig.end());
         check(has(rig, "\"cylinders\":8") && has(rig, "\"turbo\":1") && has(rig, "\"followCar\":true"),
               "the pulled entry is in the saved rig (engine description) and the follow switch stayed");
-        check(has(get("/api/status"), "\"hapCarGen\":1"), "GET /api/status hapCarGen bumped on the apply");
+        check(genNow() == gen0 + 1, "GET /api/status hapCarGen bumped on the apply");
         check(has(post("/api/cars/pull", "{\"key\":\"ac:nope\"}"), "\"ok\":false"),
               "POST /api/cars/pull refuses an unknown key");
         check(has(post("/api/cars/pull", "{}"), "has not named a car"),
@@ -317,6 +501,32 @@ int main()
               "POST /api/cars/forget refuses when there is no entry of yours");
         check(has(st, "\"hapCarDefault\":false") && has(get("/api/cars"), "\"defaults\":false"),
               "GET /api/status and /api/cars say whether the car tiles are on the defaults");
+    }
+    // A page saves the copy of the rig it loaded, with the apply
+    // generation that copy belongs to (X-Nullcat-Gen from GET /api/rig).
+    // A save against a stale generation (the F40 pull above rewrote the
+    // haptics after an older copy was loaded) is refused with 409 and
+    // nothing is written; the current generation saves. Reverting the
+    // X-Nullcat-Gen check in POST /api/rig makes the first save land (200)
+    // and the "untouched" row fail. A request without the header (a
+    // script) is taken as is.
+    {
+        std::string body; int gen = -1;
+        check(getRig(body, gen) && gen >= 1 && gen == genNow(),
+              "GET /api/rig carries X-Nullcat-Gen equal to the status's hapCarGen");
+        const std::string edited = rigWith(body, nullptr, "masterGain", 0.9);
+        const Reply stale = postHdr("/api/rig", edited, {{"X-Nullcat-Gen", std::to_string(gen - 1)}});
+        check(stale.status == 409 && has(stale.body, "\"ok\":false") && has(stale.body, "nothing was saved"),
+              "POST /api/rig against a stale generation: 409 with the reason");
+        check(!has(compact(get("/api/rig")), "\"masterGain\":0.9"), "...and the file is untouched");
+        const Reply fresh = postHdr("/api/rig", edited, {{"X-Nullcat-Gen", std::to_string(gen)}});
+        check(fresh.status == 200 && has(fresh.body, "\"ok\":true") && has(fresh.body, "\"changed\":true"),
+              "POST /api/rig against the current generation: saved");
+        check(has(compact(get("/api/rig")), "\"masterGain\":0.9"), "...and the file carries the edit");
+        check(genNow() == gen, "a web save does not move the apply generation");
+        const Reply bare = postHdr("/api/rig", rigWith(body, nullptr, "masterGain", 0.8), {});
+        check(bare.status == 200 && has(bare.body, "\"ok\":true") && has(compact(get("/api/rig")), "\"masterGain\":0.8"),
+              "POST /api/rig without the header (a script) is taken as is");
     }
     // Starting points: the shipped file beside the config lists its four
     // types in the file's order; apply refuses an unknown name and merges a
@@ -337,6 +547,7 @@ int main()
               "POST /api/haptics/presets/apply refuses an unknown name");
         check(has(post("/api/haptics/presets/apply", "{}"), "\"ok\":false"),
               "POST /api/haptics/presets/apply refuses no name");
+        const int gen0 = genNow();
         check(has(post("/api/haptics/presets/apply", "{\"name\":\"Open wheeler\"}"), "\"ok\":true"),
               "POST /api/haptics/presets/apply applies a known one");
         std::string rig = get("/api/rig");
@@ -344,7 +555,7 @@ int main()
         check(has(rig, "\"peakDeg\":5.5") && has(rig, "\"fullMm\":18") && has(rig, "\"cylinders\":8")
               && has(rig, "\"turbo\":1") && has(rig, "\"followCar\":true"),
               "the starting point is in the saved rig; the pulled car's engine and the follow switch stayed");
-        check(has(get("/api/status"), "\"hapCarGen\":2"), "GET /api/status hapCarGen bumped on the starting point");
+        check(genNow() == gen0 + 1, "GET /api/status hapCarGen bumped on the starting point");
     }
     // Follow car: in a game the table does not cover, a car is left alone;
     // in one it covers, a car the table has no entry for puts the car tiles
@@ -353,27 +564,16 @@ int main()
     // entry as a near match. Named the way a plugin does it, a NULLCATY
     // line, fed straight in while the status is polled.
     {
-        const auto nameCar = [&](const char* game, const char* car, const char* want, int timeoutMs) -> bool
-        {
-            for (int t = 0, rpm = 2000; t < timeoutMs; t += 100, rpm += 7)
-            {
-                const std::string line = std::string("NULLCATY,game=") + game + ",car=" + car + ",rpm=" + std::to_string(rpm);
-                TelemetryData td;
-                if (TelemetryInput::parsePacket(line.c_str(), static_cast<int>(line.size()), td)) telemetry.ingest(td);
-                if (has(get("/api/status"), want)) return true;
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
-            return false;
-        };
-        check(nameCar("iRacing", "Some Car", "\"hapCar\":\"Some Car\"", 4000)
-              && has(get("/api/status"), "\"hapCarDefault\":false") && has(get("/api/status"), "\"hapCarGen\":2"),
+        const int gen0 = genNow();
+        check(nameCar(telemetry, "iRacing", "Some Car", "\"hapCar\":\"Some Car\"", 10000)
+              && has(get("/api/status"), "\"hapCarDefault\":false") && genNow() == gen0,
               "follow car: a car in a game the table does not cover is left alone (no defaults, no apply)");
         {
             std::string r = get("/api/rig");
             r.erase(std::remove(r.begin(), r.end(), ' '), r.end());
             check(has(r, "\"cylinders\":8") && has(r, "\"turbo\":1"), "...and the saved rig keeps the last car's engine");
         }
-        check(nameCar("AssettoCorsa", "Mystery Car", "\"hapCarDefault\":true", 4000),
+        check(nameCar(telemetry, "AssettoCorsa", "Mystery Car", "\"hapCarDefault\":true", 10000),
               "follow car: a car with no entry puts the car tiles on the defaults (status hapCarDefault)");
         std::string rig = get("/api/rig");
         rig.erase(std::remove(rig.begin(), rig.end(), ' '), rig.end());
@@ -382,10 +582,88 @@ int main()
         const std::string cars = get("/api/cars");
         check(has(cars, "\"car\":\"Mystery Car\"") && has(cars, "\"source\":\"\"") && has(cars, "\"defaults\":true"),
               "GET /api/cars: the car has no entry and the defaults are in use");
-        check(nameCar("AssettoCorsa", "Mazda 787B Le Mans", "\"hapCarKey\":\"ac:ks_mazda_787b\"", 4000)
+        // Save for this car files the saved five tiles under the current
+        // car in the user layer (cars.local.json): the entry is then the
+        // car's own, applied, and listed; forget drops it and the row
+        // shows no entry again (the tiles keep what they carried).
+        check(has(post("/api/cars/save", "{\"name\":\"My Mystery\",\"notes\":\"mine\"}"), "\"key\":\"ac:Mystery Car\""),
+              "POST /api/cars/save files an entry under the current car");
+        check(std::filesystem::exists(cfgDir / "cars.local.json"), "...in cars.local.json beside the config");
+        {
+            const std::string c2 = get("/api/cars");
+            check(has(c2, "\"source\":\"user\"") && has(c2, "\"name\":\"My Mystery\"") && has(c2, "\"notes\":\"mine\"")
+                  && has(c2, "\"applied\":true") && has(c2, "\"defaults\":false") && has(c2, "\"user\":1"),
+                  "GET /api/cars: the saved entry is the car's own, applied, not the defaults");
+            check(has(get("/api/cars/list"), "\"name\":\"My Mystery\"") && has(get("/api/cars/list"), "\"source\":\"user\""),
+                  "GET /api/cars/list carries it as yours");
+            check(has(get("/api/status"), "\"hapCarSrc\":\"user\"") && has(get("/api/status"), "\"hapCarApplied\":true"),
+                  "GET /api/status carries the saved entry");
+        }
+        check(has(post("/api/cars/forget", "{}"), "\"ok\":true"), "POST /api/cars/forget drops the entry of yours");
+        {
+            const std::string c3 = get("/api/cars");
+            check(has(c3, "\"source\":\"\"") && has(c3, "\"applied\":false") && has(c3, "\"defaults\":false") && has(c3, "\"user\":0")
+                  && !has(get("/api/cars/list"), "\"name\":\"My Mystery\""),
+                  "GET /api/cars after forget: no entry, not applied, not the defaults; the list no longer carries it");
+        }
+        check(nameCar(telemetry, "AssettoCorsa", "Mazda 787B Le Mans", "\"hapCarKey\":\"ac:ks_mazda_787b\"", 10000)
               && has(get("/api/cars"), "\"near\":true") && has(get("/api/status"), "\"hapCarDefault\":false")
               && has(get("/api/status"), "\"hapCarApplied\":true"),
               "follow car: a name that starts with an entry's is a near match, applied");
+        // A save that moves a setting the car table owns (the engine's amp)
+        // means the tiles no longer carry the entry: the car row stops
+        // claiming it. One that moves nothing the car owns (the master
+        // gain) leaves the claim. Reverting the carOwnedKeysChanged block
+        // in POST /api/rig leaves hapCarApplied true after the first save.
+        {
+            std::string body; int gen = -1;
+            check(getRig(body, gen), "GET /api/rig for the car-owned edit");
+            const Reply r = postHdr("/api/rig", rigWith(body, "rpmVibe", "ampPct", 33.0), {{"X-Nullcat-Gen", std::to_string(gen)}});
+            check(r.status == 200 && has(r.body, "\"ok\":true"), "a save moving the engine's amp (car-owned) lands");
+            check(has(get("/api/status"), "\"hapCarApplied\":false") && has(get("/api/cars"), "\"applied\":false"),
+                  "...and the car row no longer claims the entry is in force");
+            check(has(post("/api/cars/pull", "{}"), "\"ok\":true") && has(get("/api/status"), "\"hapCarApplied\":true"),
+                  "pull car preset: the entry is in force again");
+            check(getRig(body, gen), "GET /api/rig for the rig-owned edit");
+            const Reply r2 = postHdr("/api/rig", rigWith(body, nullptr, "masterGain", 0.7), {{"X-Nullcat-Gen", std::to_string(gen)}});
+            check(r2.status == 200 && has(r2.body, "\"ok\":true") && has(get("/api/status"), "\"hapCarApplied\":true"),
+                  "a save moving only the master gain leaves the claim");
+        }
+        // Follow car off: a covered car with an entry arriving is matched
+        // for the row but nothing is applied: the generation and the file
+        // stay as they are. Then on again.
+        {
+            std::string body; int gen = -1;
+            check(getRig(body, gen), "GET /api/rig to untick follow car");
+            const Reply off = postHdr("/api/rig", rigWithBool(body, "followCar", false), {{"X-Nullcat-Gen", std::to_string(gen)}});
+            check(off.status == 200 && has(off.body, "\"ok\":true") && has(get("/api/cars"), "\"follow\":false"),
+                  "follow car unticked and saved: /api/cars reports follow:false");
+            const std::string before = get("/api/rig");
+            const int genOff = genNow();
+            check(nameCar(telemetry, "AssettoCorsa", "Ferrari F40", "\"hapCarKey\":\"ac:ks_ferrari_f40\"", 10000),
+                  "follow car off: a covered car with an entry is matched for the row");
+            std::this_thread::sleep_for(std::chrono::milliseconds(600));
+            check(genNow() == genOff && get("/api/rig") == before && has(get("/api/status"), "\"hapCarApplied\":false")
+                  && has(get("/api/status"), "\"hapCarDefault\":false"),
+                  "...but nothing is applied: hapCarGen unchanged, /api/rig untouched, the row says not applied");
+            check(getRig(body, gen), "GET /api/rig to tick follow car again");
+            const Reply on = postHdr("/api/rig", rigWithBool(body, "followCar", true), {{"X-Nullcat-Gen", std::to_string(gen)}});
+            check(on.status == 200 && has(on.body, "\"ok\":true") && has(get("/api/cars"), "\"follow\":true"),
+                  "follow car ticked again");
+        }
+        // The profile binding fires: with Other active, the sim naming the
+        // bound Test Car (iRacing: no car of the table's) loads Bench by
+        // itself; then both profiles go, the binding with them.
+        check(nameCar(telemetry, "iRacing", "Test Car", "\"hapProfile\":\"Bench\"", 10000),
+              "the sim naming the bound car loads its profile (status hapProfile)");
+        check(has(post("/api/haptics/profiles/delete", "{\"name\":\"Bench\"}"), "\"ok\":true")
+              && has(post("/api/haptics/profiles/delete", "{\"name\":\"Other\"}"), "\"ok\":true")
+              && has(get("/api/haptics/profiles"), "\"profiles\":[]") && !has(get("/api/haptics/profiles"), "car:Test Car"),
+              "POST /api/haptics/profiles/delete forgets them and the binding");
+        // The 787B again (a car change: the table acted on none since),
+        // so the restart check at the end finds it remembered.
+        check(nameCar(telemetry, "AssettoCorsa", "Mazda 787B Le Mans", "\"hapCarApplied\":true", 10000),
+              "the near match applied again after the other cars");
         std::this_thread::sleep_for(std::chrono::milliseconds(700));   // the stream goes quiet before the loop starts
     }
 
@@ -397,6 +675,68 @@ int main()
     check(has(post("/api/start"), "\"ok\":true"), "POST /api/start accepted");
     check(waitStatus("\"loopRunning\":true", 5000), "status reaches loopRunning:true");
     check(waitStatus("\"hasBelts\":true", 2000),    "status: hasBelts:true");
+
+    // ---- mutes read back (the loop publishes hapMuted / hapMute[]) ----
+    // The master mute lands; a garbage body, {} and a string "on" are
+    // refused AND leave it muted (reverting the "on" type check in the
+    // mute handler un-mutes on "garbage": the old fallback found no "true"
+    // and sent on=false); one tile's mute lands in hapMute[] at its
+    // registry index (driveline = 10); unmute brings everything back.
+    {
+        check(has(post("/api/haptics/mute", "{\"on\":true}"), "\"ok\":true") && waitStatus("\"hapMuted\":true", 3000),
+              "mute on: status reads hapMuted:true");
+        check(muteAt(get("/api/status"), 10) == 1, "mute on: every tile muted (driveline's hapMute[10] true)");
+        check(has(post("/api/haptics/mute", "garbage"), "\"ok\":false")
+              && has(post("/api/haptics/mute", "{}"), "\"ok\":false")
+              && has(post("/api/haptics/mute", "{\"on\":\"yes\"}"), "\"ok\":false"),
+              "garbage mute bodies refused while muted");
+        std::this_thread::sleep_for(std::chrono::milliseconds(400));   // several publishes
+        check(has(get("/api/status"), "\"hapMuted\":true") && muteAt(get("/api/status"), 10) == 1,
+              "garbage mute bodies changed NOTHING: still muted");
+        check(has(post("/api/haptics/mute", "{\"on\":false}"), "\"ok\":true") && waitStatus("\"hapMuted\":false", 3000),
+              "mute off: status reads hapMuted:false");
+        check(muteAt(get("/api/status"), 10) == 0, "mute off: the tiles are back (hapMute[10] false)");
+        check(has(post("/api/haptics/mute", "{\"effect\":\"driveline\",\"on\":true}"), "\"ok\":true"),
+              "one tile's mute accepted");
+        bool tileMuted = false;
+        for (int t = 0; t < 3000 && !tileMuted; t += 50)
+        {
+            tileMuted = (muteAt(get("/api/status"), 10) == 1);
+            if (!tileMuted) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        check(tileMuted && has(get("/api/status"), "\"hapMuted\":false") && muteAt(get("/api/status"), 9) == 0,
+              "one tile's mute reads back in hapMute[] alone (master and the kerb tile unmuted)");
+        check(has(post("/api/haptics/mute", "{\"effect\":\"driveline\",\"on\":0}"), "\"ok\":true"), "one tile's unmute accepted");
+        bool tileBack = false;
+        for (int t = 0; t < 3000 && !tileBack; t += 50)
+        {
+            tileBack = (muteAt(get("/api/status"), 10) == 0);
+            if (!tileBack) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        check(tileBack, "one tile's unmute reads back");
+    }
+    // ---- relearn and fresh tyres read back (the loop publishes them) ----
+    // Nothing drives here, so the fields can only read as reset: the
+    // lateral baseline at 0 s and not learned after relearn; the Wheels
+    // tile's flat spots (hapWheels set 4) all 0 after fresh tyres.
+    {
+        check(has(post("/api/haptics/relearn", "{}"), "\"ok\":true") && waitStatus("\"hapLatBaseSec\":0.0", 3000)
+              && has(get("/api/status"), "\"hapLatLearned\":false"),
+              "relearn read back: the lateral baseline at 0 s, not learned");
+        const auto wheelSet = [](const std::string& st, int k) -> std::string
+        {
+            size_t p = st.find("\"hapWheels\":[");
+            if (p == std::string::npos) return std::string();
+            p += 13;
+            for (int i = 0; i < k; ++i) { p = st.find('[', p + 1); if (p == std::string::npos) return std::string(); }
+            const size_t e = st.find(']', p);
+            return (e == std::string::npos) ? std::string() : st.substr(p, e - p + 1);
+        };
+        check(has(post("/api/haptics/fresh-tyres", "{}"), "\"ok\":true"), "POST /api/haptics/fresh-tyres accepted");
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        check(wheelSet(get("/api/status"), 4) == "[0.000,0.000,0.000,0.000]",
+              "fresh tyres read back: every flat spot 0 (hapWheels set 4)");
+    }
     std::this_thread::sleep_for(std::chrono::seconds(2));   // let auto-home/unpark finish
     check(has(get("/api/status"), "\"beltsSlack\":true"),
           "Option A: belt still SLACK after start/auto-unpark");
@@ -555,7 +895,7 @@ int main()
         }
         else
         {
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            check(waitUp(PORT + 1, 10000), "auth-enabled WebServer answers on its port");
             httplib::Client cli(HOST, PORT + 1);
             cli.set_read_timeout(2, 0);
             auto r1 = cli.Get("/api/status");
@@ -575,6 +915,51 @@ int main()
     }
     check(has(get("/api/status"), "\"loopRunning\""),
           "no-token server (shipped default) stays open throughout");
+
+    // ---- a restart is no new car ----
+    // The car the table last acted on, and whether its tiles carry its
+    // entry or the defaults, is remembered in carstate.json beside the
+    // config. A second server over the same directory (what a restart is),
+    // fed the same car, applies nothing: hapCarGen stays 0, the rig file is
+    // untouched (the hand-set engine amp stays) and the row reads as
+    // remembered; a different car is a car change as ever. Reverting the
+    // memory (carIdentity's "same car" branch reading m_carMem, loaded by
+    // loadCarMemory) re-applies the near-match entry on the second server:
+    // gen 1 and the engine's amp back to the entry's 45.
+    {
+        std::string body; int gen = -1;
+        check(getRig(body, gen), "GET /api/rig before the restart");
+        const Reply r = postHdr("/api/rig", rigWith(body, "rpmVibe", "ampPct", 37.0), {{"X-Nullcat-Gen", std::to_string(gen)}});
+        check(r.status == 200 && has(r.body, "\"ok\":true"), "a hand-set engine amp (37) saved before the restart");
+        check(waitStatus("\"hapCarApplied\":false", 2000), "...which clears the row's applied");
+        web.stop();
+        check(std::filesystem::exists(cfgDir / "carstate.json"), "carstate.json is beside the config");
+
+        WebServer web2;
+        web2.setComponents(&motion, &loop, &master, &cfg);
+        web2.setTelemetry(&telemetry);
+        web2.setConfigPath((cfgDir / "config.json").string());
+        web2.setCarTablePath((cfgDir / "cars.json").string());
+        web2.setPresetsPath((cfgDir / "presets.json").string());
+        web2.setPort(PORT);
+        web2.setBindAddr(HOST);
+        if (!web2.start()) check(false, "the second server (a restart) starts");
+        else
+        {
+            check(waitUp(PORT, 10000), "the second server (a restart) answers on the port");
+            check(genNow() == 0 && has(get("/api/status"), "\"hapCar\":\"\""), "the restarted server starts with no car and gen 0");
+            check(nameCar(telemetry, "AssettoCorsa", "Mazda 787B Le Mans", "\"hapCarKey\":\"ac:ks_mazda_787b\"", 10000),
+                  "the same car after the restart is matched again");
+            std::this_thread::sleep_for(std::chrono::milliseconds(600));   // two samples: an apply would have landed
+            check(genNow() == 0, "...but nothing is applied: hapCarGen stays 0");
+            check(has(compact(get("/api/rig")), "\"ampPct\":37") && has(get("/api/status"), "\"hapCarApplied\":false")
+                  && has(get("/api/status"), "\"hapCarDefault\":false"),
+                  "...the hand-set amp stays and the row reads as remembered (not applied)");
+            check(nameCar(telemetry, "AssettoCorsa", "Ferrari F40", "\"hapCarApplied\":true", 10000) && genNow() == 1,
+                  "a different car after the restart is applied as ever");
+            web2.stop();
+        }
+    }
 
     // ---- teardown ----
     if (loop.isRunning()) loop.stop();

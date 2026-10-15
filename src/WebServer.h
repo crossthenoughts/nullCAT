@@ -88,6 +88,13 @@ public:
     // always allowed; this only appends.
     void setAllowedHosts(std::vector<std::string> hosts) { m_extraHosts = std::move(hosts); }
 
+    // ---- JSON text helpers for the hand-built status (public statics:
+    // unit-tested). jsonStr escapes quote, backslash and every control
+    // character; jsonDouble prints a non-finite value as 0 (JSON has no
+    // nan or inf, and one in the text made the whole status unparseable).
+    static std::string jsonStr(const std::string& s);
+    static std::string jsonDouble(double v, int prec = 2);
+
     // ---- Host-header validation helpers (public statics: unit-tested) ----
     // Hostname part of a Host header, lowercased, port stripped. Handles
     // "name", "name:port", "1.2.3.4:port", "[::1]:port".
@@ -221,7 +228,12 @@ private:
     // object with car/game bindings; the sampler switches on identity.
     HapticsProfiles   m_profiles;
     haptics::ShakerBank*   m_shakers = nullptr;
-    std::mutex        m_profilesIo;          // one profile load/save at a time
+    // One reader or writer of rig.json at a time: every server-side apply
+    // writes it under this, and every read of it (a profile snapshot, save
+    // for this car, the Test endpoint, the follow switch) takes it too, so
+    // none can read a half-written file. Never held across a motion
+    // command or another lock; mutable for the const readers.
+    mutable std::mutex m_profilesIo;
     std::string       m_lastIdentity;        // "car|game" last looked up
     bool loadProfile(const std::string& name, std::string& err);
     bool snapshotProfile(const std::string& name, std::string& err);
@@ -244,20 +256,28 @@ private:
     mutable std::mutex m_carMx;              // mutable: read by the const status builder
     // Bumps on every rewrite of the live haptics set the server makes by
     // itself or on request (a car entry, the car defaults, a starting
-    // point), so a page can refresh its copy.
+    // point, a profile), so a page can refresh its copy. GET /api/rig
+    // hands it out with the file (X-Nullcat-Gen) and POST /api/rig refuses
+    // a save made against an older one (409), so a page with unsaved
+    // edits can never write a stale copy over such an apply.
     std::atomic<int>  m_carGen{0};
-    // The identity the table last applied for by itself. Unlike
-    // m_lastIdentity it survives a stream dropout, so a pause (the plugin
-    // goes quiet) and the same car coming back is not a new car: the
-    // strip follows CAR CHANGES, never a returning stream, or a tweak made
-    // in the pits would be undone on unpause.
-    std::string       m_carAppliedIdent;
-    // The car (identity) the defaults were last applied for, remembered
-    // beside the rig config: after a restart that same car keeps its tiles
-    // as they are (perhaps tuned by hand since), where applying the
-    // defaults again would undo it.
-    std::string       m_carDefaultsIdent;
-    void saveCarDefaultsIdent(const std::string& ident);
+    // The table's memory of the car it last acted on by itself: the
+    // identity, and whether the tiles carry its entry (applied) or the
+    // defaults. Unlike m_lastIdentity it survives a stream dropout, so a
+    // pause (the plugin goes quiet) and the same car coming back is not a
+    // new car: the strip follows CAR CHANGES, never a returning stream, or
+    // a tweak made in the pits would be undone on unpause. Kept beside the
+    // rig config (carstate.json) so a restart is no new car either: the
+    // same car keeps its tiles as they are (tuned by hand since, perhaps),
+    // whether it got an entry or the defaults, and the car row reads the
+    // same. Guarded by m_carMx; written outside it.
+    struct CarMemory { std::string ident; bool applied = false; bool defaults = false; };
+    CarMemory         m_carMem;
+    void loadCarMemory();                       // start(): carstate.json, else the older cardefaults.txt
+    void saveCarMemory(const CarMemory& mem);
+    // The car row's flags; remembered too when the car is the one the
+    // table acted on, so a restart reads the row the same.
+    void setCarFlags(bool applied, bool defaults);
     void carIdentity(const std::string& game, const std::string& car, const std::string& carId, bool mayApply);
     CarTable::Match findCar(const std::string& game, const std::string& car, const std::string& carId) const;
     std::string carKeyFor(const std::string& game, const std::string& car, const std::string& carId) const;

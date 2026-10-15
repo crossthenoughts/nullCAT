@@ -99,10 +99,15 @@ int main(int argc, char* argv[])
 
     if (!config.load(cfgPath.toStdString()))
     {
-        // Config load failed - log the error but continue with defaults
-        // Logger not yet initialized, so print to stderr
-        fprintf(stderr, "Warning: Could not load config.json (%s). Using defaults.\n",
-                config.lastError().c_str());
+        // A host.json or rig.json that is there but cannot be read: refuse
+        // to start rather than run on defaults, which the first settings
+        // save would write over the file. The logger is not up yet, so the
+        // reason goes to stderr and a dialog; fix or move the file it names.
+        fprintf(stderr, "nullCAT: refusing to start: %s\n", config.lastError().c_str());
+        QMessageBox::critical(nullptr, "Config cannot be read",
+            QString::fromStdString(config.lastError()) + "\n\nnullCAT will not start until the file is fixed or moved.");
+        CloseHandle(hMutex);
+        return 1;
     }
 
     // ---- Initialize Logger ----
@@ -123,6 +128,9 @@ int main(int argc, char* argv[])
     // everything.
     Logger::instance().setMinLevel(Logger::parseLevel(cfg.logMinLevel));
     Logger::instance().setDiagEnabled(cfg.diagEnabled);
+    // What the config load clamped or found out of range (the files are
+    // left as written): into the log now that there is one.
+    for (const std::string& w : config.loadWarnings()) LOG_WARNING("Config: " + w);
 
     LOG_INFO("==========================================================");
     LOG_INFO("nullCAT starting...");
@@ -183,7 +191,9 @@ int main(int argc, char* argv[])
     // usually reloads first anyway; this makes the guarantee unconditional).
     webServer.setConfigReloader([&config, cfgPath]() -> bool
     {
-        return config.load(cfgPath.toStdString());
+        if (!config.load(cfgPath.toStdString())) { LOG_WARNING("Config: " + config.lastError()); return false; }
+        for (const std::string& w : config.loadWarnings()) LOG_WARNING("Config: " + w);
+        return true;
     });
     // Extra Host-header names the operator allows (host.json webAllowedHosts,
     // e.g. an mDNS name). Local interface addresses are always allowed.

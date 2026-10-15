@@ -57,7 +57,7 @@ in the same commit.
 | E-stop release | `/api/estop/release` | none | - | `estop:false` | **desktop-only** (re-arm needs eyes on the rig) |
 | Reset fault (+lockout) | `/api/reset-fault` | needs components | drive may refuse reset until thermal decay (Er40/41); retried by fault monitor | drive state via per-drive status; lockout cleared | yes |
 | Reset stats | `/api/resetstats` | needs loop | - | tuning metrics re-baseline | no (tuning, not operation) |
-| Haptics mute | `/api/haptics/mute` (body `{"on":true\|false}`: every tile; with `"effect":"<key>"`: that tile) | needs motion controller; an unknown effect refused | taken by the next haptics step (loop or idle clock); runtime only, a restart unmutes | `hapMuted` (the master), `hapMute[]` (each tile, registry order) | no (tuning, not operation) |
+| Haptics mute | `/api/haptics/mute` (body `{"on":true\|false}`, 1/0 as well: every tile; with `"effect":"<key>"`: that tile) | needs motion controller; a body without a boolean or numeric `on` refused with nothing changed; an unknown effect refused | taken by the next haptics step (loop or idle clock); runtime only, a restart unmutes | `hapMuted` (the master), `hapMute[]` (each tile, registry order) | no (tuning, not operation) |
 | Haptics test | `/api/haptics/test` (body `{"effect":"<key>"}`) | refused with the reason: unknown effect, amp 0 or no route in the saved config, master gain 0, the tile muted, nothing it routes to live (an axis online or tensioned, or an open shaker channel) | taken by the next haptics step (loop or idle clock) | the tile's wave | no (tuning, not operation) |
 | Fresh tyres | `/api/haptics/fresh-tyres` | needs motion controller | taken by the next haptics step (loop or idle clock) | the Wheels tile's flats and disc heat back to 0 | no (tuning, not operation) |
 | Relearn lateral baseline | `/api/haptics/relearn` | needs motion controller | taken by the next haptics step (loop or idle clock) | `hapLatBaseSec` back to 0, `hapLatLearned:false` | no (tuning, not operation) |
@@ -79,7 +79,16 @@ Notes:
 - `/api/estop` is convenience on top of the HARDWARE latch (the safety
   device); nothing in this contract is a safety path.
 - Config endpoints (`/api/rig`, `/api/host`) are not commands and are
-  outside this table (fields documented in CONFIG_REFERENCE.md).
+  outside this table (fields documented in CONFIG_REFERENCE.md). One
+  rule of theirs is pinned here: `GET /api/rig` answers with the apply
+  generation its body belongs to in `X-Nullcat-Gen` (the status's
+  `hapCarGen`: it moves whenever the controller rewrites the haptics
+  itself, for a car entry, the car defaults, a starting point or a
+  profile). A `POST /api/rig` that carries that header against an older
+  generation is refused with `409` and writes nothing, so a page with
+  unsaved edits can never save a stale copy over such an apply; the page
+  then reloads and says so. A POST without the header (a script) is taken
+  as is.
 - The bindable-command set is enforced server-side when saving button
   bindings: a crafted POST cannot bind restart, shutdown, or e-stop release.
 

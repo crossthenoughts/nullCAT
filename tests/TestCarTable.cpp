@@ -25,6 +25,7 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <algorithm>
+#include <set>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -393,6 +394,38 @@ private slots:
         QCOMPARE(c.hapticsEngine.turbo, 1.0);
         QCOMPARE(c.hapticsEngine.pops, 0.8);   // from the 787B apply, not named by the 98T
         QCOMPARE(fx(haptics::Effect::Engine).routes[0].gain, 0.7);
+
+        // A hand-written entry carrying rig-owned keys (an ABS "sharp",
+        // the driveline's "whinePitch", a route, a transient's durMs) moves
+        // none of them: only the car-owned keys cross over. Reverting
+        // toHapticsObject's carKeys cut (back to "remove routes") moves
+        // sharp and whinePitch here.
+        {
+            QJsonObject e;
+            QJsonObject abs; abs["ampPct"] = 50.0; abs["sharp"] = 1.0; abs["spread"] = 0.0; e["abs"] = abs;
+            QJsonObject dl; dl["gearbox"] = 1.0; dl["whinePitch"] = 3.0; dl["ignoreN"] = 0.0; dl["diffHz"] = 20.0; e["driveline"] = dl;
+            QJsonObject eng; eng["ampPct"] = 40.0; eng["durMs"] = 99.0; eng["peakPct"] = 5.0;
+            QJsonArray routes; { QJsonObject ro; ro["axis"] = 0; ro["gain"] = 2.0; routes.append(ro); } eng["routes"] = routes;
+            e["engine"] = eng;
+            const QJsonObject h = CarTable::toHapticsObject(e);
+            QVERIFY(!h.value("abs").toObject().contains("sharp"));
+            QVERIFY(!h.value("abs").toObject().contains("spread"));
+            QVERIFY(!h.value("driveline").toObject().contains("whinePitch"));
+            QVERIFY(!h.value("driveline").toObject().contains("ignoreN"));
+            QVERIFY(h.value("driveline").toObject().contains("diffHz"));   // the car's
+            QVERIFY(!h.value(haptics::effectInfo(haptics::Effect::Engine).key).toObject().contains("routes"));
+            QVERIFY(!h.value(haptics::effectInfo(haptics::Effect::Engine).key).toObject().contains("durMs"));
+            QVERIFY(!h.value(haptics::effectInfo(haptics::Effect::Engine).key).toObject().contains("peakPct"));
+            AppConfig r = rigWithRoutes();
+            r.hapticsAbs.sharp = 0.3; r.hapticsDriveline.whinePitch = 1.0;
+            Config::readHapticsObject(h, r);
+            QCOMPARE(r.hapticsAbs.sharp, 0.3);
+            QCOMPARE(r.hapticsDriveline.whinePitch, 1.0);
+            QCOMPARE(r.hapticsDriveline.diffHz, 20.0);
+            QCOMPARE(r.hapticsFx[static_cast<size_t>(haptics::Effect::Abs)].ampPct, 50.0);
+            QCOMPARE(r.hapticsFx[static_cast<size_t>(haptics::Effect::Engine)].routes[0].gain, 0.7);
+            QCOMPARE(r.hapticsFx[static_cast<size_t>(haptics::Effect::Engine)].durMs, haptics::effectInfo(haptics::Effect::Engine).defaults.durMs);
+        }
     }
 
     void saveForThisCar_roundTrip()
@@ -523,20 +556,47 @@ private slots:
             QCOMPARE(t.find("Automobilista2", "Porsche 911 GT3 Cup 4.0").key, std::string("ams2:Porsche 911 GT3 Cup 4.0"));
             QVERIFY(!t.find("Automobilista2", "Porsche 911 GT3 Cup 4.0").nearMatch);
         }
-        // Every entry has the five sections, notes, and never routes.
+        // Every entry has the five sections, notes, and never routes; every
+        // key in a section is one the car owns (carKeys for that tile);
+        // the keys are unique per game once normalised (two entries that
+        // normalise alike would silently collapse to one); and every entry
+        // applied over a fresh one-axis rig validates clean, so the table
+        // can never put a value the strip refuses into a rig.
         QFile f(path); QVERIFY(f.open(QIODevice::ReadOnly));
         const QJsonObject cars = QJsonDocument::fromJson(f.readAll()).object().value("cars").toObject();
-        for (auto it = cars.begin(); it != cars.end(); ++it)
+        const std::pair<const char*, const char*> sections[] = {
+            { "engine", haptics::effectInfo(haptics::Effect::Engine).key }, { "limiter", "limiter" },
+            { "driveline", "driveline" }, { "abs", "abs" }, { "tc", "tc" } };
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        Config base; QVERIFY(base.load((dir.path() + "/config.json").toStdString()));   // a fresh one-axis rig
+        QVERIFY(base.get().validate().empty());
+        std::set<std::string> seen;
+        int n = 0;
+        for (auto it = cars.begin(); it != cars.end(); ++it, ++n)
         {
             const QJsonObject e = it.value().toObject();
-            for (const char* k : { "engine", "limiter", "driveline", "abs", "tc" })
+            for (const auto& [section, tile] : sections)
             {
-                QVERIFY2(e.value(k).isObject(), qPrintable(it.key() + ": " + k));
-                QVERIFY2(!e.value(k).toObject().contains("routes"), qPrintable(it.key() + ": routes in " + k));
+                QVERIFY2(e.value(section).isObject(), qPrintable(it.key() + ": " + section));
+                const QJsonObject o = e.value(section).toObject();
+                QVERIFY2(!o.contains("routes"), qPrintable(it.key() + ": routes in " + section));
+                const std::vector<std::string> keys = CarTable::carKeys(tile);
+                for (auto kt = o.begin(); kt != o.end(); ++kt)
+                    QVERIFY2(std::find(keys.begin(), keys.end(), kt.key().toStdString()) != keys.end(),
+                             qPrintable(it.key() + ": " + section + "." + kt.key() + " is not a car-owned key"));
             }
             QVERIFY2(e.value("notes").isString() && !e.value("notes").toString().isEmpty(), qPrintable(it.key() + ": notes"));
             QVERIFY2(it.key().startsWith("ac:") || it.key().startsWith("ams2:"), qPrintable(it.key()));
+            const std::string key = it.key().toStdString();
+            const size_t colon = key.find(':');
+            const std::string nk = key.substr(0, colon) + ":" + CarTable::normalise(key.substr(colon + 1));
+            QVERIFY2(seen.insert(nk).second, qPrintable(it.key() + ": normalises like another entry"));
+            AppConfig c = base.get();
+            Config::readHapticsObject(CarTable::toHapticsObject(e), c);
+            const std::vector<std::string> errs = c.validate();
+            QVERIFY2(errs.empty(), qPrintable(it.key() + ": " + QString::fromStdString(errs.empty() ? "" : errs[0])));
         }
+        QCOMPARE(n, t.stockCount());
     }
 };
 

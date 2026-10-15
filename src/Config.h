@@ -460,9 +460,14 @@ public:
     Config();
 
     // anchorPath is the legacy config.json path; its DIRECTORY holds the
-    // split files host.json + rig.json. load() reads the split pair, migrating
-    // a legacy config.json or writing fresh defaults (cold start) so the dir
-    // always ends up with a valid two-file set.
+    // split files host.json + rig.json. load() reads the split pair, or
+    // writes fresh defaults when neither exists (cold start), so the dir
+    // always ends up with a valid two-file set. A file that is THERE but
+    // cannot be read (truncated by a crash mid-write, a hand edit gone
+    // wrong) is a hard error: false, lastError() names the file and the
+    // parse error, the config in memory is left as it was, and nothing is
+    // written. Running on defaults instead would let the next save write
+    // those defaults over the file.
     bool load(const std::string& anchorPath);
     // Writes BOTH files (transitional convenience). Single-writer callers
     // should prefer saveHost()/saveRig() so each file has exactly one writer
@@ -476,6 +481,12 @@ public:
     AppConfig& get()             { return m_config; }
 
     std::string lastError() const { return m_lastError; }
+    // What load() had to say about the files it read, one line each: the
+    // haptics values it clamped to the range the strip offers (an amp of
+    // 500 runs at 100) and every validate() error the set still has (it
+    // runs as read). The files themselves are left as written. The mains
+    // log these once the logger is up; empty after a clean load.
+    const std::vector<std::string>& loadWarnings() const { return m_loadWarnings; }
 
     // The haptics object as rig.json carries it, both ways. A haptics
     // profile is exactly this object (HapticsProfiles), so loading one is
@@ -513,7 +524,8 @@ public:
 private:
     AppConfig   m_config;
     std::string m_lastError;
+    std::vector<std::string> m_loadWarnings;
 
     void setDefaults();
-    void seedDefaultDrive();
+    static void seedDefaultDrive(AppConfig& c);
 };

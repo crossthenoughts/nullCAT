@@ -105,8 +105,16 @@ int main(int argc, char* argv[])
 
     Config config;
     if (!config.load(cfgPath))
-        fprintf(stderr, "Warning: could not load %s (%s). Using defaults.\n",
-                cfgPath.c_str(), config.lastError().c_str());
+    {
+        // A host.json or rig.json that is there but cannot be read: refuse
+        // to start rather than run on defaults, because the normalise below
+        // (and every save after it) would write those defaults over the
+        // file. The reason goes to stderr (the journal); fix or move the
+        // file it names and start again. Under systemd (Restart=always)
+        // the line repeats every second until then.
+        fprintf(stderr, "nullCAT: refusing to start: %s\n", config.lastError().c_str());
+        return 1;
+    }
 
     // Normalize the on-disk config to the full schema: fills defaults and writes
     // the complete drives[] array, so the web config editor always has every
@@ -127,6 +135,9 @@ int main(int argc, char* argv[])
     }
     Logger::instance().setMinLevel(Logger::parseLevel(cfg.logMinLevel));
     Logger::instance().setDiagEnabled(cfg.diagEnabled);
+    // What the config load clamped or found out of range (the files are
+    // left as written): into the log now that there is one.
+    for (const std::string& w : config.loadWarnings()) LOG_WARNING("Config: " + w);
 
     LOG_INFO("==========================================================");
     LOG_INFO("NullCAT-Pi headless controller starting...");
@@ -227,7 +238,9 @@ int main(int argc, char* argv[])
     // web server itself, loop rate) still need a service restart.
     webServer.setConfigReloader([&config, cfgPath]() -> bool
     {
-        return config.load(cfgPath);
+        if (!config.load(cfgPath)) { LOG_WARNING("Config: " + config.lastError()); return false; }
+        for (const std::string& w : config.loadWarnings()) LOG_WARNING("Config: " + w);
+        return true;
     });
     webServer.setOnExitRequested([](int code) { requestExit(code); });
 
