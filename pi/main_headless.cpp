@@ -135,6 +135,9 @@ int main(int argc, char* argv[])
     }
     Logger::instance().setMinLevel(Logger::parseLevel(cfg.logMinLevel));
     Logger::instance().setDiagEnabled(cfg.diagEnabled);
+    // What the config load clamped or found out of range (the files are
+    // left as written): into the log now that there is one.
+    for (const std::string& w : config.loadWarnings()) LOG_WARNING("Config: " + w);
 
     LOG_INFO("==========================================================");
     LOG_INFO("NullCAT-Pi headless controller starting...");
@@ -235,7 +238,9 @@ int main(int argc, char* argv[])
     // web server itself, loop rate) still need a service restart.
     webServer.setConfigReloader([&config, cfgPath]() -> bool
     {
-        return config.load(cfgPath);
+        if (!config.load(cfgPath)) { LOG_WARNING("Config: " + config.lastError()); return false; }
+        for (const std::string& w : config.loadWarnings()) LOG_WARNING("Config: " + w);
+        return true;
     });
     webServer.setOnExitRequested([](int code) { requestExit(code); });
 

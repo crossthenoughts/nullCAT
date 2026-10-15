@@ -100,6 +100,76 @@ private slots:
         QVERIFY(cfg.lastError().empty());
     }
 
+    // A hand-edited rig past the strip's ranges loads (never refused), with
+    // the values that would hurt clamped to their range, one warning each
+    // naming the file and the field, and the set then validates clean. The
+    // file itself is left as written. Reverting clampHapticsOnLoad (or
+    // the call in Config::load) leaves amp at 500 and no warnings.
+    void outOfRange_loadClampsAndWarns()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        Config seed; QVERIFY(seed.load(anchor(dir).toStdString()));   // cold start: a valid pair
+        QJsonObject rig = readObj(dir.path() + "/rig.json");
+        QJsonObject g = rig.value("global").toObject();
+        QJsonObject h = g.value("haptics").toObject();
+        QJsonObject abs = h.value("abs").toObject();
+        abs["ampPct"] = 500.0;
+        QJsonArray routes; { QJsonObject ro; ro["shaker"] = 0; ro["gain"] = 9.0; ro["harm"] = 12; routes.append(ro); }
+        abs["routes"] = routes;
+        h["abs"] = abs; g["haptics"] = h; rig["global"] = g;
+        const QByteArray text = QJsonDocument(rig).toJson();
+        writeText(dir.path() + "/rig.json", text);
+
+        Config cfg;
+        QVERIFY2(cfg.load(anchor(dir).toStdString()), "an out-of-range value must never refuse the load");
+        const haptics::EffectParams& p = cfg.get().hapticsFx[static_cast<size_t>(haptics::Effect::Abs)];
+        QCOMPARE(p.ampPct, 100.0);
+        QCOMPARE(p.routes[0].shaker, 0);
+        QCOMPARE(p.routes[0].gain, 2.0);
+        QCOMPARE(p.routes[0].harm, 8);
+        const std::vector<std::string>& w = cfg.loadWarnings();
+        QCOMPARE(static_cast<int>(w.size()), 3);
+        for (const std::string& line : w) QVERIFY2(line.find("rig.json: haptics.abs.") == 0, line.c_str());
+        QVERIFY(w[0].find("ampPct") != std::string::npos && w[0].find("500") != std::string::npos);
+        QVERIFY(w[1].find("routes[0].harm") != std::string::npos && w[1].find("12") != std::string::npos);
+        QVERIFY(w[2].find("routes[0].gain") != std::string::npos && w[2].find("9") != std::string::npos);
+        const auto errs = cfg.get().validate();
+        QVERIFY2(errs.empty(), errs.empty() ? "" : errs[0].c_str());
+        QCOMPARE(readBytes(dir.path() + "/rig.json"), text);   // left as written
+
+        // The rest of the clamped set: a position axis's haptic max and a
+        // route to it in mm, the master gain and the position budget; and
+        // a value the clamp does not touch is still reported, with its
+        // file, and runs as read (the load succeeds).
+        rig = readObj(dir.path() + "/rig.json"); g = rig.value("global").toObject(); h = g.value("haptics").toObject();
+        QJsonObject road = h.value("road").toObject();
+        QJsonArray rr; { QJsonObject ro; ro["axis"] = 0; ro["gain"] = 50.0; rr.append(ro); } road["routes"] = rr;
+        h["road"] = road; h["masterGain"] = 5.0; h["positionBudget"] = -1.0;
+        g["haptics"] = h; rig["global"] = g;
+        QJsonArray axes = rig.value("axes").toArray();
+        QJsonObject a0 = axes.at(0).toObject(); a0["hapticsMaxMm"] = 40.0; axes.replace(0, a0); rig["axes"] = axes;
+        writeText(dir.path() + "/rig.json", QJsonDocument(rig).toJson());
+        writeText(dir.path() + "/host.json", "{ \"controlLoopHz\": 123 }\n");
+        Config more;
+        QVERIFY(more.load(anchor(dir).toStdString()));
+        QCOMPARE(more.get().drives[0].hapticsMaxMm, 10.0);
+        QCOMPARE(more.get().hapticsFx[static_cast<size_t>(haptics::Effect::Road)].routes[0].gain, 10.0);   // capped by the axis's max
+        QCOMPARE(more.get().hapticsMasterGain, 2.0);
+        QCOMPARE(more.get().hapticsPositionBudget, 0.0);
+        const std::vector<std::string>& w2 = more.loadWarnings();
+        bool hz = false, maxMm = false, gain = false, master = false, budget = false;
+        for (const std::string& line : w2)
+        {
+            if (line.find("host.json: controlLoopHz") == 0) hz = true;
+            if (line.find("rig.json: axes[0].hapticsMaxMm") == 0) maxMm = true;
+            if (line.find("rig.json: haptics.road.routes[0].gain") == 0) gain = true;
+            if (line.find("rig.json: haptics.masterGain") == 0) master = true;
+            if (line.find("rig.json: haptics.positionBudget") == 0) budget = true;
+        }
+        QVERIFY2(hz && maxMm && gain && master && budget, "every clamp and the validate error must be reported with its file");
+        QCOMPARE(more.get().controlLoopHz, 123);   // runs as read
+    }
+
     // The atomic writer (QSaveFile: a temporary of its own, renamed over
     // the target on commit) must not be stopped by a stale rig.json.tmp
     // beside the file, which an interrupted web save leaves behind, and

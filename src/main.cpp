@@ -127,6 +127,9 @@ int main(int argc, char* argv[])
     // everything.
     Logger::instance().setMinLevel(Logger::parseLevel(cfg.logMinLevel));
     Logger::instance().setDiagEnabled(cfg.diagEnabled);
+    // What the config load clamped or found out of range (the files are
+    // left as written): into the log now that there is one.
+    for (const std::string& w : config.loadWarnings()) LOG_WARNING("Config: " + w);
 
     LOG_INFO("==========================================================");
     LOG_INFO("nullCAT starting...");
@@ -187,7 +190,9 @@ int main(int argc, char* argv[])
     // usually reloads first anyway; this makes the guarantee unconditional).
     webServer.setConfigReloader([&config, cfgPath]() -> bool
     {
-        return config.load(cfgPath.toStdString());
+        if (!config.load(cfgPath.toStdString())) { LOG_WARNING("Config: " + config.lastError()); return false; }
+        for (const std::string& w : config.loadWarnings()) LOG_WARNING("Config: " + w);
+        return true;
     });
     // Extra Host-header names the operator allows (host.json webAllowedHosts,
     // e.g. an mDNS name). Local interface addresses are always allowed.

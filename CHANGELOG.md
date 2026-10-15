@@ -364,6 +364,13 @@ Development branch. Nothing here is in a release yet.
   one, so a crash mid-save leaves the old file whole; and the one rewrite a
   load makes by itself (the 0.9.6 slip tile keys) keeps the file as it was
   in `rig.json.bak`.
+- A hand-edited `rig.json` or `host.json` was never checked on load (only
+  a save from the web was), so an amplitude of 500 % ran at 500 %. The
+  load now lists every value out of range in the log, with its file and
+  field, and clamps the haptics values that would hurt (an effect's amp, a
+  route's gain and harmonic, the master gain, the position budget, an
+  axis's haptic max) to the range the strip offers; the rest runs as
+  written. The file is left as it is.
 - With follow car on, a car the car table had no entry for kept the last
   car's engine, limiter, driveline, ABS and TC (a Mini played a truck's
   12.9 litre engine). In a game the table covers (Assetto Corsa,

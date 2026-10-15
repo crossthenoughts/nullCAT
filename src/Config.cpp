@@ -377,7 +377,9 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
                     if (axis < 0 && shaker < 0) continue;
                     p.routes[n].axis   = (shaker >= 0) ? -1 : axis;
                     p.routes[n].shaker = shaker;
-                    p.routes[n].harm   = std::max(1, std::min(8, ro.value("harm").toInt(1)));
+                    // Read as written: validate() refuses a harm outside
+                    // 1..8 on a save, and load() clamps it with a warning.
+                    p.routes[n].harm   = ro.value("harm").toInt(1);
                     p.routes[n].gain   = ro.value("gain").toDouble(0.0);
                     p.routes[n].part   = haptics::partFromKey(ro.value("part").toString("all").toStdString().c_str());
                     ++n;
@@ -907,9 +909,84 @@ static void loadAxesArray(const QJsonArray& axes, std::vector<DriveConfig>& driv
     }
 }
 
+// ---- validate-and-warn on load -----------------------------------------------
+// A hand-edited file can carry a value past the range the strip offers.
+// The web refuses such a body on save; a load takes the file as it is,
+// so the values that would hurt past their range are clamped to it, each
+// with a warning that names the file and the field: an amplitude of 500 %
+// (five times what the strip can ask for), a route gain of 9 x, a shaker
+// harmonic of 12, the master gain, the position budget and an axis's
+// haptic max. Everything else out of range is reported by validate() and
+// runs as read. The file is left as written, so the warning repeats at
+// every start until it is fixed. One small function, so a registry-driven
+// clamp over every ParamSpec row can replace it later.
+static void clampHapticsOnLoad(AppConfig& c, std::vector<std::string>& warnings)
+{
+    const auto clampD = [&warnings](double& v, double lo, double hi, const std::string& field)
+    {
+        if (v >= lo && v <= hi) return;
+        const double was = v;
+        v = std::max(lo, std::min(hi, v));
+        char buf[200];
+        snprintf(buf, sizeof(buf), "rig.json: %s is %g, outside [%g, %g]: running at %g", field.c_str(), was, lo, hi, v);
+        warnings.push_back(buf);
+    };
+    const auto clampI = [&warnings](int& v, int lo, int hi, const std::string& field)
+    {
+        if (v >= lo && v <= hi) return;
+        const int was = v;
+        v = std::max(lo, std::min(hi, v));
+        warnings.push_back("rig.json: " + field + " is " + std::to_string(was) + ", outside [" + std::to_string(lo)
+                           + ", " + std::to_string(hi) + "]: running at " + std::to_string(v));
+    };
+    // The axes first: a position route's gain is capped by its axis's max.
+    for (size_t i = 0; i < c.drives.size(); ++i)
+        clampD(c.drives[i].hapticsMaxMm, 0.0, 10.0, "axes[" + std::to_string(i) + "].hapticsMaxMm");
+    for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+    {
+        const haptics::EffectInfo& info = haptics::effectInfo(i);
+        haptics::EffectParams& p = c.hapticsFx[static_cast<size_t>(i)];
+        const std::string pfx = std::string("haptics.") + info.key + ".";
+        double ampLo = 0.0, ampHi = 100.0;   // the registry's amp % row, every tile's
+        for (int k = 0; k < info.paramCount; ++k)
+            if (std::strcmp(info.params[k].key, "ampPct") == 0) { ampLo = info.params[k].min; ampHi = info.params[k].max; }
+        clampD(p.ampPct, ampLo, ampHi, pfx + "ampPct");
+        for (int n = 0; n < haptics::MAX_ROUTES; ++n)
+        {
+            haptics::Route& r = p.routes[n];
+            if (r.axis == -1 && r.shaker == -1 && r.gain <= 0.0) continue;   // unused slot
+            const std::string rpfx = pfx + "routes[" + std::to_string(n) + "].";
+            clampI(r.harm, 1, 8, rpfx + "harm");
+            // The gain's unit follows the destination (as validate() reads
+            // it): a shaker or a torque axis takes a multiplier up to 2, a
+            // position axis millimetres up to its own haptic max.
+            double hi = 2.0;
+            if (r.shaker < 0 && r.axis >= 0 && static_cast<size_t>(r.axis) < c.drives.size()
+                && c.drives[static_cast<size_t>(r.axis)].mode != "torque")
+                hi = c.drives[static_cast<size_t>(r.axis)].hapticsMaxMm;
+            clampD(r.gain, 0.0, hi, rpfx + "gain");
+        }
+    }
+    clampD(c.hapticsMasterGain, 0.0, 2.0, "haptics.masterGain");
+    clampD(c.hapticsPositionBudget, 0.0, 1.0, "haptics.positionBudget");
+}
+
+// Which file a validate() error belongs to, for the warning that reports
+// it: the host fields the validator checks are few and named first in
+// their message; everything else is the rig's.
+static const char* fileForError(const std::string& e)
+{
+    static const char* const kHostFields[] = { "controlLoopHz", "ncxFrozenMs", "pdoWatchdogMs", "sync0RecycleRounds",
+                                               "audioChannels", "audioDevices" };
+    for (const char* f : kHostFields)
+        if (e.rfind(f, 0) == 0) return "host.json";
+    return "rig.json";
+}
+
 bool Config::load(const std::string& anchorPath)
 {
     const QString dir    = configDir(anchorPath);
+    m_loadWarnings.clear();
 
     QJsonObject hostObj, rigObj;
     QString hostErr, rigErr;
@@ -960,8 +1037,14 @@ bool Config::load(const std::string& anchorPath)
         if (c.drives.empty()) seedDefaultDrive(c);
         m_config = c;
         m_lastError.clear();
-        // The one rewrite a load makes keeps the file as it was beside it.
+        // The one rewrite a load makes keeps the file as it was beside it,
+        // and writes the values as read (the clamp below is in memory only).
         if (rewriteRig && backupFile(rigFile(dir))) saveRig(anchorPath);
+        // Clamp and warn, never refuse: the rig runs at the edge of its
+        // range instead of beyond it or not at all, and the log says so.
+        clampHapticsOnLoad(m_config, m_loadWarnings);
+        for (const std::string& e : m_config.validate())
+            m_loadWarnings.push_back(std::string(fileForError(e)) + ": " + e);
         return true;
     }
 

@@ -481,6 +481,12 @@ public:
     AppConfig& get()             { return m_config; }
 
     std::string lastError() const { return m_lastError; }
+    // What load() had to say about the files it read, one line each: the
+    // haptics values it clamped to the range the strip offers (an amp of
+    // 500 runs at 100) and every validate() error the set still has (it
+    // runs as read). The files themselves are left as written. The mains
+    // log these once the logger is up; empty after a clean load.
+    const std::vector<std::string>& loadWarnings() const { return m_loadWarnings; }
 
     // The haptics object as rig.json carries it, both ways. A haptics
     // profile is exactly this object (HapticsProfiles), so loading one is
@@ -518,6 +524,7 @@ public:
 private:
     AppConfig   m_config;
     std::string m_lastError;
+    std::vector<std::string> m_loadWarnings;
 
     void setDefaults();
     static void seedDefaultDrive(AppConfig& c);
