@@ -1346,7 +1346,11 @@ function shakerStatus(s){
   const el=$('shakerStatus'); if(!el||!s) return;
   const k=s.shakers||{};
   if(!k.enabled){ el.textContent='Shakers off.'; return; }
-  if(!k.open){ el.textContent='Shakers: not open'+(k.error?' ('+k.error+')':'')+'.'; return; }
+  // Not one card open: say why, per card (the status carries each
+  // device's own error, never one for the whole sink).
+  if(!k.open){
+    const why=(k.devices||[]).map(d=>((d.name||'(default)')+': '+(d.error||'not open'))).join('; ');
+    el.textContent='Shakers: not open'+(why?' ('+why+')':'')+'.'; return; }
   if(!el._built){
     el._built=true;
     el.innerHTML='<span id="shakerLine"></span> '+Array.from({length:k.channels||0},(_,c)=>'<button class="btn btn-sm" type="button" data-shtest="'+c+'" title="40 Hz for a second on this channel">test '+(c+1)+'</button>').join(' ');

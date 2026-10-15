@@ -391,6 +391,8 @@ Development branch. Nothing here is in a release yet.
   table last acted on, and whether it got its entry or the defaults, in
   `carstate.json` beside the rig config: the same car after a restart
   keeps its tiles as they are and its car row reads as before.
+- The shaker status line said only "not open" when no card could be
+  opened; it now names each card and its own error.
 - With follow car on, a car the car table had no entry for kept the last
   car's engine, limiter, driveline, ABS and TC (a Mini played a truck's
   12.9 litre engine). In a game the table covers (Assetto Corsa,
