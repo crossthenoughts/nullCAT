@@ -85,6 +85,7 @@ static TelemetryData frame(double skidPct, bool fresh, double raw0 = 0.0)
     sd.positions[1] = 32767.0;
     sd.packetType   = TelemetryPacketType::Motion;
     sd.numNcx       = 13;
+    for (int i = 0; i < sd.numNcx; ++i) sd.ncxHave[i] = true;
     sd.ncx[static_cast<int>(NcxValues::SpeedKmh)] = 80.0;
     sd.ncx[static_cast<int>(NcxValues::Skid)] = skidPct;
     sd.ncxFresh     = fresh;
@@ -267,6 +268,49 @@ int main()
         for (int i = 0; i < 50; ++i) { mc.hapticsIdleTick(frame(100.0, true)); if (i >= 5) muted = std::max(muted, std::fabs(mc.hapticsLayer().overlayFor(0))); }
         check(liveLvl > 0.5 && live > 1.0, "I-5b loop stopped: the skid plays on the idle clock (overlay on the belt)");
         check(muted == 0.0, "I-5b loop stopped: a tile mute reaches the layer on the idle clock: nothing reaches the belt");
+    }
+
+    // ---- I-5c: the gear-ratio learner runs on the idle clock too (a
+    // shaker-only install never runs the RT loop, and the laws read the
+    // ratios it learns); a car the sim moves away from is published once
+    // for the cache, with its count stepped ----
+    {
+        MotionController mc;
+        mc.configure(makeBeltConfig(50.0, 1.0));
+        // 2 ms cycles: 3rd held at 6000 rpm / 100 km/h for 4 s (confident
+        // needs 2 s of agreeing samples after the 0.5 s hold).
+        TelemetryData td = frame(0.0, true);
+        td.ncx[static_cast<int>(NcxValues::Rpm)]      = 6000.0;
+        td.ncx[static_cast<int>(NcxValues::SpeedKmh)] = 100.0;
+        td.ncx[static_cast<int>(NcxValues::Gear)]     = 3.0;
+        std::snprintf(td.car, NCY_STR_LEN, "car_a");
+        for (int i = 0; i < 2000; ++i) mc.hapticsIdleTick(td);
+        // Then 2nd at the same speed.
+        td.ncx[static_cast<int>(NcxValues::Rpm)]  = 8000.0;
+        td.ncx[static_cast<int>(NcxValues::Gear)] = 2.0;
+        for (int i = 0; i < 2000; ++i) mc.hapticsIdleTick(td);
+        MotionStatus ms = mc.getMotionStatus();
+        check(ms.gearRatioConfident[3] && std::fabs(ms.gearRatio[3] - 60.0) < 1.0
+              && ms.gearRatioConfident[2] && std::fabs(ms.gearRatio[2] - 80.0) < 1.0,
+              "I-5c loop stopped: the learner learns on the idle clock (3rd 60, 2nd 80 rpm per km/h, confident)");
+        check(ms.gearRatioPrevSeq == 0, "I-5c: no car finished yet: the finished count is 0");
+
+        // The sim names another car: car_a's set is published for the
+        // cache once (the count steps once), the slots start over.
+        std::snprintf(td.car, NCY_STR_LEN, "car_b");
+        td.ncx[static_cast<int>(NcxValues::Rpm)]  = 5000.0;
+        td.ncx[static_cast<int>(NcxValues::Gear)] = 4.0;
+        for (int i = 0; i < 50; ++i) mc.hapticsIdleTick(td);
+        ms = mc.getMotionStatus();
+        check(ms.gearRatioPrevSeq == 1 && ms.gearRatiosPrevDirty
+              && ms.gearRatioPrevConfident[3] && std::fabs(ms.gearRatioPrev[3] - 60.0) < 1.0
+              && ms.gearRatioPrevConfident[2] && std::fabs(ms.gearRatioPrev[2] - 80.0) < 1.0,
+              "I-5c car change: the finished car's confident set is published with the count at 1");
+        check(!ms.gearRatioConfident[3] && !ms.gearRatioConfident[2],
+              "I-5c car change: the new car starts with no confident gear");
+        for (int i = 0; i < 2000; ++i) mc.hapticsIdleTick(td);
+        ms = mc.getMotionStatus();
+        check(ms.gearRatioPrevSeq == 1, "I-5c: driving the new car does not step the finished count again");
     }
 
     // ---- I-6: e-stop clears instantly ----

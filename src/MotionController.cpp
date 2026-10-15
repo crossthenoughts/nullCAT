@@ -716,8 +716,18 @@ void MotionController::publishStatus()
         m_statusSnapshot.devPosMin[i]  = m_runtime[i].devPosMin;
         m_statusSnapshot.devPosMax[i]  = m_runtime[i].devPosMax;
     }
+    publishHapticsStatusLocked();
+}
+
+// The haptics part of the snapshot, shared by the RT publish and the idle
+// clock (which has no axes to publish but keeps the tiles, dots and
+// channel chips live while the loop is stopped). Caller holds the lock.
+void MotionController::publishHapticsStatusLocked()
+{
     // Gear-ratio learner snapshot: the status surface reads it live; the
-    // car-cache save reads the LAST published copy after the loop stops.
+    // car cache reads the published copy (a finished car from the mains'
+    // poll, the current one after the loop stops). The learner steps on
+    // the same clock as the haptics, so it publishes with them.
     for (int g = 1; g < MAX_GEARS; ++g)
     {
         m_statusSnapshot.gearRatio[g]          = m_ratioLearner.gearRatio(g);
@@ -730,14 +740,6 @@ void MotionController::publishStatus()
     m_statusSnapshot.gearRatiosPrevDirty = m_ratioLearner.prevDirty();
     m_statusSnapshot.gearRatioPrevSeq    = m_ratioLearner.prevSeq();
 
-    publishHapticsStatusLocked();
-}
-
-// The haptics part of the snapshot, shared by the RT publish and the idle
-// clock (which has no axes to publish but keeps the tiles, dots and
-// channel chips live while the loop is stopped). Caller holds the lock.
-void MotionController::publishHapticsStatusLocked()
-{
     m_statusSnapshot.hapticsFired = m_haptics.fireCount();
     for (int i = 0; i < haptics::EVENT_TYPE_COUNT; ++i)
         m_statusSnapshot.hapticsFiredBy[i] = m_haptics.fireCount(static_cast<haptics::EventType>(i));
@@ -2045,6 +2047,12 @@ void MotionController::applyHapticMutes()
 void MotionController::stepHapticsCycle(const TelemetryData& td, bool estop)
 {
     applyStagedHaptics();
+    // Gear-ratio learner: one observation per cycle from the NULLCATX
+    // channels (it filters for meaningful samples itself, in seconds).
+    // Rig-level, and on whichever clock is stepping: a shaker-only install
+    // never runs the RT loop, and the laws read the ratios it learns.
+    if (m_ncxMap.boundCount() > 0)
+        m_ratioLearner.step(m_ncxMap.extract(td), m_cycleTimeSec);
     if (estop) m_haptics.clearAll();
     else       driveContinuousHaptics(td);
     m_haptics.step(m_cycleTimeSec);
@@ -2165,12 +2173,6 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
 
     // Commissioning test mode: start/stop requests, engine step, completion.
     serviceCommissioning(drives, numHwDrives);
-
-    // Gear-ratio learner: one observation per cycle from the NULLCATX
-    // channels (it filters for meaningful samples itself, in seconds).
-    // Rig-level, so it runs whether or not any device axis is engaged.
-    if (m_ncxMap.boundCount() > 0)
-        m_ratioLearner.step(m_ncxMap.extract(telemetryData), m_cycleTimeSec);
 
     output.numDrives = m_numDrives;
     const bool estopNow = m_emergencyStop.load(std::memory_order_acquire);

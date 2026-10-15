@@ -1664,6 +1664,7 @@ private slots:
 
         TelemetryData ncx{};
         ncx.numNcx   = 1;
+        ncx.ncxHave[0] = true;
         ncx.ncxFresh = true;
         ncx.ncx[0]   = 5.0;      // clutch up (5% < bite 25%): blocking active
         out = MotionOutput{};

@@ -86,7 +86,9 @@ public:
         v.fresh = td.ncxFresh;
         for (int i = 0; i < m_n; ++i)
         {
-            if (m_e[i].slot >= td.numNcx) continue;
+            // Slots are positional: a slot the line left empty or
+            // unparseable is absent for its token, not 0.
+            if (m_e[i].slot >= td.numNcx || !td.ncxHave[m_e[i].slot]) continue;
             v.have[m_e[i].token] = true;
             v.val[m_e[i].token]  = td.ncx[m_e[i].slot] * m_e[i].scale + m_e[i].offset;
         }

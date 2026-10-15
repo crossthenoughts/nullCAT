@@ -392,12 +392,29 @@ int main(int argc, char* argv[])
 
     LOG_INFO("Ready. Ctrl-C (SIGINT) to exit.");
 
-    // ---- block until shutdown requested ----
+    // A car the sim moved away from: its learned gear ratios into the
+    // cache now, not at shutdown (a Pi is powered off, not stopped, so
+    // waiting for the exit would lose every car of the session). The
+    // learner publishes each finished car once; the cache takes each once.
+    auto rememberFinishedCar = [&]()
     {
-        std::unique_lock<std::mutex> lk(g_cvMu);
-        while (!g_stop.load())
+        const MotionStatus ms = motion.getMotionStatus();
+        if (carCache.takeFinished(ms.gearRatioPrevSeq, ms.gearRatioPrev, ms.gearRatioPrevConfident, ms.gearRatiosPrevDirty))
+        {
+            carCache.save(cfgPath);
+            LOG_INFO("CarCache: the last car's gear ratios remembered.");
+        }
+    };
+
+    // ---- block until shutdown requested ----
+    while (!g_stop.load())
+    {
+        {
+            std::unique_lock<std::mutex> lk(g_cvMu);
             g_cv.wait_for(lk, std::chrono::milliseconds(250),
                           [] { return g_stop.load(); });
+        }
+        rememberFinishedCar();
     }
 
     // ---- ordered shutdown (mirrors src/main.cpp) ----
@@ -422,14 +439,13 @@ int main(int argc, char* argv[])
     telemetry.shutdown();
 
     // Persist the session's learned gear ratios (loop is stopped, so the
-    // published snapshot is final). Nothing confident learned = no write.
+    // published snapshot is final): a car finished since the last poll,
+    // then the car being driven. Nothing confident learned = no write.
+    rememberFinishedCar();
     {
         const MotionStatus ms = motion.getMotionStatus();
-        bool any = false;
-        for (int g = 1; g < MAX_GEARS; ++g) if (ms.gearRatioConfident[g]) any = true;
-        if (any && ms.gearRatiosDirty)
+        if (carCache.takeSession(ms.gearRatio, ms.gearRatioConfident, ms.gearRatiosDirty))
         {
-            carCache.merge(ms.gearRatio, ms.gearRatioConfident);
             carCache.save(cfgPath);
             LOG_INFO("CarCache: session gear ratios remembered.");
         }

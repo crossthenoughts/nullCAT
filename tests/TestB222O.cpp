@@ -490,6 +490,56 @@ private slots:
         QCOMPARE(bad.cars()[0].r[2], 85.0);
     }
 
+    // ---- CarCache: the learner's published sets are taken once each ----
+    void o4c_carcache_takes_each_finished_car_once()
+    {
+        double r[MAX_GEARS] = {}; bool conf[MAX_GEARS] = {};
+        r[1] = 120.0; conf[1] = true;
+        r[2] = 85.0;  conf[2] = true;
+
+        CarCache cc;
+        // No car finished yet (seq 0, the learner's start): nothing to take,
+        // however often the poll asks.
+        QVERIFY(!cc.takeFinished(0, r, conf, true));
+        QVERIFY(!cc.takeFinished(0, r, conf, true));
+        QCOMPARE((int)cc.cars().size(), 0);
+
+        // The first finished car: taken on the step, and once only (the
+        // poll sees the same published set until the next car finishes).
+        QVERIFY(cc.takeFinished(1, r, conf, true));
+        QCOMPARE((int)cc.cars().size(), 1);
+        QVERIFY(!cc.takeFinished(1, r, conf, true));
+        QCOMPARE((int)cc.cars().size(), 1);
+
+        // A finished car the cache already knew (not dirty): the step is
+        // consumed, nothing is written.
+        double r2[MAX_GEARS] = {}; bool c2[MAX_GEARS] = {};
+        r2[1] = 95.0; c2[1] = true;
+        r2[2] = 66.0; c2[2] = true;
+        QVERIFY(!cc.takeFinished(2, r2, c2, false));
+        QCOMPARE((int)cc.cars().size(), 1);
+        QVERIFY(!cc.takeFinished(2, r2, c2, true));   // same step again: still consumed
+
+        // The next step with something new: in.
+        QVERIFY(cc.takeFinished(3, r2, c2, true));
+        QCOMPARE((int)cc.cars().size(), 2);
+        QCOMPARE(cc.cars()[0].r[1], 95.0);
+
+        // The car being driven at shutdown: the same dirty gate.
+        double r3[MAX_GEARS] = {}; bool c3[MAX_GEARS] = {};
+        r3[1] = 150.0; c3[1] = true;
+        r3[2] = 100.0; c3[2] = true;
+        QVERIFY(!cc.takeSession(r3, c3, false));
+        QCOMPARE((int)cc.cars().size(), 2);
+        QVERIFY(cc.takeSession(r3, c3, true));
+        QCOMPARE((int)cc.cars().size(), 3);
+        // One confident gear is not an identity, dirty or not.
+        double r4[MAX_GEARS] = {}; bool c4[MAX_GEARS] = {};
+        r4[3] = 50.0; c4[3] = true;
+        QVERIFY(!cc.takeSession(r4, c4, true));
+        QCOMPARE((int)cc.cars().size(), 3);
+    }
+
     void o5_full_default_roundtrip_no_data_loss()
     {
         // Save a freshly-constructed Config (all defaults) and reload it.

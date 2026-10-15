@@ -14,6 +14,7 @@
 
 #include <QApplication>
 #include <QMessageBox>
+#include <QTimer>
 
 #include "MainWindow.h"
 #include "Config.h"
@@ -288,8 +289,26 @@ int main(int argc, char* argv[])
         LOG_WARNING("NIC name not configured. Please edit config.json and set 'nicName'.");
     }
 
+    // A car the sim moved away from: its learned gear ratios into the
+    // cache now, not at shutdown (a box that is powered off rather than
+    // closed would lose every car of the session). The learner publishes
+    // each finished car once; the cache takes each once.
+    auto rememberFinishedCar = [&]()
+    {
+        const MotionStatus ms = motion.getMotionStatus();
+        if (carCache.takeFinished(ms.gearRatioPrevSeq, ms.gearRatioPrev, ms.gearRatioPrevConfident, ms.gearRatiosPrevDirty))
+        {
+            carCache.save(cfgPath.toStdString());
+            LOG_INFO("CarCache: the last car's gear ratios remembered.");
+        }
+    };
+    QTimer carCacheTimer;
+    QObject::connect(&carCacheTimer, &QTimer::timeout, rememberFinishedCar);
+    carCacheTimer.start(250);
+
     // ---- Run Qt Event Loop ----
     int exitCode = app.exec();
+    carCacheTimer.stop();
 
     // ---- Cleanup (also done in MainWindow::closeEvent, but belt+suspenders) ----
     if (loop.isRunning())
@@ -312,14 +331,13 @@ int main(int argc, char* argv[])
     shakers.close();
     telemetry.shutdown();
 
-    // Persist the session's learned gear ratios (loop stopped, snapshot final).
+    // Persist the session's learned gear ratios (loop stopped, snapshot
+    // final): a car finished since the last poll, then the car being driven.
+    rememberFinishedCar();
     {
         const MotionStatus ms = motion.getMotionStatus();
-        bool any = false;
-        for (int g = 1; g < MAX_GEARS; ++g) if (ms.gearRatioConfident[g]) any = true;
-        if (any && ms.gearRatiosDirty)
+        if (carCache.takeSession(ms.gearRatio, ms.gearRatioConfident, ms.gearRatiosDirty))
         {
-            carCache.merge(ms.gearRatio, ms.gearRatioConfident);
             carCache.save(cfgPath.toStdString());
             LOG_INFO("CarCache: session gear ratios remembered.");
         }

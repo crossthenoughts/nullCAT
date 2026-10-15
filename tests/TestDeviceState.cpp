@@ -25,7 +25,7 @@ static TelemetryData ncxFrame(std::initializer_list<double> ch, bool fresh = tru
 {
     TelemetryData td{};
     td.numNcx = 0;
-    for (double v : ch) td.ncx[td.numNcx++] = v;
+    for (double v : ch) { td.ncxHave[td.numNcx] = true; td.ncx[td.numNcx++] = v; }
     td.ncxFresh = fresh;
     return td;
 }
@@ -62,6 +62,18 @@ int main()
         v = map.extract(shortTd);
         CHECK(v.have[NcxValues::Rpm] && !v.have[NcxValues::ClutchPct],
               "a slot beyond the packet's channel count is unbound this cycle");
+
+        // Slots are positional: a middle slot the line left empty or
+        // unparseable is absent for its token (not 0), and the slots after
+        // it still mean what the sender's order says.
+        TelemetryData holeTd = ncxFrame({ 6500.0, 0.0, 7.0, 0.35 });
+        holeTd.ncxHave[1] = false;
+        v = map.extract(holeTd);
+        CHECK(v.have[NcxValues::Rpm] && !v.have[NcxValues::SpeedKmh],
+              "an absent middle slot reads absent for its token, not 0");
+        CHECK(v.have[NcxValues::ClutchPct] &&
+              std::fabs(v.val[NcxValues::ClutchPct] - 35.0) < 1e-12,
+              "the slots after an absent one keep their place");
     }
 
     // ================= DeviceStateLayer effects =================

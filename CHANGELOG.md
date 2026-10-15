@@ -395,8 +395,19 @@ Development branch. Nothing here is in a release yet.
 - A `NULLCATX` channel line with one field left empty or unreadable
   shifted every channel after it one slot along (the gear binding would
   read the clutch, and so on down the line). A bad field now leaves its
-  own slot empty and the rest stay where the sender put them. Motion
-  lines (`NULLCAT`) are unchanged.
+  own slot empty and the rest stay where the sender put them (a binding
+  on the empty slot reads "not sent", not 0). Motion lines (`NULLCAT`)
+  are unchanged.
+- Gear ratios were only learned while the control loop ran: a shaker-only
+  install (no drives), or shakers playing with the loop stopped, never
+  learned a car's gears, so revmatch, the clutch judder and the car's
+  gear-based effects had nothing to go on. The learner now runs on the
+  same clock as the shakers.
+- A car's learned gear ratios were only written to carcache.json when the
+  program was closed: a Pi that is powered off, or a crash, lost every
+  car of the session. Each car's ratios are now remembered the moment the
+  sim moves to another car (the car being driven is still written at
+  close).
 - With follow car on, a car the car table had no entry for kept the last
   car's engine, limiter, driveline, ABS and TC (a Mini played a truck's
   12.9 litre engine). In a game the table covers (Assetto Corsa,

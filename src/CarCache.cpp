@@ -82,11 +82,25 @@ bool CarCache::save(const std::string& anchorPath) const
     return true;
 }
 
-void CarCache::merge(const double r[MAX_GEARS], const bool confident[MAX_GEARS])
+bool CarCache::takeSession(const double r[MAX_GEARS], const bool confident[MAX_GEARS], bool dirty)
+{
+    if (!dirty) return false;   // nothing the cache did not already know
+    return merge(r, confident);
+}
+
+bool CarCache::takeFinished(uint32_t seq, const double r[MAX_GEARS],
+                            const bool confident[MAX_GEARS], bool dirty)
+{
+    if (seq == m_finishedSeq) return false;   // this set is already in (or there was never one)
+    m_finishedSeq = seq;
+    return takeSession(r, confident, dirty);
+}
+
+bool CarCache::merge(const double r[MAX_GEARS], const bool confident[MAX_GEARS])
 {
     int n = 0;
     for (int g = 1; g < MAX_GEARS; ++g) if (confident[g]) ++n;
-    if (n < GearRatioLearner::ADOPT_MIN_GEARS) return;   // too little to identify a car
+    if (n < GearRatioLearner::ADOPT_MIN_GEARS) return false;   // too little to identify a car
 
     // Find the remembered car this session matches (same rule as adoption:
     // every shared gear within tolerance, at least two shared).
@@ -109,7 +123,7 @@ void CarCache::merge(const double r[MAX_GEARS], const bool confident[MAX_GEARS])
         // The session's own gears must fall with every gear.
         bool has[MAX_GEARS] = {};
         for (int g = 1; g < MAX_GEARS; ++g) has[g] = confident[g];
-        if (!GearRatioLearner::inOrder(r, has)) return;
+        if (!GearRatioLearner::inOrder(r, has)) return false;
     }
     CachedCar car = (match >= 0) ? m_cars[match] : CachedCar{};
     for (int g = 1; g < MAX_GEARS; ++g)
@@ -129,4 +143,5 @@ void CarCache::merge(const double r[MAX_GEARS], const bool confident[MAX_GEARS])
     if (match >= 0) m_cars.erase(m_cars.begin() + match);
     m_cars.insert(m_cars.begin(), car);                  // most recently driven first
     while ((int)m_cars.size() > MAX_CACHED_CARS) m_cars.pop_back();
+    return true;
 }
