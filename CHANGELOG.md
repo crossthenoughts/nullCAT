@@ -374,6 +374,10 @@ Development branch. Nothing here is in a release yet.
 - A mute request whose body did not say on or off un-muted the rig (it
   looked for the word true and found none). Such a body is now refused
   and changes nothing.
+- A number that was not a number (a sender's nan or inf) or a control
+  character in a car name made the whole status unreadable to the page,
+  which then showed the link as lost. Such a number now reads as 0 and
+  every control character is escaped.
 - With follow car on, a car the car table had no entry for kept the last
   car's engine, limiter, driveline, ABS and TC (a Mini played a truck's
   12.9 litre engine). In a game the table covers (Assetto Corsa,

@@ -33,8 +33,12 @@
 #include "Config.h"
 #include "Logging.h"
 #include "httplib.h"
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <string>
@@ -199,6 +203,27 @@ int main()
 
     // ---- surface up before engine: status + meta respond ----
     check(has(get("/api/status"), "\"loopRunning\""), "GET /api/status responds pre-init");
+    // The hand-built status must be JSON whatever the numbers and strings
+    // hold: a non-finite number prints as 0 and a control character in a
+    // string is escaped (reverting either in WebServer::jsonDouble /
+    // jsonStr fails the unit rows; "nan" or a raw tab in the text made the
+    // page's poll loop swallow the whole status).
+    {
+        QJsonParseError pe;
+        const std::string st = get("/api/status");
+        QJsonDocument::fromJson(QByteArray(st.c_str(), (int)st.size()), &pe);
+        check(pe.error == QJsonParseError::NoError, "GET /api/status is parseable JSON");
+        check(WebServer::jsonDouble(std::nan(""), 3) == "0.000" && WebServer::jsonDouble(INFINITY, 1) == "0.0"
+              && WebServer::jsonDouble(-INFINITY, 0) == "0" && WebServer::jsonDouble(1.5, 2) == "1.50",
+              "jsonDouble: nan and inf print as 0, finite values as before");
+        check(WebServer::jsonStr("a\tb\x01" "c\"d\\e\n") == "\"a\\tb\\u0001c\\\"d\\\\e\\n\"",
+              "jsonStr: control characters, quote and backslash escaped");
+        const std::string esc = WebServer::jsonStr("\x1f" "x\x7f");
+        QJsonParseError pe2;
+        const QJsonDocument back = QJsonDocument::fromJson(QByteArray(("[" + esc + "]").c_str()), &pe2);
+        check(pe2.error == QJsonParseError::NoError && back.array().at(0).toString() == QString::fromUtf8("\x1f" "x\x7f"),
+              "jsonStr: every escape parses back to the same text");
+    }
     check(has(get("/api/meta"),   "hostOwner"),       "GET /api/meta exposes hostOwner");
     check(has(get("/api/meta"),   "\"rigPendingRestart\":false"),
           "GET /api/meta: pending-restart flags present, false with no saves");

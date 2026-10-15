@@ -55,18 +55,31 @@
 
 // ---- JSON helpers (no external dependency) ----
 
-static std::string jsonStr(const std::string& s)
+// A JSON string: quote, backslash and every control character escaped
+// (the short forms where JSON has them, \u00XX for the rest). A raw
+// control character from a sender's car name made the whole status
+// unparseable, and the page's poll loop swallowed the error.
+std::string WebServer::jsonStr(const std::string& s)
 {
-    // Minimal JSON string escaping
     std::string out;
     out.reserve(s.size() + 2);
     out += '"';
     for (char c : s)
     {
+        const unsigned char u = static_cast<unsigned char>(c);
         if      (c == '"')  out += "\\\"";
         else if (c == '\\') out += "\\\\";
         else if (c == '\n') out += "\\n";
         else if (c == '\r') out += "\\r";
+        else if (c == '\t') out += "\\t";
+        else if (c == '\b') out += "\\b";
+        else if (c == '\f') out += "\\f";
+        else if (u < 0x20)
+        {
+            char buf[8];
+            snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned>(u));
+            out += buf;
+        }
         else                out += c;
     }
     out += '"';
@@ -75,8 +88,12 @@ static std::string jsonStr(const std::string& s)
 
 static std::string jsonBool(bool v)  { return v ? "true" : "false"; }
 static std::string jsonInt(int v)    { return std::to_string(v); }
-static std::string jsonDouble(double v, int prec = 2)
+// A number with prec decimals. JSON has no nan or inf: a non-finite value
+// prints as 0 (the page reads every number as (+v||0), so 0 is what it
+// would have shown; "nan" in the text broke the whole status instead).
+std::string WebServer::jsonDouble(double v, int prec)
 {
+    if (!std::isfinite(v)) v = 0.0;
     char buf[32];
     snprintf(buf, sizeof(buf), "%.*f", prec, v);
     return buf;

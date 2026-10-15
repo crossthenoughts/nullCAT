@@ -88,6 +88,13 @@ public:
     // always allowed; this only appends.
     void setAllowedHosts(std::vector<std::string> hosts) { m_extraHosts = std::move(hosts); }
 
+    // ---- JSON text helpers for the hand-built status (public statics:
+    // unit-tested). jsonStr escapes quote, backslash and every control
+    // character; jsonDouble prints a non-finite value as 0 (JSON has no
+    // nan or inf, and one in the text made the whole status unparseable).
+    static std::string jsonStr(const std::string& s);
+    static std::string jsonDouble(double v, int prec = 2);
+
     // ---- Host-header validation helpers (public statics: unit-tested) ----
     // Hostname part of a Host header, lowercased, port stripped. Handles
     // "name", "name:port", "1.2.3.4:port", "[::1]:port".
