@@ -19,6 +19,8 @@
 // milliseconds, a pause rather than a click. Overrun (the audio side
 // stalled): new frames are dropped while the ring is full, the cycle is
 // never blocked, and the audio side skips to the newest when it wakes.
+// A pushed sample that is not finite is taken as 0 at the ring, so the
+// recursive filters never see one.
 //
 // Deterministic: render() is pure arithmetic on the ring, so the whole
 // chain is unit-tested without a device (ShakerOutput owns the device).
@@ -190,7 +192,11 @@ private:
             const uint32_t h = head.load(std::memory_order_relaxed);
             if (static_cast<int>(h - tail.load(std::memory_order_acquire)) >= SHAKER_RING) return;   // full: dropped
             float* slot = buf[h % SHAKER_RING];
-            for (int c = 0; c < channels; ++c) slot[c] = static_cast<float>(c < n ? samples[c] : 0.0);
+            // The filters downstream are recursive: one NaN or inf in
+            // would stay in their state for the rest of the run. A sample
+            // that is not finite counts as 0 (TestShakerDsp S-10).
+            for (int c = 0; c < channels; ++c)
+                slot[c] = (c < n && std::isfinite(samples[c])) ? static_cast<float>(samples[c]) : 0.0f;
             head.store(h + 1, std::memory_order_release);
         }
         // The two frames at the read position (false: not both there yet).

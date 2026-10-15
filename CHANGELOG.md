@@ -356,6 +356,9 @@ Development branch. Nothing here is in a release yet.
   rig keeps its own values: change them on the tile.
 
 ### Fixed
+- One bad sample (not a number) into a shaker channel silenced that
+  channel for the rest of the session: it stuck in the output filters. It
+  now counts as silence for that one sample and the channel plays on.
 - With shakers playing and the control loop stopped (or on a rig with no
   drives), the log never showed "sim channel stream started" and
   "stopped", "haptics settings applied live" or the telemetry parse

@@ -18,7 +18,8 @@
 //        producer an edge on every channel lands on the same frame;
 //   S-8  the level meter reads a tone's level whenever it is read;
 //   S-9  after an audio stall that filled the ring, the next callback
-//        skips to the newest frames: the latency is back at once.
+//        skips to the newest frames: the latency is back at once;
+//   S-10 a NaN or inf sample from the producer never poisons the filters.
 #include "../src/ShakerDsp.h"
 #include <cmath>
 #include <cstdio>
@@ -295,6 +296,30 @@ int main()
         const double delayMs = 1000.0 * first / 48000.0;
         std::printf("  S-9 edge delay right after a stall: %.1f ms\n", delayMs);
         check(delayMs < 25.0, "S-9 after a stall the next callback skips to the newest: the delay is back at once (not a full ring, 128 ms)");
+    }
+
+    // ---- S-10 ----
+    {
+        // One frame with a NaN on one channel and an inf on the other (a
+        // law that divided by zero, a learner's first sample): the biquad
+        // and the DC block are recursive, so a NaN that gets in stays in
+        // for the rest of the run, on that channel, silently. The input
+        // is guarded: a non-finite sample counts as 0. Reverting the
+        // std::isfinite in Ring::push (ShakerDsp.h) fails every check here.
+        Harness h(2000.0, 48000.0, 2); prime(h);
+        auto tone = [](double t, double* s) { s[0] = 0.5 * std::sin(2 * kPi * 40.0 * t); s[1] = 0.5 * std::sin(2 * kPi * 50.0 * t); };
+        h.run(24000, tone);
+        double bad[haptics::MAX_SHAKERS] = { std::nan(""), INFINITY };
+        h.dsp.push(bad, 2); h.tCtrl += 1.0 / 2000.0;
+        h.run(48000, tone);
+        bool finite = true;
+        for (size_t i = 24000 * 2; i < h.out.size(); ++i) finite = finite && std::isfinite(h.out[i]);
+        check(finite, "S-10 every sample rendered after a NaN/inf frame is finite");
+        const auto v0 = h.chan(0, 48000, 72000), v1 = h.chan(1, 48000, 72000);
+        approx(peak(v0), 0.5, 0.03, "S-10 the channel that took the NaN plays its tone at level half a second later");
+        approx(peak(v1), 0.5, 0.03, "S-10 the channel that took the inf plays its tone at level too");
+        approx(hzOf(v0, 48000.0), 40.0, 1.0, "S-10 ...at the right frequency");
+        check(h.dsp.level(0) > 0.45 && h.dsp.level(0) < 0.55, "S-10 the level meter reads the tone, not NaN");
     }
 
     std::printf("\nTestShakerDsp: %d passed, %d failed\n", g_pass, g_fail);
