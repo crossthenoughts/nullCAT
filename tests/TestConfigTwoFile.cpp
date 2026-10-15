@@ -587,6 +587,55 @@ private slots:
         QVERIFY(!back.remove("GT3"));
     }
 
+    // A profiles.json that is there but cannot be read keeps the set in
+    // memory, fails the load naming the error, and is never written over:
+    // a save goes to profiles.json.rejected and reports failure, until a
+    // later load reads the file. It used to parse to an empty set and
+    // return true, and the next save wrote that emptiness over the user's
+    // profiles. Reverting the parse check in HapticsProfiles::load makes
+    // the load succeed with an empty set and the "kept" row fail.
+    void hapticsProfiles_unreadableFileIsNeverWrittenOver()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        const std::string anchor = (dir.path() + "/config.json").toStdString();
+        HapticsProfiles ps;
+        QJsonObject h; h["masterGain"] = 0.5;
+        ps.put("Mine", h);
+        QVERIFY(ps.save(anchor));
+        const QByteArray good = readBytes(dir.path() + "/profiles.json");
+        QVERIFY(good.size() > 20);
+        const QByteArray cut = good.left(good.size() / 2);
+        writeText(dir.path() + "/profiles.json", cut);
+
+        HapticsProfiles back;
+        back.put("Before", h);
+        QVERIFY2(!back.load(anchor), "an unreadable profiles.json must fail the load");
+        QVERIFY(!back.lastError().empty());
+        QCOMPARE(back.names().size(), (size_t)1);
+        QCOMPARE(back.names()[0], std::string("Before"));            // kept
+        back.put("After", h);
+        QVERIFY2(!back.save(anchor), "a save after a refused load must report failure");
+        QCOMPARE(readBytes(dir.path() + "/profiles.json"), cut);       // never written over
+        QVERIFY(QFile::exists(dir.path() + "/profiles.json.rejected"));
+        QVERIFY(readBytes(dir.path() + "/profiles.json.rejected").contains("\"After\""));
+        // The file readable again: the load takes it and saves land.
+        writeText(dir.path() + "/profiles.json", good);
+        QVERIFY(back.load(anchor));
+        QVERIFY(back.lastError().empty());
+        QCOMPARE(back.names().size(), (size_t)1);
+        QCOMPARE(back.names()[0], std::string("Mine"));
+        back.put("Again", h);
+        QVERIFY(back.save(anchor));
+        QVERIFY(readBytes(dir.path() + "/profiles.json").contains("\"Again\""));
+        // No file at all is no error worth more than false, and saves are fine.
+        QTemporaryDir empty; QVERIFY(empty.isValid());
+        HapticsProfiles fresh;
+        QVERIFY(!fresh.load((empty.path() + "/config.json").toStdString()));
+        QVERIFY(fresh.lastError().empty());
+        fresh.put("New", h);
+        QVERIFY(fresh.save((empty.path() + "/config.json").toStdString()));
+    }
+
     // Single-writer isolation: saveRig() must not rewrite host.json (and vice versa).
     void saveRig_leavesHostUntouched()
     {

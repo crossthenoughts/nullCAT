@@ -3031,7 +3031,14 @@ bool WebServer::snapshotProfile(const std::string& name, std::string& err)
     h.remove("followCar");
     m_profiles.put(name, h);
     m_profiles.setActive(name);
-    if (!m_profiles.save(m_configPath)) { err = "cannot write profiles.json"; return false; }
+    if (!m_profiles.save(m_configPath))
+    {
+        const std::string why = m_profiles.lastError();
+        err = why.empty() ? "cannot write profiles.json"
+            : "profiles.json could not be read at startup (" + why + "), so it is not written over: the profile went to "
+              "profiles.json.rejected. Fix or move profiles.json and restart.";
+        return false;
+    }
     return true;
 }
 

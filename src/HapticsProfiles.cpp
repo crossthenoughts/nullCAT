@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Tim Palmgren (Ø Werks) <tim@zerowerks.co.nz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "HapticsProfiles.h"
+#include "Logging.h"
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -17,8 +18,24 @@ bool HapticsProfiles::load(const std::string& anchorPath)
 {
     QFile f(profilesPath(anchorPath));
     if (!f.open(QIODevice::ReadOnly)) return false;
-    const QJsonObject root = QJsonDocument::fromJson(f.readAll()).object();
+    QJsonParseError pe{};
+    const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &pe);
+    if (pe.error != QJsonParseError::NoError || !doc.isObject())
+    {
+        // A file that is there but unreadable (truncated, a hand edit gone
+        // wrong) used to read as an empty set, and the next save wrote
+        // that emptiness over the user's profiles. Keep what is in memory
+        // and refuse to write over the file until it reads again.
+        std::lock_guard<std::mutex> lk(m_mx);
+        m_loadError = (pe.error != QJsonParseError::NoError) ? pe.errorString().toStdString() : "not a JSON object";
+        LOG_WARNING("Haptics: profiles.json cannot be read (" + m_loadError
+                    + "): the profiles in it are not loaded, and nothing will be written over it. "
+                      "Fix or move the file and restart; a profile saved meanwhile goes to profiles.json.rejected.");
+        return false;
+    }
+    const QJsonObject root = doc.object();
     std::lock_guard<std::mutex> lk(m_mx);
+    m_loadError.clear();
     m_profiles.clear(); m_bindings.clear();
     const QJsonObject ps = root.value("profiles").toObject();
     for (auto it = ps.begin(); it != ps.end(); ++it)
@@ -35,19 +52,34 @@ bool HapticsProfiles::load(const std::string& anchorPath)
 bool HapticsProfiles::save(const std::string& anchorPath) const
 {
     QJsonObject root, ps, bs;
+    bool rejected = false;
     {
         std::lock_guard<std::mutex> lk(m_mx);
         for (const auto& kv : m_profiles) ps[QString::fromStdString(kv.first)] = kv.second;
         for (const auto& kv : m_bindings) bs[QString::fromStdString(kv.first)] = QString::fromStdString(kv.second);
         root["active"] = QString::fromStdString(m_active);
+        rejected = !m_loadError.empty();
     }
     root["profiles"] = ps;
     root["bindings"] = bs;
     root["_help"] = "nullCAT haptics profiles: named copies of the rig's haptics settings, and which car or game each one is for. Edited from the Haptics strip.";
-    QSaveFile f(profilesPath(anchorPath));
+    // The file on disk was refused by the last load: it is never written
+    // over (the user may recover it); the set goes beside it instead, and
+    // the save still counts as failed so the caller says so.
+    QSaveFile f(profilesPath(anchorPath) + (rejected ? ".rejected" : ""));
     if (!f.open(QIODevice::WriteOnly)) return false;
     f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
-    return f.commit();
+    const bool ok = f.commit();
+    if (rejected && ok)
+        LOG_WARNING("Haptics: profiles.json could not be read at startup, so the profiles were written to "
+                    "profiles.json.rejected instead. Fix or move profiles.json and restart.");
+    return ok && !rejected;
+}
+
+std::string HapticsProfiles::lastError() const
+{
+    std::lock_guard<std::mutex> lk(m_mx);
+    return m_loadError;
 }
 
 std::vector<std::string> HapticsProfiles::names() const

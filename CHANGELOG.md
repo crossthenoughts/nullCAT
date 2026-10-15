@@ -393,6 +393,11 @@ Development branch. Nothing here is in a release yet.
   keeps its tiles as they are and its car row reads as before.
 - The shaker status line said only "not open" when no card could be
   opened; it now names each card and its own error.
+- A `profiles.json` that could not be read (cut short, a hand edit gone
+  wrong) read as no profiles at all, and the next profile save wrote that
+  emptiness over it. It is now left alone with the reason in the log; a
+  profile saved meanwhile goes to `profiles.json.rejected` and the strip
+  says so, until the file is fixed or moved and nullCAT restarted.
 - With follow car on, a car the car table had no entry for kept the last
   car's engine, limiter, driveline, ABS and TC (a Mini played a truck's
   12.9 litre engine). In a game the table covers (Assetto Corsa,
