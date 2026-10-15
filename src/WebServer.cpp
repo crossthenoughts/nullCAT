@@ -1558,7 +1558,12 @@ bool WebServer::start()
             // amp 0 / no route as "fires visually, nothing felt"). Disk is
             // truth: unsaved edits in the browser are not what would play.
             Config saved;
-            if (!saved.load(m_configPath)) { errResp(res, "Cannot read the saved config: " + saved.lastError()); return; }
+            {
+                // Read whole (an apply in flight writes it under the same
+                // lock); released before the command goes to the engine.
+                std::lock_guard<std::mutex> io(m_profilesIo);
+                if (!saved.load(m_configPath)) { errResp(res, "Cannot read the saved config: " + saved.lastError()); return; }
+            }
             const AppConfig& sc = saved.get();
             const haptics::EffectParams& ep = sc.hapticsFx[static_cast<size_t>(info->id)];
             if (ep.ampPct <= 0.0)
@@ -1981,7 +1986,11 @@ bool WebServer::start()
             if (name.size() > 64) name.resize(64);
             if (notes.size() > 4000) notes.resize(4000);
             Config cfg;
-            if (!cfg.load(m_configPath)) { errResp(res, "Cannot read the config: " + cfg.lastError()); return; }
+            {
+                // The saved rig, read whole: an apply in flight writes it under the same lock.
+                std::lock_guard<std::mutex> io(m_profilesIo);
+                if (!cfg.load(m_configPath)) { errResp(res, "Cannot read the config: " + cfg.lastError()); return; }
+            }
             const std::string key = carKeyFor(game, car, carId);
             m_cars.putUser(key, CarTable::fromHapticsObject(Config::writeHapticsObject(cfg.get()), name, notes));
             if (!m_cars.saveUser(m_configPath)) { errResp(res, "Cannot write cars.local.json."); return; }
@@ -2942,6 +2951,7 @@ bool WebServer::followCarEnabled() const
 {
     if (m_configPath.empty()) return false;
     Config cfg;
+    std::lock_guard<std::mutex> lk(m_profilesIo);   // not under m_carMx: the callers hold neither
     if (!cfg.load(m_configPath)) return false;
     return cfg.get().hapticsFollowCar;
 }

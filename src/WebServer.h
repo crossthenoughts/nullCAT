@@ -228,7 +228,12 @@ private:
     // object with car/game bindings; the sampler switches on identity.
     HapticsProfiles   m_profiles;
     haptics::ShakerBank*   m_shakers = nullptr;
-    std::mutex        m_profilesIo;          // one profile load/save at a time
+    // One reader or writer of rig.json at a time: every server-side apply
+    // writes it under this, and every read of it (a profile snapshot, save
+    // for this car, the Test endpoint, the follow switch) takes it too, so
+    // none can read a half-written file. Never held across a motion
+    // command or another lock; mutable for the const readers.
+    mutable std::mutex m_profilesIo;
     std::string       m_lastIdentity;        // "car|game" last looked up
     bool loadProfile(const std::string& name, std::string& err);
     bool snapshotProfile(const std::string& name, std::string& err);
