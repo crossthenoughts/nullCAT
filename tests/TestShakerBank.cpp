@@ -161,6 +161,13 @@ int main()
             std::this_thread::sleep_for(std::chrono::milliseconds(2200));
             lone.checkHealth();
             check(lone.isOpen(), "SB-3 the quiet watchdog does not fire on a card that is calling back");
+            // A card marked quiet that calls back again only paused (the
+            // machine slept): the next health check puts it back in play.
+            lone.markLost("quiet");
+            check(!lone.isOpen() && lone.error().find("quiet") != std::string::npos, "SB-3 a quiet card is marked lost with its reason");
+            std::this_thread::sleep_for(std::chrono::milliseconds(60));
+            lone.checkHealth();
+            check(lone.isOpen() && lone.error().empty(), "SB-3 ...and comes back by itself once it is calling back again");
             lone.close();
             check(!lone.isOpen() && lone.error().empty(), "SB-3 our own close() is not a loss (no reason kept)");
         }

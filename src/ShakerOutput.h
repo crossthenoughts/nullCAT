@@ -78,7 +78,8 @@ public:
     // thread wedged). A healthy card calls every few ms.
     static constexpr double kQuietSec = 2.0;
     // Status thread: compare the callback count with the last look; a
-    // quiet card is marked lost. Cheap, takes m_mx.
+    // quiet card is marked lost, and a card marked quiet that is calling
+    // back again (it only paused) is put back in play. Cheap, takes m_mx.
     void checkHealth();
     // The card went away (notification, or quiet): close the gate and keep
     // the reason; the device itself is left for reopen() or close(). Any

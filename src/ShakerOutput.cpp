@@ -122,10 +122,23 @@ void ShakerOutput::markLost(const char* why)
 void ShakerOutput::checkHealth()
 {
     std::lock_guard<std::mutex> lk(m_mx);
-    if (!m_open.load(std::memory_order_acquire)) return;
     const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
     const uint64_t calls = m_callbacks.load(std::memory_order_relaxed);
+    if (m_lost.load(std::memory_order_acquire) == kLostQuiet)
+    {
+        // A card marked quiet that is pulling data again only paused (the
+        // machine slept, the backend caught its breath): back in play by
+        // itself, nothing to open again.
+        if (calls != m_healthCallbacks && m_impl->deviceOk)
+        {
+            m_healthMs = nowMs; m_healthCallbacks = calls;
+            m_lost.store(0, std::memory_order_release);
+            m_open.store(true, std::memory_order_release);
+        }
+        return;
+    }
+    if (!m_open.load(std::memory_order_acquire)) return;
     if (m_healthMs == 0 || calls != m_healthCallbacks) { m_healthMs = nowMs; m_healthCallbacks = calls; return; }
     if (nowMs - m_healthMs >= static_cast<int64_t>(kQuietSec * 1000.0)) markLost("quiet");
 }
