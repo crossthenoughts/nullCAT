@@ -320,21 +320,24 @@ private slots:
         QVERIFY2(hasErr(">= 0"), "a negative gain is refused");
     }
 
-    // peak % (the channel value that counts as full) is 1..400: past 100
-    // for the combined-slip path, where a car can read beyond the wire's
-    // "let go" convention.
+    // peak % (the channel value that counts as full) is held to its tile's
+    // range: 1..400 on the slip tiles, past 100 for the combined-slip path
+    // where a car can read beyond the wire's "let go" convention; 1..100 on
+    // the kerb (and road), whose channels top out at 100.
     void peakPct_range()
     {
         AppConfig cfg = validConfig();
-        haptics::EffectParams& p = cfg.hapticsFx[static_cast<size_t>(haptics::Effect::Kerb)];
-        QCOMPARE(p.peakPct, 100.0);
+        haptics::EffectParams& k = cfg.hapticsFx[static_cast<size_t>(haptics::Effect::Kerb)];
+        haptics::EffectParams& s = cfg.hapticsFx[static_cast<size_t>(haptics::Effect::Skid)];
+        QCOMPARE(k.peakPct, 100.0);
         const auto refused = [&cfg]() {
             for (const auto& e : cfg.validate()) if (e.find("peakPct") != std::string::npos) return true;
             return false; };
-        p.peakPct = 0.0;   QVERIFY2(refused(), "peakPct 0 is refused");
-        p.peakPct = 401.0; QVERIFY2(refused(), "peakPct 401 is refused");
-        p.peakPct = 25.0;  QVERIFY(cfg.validate().empty());
-        p.peakPct = 250.0; QVERIFY2(cfg.validate().empty(), "peakPct 250 is accepted (combined slip past the convention)");
+        k.peakPct = 0.0;   QVERIFY2(refused(), "kerb peakPct 0 is refused");
+        k.peakPct = 101.0; QVERIFY2(refused(), "kerb peakPct 101 is refused (the strip offers 1..100)");
+        k.peakPct = 25.0;  QVERIFY(cfg.validate().empty());
+        s.peakPct = 250.0; QVERIFY2(cfg.validate().empty(), "lateral slip peakPct 250 is accepted (combined slip past the convention)");
+        s.peakPct = 401.0; QVERIFY2(refused(), "lateral slip peakPct 401 is refused");
     }
 
     // The Road surface carrier has its own range.
@@ -457,7 +460,7 @@ private slots:
         cfg.hapticsImpacts.heaveG = 0.0;
         haptics::EffectParams& p = cfg.hapticsFx[static_cast<size_t>(haptics::Effect::Impacts)];
         p.durMs = 5.0; QVERIFY2(refused("durMs"), "a 5 ms ring is refused");
-        p.durMs = 80.0; p.ampPct = 50.0; p.freqHz = 200.0; QVERIFY2(refused("ring freqHz"), "a 200 Hz ring is refused");
+        p.durMs = 80.0; p.ampPct = 50.0; p.freqHz = 200.0; QVERIFY2(refused("impacts: freqHz"), "a 200 Hz ring is refused");
         p.freqHz = 60.0; QVERIFY(cfg.validate().empty());
     }
 
