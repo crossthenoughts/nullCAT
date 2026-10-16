@@ -1640,6 +1640,7 @@ bool WebServer::start()
         svr.Get("/api/haptics/schema", [](const httplib::Request&, httplib::Response& res)
         {
             QJsonArray effects;
+            const QJsonObject freshHaptics = Config::writeHapticsObject(AppConfig{});
             for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
             {
                 const haptics::EffectInfo& info = haptics::effectInfo(i);
@@ -1686,75 +1687,11 @@ bool WebServer::start()
                     params.append(p);
                 }
                 e["params"] = params;
-                QJsonObject d;
-                d["ampPct"] = info.defaults.ampPct; d["freqHz"] = info.defaults.freqHz;
-                d["durMs"]  = info.defaults.durMs;  d["jitter"] = info.defaults.jitter;
-                if (info.kind == haptics::Kind::Engine)
-                {
-                    const haptics::EngineParams ed;
-                    d["cylinders"] = ed.cylinders; d["litres"] = ed.litres; d["layout"] = ed.layout;
-                    d["maxRpm"] = ed.maxRpm; d["rock"] = ed.rock; d["thump"] = ed.thump; d["buzz"] = ed.buzz;
-                    d["order"] = ed.order; d["limHit"] = ed.limHit; d["limHz"] = ed.limHz; d["limJit"] = ed.limJit;
-                    d["inertia"] = ed.inertia; d["turbo"] = ed.turbo; d["liftoff"] = ed.liftoff; d["pops"] = ed.pops;
-                    d["tcCut"] = ed.tcCut;
-                }
-                else if (info.kind == haptics::Kind::Slip)
-                {
-                    for (int k = 0; k < haptics::SLIP_KEY_COUNT; ++k)
-                        if (info.slipKeys[k]) d[info.slipKeys[k]] = haptics::slipField(info.slipDefaults, k);
-                }
-                else if (info.kind == haptics::Kind::Road)
-                {
-                    const haptics::RoadParams rd;
-                    d["fullMm"] = rd.fullMm; d["hpHz"] = rd.hpHz;
-                    d["surface"] = rd.surface; d["surfaceKmh"] = rd.surfaceKmh; d["surfaceHz"] = rd.surfaceHz;
-                    d["model"] = rd.model; d["bodyMm"] = rd.bodyMm; d["bodyHz"] = rd.bodyHz;
-                    d["hopHz"] = rd.hopHz; d["damping"] = rd.damping; d["rough"] = rd.rough;
-                    d["suspPct"] = rd.suspPct; d["suspHz"] = rd.suspHz; d["fullLearn"] = rd.fullLearn;
-                }
-                else if (info.kind == haptics::Kind::Kerb)
-                {
-                    const haptics::KerbParams kd;
-                    d["pitchCm"] = kd.pitchCm; d["riseMm"] = kd.riseMm; d["ribMm"] = kd.ribMm;
-                    d["fullMm"] = kd.fullMm; d["detectMm"] = kd.detectMm;
-                }
-                else if (info.kind == haptics::Kind::Surface)
-                {
-                    const haptics::SurfaceParams sd;
-                    d["stones"] = sd.stones; d["crunch"] = sd.crunch; d["studs"] = sd.studs;
-                    d["puddles"] = sd.puddles; d["aquaKmh"] = sd.aquaKmh; d["smooth"] = sd.smooth;
-                }
-                else if (info.kind == haptics::Kind::Wheels)
-                {
-                    const haptics::WheelsParams wd;
-                    d["balance"] = wd.balance; d["flat"] = wd.flat; d["judder"] = wd.judder; d["puncture"] = wd.puncture;
-                    d["bite"] = wd.bite; d["drag"] = wd.drag; d["biteHz"] = wd.biteHz; d["dragHz"] = wd.dragHz;
-                }
-                else if (info.kind == haptics::Kind::Impacts)
-                {
-                    const haptics::ImpactParams md;
-                    d["fromMmS"] = md.fromMmS; d["fullMmS"] = md.fullMmS; d["heaveG"] = md.heaveG;
-                }
-                else if (info.kind == haptics::Kind::Abs || info.kind == haptics::Kind::Tc)
-                {
-                    const AppConfig dc;   // the tiles' defaults (TC has no slow or buzz)
-                    const haptics::PulseParams& q = (info.kind == haptics::Kind::Abs) ? dc.hapticsAbs : dc.hapticsTc;
-                    d["sharp"] = q.sharp; d["spread"] = q.spread; d["holdMs"] = q.holdMs;
-                    if (info.kind == haptics::Kind::Abs)
-                    {
-                        d["slow"] = q.slow; d["buzz"] = q.buzz; d["buzzHz"] = q.buzzHz;
-                        d["slipLink"] = q.slipLink; d["lockLink"] = q.lockLink; d["scrubLink"] = q.scrubLink;
-                        d["brakeFull"] = q.brakeFull; d["fromWheels"] = q.fromWheels; d["lowOff"] = q.lowOff;
-                    }
-                }
-                else if (info.kind == haptics::Kind::Driveline)
-                {
-                    const haptics::DrivelineParams dd;
-                    d["clutch"] = dd.clutch; d["clutchHz"] = dd.clutchHz; d["lug"] = dd.lug; d["lugHz"] = dd.lugHz;
-                    d["gearbox"] = dd.gearbox; d["whine"] = dd.whine; d["shunt"] = dd.shunt; d["shuntHz"] = dd.shuntHz;
-                    d["whinePitch"] = dd.whinePitch; d["ignoreN"] = dd.ignoreN;
-                    d["diff"] = dd.diff; d["diffType"] = dd.diffType; d["diffHz"] = dd.diffHz; d["driven"] = dd.driven;
-                }
+                // The tile's defaults: what a fresh config saves for it (the
+                // writer rig.json goes through), so the strip's defaults and a
+                // fresh install agree on every key, peakPct included.
+                QJsonObject d = freshHaptics.value(info.key).toObject();
+                d.remove("routes");
                 e["defaults"] = d;
                 e["tip"] = info.tip;
                 effects.append(e);

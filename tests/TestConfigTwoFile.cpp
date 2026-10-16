@@ -1215,6 +1215,51 @@ private slots:
         }
         QVERIFY2(stray.isEmpty(), qPrintable("keys written that no registry row offers: " + stray.join(", ")));
     }
+
+    // The validator holds every registry row to the range and the choices
+    // the strip offers (C1 stage 2: from the registry, no hand-kept list):
+    // past either end, a row is an error naming the tile and the key, and
+    // a choice set to a fraction is one too. A fresh config has none.
+    void hapticsContract_validateHoldsEveryRow()
+    {
+        const auto hapticsErrors = [](const AppConfig& c)
+        {
+            QStringList out;
+            for (const std::string& e : c.validate()) if (e.rfind("haptics.", 0) == 0) out << QString::fromStdString(e);
+            return out;
+        };
+        QVERIFY2(hapticsErrors(AppConfig{}).isEmpty(), qPrintable(hapticsErrors(AppConfig{}).join("; ")));
+        QStringList missed;
+        for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+        {
+            const haptics::EffectInfo& info = haptics::effectInfo(i);
+            for (int k = 0; k < info.paramCount; ++k)
+            {
+                const haptics::ParamSpec& ps = info.params[k];
+                const QString want = QString("haptics.%1: %2 ").arg(info.key, ps.key);
+                const double span = ps.max - ps.min;
+                for (const double bad : { ps.max + span + 1.0, ps.min - span - 1.0 })
+                {
+                    AppConfig c;
+                    double* f = Config::hapticsField(c, i, ps.key);
+                    QVERIFY(f);
+                    *f = bad;
+                    bool named = false;
+                    for (const QString& e : hapticsErrors(c)) named = named || e.startsWith(want);
+                    if (!named) missed << QString("%1.%2 = %3").arg(info.key, ps.key).arg(bad);
+                }
+                if (ps.opts && span >= 1.0)
+                {
+                    AppConfig c;
+                    *Config::hapticsField(c, i, ps.key) = ps.min + 0.5;
+                    bool named = false;
+                    for (const QString& e : hapticsErrors(c)) named = named || (e.startsWith(want) && e.contains("choices"));
+                    if (!named) missed << QString("%1.%2 = %3 (a choice)").arg(info.key, ps.key).arg(ps.min + 0.5);
+                }
+            }
+        }
+        QVERIFY2(missed.isEmpty(), qPrintable("values the validator let through: " + missed.join("; ")));
+    }
 };
 
 QTEST_MAIN(TestConfigTwoFile)

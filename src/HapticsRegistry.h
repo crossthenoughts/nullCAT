@@ -189,7 +189,7 @@ constexpr ParamSpec kDrivelineParams[] = {      // driveline: clutch judder + lu
 };
 constexpr ParamSpec kTextureParams[] = {        // limiter (flag-driven: nothing to trim)
     { "ampPct", "amp %",     0,   100, 1,    nullptr },
-    { "freqHz", "freq hz",   10,  120, 1,    nullptr },
+    { "freqHz", "freq hz",   5,   120, 1,    nullptr },   // from 5: a truck's or a kart's slow limiter hammer
     { "jitter", "jitter",    0,   1,   0.05, nullptr },
 };
 constexpr ParamSpec kKerbParams[] = {           // kerb: the rumble strip under the tyre

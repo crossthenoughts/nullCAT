@@ -353,6 +353,26 @@ int main()
           && has(get("/api/haptics/schema"), "\"label\":\"Lateral slip\"")
           && has(get("/api/haptics/schema"), "\"kind\":\"slip\"") && has(get("/api/haptics/schema"), "\"kind\":\"kerb\""),
           "GET /api/haptics/schema carries tokens, maxSlots, parts and the slip and kerb kinds");
+    // Every tile's defaults: each key it offers and the keys every tile
+    // carries (peakPct was missing), equal to what a fresh config saves.
+    {
+        const QJsonArray fx = QJsonDocument::fromJson(QByteArray::fromStdString(get("/api/haptics/schema"))).object().value("effects").toArray();
+        const QJsonObject fresh = Config::writeHapticsObject(AppConfig{});
+        bool all = fx.size() == haptics::EFFECT_COUNT;
+        std::string bad;
+        for (const QJsonValue& v : fx)
+        {
+            const QJsonObject e = v.toObject();
+            const QJsonObject d = e.value("defaults").toObject();
+            QJsonObject want = fresh.value(e.value("key").toString()).toObject();
+            want.remove("routes");
+            if (d != want) { all = false; bad += e.value("key").toString().toStdString() + " "; }
+            for (const QJsonValue& p : e.value("params").toArray())
+                if (!d.contains(p.toObject().value("key").toString())) { all = false; bad += e.value("key").toString().toStdString() + "." + p.toObject().value("key").toString().toStdString() + " "; }
+            if (!d.contains("peakPct")) { all = false; bad += e.value("key").toString().toStdString() + ".peakPct "; }
+        }
+        check(all, ("GET /api/haptics/schema: every tile's defaults are a fresh config's, every offered key and peakPct included " + bad).c_str());
+    }
     check(has(post("/api/haptics/test", "{\"effect\":\"slipLat\"}"), "amplitude is 0"),
           "POST /api/haptics/test: a saved effect at amp 0 is refused with the reason");
     check(has(post("/api/haptics/test", "{\"effect\":\"skid\"}"), "Unknown effect"),

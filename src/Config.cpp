@@ -1463,23 +1463,45 @@ std::vector<std::string> AppConfig::validate() const
     }
 
     // ---- Haptic effect layer (rig global) ----
+    // Every tile's settings are held to its registry rows (HapticsRegistry.h
+    // ParamSpec: the ranges and the choices the strip offers), through the
+    // same key-to-field table the config reads and writes with: the file
+    // can hold what the strip can set, and a setting added to the registry
+    // is checked with no line here. Then the keys every tile carries where
+    // a tile offers no row for them, the routes, and the one rule between
+    // two settings (an impact's full above its start).
     {
+        const auto num = [](double v) { char b[32]; std::snprintf(b, sizeof b, "%g", v); return std::string(b); };
         for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
         {
             const haptics::EffectInfo& info = haptics::effectInfo(i);
             const haptics::EffectParams& p = hapticsFx[static_cast<size_t>(i)];
             const std::string pfx = std::string("haptics.") + info.key + ": ";
-            if (p.ampPct < 0.0 || p.ampPct > 100.0)
-                errors.push_back(pfx + "ampPct out of range [0, 100]");
-            if (p.ampPct > 0.0 && p.freqHz > 0.0 && (p.freqHz < 4.0 || p.freqHz > 500.0))
+            for (int k = 0; k < info.paramCount; ++k)
+            {
+                const haptics::ParamSpec& ps = info.params[k];
+                const double* f = Config::hapticsField(*this, i, ps.key);
+                if (!f) continue;   // every row has its field (TestConfigTwoFile's contract test)
+                if (!(*f >= ps.min && *f <= ps.max))   // a NaN fails too
+                    errors.push_back(pfx + ps.key + " out of range [" + num(ps.min) + ", " + num(ps.max) + "]");
+                else if (ps.opts && *f != std::floor(*f))
+                    errors.push_back(pfx + ps.key + " must be one of its choices (" + ps.opts + ": 0, 1, ...)");
+            }
+            const auto offers = [&info](const char* key)
+            {
+                for (int k = 0; k < info.paramCount; ++k)
+                    if (std::strcmp(info.params[k].key, key) == 0) return true;
+                return false;
+            };
+            // Carried by every tile, offered by some: where the tile offers
+            // no row for it, held to its widest use.
+            if (!offers("freqHz") && p.ampPct > 0.0 && p.freqHz > 0.0 && (p.freqHz < 4.0 || p.freqHz > 500.0))
                 errors.push_back(pfx + "freqHz out of range [4, 500]");
-            if (info.kind == haptics::Kind::Transient && p.ampPct > 0.0 && (p.durMs < 5.0 || p.durMs > 100.0))
-                errors.push_back(pfx + "durMs out of range [5, 100]");
-            if (p.jitter < 0.0 || p.jitter > 1.0)
+            if (!offers("jitter") && (p.jitter < 0.0 || p.jitter > 1.0))
                 errors.push_back(pfx + "jitter out of range [0, 1]");
             // Up to 400: on the combined-slip path 100 is only the wire's
             // convention for "let go", and a car can read well past it.
-            if (p.peakPct < 1.0 || p.peakPct > 400.0)
+            if (!offers("peakPct") && (p.peakPct < 1.0 || p.peakPct > 400.0))
                 errors.push_back(pfx + "peakPct out of range [1, 400]");
             for (const haptics::Route& r : p.routes)
             {
@@ -1513,171 +1535,8 @@ std::vector<std::string> AppConfig::validate() const
                                          + " mm, above that axis's haptic max of " + std::to_string(d.hapticsMaxMm).substr(0, 4) + " mm");
                 }
             }
-            if (info.kind == haptics::Kind::Driveline)
-            {
-                const haptics::DrivelineParams& d = hapticsDriveline;
-                if (d.clutch < 0.0 || d.clutch > 1.0 || d.lug < 0.0 || d.lug > 1.0)
-                    errors.push_back(pfx + "clutch/lug mix out of range [0, 1]");
-                if (d.clutchHz < 4.0 || d.clutchHz > 20.0)
-                    errors.push_back(pfx + "clutchHz out of range [4, 20]");
-                if (d.lugHz < 3.0 || d.lugHz > 15.0)
-                    errors.push_back(pfx + "lugHz out of range [3, 15]");
-                if (d.gearbox < 0.0 || d.gearbox > 1.0)
-                    errors.push_back(pfx + "gearbox out of range [0, 1] (synchro, dog)");
-                if (d.whine < 0.0 || d.whine > 1.0 || d.shunt < 0.0 || d.shunt > 1.0)
-                    errors.push_back(pfx + "whine/shunt mix out of range [0, 1]");
-                if (d.shuntHz < 20.0 || d.shuntHz > 80.0)
-                    errors.push_back(pfx + "shuntHz out of range [20, 80]");
-                if (d.ignoreN != 0.0 && d.ignoreN != 1.0)
-                    errors.push_back(pfx + "ignoreN must be 0 (off) or 1 (on)");
-                if (d.whinePitch != 0.0 && d.whinePitch != 1.0 && d.whinePitch != 2.0 && d.whinePitch != 3.0)
-                    errors.push_back(pfx + "whinePitch must be 0 (with the buzz), 1 (below), 2 (octave down) or 3 (above)");
-                if (d.diff < 0.0 || d.diff > 1.0) errors.push_back(pfx + "diff out of range [0, 1]");
-                if (d.diffType != 0.0 && d.diffType != 1.0) errors.push_back(pfx + "diffType must be 0 (limited slip) or 1 (spool)");
-                if (d.diffHz < 2.0 || d.diffHz > 30.0) errors.push_back(pfx + "diffHz out of range [2, 30]");
-                if (d.driven != 0.0 && d.driven != 1.0 && d.driven != 2.0) errors.push_back(pfx + "driven must be 0 (rear), 1 (front) or 2 (all)");
-            }
-            if (info.kind == haptics::Kind::Road)
-            {
-                if (hapticsRoad.fullLearn != 0.0 && hapticsRoad.fullLearn != 1.0)
-                    errors.push_back(pfx + "fullLearn must be 0 (full mm as set) or 1 (learned per car)");
-                if (hapticsRoad.fullMm < 0.5 || hapticsRoad.fullMm > 50.0)
-                    errors.push_back(pfx + "fullMm out of range [0.5, 50]");
-                if (hapticsRoad.hpHz < 0.5 || hapticsRoad.hpHz > 10.0)
-                    errors.push_back(pfx + "hpHz out of range [0.5, 10]");
-                if (hapticsRoad.surface < 0.0 || hapticsRoad.surface > 1.0)
-                    errors.push_back(pfx + "surface out of range [0, 1]");
-                if (hapticsRoad.surfaceKmh < 20.0 || hapticsRoad.surfaceKmh > 300.0)
-                    errors.push_back(pfx + "surfaceKmh out of range [20, 300]");
-                if (hapticsRoad.surfaceHz < 4.0 || hapticsRoad.surfaceHz > 40.0)
-                    errors.push_back(pfx + "surfaceHz out of range [4, 40]");
-                const double m = hapticsRoad.model;
-                if (m < 0.0 || m > 2.0 || m != std::floor(m))
-                    errors.push_back(pfx + "model must be 0 (suspension), 1 (tyre) or 2 (chassis)");
-                if (hapticsRoad.bodyMm < 0.1 || hapticsRoad.bodyMm > 50.0)
-                    errors.push_back(pfx + "bodyMm out of range [0.1, 50]");
-                if (hapticsRoad.bodyHz < 0.8 || hapticsRoad.bodyHz > 8.0)
-                    errors.push_back(pfx + "bodyHz out of range [0.8, 8]");
-                if (hapticsRoad.hopHz < 6.0 || hapticsRoad.hopHz > 30.0)
-                    errors.push_back(pfx + "hopHz out of range [6, 30]");
-                if (hapticsRoad.damping < 0.05 || hapticsRoad.damping > 1.5)
-                    errors.push_back(pfx + "damping out of range [0.05, 1.5]");
-                if (hapticsRoad.rough < 0.0 || hapticsRoad.rough > 20.0)
-                    errors.push_back(pfx + "rough out of range [0, 20]");
-                if (hapticsRoad.suspPct < 0.0 || hapticsRoad.suspPct > 100.0)
-                    errors.push_back(pfx + "suspPct out of range [0, 100]");
-                if (hapticsRoad.suspHz < 0.0 || hapticsRoad.suspHz > 15.0)
-                    errors.push_back(pfx + "suspHz out of range [0, 15] (0 = off)");
-            }
-            if (info.kind == haptics::Kind::Kerb)
-            {
-                const haptics::KerbParams& k = hapticsKerb;
-                if (k.pitchCm < 5.0 || k.pitchCm > 100.0)   errors.push_back(pfx + "pitchCm out of range [5, 100]");
-                if (k.riseMm < 0.0 || k.riseMm > 50.0)      errors.push_back(pfx + "riseMm out of range [0, 50]");
-                if (k.ribMm < 0.0 || k.ribMm > 20.0)        errors.push_back(pfx + "ribMm out of range [0, 20]");
-                if (k.fullMm < 0.5 || k.fullMm > 50.0)      errors.push_back(pfx + "fullMm out of range [0.5, 50]");
-                if (k.detectMm < 0.0 || k.detectMm > 100.0) errors.push_back(pfx + "detectMm out of range [0, 100]");
-            }
-            if (info.kind == haptics::Kind::Surface)
-            {
-                const haptics::SurfaceParams& s = hapticsSurface;
-                if (s.stones < 0.0 || s.stones > 1.0)     errors.push_back(pfx + "stones out of range [0, 1]");
-                if (s.crunch < 0.0 || s.crunch > 1.0)     errors.push_back(pfx + "crunch out of range [0, 1]");
-                if (s.studs != 0.0 && s.studs != 1.0)     errors.push_back(pfx + "studs must be 0 (off) or 1 (on)");
-                if (s.puddles < 0.0 || s.puddles > 1.0)   errors.push_back(pfx + "puddles out of range [0, 1]");
-                if (s.aquaKmh < 40.0 || s.aquaKmh > 250.0) errors.push_back(pfx + "aquaKmh out of range [40, 250]");
-                if (s.smooth < 0.0 || s.smooth > 1.0)     errors.push_back(pfx + "smooth out of range [0, 1]");
-            }
-            if (info.kind == haptics::Kind::Wheels)
-            {
-                const haptics::WheelsParams& w = hapticsWheels;
-                if (w.balance < 0.0 || w.balance > 4.0) errors.push_back(pfx + "balance out of range [0, 4]");
-                if (w.flat < 0.0 || w.flat > 4.0)     errors.push_back(pfx + "flat out of range [0, 4]");
-                if (w.judder < 0.0 || w.judder > 1.0) errors.push_back(pfx + "judder out of range [0, 1]");
-                if (w.puncture < 0.0 || w.puncture > 2.0) errors.push_back(pfx + "puncture out of range [0, 2]");
-                if (w.bite < 0.0 || w.bite > 1.0 || w.drag < 0.0 || w.drag > 1.0) errors.push_back(pfx + "bite/drag out of range [0, 1]");
-                if (w.biteHz < 10.0 || w.biteHz > 200.0 || w.dragHz < 10.0 || w.dragHz > 200.0) errors.push_back(pfx + "biteHz/dragHz out of range [10, 200]");
-            }
-            if (info.kind == haptics::Kind::Impacts)
-            {
-                const haptics::ImpactParams& m = hapticsImpacts;
-                const haptics::EffectParams& ip = hapticsFx[static_cast<size_t>(i)];
-                if (ip.ampPct > 0.0 && (ip.freqHz < 15.0 || ip.freqHz > 120.0)) errors.push_back(pfx + "ring freqHz out of range [15, 120]");
-                if (ip.durMs < 10.0 || ip.durMs > 200.0)        errors.push_back(pfx + "ring durMs out of range [10, 200]");
-                if (m.fromMmS < 100.0 || m.fromMmS > 3000.0)    errors.push_back(pfx + "fromMmS out of range [100, 3000]");
-                if (m.fullMmS < 300.0 || m.fullMmS > 8000.0)    errors.push_back(pfx + "fullMmS out of range [300, 8000]");
-                else if (m.fullMmS <= m.fromMmS)                errors.push_back(pfx + "fullMmS must be above fromMmS");
-                if (m.heaveG < 0.0 || m.heaveG > 5.0)           errors.push_back(pfx + "heaveG out of range [0, 5]");
-            }
-            if (info.kind == haptics::Kind::Abs || info.kind == haptics::Kind::Tc)
-            {
-                const bool abs = (info.kind == haptics::Kind::Abs);
-                const haptics::PulseParams& q = abs ? hapticsAbs : hapticsTc;
-                if (q.sharp < 0.0 || q.sharp > 1.0)   errors.push_back(pfx + "sharp out of range [0, 1]");
-                if (q.spread < 0.0 || q.spread > 1.0) errors.push_back(pfx + "spread out of range [0, 1]");
-                if (q.holdMs < 0.0 || q.holdMs > 500.0) errors.push_back(pfx + "holdMs out of range [0, 500] (0 = off)");
-                if (abs)
-                {
-                    if (q.slow < 0.0 || q.slow > 1.0)          errors.push_back(pfx + "slow out of range [0, 1]");
-                    if (q.buzz < 0.0 || q.buzz > 1.0)          errors.push_back(pfx + "buzz out of range [0, 1]");
-                    if (q.buzzHz < 15.0 || q.buzzHz > 120.0)   errors.push_back(pfx + "buzzHz out of range [15, 120]");
-                    if (q.slipLink != 0.0 && q.slipLink != 1.0) errors.push_back(pfx + "slipLink must be 0 (off) or 1 (on)");
-                    if (q.lockLink < 0.0 || q.lockLink > 1.0)   errors.push_back(pfx + "lockLink out of range [0, 1]");
-                    if (q.scrubLink < 0.0 || q.scrubLink > 1.0) errors.push_back(pfx + "scrubLink out of range [0, 1]");
-                    if (q.brakeFull < 10.0 || q.brakeFull > 100.0) errors.push_back(pfx + "brakeFull out of range [10, 100]");
-                    if (q.fromWheels != 0.0 && q.fromWheels != 1.0 && q.fromWheels != 2.0)
-                        errors.push_back(pfx + "fromWheels must be 0 (off), 1 (with the flag) or 2 (on its own)");
-                    if (q.lowOff != 0.0 && q.lowOff != 1.0)         errors.push_back(pfx + "lowOff must be 0 (off) or 1 (on)");
-                }
-            }
-            if (info.kind == haptics::Kind::Slip)
-            {
-                const haptics::SlipParams& s = (info.id == haptics::Effect::Skid) ? hapticsSlipLat : hapticsSlipLon;
-                for (int k = 0; k < info.paramCount; ++k)
-                {
-                    const haptics::ParamSpec& ps = info.params[k];
-                    for (int f = 0; f < haptics::SLIP_KEY_COUNT; ++f)
-                        if (info.slipKeys[f] && std::strcmp(ps.key, info.slipKeys[f]) == 0)
-                        {
-                            const double val = haptics::slipField(s, f);
-                            if (val < ps.min || val > ps.max)
-                                errors.push_back(pfx + ps.key + " out of range [" + std::to_string(ps.min) + ", "
-                                                 + std::to_string(ps.max) + "]");
-                            else if (ps.opts && val != std::floor(val))   // a choice (budget, baseline): one of them
-                                errors.push_back(pfx + ps.key + " must be a whole number (one of its choices)");
-                        }
-                }
-            }
-        }
-        {
-            const haptics::EngineParams& e = hapticsEngine;
-            const std::string pfx = "haptics.rpmVibe: ";
-            if (e.order != 0.0 && (e.order < 0.25 || e.order > 8.0))
-                errors.push_back(pfx + "order out of range [0.25, 8] (0 = auto)");
-            if (e.maxRpm < 0.0 || e.maxRpm > 30000.0)
-                errors.push_back(pfx + "maxRpm out of range [0, 30000] (0 = learn)");
-            if (e.limHit < 0.0 || e.limHit > 2.0)
-                errors.push_back(pfx + "limHit out of range [0, 2]");
-            if (e.limHz < 4.0 || e.limHz > 30.0)
-                errors.push_back(pfx + "limHz out of range [4, 30]");
-            if (e.limJit < 0.0 || e.limJit > 1.0)
-                errors.push_back(pfx + "limJit out of range [0, 1]");
-            if (e.cylinders < 1.0 || e.cylinders > 16.0)
-                errors.push_back(pfx + "cylinders out of range [1, 16]");
-            if (e.rock < 0.0 || e.rock > 1.0 || e.thump < 0.0 || e.thump > 1.0 || e.buzz < 0.0 || e.buzz > 1.0)
-                errors.push_back(pfx + "rock/thump/buzz mix out of range [0, 1]");
-            if (e.litres < 0.1 || e.litres > 30.0)
-                errors.push_back(pfx + "litres out of range [0.1, 30]");
-            if (e.layout < 0.0 || e.layout > 5.0)
-                errors.push_back(pfx + "layout out of range [0, 5] (inline, V, flat, wankel, two-stroke, electric)");
-            if (e.inertia < 0.0 || e.inertia > 1.0 || e.pops < 0.0 || e.pops > 1.0)
-                errors.push_back(pfx + "inertia/pops mix out of range [0, 1]");
-            if (e.turbo < 0.0 || e.turbo > 1.0)
-                errors.push_back(pfx + "turbo out of range [0, 1] (no, yes)");
-            if (e.liftoff < 0.0 || e.liftoff > 2.0)
-                errors.push_back(pfx + "liftoff out of range [0, 2]");
-            if (e.tcCut < 0.0 || e.tcCut > 1.0)
-                errors.push_back(pfx + "tcCut out of range [0, 1]");
+            if (info.kind == haptics::Kind::Impacts && hapticsImpacts.fullMmS <= hapticsImpacts.fromMmS)
+                errors.push_back(pfx + "fullMmS must be above fromMmS");
         }
         if (hapticsMasterGain < 0.0 || hapticsMasterGain > 2.0)
             errors.push_back("haptics.masterGain out of range [0, 2]");

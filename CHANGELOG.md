@@ -722,6 +722,15 @@ Development branch. Nothing here is in a release yet.
   the shaker routes were dropped when the event fired.
 
 ### Changed
+- Every haptics setting in rig.json is held to exactly the range and the
+  choices its tile offers on the strip. The check had its own copy of the
+  ranges, looser in places (any carrier from 4 to 500 Hz on every tile,
+  a road or kerb peak % up to 400, a fractional engine layout), so a file
+  could carry values the strip cannot show. A save outside them is now
+  refused with the tile and the field named; a hand edit is listed in
+  the log at start, as before. The Limiter tile's **freq hz** now goes
+  down to 5 Hz (a truck's or a kart's slow limiter hammer: the shipped
+  car table has some at 8 and 9).
 - On the PC the shakers are set up in the desktop app's **Application
   Settings** (a **Shakers** section): enabled, each sound card picked
   from a list of the sound outputs Windows has by name, its channel
