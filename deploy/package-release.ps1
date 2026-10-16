@@ -93,7 +93,7 @@ Invoke-Tool "windeployqt" ("`"$QtDir\bin\windeployqt.exe`" --release --no-transl
     "--no-system-d3d-compiler --no-opengl-sw `"$stage\nullCAT.exe`"")
 
 # ---- 5. Sanity check: nothing machine-local or stale slipped in ----
-$forbidden = @("host.json", "rig.json", "buttons.json", "cars.local.json",
+$forbidden = @("host.json", "rig.json", "buttons.json", "cars.local.json", "carcache.json", "carstate.json", "cardefaults.txt", "profiles.json", "effectstatus.json", "devicepresets.json",
                "config.json") + (Get-ChildItem $stage -Filter "Test*.exe")
 foreach ($f in $forbidden) {
     if (Test-Path (Join-Path $stage "$f")) { throw "Forbidden file staged: $f" }
