@@ -875,6 +875,18 @@ void MainWindow::onApplicationSettings()
         }
     }
 
+    // The loop's CPU: taken by the next Start Loop (the loop is stopped while
+    // this dialog is open). The recovery thread keeps off it from the next
+    // Initialize (EtherCATMaster::applyConfig).
+    if (m_loop && (newCfg.rtCore != oldCfg.rtCore || newCfg.rtPinCore != oldCfg.rtPinCore))
+    {
+        m_loop->setRtCore(newCfg.rtCore, newCfg.rtPinCore);
+        LOG_INFO(newCfg.rtPinCore
+            ? strf("Application settings: control loop CPU now %s (from the next loop start).",
+                   newCfg.rtCore < 0 ? "auto" : std::to_string(newCfg.rtCore).c_str())
+            : std::string("Application settings: control loop not pinned (from the next loop start)."));
+    }
+
     if (simToReal)
     {
         // drives[] changed -- rebuild the per-axis chips and re-configure

@@ -20,6 +20,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include "../src/Config.h"
+#include "../src/PlatformRT.h"
 #include "../src/EffectStatus.h"
 #include "../src/HapticsProfiles.h"
 
@@ -1112,6 +1113,36 @@ private slots:
             QVERIFY2(axes.at(i).toObject().value("slaveIndex").toInt() != 2,
                      "Removed slaveIndex=2 entry leaked back into rig.json.");
         QCOMPARE(rig.value("numDrives").toInt(), 2);
+    }
+
+    // ---- the control loop's CPU (host.json rtPinCore / rtCore) ----
+    // Round-trips through host.json; auto (-1) and a CPU the machine does
+    // not have both resolve to the auto core, which is a real CPU of this
+    // machine; unpinned resolves to none.
+    void rtCore_hostKeysAndResolve()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        Config c; QVERIFY(c.load(anchor(dir).toStdString()));   // cold start
+        QCOMPARE(c.get().rtPinCore, true);
+        QCOMPARE(c.get().rtCore, -1);
+        c.get().rtPinCore = false; c.get().rtCore = 14;
+        QVERIFY(c.saveHost(anchor(dir).toStdString()));
+        Config back; QVERIFY(back.load(anchor(dir).toStdString()));
+        QCOMPARE(back.get().rtPinCore, false);
+        QCOMPARE(back.get().rtCore, 14);
+        back.get().rtCore = 999;
+        bool flagged = false;
+        for (const std::string& e : back.get().validate()) flagged = flagged || e.rfind("rtCore", 0) == 0;
+        QVERIFY2(flagged, "an impossible rtCore is a validate() error");
+
+        const int n = PlatformRT::logicalCpuCount();
+        const int a = PlatformRT::autoRtCore();
+        qInfo("this machine: %d logical CPUs, auto loop CPU %d", n, a);
+        QVERIFY(a >= 0 && a < n);
+        QCOMPARE(PlatformRT::resolveRtCore(-1, true), a);
+        QCOMPARE(PlatformRT::resolveRtCore(n + 3, true), a);   // a CPU this machine lacks: auto
+        QCOMPARE(PlatformRT::resolveRtCore(0, true), 0);
+        QCOMPARE(PlatformRT::resolveRtCore(5, false), -1);     // not pinned
     }
 
     // ---- the haptics parameter contract ----

@@ -172,6 +172,9 @@ public:
     );
 
     void setConfig(const AppConfig& config);
+    // The loop thread's CPU (host.json rtCore/rtPinCore), taken by the next
+    // start(): the desktop settings dialog changes it with the loop stopped.
+    void setRtCore(int core, bool pin) { m_config.rtCore = core; m_config.rtPinCore = pin; }
     bool start();
     // seatToStop is accepted for source compatibility but IGNORED (see
     // ControlLoopWorker::requestStop); use seatThenStop() for the deinit seat.

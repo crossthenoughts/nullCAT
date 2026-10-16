@@ -155,6 +155,7 @@ void EtherCATMaster::applyConfig(const AppConfig& cfg)
     m_sync0RecycleRounds     = cfg.sync0RecycleRounds;
     m_wkcValidationCycles    = cfg.wkcValidationCycles;
     m_wkcValidationThreshold = cfg.wkcValidationThreshold;
+    m_rtCore                 = PlatformRT::resolveRtCore(cfg.rtCore, cfg.rtPinCore);
 }
 
 InitResult EtherCATMaster::initializeAndEnterOp(const std::string& nicName)
@@ -2788,13 +2789,14 @@ void EtherCATMaster::recoveryThreadMain()
     if (!SetThreadPriority(hThis, THREAD_PRIORITY_ABOVE_NORMAL))
         LOG_WARNING("RecoveryThread: SetThreadPriority(ABOVE_NORMAL) failed.");
 
-    // Affinity: any core except core 3 (the RT pin from PlatformRT::threadSetup).
-    // Use the process affinity mask intersected with ~(RT core) so we never
-    // request a core that's not assigned to the process.
+    // Affinity: any core except the control loop's (PlatformRT::resolveRtCore,
+    // the same answer threadSetup pins to; none excluded when it is not
+    // pinned). Use the process affinity mask intersected with ~(RT core) so
+    // we never request a core that's not assigned to the process.
     DWORD_PTR procMask = 0, sysMask = 0;
     if (GetProcessAffinityMask(GetCurrentProcess(), &procMask, &sysMask) && procMask)
     {
-        DWORD_PTR rtCoreBit = (1ULL << 3);  // matches PlatformRT::threadSetup(coreIndex=3)
+        const DWORD_PTR rtCoreBit = (m_rtCore >= 0) ? (static_cast<DWORD_PTR>(1) << m_rtCore) : 0;
         DWORD_PTR mask = procMask & ~rtCoreBit;
         if (mask == 0) mask = procMask;  // single-core system; nothing to exclude
         if (!SetThreadAffinityMask(hThis, mask))

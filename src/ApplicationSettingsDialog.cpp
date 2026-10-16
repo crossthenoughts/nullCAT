@@ -22,6 +22,8 @@
 
 #include "ApplicationSettingsDialog.h"
 #include "Logging.h"
+#include "PlatformRT.h"   // logicalCpuCount / autoRtCore for the loop CPU field
+#include <algorithm>
 #include <QFormLayout>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -131,6 +133,25 @@ void ApplicationSettingsDialog::buildUI()
         "Drive-side PDO watchdog timeout. The drive faults if it doesn't see "
         "a fresh PDO frame within this window.");
     fRT->addRow("PDO Watchdog:", m_spinPdoWatchdog);
+    // The control loop's CPU. Auto: the first thread of the last physical
+    // core (Windows and games fill from CPU 0 up, so it is the least busy);
+    // unticked: Windows places the thread. Applies at the next loop start.
+    m_checkPinCore = new QCheckBox("Pin the control loop to one CPU core");
+    m_checkPinCore->setToolTip(
+        "Keeps the control loop on one logical CPU so other programs are less likely to "
+        "interrupt it. For best results, also keep the game and SimHub off that CPU and "
+        "its twin (Task Manager > Details > Set affinity). Untick to let Windows place "
+        "it. Applies the next time the loop starts.");
+    fRT->addRow("", m_checkPinCore);
+    m_spinRtCore = new QSpinBox();
+    m_spinRtCore->setRange(-1, std::max(0, PlatformRT::logicalCpuCount() - 1));
+    m_spinRtCore->setSpecialValueText(QString("Auto (%1)").arg(PlatformRT::autoRtCore()));
+    m_spinRtCore->setToolTip(
+        "The logical CPU the loop runs on. Auto picks the first thread of the last "
+        "physical core (14 on an 8-core / 16-thread CPU, 10 on a 6 / 12). Logical CPUs "
+        "come in pairs per core: 14 and 15 are the same physical core.");
+    fRT->addRow("Loop CPU:", m_spinRtCore);
+    connect(m_checkPinCore, &QCheckBox::toggled, m_spinRtCore, &QWidget::setEnabled);
     col->addWidget(grpRT);
 
     // ---- Telemetry ----
@@ -339,6 +360,9 @@ void ApplicationSettingsDialog::loadFromConfig()
 
     m_spinControlHz->setValue(500);          // locked
     m_spinPdoWatchdog->setValue(m_cfg.pdoWatchdogMs);
+    m_checkPinCore->setChecked(m_cfg.rtPinCore);
+    m_spinRtCore->setValue(m_cfg.rtCore <= m_spinRtCore->maximum() ? m_cfg.rtCore : -1);   // a CPU this machine lacks reads as auto (what runs)
+    m_spinRtCore->setEnabled(m_cfg.rtPinCore);
 
     m_spinTelemetryPort->setValue(m_cfg.telemetryPort);
 
@@ -374,6 +398,8 @@ void ApplicationSettingsDialog::saveToConfig()
     // controlLoopHz locked to 500.
     m_cfg.controlLoopHz = 500;
     m_cfg.pdoWatchdogMs = m_spinPdoWatchdog->value();
+    m_cfg.rtPinCore     = m_checkPinCore->isChecked();
+    m_cfg.rtCore        = m_spinRtCore->value();
 
     m_cfg.telemetryPort    = m_spinTelemetryPort->value();
 

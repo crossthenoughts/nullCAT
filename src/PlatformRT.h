@@ -32,6 +32,7 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <vector>
 
 namespace PlatformRT
 {
@@ -82,13 +83,81 @@ inline int64_t qpfTicks()
 #endif
 
 // ============================================================
+// logicalCpuCount() / autoRtCore()
+// The CPU the control loop pins to when host.json says auto
+// (rtCore -1). Linux: core 3, the one the Pi installer isolates
+// for the loop (isolcpus=2,3). Windows: the first logical CPU of
+// the last physical core, among the fastest cores on a hybrid CPU
+// (never an efficiency core): 14 on an 8-core/16-thread CPU, 10
+// on a 6/12, 7 on an 8-core without SMT. Games and the OS fill
+// from CPU 0 up, so the last core is the least contended; a
+// hyperthread twin of a busy core (the old fixed 3) is not.
+// ============================================================
+inline int logicalCpuCount()
+{
+#ifdef _WIN32
+    const DWORD n = GetActiveProcessorCount(0);   // group 0: the group SetThreadAffinityMask works in
+    return n > 0 ? static_cast<int>(n) : 1;
+#else
+    const long n = sysconf(_SC_NPROCESSORS_ONLN);
+    return n > 0 ? static_cast<int>(n) : 1;
+#endif
+}
+
+inline int autoRtCore()
+{
+#ifdef _WIN32
+    DWORD len = 0;
+    GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &len);
+    std::vector<unsigned char> buf(len);
+    int best = -1; BYTE bestClass = 0;
+    if (len && GetLogicalProcessorInformationEx(RelationProcessorCore,
+            reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buf.data()), &len))
+    {
+        for (DWORD off = 0; off < len; )
+        {
+            const auto* info = reinterpret_cast<const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buf.data() + off);
+            if (info->Size == 0) break;
+            if (info->Relationship == RelationProcessorCore && info->Processor.GroupCount >= 1
+                && info->Processor.GroupMask[0].Group == 0 && info->Processor.GroupMask[0].Mask != 0)
+            {
+                // The core's first logical CPU; a higher EfficiencyClass is a
+                // faster core (all 0 on a CPU that is not hybrid).
+                const KAFFINITY m = info->Processor.GroupMask[0].Mask;
+                int first = 0;
+                while (!((m >> first) & 1)) ++first;
+                const BYTE cls = info->Processor.EfficiencyClass;
+                if (best < 0 || cls > bestClass || (cls == bestClass && first > best)) { best = first; bestClass = cls; }
+            }
+            off += info->Size;
+        }
+    }
+    return best >= 0 ? best : logicalCpuCount() - 1;
+#else
+    return logicalCpuCount() > 3 ? 3 : logicalCpuCount() - 1;
+#endif
+}
+
+// The CPU the control loop is pinned to for host.json's rtCore/rtPinCore:
+// -1 when not pinned. Shared by threadSetup and the threads that keep off
+// the loop's core (EtherCATMaster's recovery thread), so they agree.
+inline int resolveRtCore(int coreIndex, bool pin)
+{
+    if (!pin) return -1;
+    return (coreIndex < 0 || coreIndex >= logicalCpuCount()) ? autoRtCore() : coreIndex;
+}
+
+// ============================================================
 // threadSetup()
 // Elevates RT priority, registers with MMCSS (Windows) or
 // sets SCHED_FIFO (Linux), pins to coreIndex, and pre-faults
 // 64KB of stack to eliminate first-cycle page-fault spikes.
 // Call at the start of the RT thread's run() function.
+// coreIndex -1 = auto (autoRtCore); pin false = no affinity at
+// all (the OS places the thread; host.json rtPinCore). A CPU this
+// machine does not have falls back to auto with a warning.
 // ============================================================
-inline RtHandle threadSetup(int coreIndex = 3)
+inline RtHandle threadSetup(int coreIndex = -1, bool pin = true)
 {
     RtHandle h;
     if (rtDisabled())
@@ -99,6 +168,14 @@ inline RtHandle threadSetup(int coreIndex = 3)
         LOG_INFO("PlatformRT: NULLCAT_NO_RT set (a test run): normal priority, no core pinning.");
         return h;
     }
+
+    // The CPU, when pinned: as configured, else (or when this machine has
+    // no such CPU) auto.
+    const bool autoCore = pin && (coreIndex < 0 || coreIndex >= logicalCpuCount());
+    if (pin && coreIndex >= logicalCpuCount())
+        LOG_WARNING(strf("PlatformRT: rtCore %d is not a CPU of this machine (%d logical CPUs) -- auto instead.",
+                         coreIndex, logicalCpuCount()));
+    const int core = resolveRtCore(coreIndex, pin);
 
 #ifdef _WIN32
     h.hThread = GetCurrentThread();
@@ -115,13 +192,18 @@ inline RtHandle threadSetup(int coreIndex = 3)
     else
         LOG_WARNING("PlatformRT: AvSetMmThreadCharacteristics(Pro Audio) failed -- timer may degrade in background.");
 
-    DWORD_PTR affinityMask = (1ULL << coreIndex);
-    DWORD_PTR prevAffinity = SetThreadAffinityMask(h.hThread, affinityMask);
-    if (prevAffinity != 0)
-        LOG_INFO(strf("PlatformRT: Thread pinned to core %d (affinity mask=0x%llx)",
-            coreIndex, (unsigned long long)affinityMask));
+    if (pin)
+    {
+        DWORD_PTR affinityMask = (static_cast<DWORD_PTR>(1) << core);
+        DWORD_PTR prevAffinity = SetThreadAffinityMask(h.hThread, affinityMask);
+        if (prevAffinity != 0)
+            LOG_INFO(strf("PlatformRT: Thread pinned to core %d%s (affinity mask=0x%llx, %d logical CPUs)",
+                core, autoCore ? " (auto: the last physical core)" : "", (unsigned long long)affinityMask, logicalCpuCount()));
+        else
+            LOG_WARNING("PlatformRT: Failed to set thread affinity -- running on default cores.");
+    }
     else
-        LOG_WARNING("PlatformRT: Failed to set thread affinity -- running on default cores.");
+        LOG_INFO("PlatformRT: Thread not pinned (host.json rtPinCore false) -- Windows places it.");
 
     // Pre-fault 64KB of stack to eliminate first-cycle page-fault latency spikes.
     // Windows commits stack pages lazily; touching them now pays the fault cost
@@ -142,17 +224,22 @@ inline RtHandle threadSetup(int coreIndex = 3)
     struct sched_param sp = {};
     sp.sched_priority = 90;  // 1–99; 90 is standard for RT EtherCAT threads
     if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) == 0)
-        LOG_INFO(strf("PlatformRT: Thread set to SCHED_FIFO priority 90, core %d.", coreIndex));
+        LOG_INFO("PlatformRT: Thread set to SCHED_FIFO priority 90.");
     else
         LOG_WARNING("PlatformRT: pthread_setschedparam failed -- not running as root? RT performance may suffer.");
 
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(coreIndex, &cpuset);
-    if (pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset) == 0)
-        LOG_INFO(strf("PlatformRT: Thread pinned to core %d.", coreIndex));
+    if (pin)
+    {
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        CPU_SET(core, &cpuset);
+        if (pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset) == 0)
+            LOG_INFO(strf("PlatformRT: Thread pinned to core %d%s.", core, autoCore ? " (auto)" : ""));
+        else
+            LOG_WARNING("PlatformRT: pthread_setaffinity_np failed.");
+    }
     else
-        LOG_WARNING("PlatformRT: pthread_setaffinity_np failed.");
+        LOG_INFO("PlatformRT: Thread not pinned (host.json rtPinCore false) -- the scheduler places it.");
 
     // Lock the process's memory so the RT loop can never be paged out
     // under memory pressure (swap-thrash on a small-RAM host would

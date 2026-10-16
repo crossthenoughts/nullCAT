@@ -440,6 +440,29 @@ int main()
               "POST /api/devpresets over an unreadable file: refused with the reason, the file untouched");
         std::filesystem::remove(dp);
     }
+    // Host settings: the page posts only the fields it shows. Every other
+    // host.json key (the GPIO pins, the e-stop pin among them, the allowed
+    // host names, the loop CPU) stays as it was: a save used to replace the
+    // file with the page's object, and those went back to their defaults.
+    {
+        const std::filesystem::path hp = cfgDir / "host.json";
+        const auto readText = [](const std::filesystem::path& p)
+        { std::ifstream i(p, std::ios::binary); return std::string(std::istreambuf_iterator<char>(i), std::istreambuf_iterator<char>()); };
+        const std::string original = readText(hp);
+        QJsonObject h = QJsonDocument::fromJson(QByteArray::fromStdString(original)).object();
+        h["gpioEstopPin"] = 5;
+        h["rtCore"] = 7;
+        QJsonArray allowed; allowed.append(QStringLiteral("nullcat.local")); h["webAllowedHosts"] = allowed;
+        { std::ofstream o(hp, std::ios::binary | std::ios::trunc); o << QJsonDocument(h).toJson().toStdString(); }
+        const std::string r = post("/api/host", "{\"configVersion\":2,\"nicName\":\"eth9\",\"logMinLevel\":\"info\"}");
+        const QJsonObject after = QJsonDocument::fromJson(QByteArray::fromStdString(readText(hp))).object();
+        check(has(r, "\"ok\":true") && after.value("nicName").toString() == "eth9" && after.value("logMinLevel").toString() == "info",
+              "POST /api/host: the page's fields land");
+        check(after.value("gpioEstopPin").toInt() == 5 && after.value("rtCore").toInt() == 7
+              && after.value("webAllowedHosts").toArray().size() == 1,
+              "POST /api/host: every host key the page does not send stays (e-stop pin, loop CPU, allowed hosts)");
+        { std::ofstream o(hp, std::ios::binary | std::ios::trunc); o << original; }   // as it was for the rest of the run
+    }
     // Profiles: save snapshots the saved set, it lists, loads (the saved
     // rig's haptics object is the snapshot again, an edit made in between
     // undone), binds to a car name (naming that car loads it), and

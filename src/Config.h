@@ -245,6 +245,13 @@ struct AppConfig
     std::string nicName        = "";
     int         controlLoopHz  = 500;
     int         numDrives      = 1;
+    // host: the control loop thread's CPU. rtPinCore pins it to one logical
+    // CPU (false = the OS places it); rtCore is that CPU, -1 = auto: the
+    // first thread of the last performance core on Windows (14 on an
+    // 8-core/16-thread CPU, 10 on a 6/12), core 3 on Linux (the Pi's
+    // installer isolates cores 2 and 3 for the loop).
+    bool        rtPinCore      = true;
+    int         rtCore         = -1;
 
     int     telemetryPort     = 4444;
     // host: UDP bind address for telemetry input. "127.0.0.1" for the

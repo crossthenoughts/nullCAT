@@ -263,6 +263,7 @@ private:
     int    m_sync0RecycleRounds     = 2;      // pre-OP wedged-SYNC0 recycle rounds (0 = off)
     int    m_wkcValidationCycles    = 50;     // post-OP WKC validation window
     double m_wkcValidationThreshold = 0.9;   // fraction of cycles requiring WKC==expected
+    int    m_rtCore                 = 3;     // the control loop's CPU (host.json rtCore/rtPinCore), -1 = not pinned
 
     alignas(64) char m_iomap[SOEM_IOMAP_SIZE] = {};
 

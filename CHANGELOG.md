@@ -356,6 +356,12 @@ Development branch. Nothing here is in a release yet.
   rig keeps its own values: change them on the tile.
 
 ### Fixed
+- A host settings save from the web page wrote only the fields the page
+  shows, so every other host.json setting went back to its default at the
+  next start: the GPIO pins (the e-stop button's included), the extra
+  host names the page may be opened by (such as `nullcat.local`), the
+  frozen-stream guard, the DC phase lock and the foreground keeper. The
+  page's fields now go over the file and everything else stays.
 - A shaker sound card that went away (unplugged, disabled, or the system
   output moved to another device) still showed as open, and a stereo card
   asked for four shakers showed four live channels while playing shakers
@@ -712,6 +718,17 @@ Development branch. Nothing here is in a release yet.
   the shaker routes were dropped when the event fired.
 
 ### Changed
+- The control loop's CPU is a setting. On Windows it was always logical
+  CPU 3, the second thread of a core the game and Windows keep busy, and
+  a loop held up there makes the drives hold their last command for a
+  few milliseconds at a time (heard as a broken-up engine note on the
+  shakers). It now defaults to the first thread of the last physical core
+  (CPU 14 on an 8-core / 16-thread processor, never an efficiency core),
+  and **Application Settings** has **Pin the control loop to one CPU
+  core** and **Loop CPU** to choose another or let Windows place it
+  (`rtPinCore`, `rtCore` in host.json). Keeping the game and SimHub off
+  that CPU and its twin (Task Manager, Details, Set affinity) helps most.
+  The Pi keeps core 3, the one its installer sets aside for the loop.
 - The Driveline tile's diff is now a walking-pace thing, as a real one
   is: a limited slip's clunks come only when the driven wheels are made to
   turn apart in a tight turn at a crawl (full below 8 km/h, gone by 20; a

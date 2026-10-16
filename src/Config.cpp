@@ -63,6 +63,8 @@ static void writeHostConfig(const AppConfig& c, QJsonObject& obj)
     obj["configVersion"]            = c.configVersion;
     obj["nicName"]                  = QString::fromStdString(c.nicName);
     obj["controlLoopHz"]            = c.controlLoopHz;
+    obj["rtPinCore"]                = c.rtPinCore;
+    obj["rtCore"]                   = c.rtCore;
     obj["tempPollSec"]              = c.tempPollSec;
     obj["telemetryPort"]               = c.telemetryPort;
     obj["telemetryBindAddr"]           = QString::fromStdString(c.telemetryBindAddr);
@@ -121,6 +123,8 @@ static void readHostConfig(const QJsonObject& obj, AppConfig& c)
 {
     if (obj.contains("nicName"))                  c.nicName                  = obj.value("nicName").toString().toStdString();
     if (obj.contains("controlLoopHz"))            c.controlLoopHz            = obj.value("controlLoopHz").toInt(500);
+    if (obj.contains("rtPinCore"))                c.rtPinCore                = obj.value("rtPinCore").toBool(true);
+    if (obj.contains("rtCore"))                   c.rtCore                   = obj.value("rtCore").toInt(-1);
     if (obj.contains("tempPollSec"))              c.tempPollSec              = obj.value("tempPollSec").toDouble(15.0);
     if (obj.contains("telemetryPort"))               c.telemetryPort               = obj.value("telemetryPort").toInt(4444);
     if (obj.contains("telemetryBindAddr"))           c.telemetryBindAddr           = obj.value("telemetryBindAddr").toString("").toStdString();  // "" = platform default
@@ -926,7 +930,7 @@ void Config::clampHaptics(AppConfig& c, std::vector<std::string>& warnings)
 // their message; everything else is the rig's.
 static const char* fileForError(const std::string& e)
 {
-    static const char* const kHostFields[] = { "controlLoopHz", "ncxFrozenMs", "pdoWatchdogMs", "sync0RecycleRounds",
+    static const char* const kHostFields[] = { "controlLoopHz", "rtCore", "ncxFrozenMs", "pdoWatchdogMs", "sync0RecycleRounds",
                                                "audioChannels", "audioDevices" };
     for (const char* f : kHostFields)
         if (e.rfind(f, 0) == 0) return "host.json";
@@ -1206,6 +1210,11 @@ std::vector<std::string> AppConfig::validate() const
         // drifts from the loop. Valid: 250/500/1000/2000/4000 Hz.
         errors.push_back("controlLoopHz=" + std::to_string(controlLoopHz) +
                          " must divide 1e9 evenly (use 250/500/1000/2000/4000)");
+
+    // A CPU this machine does not have falls back to auto at start (with a
+    // warning); only an impossible number is an error here.
+    if (rtCore < -1 || rtCore > 255)
+        errors.push_back("rtCore=" + std::to_string(rtCore) + " out of range [-1 (auto), 255]");
 
     if (conditioningMode != "bypass" && conditioningMode != "interpolate" && conditioningMode != "filter")
         errors.push_back("conditioningMode='" + conditioningMode +

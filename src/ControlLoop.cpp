@@ -118,8 +118,10 @@ void ControlLoopWorker::run()
 {
     m_velPrimed = false;   // re-prime velocity derivation on each (re)start
     // Elevate RT priority, register with MMCSS (Windows) / SCHED_FIFO (Linux),
-    // and pin to core 3. Details and fallback warnings logged inside threadSetup().
-    PlatformRT::RtHandle rtHandle = PlatformRT::threadSetup(3);
+    // and pin to host.json's rtCore (auto: core 3 on the Pi, the last
+    // physical core on Windows; rtPinCore false = not pinned). Details and
+    // fallback warnings logged inside threadSetup().
+    PlatformRT::RtHandle rtHandle = PlatformRT::threadSetup(m_config.rtCore, m_config.rtPinCore);
 
     // Arm the RT-safe log path. From this point, LOG_* calls on this thread
     // push to a lock-free SPSC queue. The drain thread routes them to file + UI.

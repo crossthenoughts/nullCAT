@@ -74,6 +74,8 @@ private:
     // Runtime
     QSpinBox*        m_spinControlHz     = nullptr;  // locked to 500
     QSpinBox*        m_spinPdoWatchdog   = nullptr;
+    QCheckBox*       m_checkPinCore      = nullptr;  // host.json rtPinCore
+    QSpinBox*        m_spinRtCore        = nullptr;  // host.json rtCore (-1 = auto)
 
     // Telemetry
     QSpinBox*        m_spinTelemetryPort    = nullptr;

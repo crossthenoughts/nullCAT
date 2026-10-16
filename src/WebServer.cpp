@@ -1394,8 +1394,30 @@ bool WebServer::start()
                 return;
             }
             if (m_configPath.empty()) { errResp(res, "No config path configured."); return; }
-            const int wr = writeConfigNamespace("host.json", Config::validateHostBody(m_configPath, req.body),
-                                                req.body, res, nullptr);
+            // The page sends the fields it shows; host.json carries more (the
+            // GPIO pins, the e-stop pin among them, the allowed host names,
+            // the loop CPU, the DC phase lock, ...). The page's fields go over
+            // the file, and everything else stays: a save used to replace the
+            // file with the page's object, and those reverted to their
+            // defaults at the next start.
+            std::string body = req.body;
+            {
+                std::string oldText;
+                const QJsonDocument posted = QJsonDocument::fromJson(QByteArray::fromStdString(req.body));
+                if (posted.isObject() && readWholeFile(siblingFile(m_configPath, "host.json"), oldText))
+                {
+                    const QJsonDocument onDisk = QJsonDocument::fromJson(QByteArray::fromStdString(oldText));
+                    if (onDisk.isObject())
+                    {
+                        QJsonObject merged = onDisk.object();
+                        const QJsonObject page = posted.object();
+                        for (auto it = page.begin(); it != page.end(); ++it) merged[it.key()] = it.value();
+                        body = QJsonDocument(merged).toJson(QJsonDocument::Indented).toStdString();
+                    }
+                }
+            }
+            const int wr = writeConfigNamespace("host.json", Config::validateHostBody(m_configPath, body),
+                                                body, res, nullptr);
             if (wr < 0) return;
             if (wr == 1)
             {
