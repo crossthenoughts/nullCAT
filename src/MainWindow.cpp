@@ -887,6 +887,17 @@ void MainWindow::onApplicationSettings()
             : std::string("Application settings: control loop not pinned (from the next loop start)."));
     }
 
+    // The shaker cards open once, at start (main.cpp): a change waits for it.
+    bool shakersChanged = (newCfg.shakersEnabled != oldCfg.shakersEnabled);
+    {
+        const auto a = oldCfg.shakerDevices(), b = newCfg.shakerDevices();
+        shakersChanged = shakersChanged || a.size() != b.size();
+        for (size_t i = 0; i < a.size() && i < b.size(); ++i)
+            shakersChanged = shakersChanged || a[i].device != b[i].device || a[i].channels != b[i].channels;
+    }
+    if (shakersChanged)
+        LOG_INFO("Application settings: shaker settings saved -- they apply at the next nullCAT start.");
+
     if (simToReal)
     {
         // drives[] changed -- rebuild the per-axis chips and re-configure
@@ -898,8 +909,9 @@ void MainWindow::onApplicationSettings()
     }
     else
     {
-        statusBar()->showMessage(
-            "Application settings saved (live-applied where supported).");
+        statusBar()->showMessage(shakersChanged
+            ? "Application settings saved. Shaker settings apply at the next nullCAT start."
+            : "Application settings saved (live-applied where supported).");
     }
 }
 

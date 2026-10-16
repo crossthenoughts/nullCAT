@@ -62,6 +62,12 @@ private:
     void saveToConfig();
     void setSpinboxError(QWidget* w, bool error);
     void installWheelGuards();
+    // Shakers: the device lists, a stored name onto a list, a list's value
+    // back as the name host.json stores, the second card's enabling.
+    void fillShakerDevices();
+    static void setShakerDevice(QComboBox* cb, const std::string& name);
+    static std::string shakerDevice(const QComboBox* cb);
+    void updateShakerEnables();
 
     AppConfig m_cfg;            // working copy (initialized from input)
     bool      m_loading = false;
@@ -79,6 +85,15 @@ private:
 
     // Telemetry
     QSpinBox*        m_spinTelemetryPort    = nullptr;
+
+    // Shakers (host.json shakersEnabled / audioDevices; audioDevice and
+    // audioChannels mirror the first card)
+    QCheckBox*       m_checkShakers      = nullptr;
+    QComboBox*       m_comboShakerDev    = nullptr;
+    QSpinBox*        m_spinShakerCh      = nullptr;
+    QCheckBox*       m_checkShaker2      = nullptr;
+    QComboBox*       m_comboShakerDev2   = nullptr;
+    QSpinBox*        m_spinShakerCh2     = nullptr;
 
     // Logging
     QLineEdit*       m_editLogFile       = nullptr;

@@ -23,6 +23,8 @@
 #include "ApplicationSettingsDialog.h"
 #include "Logging.h"
 #include "PlatformRT.h"   // logicalCpuCount / autoRtCore for the loop CPU field
+#include "ShakerOutput.h" // the playback devices for the shaker card lists
+#include <QLabel>
 #include <algorithm>
 #include <QFormLayout>
 #include <QVBoxLayout>
@@ -164,6 +166,57 @@ void ApplicationSettingsDialog::buildUI()
         "output target port).");
     fSim->addRow("Telemetry UDP Port:", m_spinTelemetryPort);
     col->addWidget(grpSim);
+
+    // ---- Shakers ----
+    // The sound card(s) behind the shaker routes. The lists are the
+    // playback devices as the shaker output itself sees them, so the name
+    // picked here is the card it opens. Applies at the next nullCAT start.
+    QGroupBox* grpShk = new QGroupBox("Shakers");
+    QFormLayout* fShk = new QFormLayout(grpShk);
+    m_checkShakers = new QCheckBox("Enabled");
+    m_checkShakers->setToolTip(
+        "Play the haptic effects routed to shakers through a sound card's outputs.");
+    fShk->addRow("", m_checkShakers);
+    const auto deviceRow = [](QComboBox*& combo, QSpinBox*& spin) -> QWidget*
+    {
+        combo = new QComboBox();
+        combo->setEditable(true);   // a name may also be typed: any card whose name contains it
+        combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        combo->setMinimumContentsLength(24);
+        spin = new QSpinBox();
+        spin->setRange(1, 8);
+        spin->setSuffix(" ch");
+        spin->setToolTip("How many of the card's outputs carry shakers (a stereo card: 2).");
+        QWidget* row = new QWidget();
+        QHBoxLayout* h = new QHBoxLayout(row);
+        h->setContentsMargins(0, 0, 0, 0);
+        h->addWidget(combo, 1);
+        h->addWidget(spin);
+        return row;
+    };
+    fShk->addRow("Sound card:", deviceRow(m_comboShakerDev, m_spinShakerCh));
+    m_checkShaker2 = new QCheckBox("A second sound card");
+    m_checkShaker2->setToolTip("Its shakers are numbered after the first card's (two stereo cards: shakers 1-2 and 3-4).");
+    fShk->addRow("", m_checkShaker2);
+    fShk->addRow("Second card:", deviceRow(m_comboShakerDev2, m_spinShakerCh2));
+    // Names for TestAppSettingsDialog (and anything automating the dialog).
+    m_checkShakers->setObjectName("shakersEnabled");
+    m_comboShakerDev->setObjectName("shakerDevice1");
+    m_spinShakerCh->setObjectName("shakerChannels1");
+    m_checkShaker2->setObjectName("shaker2");
+    m_comboShakerDev2->setObjectName("shakerDevice2");
+    m_spinShakerCh2->setObjectName("shakerChannels2");
+    m_checkPinCore->setObjectName("pinLoopCore");
+    m_spinRtCore->setObjectName("loopCore");
+    QLabel* shkNote = new QLabel(
+        "Applies at the next nullCAT start. Then use the test buttons on the shaker line "
+        "in the web page's settings to check which shaker is which.");
+    shkNote->setWordWrap(true);
+    fShk->addRow(shkNote);
+    fillShakerDevices();
+    connect(m_checkShakers, &QCheckBox::toggled, this, [this](bool) { updateShakerEnables(); validateFields(); });
+    connect(m_checkShaker2, &QCheckBox::toggled, this, [this](bool) { updateShakerEnables(); validateFields(); });
+    col->addWidget(grpShk);
 
     // Motion blending (blendTimeSec / blendMaxVelocityMmS) is rig.global config,
     // edited in the web UI, not here (host/rig split: Qt owns host only).
@@ -335,6 +388,8 @@ void ApplicationSettingsDialog::buildUI()
     hookInt   (m_spinWebPort);
     hookInt   (m_spinPdoWatchdog);
     hookInt   (m_spinTelemetryPort);
+    hookInt   (m_spinShakerCh);
+    hookInt   (m_spinShakerCh2);
     hookInt   (m_spinFgAlpha);
     hookInt   (m_spinCmdSyncCycles);
     hookInt   (m_spinWkcCycles);
@@ -365,6 +420,21 @@ void ApplicationSettingsDialog::loadFromConfig()
     m_spinRtCore->setEnabled(m_cfg.rtPinCore);
 
     m_spinTelemetryPort->setValue(m_cfg.telemetryPort);
+
+    m_checkShakers->setChecked(m_cfg.shakersEnabled);
+    {
+        const std::vector<AppConfig::AudioDevice> devs = m_cfg.shakerDevices();
+        setShakerDevice(m_comboShakerDev, devs[0].device);
+        m_spinShakerCh->setValue(std::max(1, std::min(8, devs[0].channels)));
+        m_checkShaker2->setChecked(devs.size() > 1);
+        if (devs.size() > 1)
+        {
+            setShakerDevice(m_comboShakerDev2, devs[1].device);
+            m_spinShakerCh2->setValue(std::max(1, std::min(8, devs[1].channels)));
+        }
+        else m_spinShakerCh2->setValue(2);
+    }
+    updateShakerEnables();
 
 
     m_editLogFile->setText(QString::fromStdString(m_cfg.logFile));
@@ -402,6 +472,19 @@ void ApplicationSettingsDialog::saveToConfig()
     m_cfg.rtCore        = m_spinRtCore->value();
 
     m_cfg.telemetryPort    = m_spinTelemetryPort->value();
+
+    // As the web page writes them: every card in audioDevices, the first
+    // one mirrored in audioDevice/audioChannels.
+    m_cfg.shakersEnabled = m_checkShakers->isChecked();
+    {
+        const AppConfig::AudioDevice d1{ shakerDevice(m_comboShakerDev), m_spinShakerCh->value() };
+        m_cfg.audioDevice   = d1.device;
+        m_cfg.audioChannels = d1.channels;
+        m_cfg.audioDevices.clear();
+        m_cfg.audioDevices.push_back(d1);
+        if (m_checkShaker2->isChecked())
+            m_cfg.audioDevices.push_back(AppConfig::AudioDevice{ shakerDevice(m_comboShakerDev2), m_spinShakerCh2->value() });
+    }
 
 
     m_cfg.logFile      = m_editLogFile->text().trimmed().toStdString();
@@ -445,6 +528,58 @@ void ApplicationSettingsDialog::onResetToDefaults()
     LOG_INFO("ApplicationSettingsDialog: reset to defaults (NIC + drives preserved)");
 }
 
+// ---- Shakers --------------------------------------------------------------
+
+// Both lists: the system default, every playback device as the shaker
+// output's own audio backend sees it (a probe with its own context, so the
+// names are exactly the ones it matches), and the null backend. Each item
+// carries the name host.json stores.
+void ApplicationSettingsDialog::fillShakerDevices()
+{
+    std::vector<haptics::ShakerDeviceInfo> devs;
+    {
+        haptics::ShakerOutput probe;
+        devs = probe.listDevices();
+    }
+    for (QComboBox* cb : { m_comboShakerDev, m_comboShakerDev2 })
+    {
+        cb->clear();
+        cb->addItem("(system default)", QString());
+        for (const haptics::ShakerDeviceInfo& d : devs)
+            cb->addItem(QString::fromStdString(d.name) + (d.isDefault ? "  [Windows default]" : ""),
+                        QString::fromStdString(d.name));
+        cb->addItem("null (no hardware)", QStringLiteral("null"));
+    }
+}
+
+// A stored name onto a list: its item when the list has it, else the name
+// as typed text (a card not plugged in now, or part of a name).
+void ApplicationSettingsDialog::setShakerDevice(QComboBox* cb, const std::string& name)
+{
+    const int i = cb->findData(QString::fromStdString(name));
+    if (i >= 0) cb->setCurrentIndex(i);
+    else cb->setEditText(QString::fromStdString(name));
+}
+
+// What the list says, as host.json stores it: an item's name, or the text
+// typed into it.
+std::string ApplicationSettingsDialog::shakerDevice(const QComboBox* cb)
+{
+    const QString text = cb->currentText();
+    const int i = cb->findText(text);
+    return (i >= 0 ? cb->itemData(i).toString() : text.trimmed()).toStdString();
+}
+
+void ApplicationSettingsDialog::updateShakerEnables()
+{
+    const bool on = m_checkShakers->isChecked();
+    m_comboShakerDev->setEnabled(on);
+    m_spinShakerCh->setEnabled(on);
+    m_checkShaker2->setEnabled(on);
+    m_comboShakerDev2->setEnabled(on && m_checkShaker2->isChecked());
+    m_spinShakerCh2->setEnabled(on && m_checkShaker2->isChecked());
+}
+
 // ---- Live validation ---------------------------------------------------
 
 void ApplicationSettingsDialog::setSpinboxError(QWidget* w, bool error)
@@ -478,6 +613,13 @@ void ApplicationSettingsDialog::validateFields()
     bool shPortBad = m_spinTelemetryPort->value() < 1 || m_spinTelemetryPort->value() > 65535;
     setSpinboxError(m_spinTelemetryPort, shPortBad);
     if (shPortBad) errors << "Telemetry port must be 1-65535.";
+
+    // The shaker outputs number 1 to 8 across the cards.
+    const bool two = m_checkShakers->isChecked() && m_checkShaker2->isChecked();
+    const bool shkBad = two && m_spinShakerCh->value() + m_spinShakerCh2->value() > 8;
+    setSpinboxError(m_spinShakerCh, shkBad);
+    setSpinboxError(m_spinShakerCh2, shkBad);
+    if (shkBad) errors << "Shakers: 8 channels at most across both cards.";
 
     bool alphaBad = m_spinFgAlpha->value() < 1 || m_spinFgAlpha->value() > 255;
     setSpinboxError(m_spinFgAlpha, alphaBad);

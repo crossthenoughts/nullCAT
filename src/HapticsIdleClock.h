@@ -12,6 +12,7 @@
 
 #include "ControlLoop.h"
 #include "MotionController.h"
+#include "PlatformRT.h"
 #include "TelemetryInput.h"
 #include <atomic>
 #include <chrono>
@@ -56,6 +57,12 @@ public:
                 sched_param sp{}; sp.sched_priority = 10; pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
 #endif
             }
+            // The 1 ms system timer for as long as this clock runs (the
+            // control loop asks only while it runs). Without it a Windows
+            // sleep lasts the default 15.6 ms tick: the steps then come in
+            // bursts the 12 ms shaker buffer cannot ride out, and shakers
+            // with the loop stopped stutter. No-op on Linux.
+            PlatformRT::timerBegin();
             auto next = std::chrono::steady_clock::now();
             while (m_running.load(std::memory_order_relaxed))
             {
@@ -71,6 +78,7 @@ public:
                 for (int drained = 0; drained < 32 && m_telemetry.receive(); ++drained) {}
                 m_motion.hapticsIdleTick(m_telemetry.getLatestData());
             }
+            PlatformRT::timerEnd();
         });
     }
     void stop()

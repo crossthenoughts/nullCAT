@@ -468,6 +468,13 @@ add_motion_test(TestConfigValidation tests/TestConfigValidation.cpp)
 # ---- Slice 2: host/rig two-file config split ----
 add_motion_test(TestConfigTwoFile tests/TestConfigTwoFile.cpp)
 
+# ---- The desktop app's Application Settings: the host settings it owns on
+# the PC (the loop CPU, the shaker cards) load into the dialog and come back
+# out of it through OK. Qt Widgets; the dialog is never shown ----
+add_motion_test(TestAppSettingsDialog tests/TestAppSettingsDialog.cpp)
+target_sources(TestAppSettingsDialog PRIVATE src/ApplicationSettingsDialog.cpp src/ApplicationSettingsDialog.h)
+target_link_libraries(TestAppSettingsDialog PRIVATE Qt6::Widgets)
+
 # ---- Car table (cars.json + cars.local.json): lookup, layers, the
 # five-tile merge, and the shipped file itself ----
 add_motion_test(TestCarTable tests/TestCarTable.cpp)

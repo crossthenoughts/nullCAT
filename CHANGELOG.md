@@ -356,6 +356,10 @@ Development branch. Nothing here is in a release yet.
   rig keeps its own values: change them on the tile.
 
 ### Fixed
+- On Windows, shakers playing with the control loop stopped (or on a rig
+  with no drives) stuttered: the clock that drives them then never asked
+  Windows for its 1 ms timer, so it woke every 15.6 ms and the sound card
+  ran dry between wake-ups. It now asks, as the control loop does.
 - A host settings save from the web page wrote only the fields the page
   shows, so every other host.json setting went back to its default at the
   next start: the GPIO pins (the e-stop button's included), the extra
@@ -718,6 +722,13 @@ Development branch. Nothing here is in a release yet.
   the shaker routes were dropped when the event fired.
 
 ### Changed
+- On the PC the shakers are set up in the desktop app's **Application
+  Settings** (a **Shakers** section): enabled, each sound card picked
+  from a list of the sound outputs Windows has by name, its channel
+  count, and an optional second card. Finding the card's exact name for
+  host.json by hand was guesswork, and a headset could end up as the
+  shaker card. The page's shaker line and test buttons check the result
+  after a restart.
 - The control loop's CPU is a setting. On Windows it was always logical
   CPU 3, the second thread of a core the game and Windows keep busy, and
   a loop held up there makes the drives hold their last command for a

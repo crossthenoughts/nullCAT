@@ -155,14 +155,19 @@ remembered as an unnamed sender.
 ### Shakers
 
 Bass shakers and other tactile transducers hang off a USB sound card and
-take the same effects as the axes. In the host settings tick
-**Shakers**, name the **Audio device** (part of its name; empty for the
-system default; `null` for a bench with no card) and how many of its
-outputs are **Shaker channels**; a second card (a second stereo dongle
-is the usual way to four shakers) goes in **Audio device 2**, its
-channels numbered after the first card's. Restart, and the status line
-under those fields names each card with its sample rate, buffer and
-underrun count, with a **test** button per channel (40 Hz for a second).
+take the same effects as the axes. On the Pi, in the web page's host
+settings tick **Shakers**, name the **Audio device** (part of its name;
+empty for the system default; `null` for a bench with no card) and how
+many of its outputs are **Shaker channels**; a second card (a second
+stereo dongle is the usual way to four shakers) goes in **Audio device
+2**, its channels numbered after the first card's. On the PC the same
+settings are in the desktop app's **Application Settings**, under
+**Shakers**: pick each card from the list (the sound outputs Windows
+has, by name, so a headset and a shaker card are told apart) and its
+channel count. Restart nullCAT, and the shaker line in the web page's
+settings names each card with its sample rate, buffer and underrun
+count, with a **test** button per channel (40 Hz for a second) to check
+which shaker is which.
 
 Every effect's route editor then lists **Shaker 1..N** below the axes.
 A shaker route has a gain (1 = full scale at 100 % amplitude; the output
