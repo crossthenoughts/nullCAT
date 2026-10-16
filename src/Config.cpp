@@ -215,6 +215,129 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
     obj["haptics"] = Config::writeHapticsObject(c);
 }
 
+// ---- haptics settings: one map from config key to field ------------------
+// A tile's object in rig.json (and in a profile) carries exactly the keys
+// every tile has (EffectParams) plus the tile's own registry rows
+// (HapticsRegistry.h ParamSpec), each stored in one field of AppConfig.
+// These tables are that storage, one row per field; read and write walk
+// the registry and look each key up here, so a setting is added by its
+// registry row and its line below, and TestConfigTwoFile's contract test
+// fails for a row without one.
+namespace {
+template <class S> struct FieldRow { const char* key; double S::* field; };
+
+template <class S, size_t N>
+double* findField(S& s, const FieldRow<S> (&rows)[N], const char* key)
+{
+    for (const FieldRow<S>& r : rows)
+        if (std::strcmp(r.key, key) == 0) return &(s.*r.field);
+    return nullptr;
+}
+
+using haptics::EffectParams; using haptics::EngineParams; using haptics::RoadParams; using haptics::KerbParams;
+using haptics::SurfaceParams; using haptics::WheelsParams; using haptics::ImpactParams; using haptics::PulseParams;
+using haptics::DrivelineParams;
+
+// Every tile (the engine's freqHz is its thump carrier, its jitter the lope).
+constexpr FieldRow<EffectParams> kCommonFields[] = {
+    { "ampPct", &EffectParams::ampPct }, { "freqHz", &EffectParams::freqHz }, { "durMs", &EffectParams::durMs },
+    { "jitter", &EffectParams::jitter }, { "peakPct", &EffectParams::peakPct },
+};
+constexpr FieldRow<EngineParams> kEngineFields[] = {
+    { "cylinders", &EngineParams::cylinders }, { "litres", &EngineParams::litres }, { "layout", &EngineParams::layout },
+    { "maxRpm", &EngineParams::maxRpm }, { "rock", &EngineParams::rock }, { "thump", &EngineParams::thump },
+    { "buzz", &EngineParams::buzz }, { "order", &EngineParams::order }, { "limHit", &EngineParams::limHit },
+    { "limHz", &EngineParams::limHz }, { "limJit", &EngineParams::limJit }, { "inertia", &EngineParams::inertia },
+    { "turbo", &EngineParams::turbo }, { "liftoff", &EngineParams::liftoff }, { "pops", &EngineParams::pops },
+    { "tcCut", &EngineParams::tcCut },
+};
+constexpr FieldRow<RoadParams> kRoadFields[] = {
+    { "fullMm", &RoadParams::fullMm }, { "hpHz", &RoadParams::hpHz }, { "surface", &RoadParams::surface },
+    { "surfaceKmh", &RoadParams::surfaceKmh }, { "surfaceHz", &RoadParams::surfaceHz }, { "model", &RoadParams::model },
+    { "bodyMm", &RoadParams::bodyMm }, { "bodyHz", &RoadParams::bodyHz }, { "hopHz", &RoadParams::hopHz },
+    { "damping", &RoadParams::damping }, { "rough", &RoadParams::rough }, { "suspPct", &RoadParams::suspPct },
+    { "suspHz", &RoadParams::suspHz }, { "fullLearn", &RoadParams::fullLearn },
+};
+constexpr FieldRow<KerbParams> kKerbFields[] = {
+    { "pitchCm", &KerbParams::pitchCm }, { "riseMm", &KerbParams::riseMm }, { "ribMm", &KerbParams::ribMm },
+    { "fullMm", &KerbParams::fullMm }, { "detectMm", &KerbParams::detectMm },
+};
+constexpr FieldRow<SurfaceParams> kSurfaceFields[] = {
+    { "stones", &SurfaceParams::stones }, { "crunch", &SurfaceParams::crunch }, { "studs", &SurfaceParams::studs },
+    { "puddles", &SurfaceParams::puddles }, { "aquaKmh", &SurfaceParams::aquaKmh }, { "smooth", &SurfaceParams::smooth },
+};
+constexpr FieldRow<WheelsParams> kWheelsFields[] = {
+    { "balance", &WheelsParams::balance }, { "flat", &WheelsParams::flat }, { "judder", &WheelsParams::judder },
+    { "puncture", &WheelsParams::puncture }, { "bite", &WheelsParams::bite }, { "drag", &WheelsParams::drag },
+    { "biteHz", &WheelsParams::biteHz }, { "dragHz", &WheelsParams::dragHz },
+};
+constexpr FieldRow<ImpactParams> kImpactFields[] = {
+    { "fromMmS", &ImpactParams::fromMmS }, { "fullMmS", &ImpactParams::fullMmS }, { "heaveG", &ImpactParams::heaveG },
+};
+// ABS and TC share the struct; each tile's registry rows say which it uses.
+constexpr FieldRow<PulseParams> kPulseFields[] = {
+    { "sharp", &PulseParams::sharp }, { "spread", &PulseParams::spread }, { "holdMs", &PulseParams::holdMs },
+    { "slow", &PulseParams::slow }, { "buzz", &PulseParams::buzz }, { "buzzHz", &PulseParams::buzzHz },
+    { "slipLink", &PulseParams::slipLink }, { "lockLink", &PulseParams::lockLink }, { "scrubLink", &PulseParams::scrubLink },
+    { "brakeFull", &PulseParams::brakeFull }, { "fromWheels", &PulseParams::fromWheels }, { "lowOff", &PulseParams::lowOff },
+};
+constexpr FieldRow<DrivelineParams> kDrivelineFields[] = {
+    { "clutch", &DrivelineParams::clutch }, { "clutchHz", &DrivelineParams::clutchHz }, { "lug", &DrivelineParams::lug },
+    { "lugHz", &DrivelineParams::lugHz }, { "gearbox", &DrivelineParams::gearbox }, { "whine", &DrivelineParams::whine },
+    { "whinePitch", &DrivelineParams::whinePitch }, { "shunt", &DrivelineParams::shunt }, { "shuntHz", &DrivelineParams::shuntHz },
+    { "ignoreN", &DrivelineParams::ignoreN }, { "diff", &DrivelineParams::diff }, { "diffType", &DrivelineParams::diffType },
+    { "diffHz", &DrivelineParams::diffHz }, { "driven", &DrivelineParams::driven },
+};
+
+// Each key the tile's object carries, in the order written: the common
+// keys, then the tile's registry rows that are not one of them.
+template <class F>
+void forEachHapticsKey(const haptics::EffectInfo& info, F f)
+{
+    for (const FieldRow<EffectParams>& r : kCommonFields) f(r.key);
+    for (int k = 0; k < info.paramCount; ++k)
+    {
+        const char* key = info.params[k].key;
+        bool common = false;
+        for (const FieldRow<EffectParams>& r : kCommonFields) common = common || std::strcmp(r.key, key) == 0;
+        if (!common) f(key);
+    }
+}
+} // namespace
+
+double* Config::hapticsField(AppConfig& c, int effect, const char* key)
+{
+    if (effect < 0 || effect >= haptics::EFFECT_COUNT || !key) return nullptr;
+    const haptics::EffectInfo& info = haptics::effectInfo(effect);
+    if (double* f = findField(c.hapticsFx[static_cast<size_t>(effect)], kCommonFields, key)) return f;
+    switch (info.kind)
+    {
+        case haptics::Kind::Engine:    return findField(c.hapticsEngine, kEngineFields, key);
+        case haptics::Kind::Road:      return findField(c.hapticsRoad, kRoadFields, key);
+        case haptics::Kind::Kerb:      return findField(c.hapticsKerb, kKerbFields, key);
+        case haptics::Kind::Surface:   return findField(c.hapticsSurface, kSurfaceFields, key);
+        case haptics::Kind::Wheels:    return findField(c.hapticsWheels, kWheelsFields, key);
+        case haptics::Kind::Impacts:   return findField(c.hapticsImpacts, kImpactFields, key);
+        case haptics::Kind::Abs:       return findField(c.hapticsAbs, kPulseFields, key);
+        case haptics::Kind::Tc:        return findField(c.hapticsTc, kPulseFields, key);
+        case haptics::Kind::Driveline: return findField(c.hapticsDriveline, kDrivelineFields, key);
+        case haptics::Kind::Slip:
+        {
+            // The slip tiles' own table: SlipParams by slipField index.
+            haptics::SlipParams& s = (info.id == haptics::Effect::Skid) ? c.hapticsSlipLat : c.hapticsSlipLon;
+            for (int k = 0; k < haptics::SLIP_KEY_COUNT; ++k)
+                if (info.slipKeys[k] && std::strcmp(info.slipKeys[k], key) == 0) return &haptics::slipField(s, k);
+            return nullptr;
+        }
+        default:                       return nullptr;   // transients and plain textures: the common keys only
+    }
+}
+
+const double* Config::hapticsField(const AppConfig& c, int effect, const char* key)
+{
+    return hapticsField(const_cast<AppConfig&>(c), effect, key);   // the same lookup, read only
+}
+
 // The haptics object exactly as rig.json carries it: one object per effect
 // under its registry key (the engine description and mix inside the engine
 // object, keys unchanged since 0.9.6), plus masterGain and positionBudget.
@@ -222,106 +345,31 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
 // live set never drift apart in shape.
 QJsonObject Config::writeHapticsObject(const AppConfig& c)
 {
+    QJsonObject h;
+    for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
     {
-        const auto writeFx = [](const haptics::EffectParams& p, bool parts)
-        {
-            QJsonObject o;
-            o["ampPct"] = p.ampPct; o["freqHz"] = p.freqHz; o["durMs"] = p.durMs; o["jitter"] = p.jitter;
-            o["peakPct"] = p.peakPct;
-            QJsonArray r;
-            for (const haptics::Route& rt : p.routes)
-                if ((rt.axis != -1 || rt.shaker != -1) && rt.gain > 0.0)
-                {
-                    QJsonObject ro; ro["gain"] = rt.gain;
-                    if (rt.shaker >= 0) { ro["shaker"] = rt.shaker; if (rt.harm != 1) ro["harm"] = rt.harm; }
-                    else ro["axis"] = rt.axis;
-                    if (parts && rt.part != haptics::Part::All) ro["part"] = haptics::partKey(rt.part);
-                    r.append(ro);
-                }
-            o["routes"] = r;
-            return o;
-        };
-        QJsonObject h;
-        for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
-        {
-            const haptics::EffectInfo& info = haptics::effectInfo(i);
-            QJsonObject o = writeFx(c.hapticsFx[static_cast<size_t>(i)], haptics::kindHasParts(info.kind));
-            if (info.kind == haptics::Kind::Engine)
+        const haptics::EffectInfo& info = haptics::effectInfo(i);
+        const haptics::EffectParams& p = c.hapticsFx[static_cast<size_t>(i)];
+        QJsonObject o;
+        forEachHapticsKey(info, [&](const char* key) { if (const double* f = hapticsField(c, i, key)) o[key] = *f; });
+        QJsonArray r;
+        for (const haptics::Route& rt : p.routes)
+            if ((rt.axis != -1 || rt.shaker != -1) && rt.gain > 0.0)
             {
-                const haptics::EngineParams& e = c.hapticsEngine;
-                o["cylinders"] = e.cylinders; o["litres"] = e.litres; o["layout"] = e.layout;
-                o["maxRpm"] = e.maxRpm; o["rock"] = e.rock; o["thump"] = e.thump; o["buzz"] = e.buzz;
-                o["order"] = e.order; o["limHit"] = e.limHit; o["limHz"] = e.limHz; o["limJit"] = e.limJit;
-                o["inertia"] = e.inertia; o["turbo"] = e.turbo; o["liftoff"] = e.liftoff; o["pops"] = e.pops;
-                o["tcCut"] = e.tcCut;
+                QJsonObject ro; ro["gain"] = rt.gain;
+                if (rt.shaker >= 0) { ro["shaker"] = rt.shaker; if (rt.harm != 1) ro["harm"] = rt.harm; }
+                else ro["axis"] = rt.axis;
+                if (haptics::kindHasParts(info.kind) && rt.part != haptics::Part::All) ro["part"] = haptics::partKey(rt.part);
+                r.append(ro);
             }
-            else if (info.kind == haptics::Kind::Slip)
-            {
-                const haptics::SlipParams& s = (info.id == haptics::Effect::Skid) ? c.hapticsSlipLat : c.hapticsSlipLon;
-                for (int k = 0; k < haptics::SLIP_KEY_COUNT; ++k)
-                    if (info.slipKeys[k]) o[info.slipKeys[k]] = haptics::slipField(s, k);
-            }
-            else if (info.kind == haptics::Kind::Road)
-            {
-                o["fullMm"] = c.hapticsRoad.fullMm; o["hpHz"] = c.hapticsRoad.hpHz;
-                o["surface"] = c.hapticsRoad.surface; o["surfaceKmh"] = c.hapticsRoad.surfaceKmh;
-                o["surfaceHz"] = c.hapticsRoad.surfaceHz;
-                o["model"] = c.hapticsRoad.model; o["bodyMm"] = c.hapticsRoad.bodyMm; o["bodyHz"] = c.hapticsRoad.bodyHz;
-                o["hopHz"] = c.hapticsRoad.hopHz; o["damping"] = c.hapticsRoad.damping; o["rough"] = c.hapticsRoad.rough;
-                o["suspPct"] = c.hapticsRoad.suspPct; o["suspHz"] = c.hapticsRoad.suspHz;
-                o["fullLearn"] = c.hapticsRoad.fullLearn;
-            }
-            else if (info.kind == haptics::Kind::Kerb)
-            {
-                const haptics::KerbParams& k = c.hapticsKerb;
-                o["pitchCm"] = k.pitchCm; o["riseMm"] = k.riseMm; o["ribMm"] = k.ribMm;
-                o["fullMm"] = k.fullMm; o["detectMm"] = k.detectMm;
-            }
-            else if (info.kind == haptics::Kind::Surface)
-            {
-                const haptics::SurfaceParams& s = c.hapticsSurface;
-                o["stones"] = s.stones; o["crunch"] = s.crunch; o["studs"] = s.studs;
-                o["puddles"] = s.puddles; o["aquaKmh"] = s.aquaKmh; o["smooth"] = s.smooth;
-            }
-            else if (info.kind == haptics::Kind::Wheels)
-            {
-                const haptics::WheelsParams& w = c.hapticsWheels;
-                o["balance"] = w.balance; o["flat"] = w.flat; o["judder"] = w.judder; o["puncture"] = w.puncture;
-                o["bite"] = w.bite; o["drag"] = w.drag; o["biteHz"] = w.biteHz; o["dragHz"] = w.dragHz;
-            }
-            else if (info.kind == haptics::Kind::Impacts)
-            {
-                const haptics::ImpactParams& m = c.hapticsImpacts;
-                o["fromMmS"] = m.fromMmS; o["fullMmS"] = m.fullMmS; o["heaveG"] = m.heaveG;
-            }
-            else if (info.kind == haptics::Kind::Abs || info.kind == haptics::Kind::Tc)
-            {
-                const bool abs = (info.kind == haptics::Kind::Abs);
-                const haptics::PulseParams& q = abs ? c.hapticsAbs : c.hapticsTc;
-                o["sharp"] = q.sharp; o["spread"] = q.spread; o["holdMs"] = q.holdMs;
-                if (abs)
-                {
-                    o["slow"] = q.slow; o["buzz"] = q.buzz; o["buzzHz"] = q.buzzHz;
-                    o["slipLink"] = q.slipLink; o["lockLink"] = q.lockLink; o["scrubLink"] = q.scrubLink;
-                    o["brakeFull"] = q.brakeFull; o["fromWheels"] = q.fromWheels; o["lowOff"] = q.lowOff;
-                }
-            }
-            else if (info.kind == haptics::Kind::Driveline)
-            {
-                const haptics::DrivelineParams& d = c.hapticsDriveline;
-                o["clutch"] = d.clutch; o["clutchHz"] = d.clutchHz; o["lug"] = d.lug; o["lugHz"] = d.lugHz;
-                o["gearbox"] = d.gearbox; o["whine"] = d.whine; o["shunt"] = d.shunt; o["shuntHz"] = d.shuntHz;
-                o["whinePitch"] = d.whinePitch; o["ignoreN"] = d.ignoreN;
-                o["diff"] = d.diff; o["diffType"] = d.diffType; o["diffHz"] = d.diffHz; o["driven"] = d.driven;
-            }
-            h[info.key] = o;
-        }
-        h["masterGain"] = c.hapticsMasterGain;
-        h["positionBudget"] = c.hapticsPositionBudget;
-        h["axisDelayMs"] = c.hapticsAxisDelayMs;
-        h["followCar"] = c.hapticsFollowCar;
-        return h;
+        o["routes"] = r;
+        h[info.key] = o;
     }
+    h["masterGain"] = c.hapticsMasterGain;
+    h["positionBudget"] = c.hapticsPositionBudget;
+    h["axisDelayMs"] = c.hapticsAxisDelayMs;
+    h["followCar"] = c.hapticsFollowCar;
+    return h;
 }
 
 static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
@@ -350,183 +398,59 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
 
 // Read a haptics object (rig.json's, or a profile's) into the config.
 // Missing effects keep what c already has, so a partial object (an old
-// file, a profile saved before an effect existed) never zeroes the rest.
+// file, a profile saved before an effect existed) never zeroes the rest;
+// a missing or non-numeric key keeps its field as it was too.
 void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
 {
+    for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
     {
+        const haptics::EffectInfo& info = haptics::effectInfo(i);
+        // A 0.9.6 file carries the slip tiles under their old keys
+        // ("skid", "lockup"): read those when the new key is absent so
+        // an amplitude and its routes survive the rename.
+        const char* legacy = haptics::legacyEffectKey(info.id);
+        const bool  haveNew = h.contains(info.key);
+        if (!haveNew && !(legacy && h.contains(legacy))) continue;
+        const QJsonObject o = h.value(haveNew ? info.key : legacy).toObject();
+        haptics::EffectParams& p = c.hapticsFx[static_cast<size_t>(i)];
+        forEachHapticsKey(info, [&](const char* key) { if (double* f = hapticsField(c, i, key)) *f = o.value(key).toDouble(*f); });
         // Routes are explicit axis indices only. Negative axis values are
         // dropped on read: early 0.9.6 files carried a since-removed
         // "own axis" (-2) route default.
-        const auto readFx = [](const QJsonObject& o, haptics::EffectParams& p)
+        if (o.contains("routes"))
         {
-            p.ampPct  = o.value("ampPct").toDouble(p.ampPct);
-            p.freqHz  = o.value("freqHz").toDouble(p.freqHz);
-            p.durMs   = o.value("durMs").toDouble(p.durMs);
-            p.jitter  = o.value("jitter").toDouble(p.jitter);
-            p.peakPct = o.value("peakPct").toDouble(p.peakPct);
-            if (o.contains("routes"))
+            for (haptics::Route& rt : p.routes) rt = haptics::Route{};
+            int n = 0;
+            for (const QJsonValue& v : o.value("routes").toArray())
             {
-                for (haptics::Route& rt : p.routes) rt = haptics::Route{};
-                int n = 0;
-                for (const QJsonValue& v : o.value("routes").toArray())
-                {
-                    if (n >= haptics::MAX_ROUTES) break;
-                    const QJsonObject ro = v.toObject();
-                    const int axis   = ro.value("axis").toInt(-1);
-                    const int shaker = ro.value("shaker").toInt(-1);
-                    if (axis < 0 && shaker < 0) continue;
-                    p.routes[n].axis   = (shaker >= 0) ? -1 : axis;
-                    p.routes[n].shaker = shaker;
-                    // Read as written: validate() refuses a harm outside
-                    // 1..8 on a save, and load() clamps it with a warning.
-                    p.routes[n].harm   = ro.value("harm").toInt(1);
-                    p.routes[n].gain   = ro.value("gain").toDouble(0.0);
-                    p.routes[n].part   = haptics::partFromKey(ro.value("part").toString("all").toStdString().c_str());
-                    ++n;
-                }
-            }
-        };
-        for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
-        {
-            const haptics::EffectInfo& info = haptics::effectInfo(i);
-            // A 0.9.6 file carries the slip tiles under their old keys
-            // ("skid", "lockup"): read those when the new key is absent so
-            // an amplitude and its routes survive the rename.
-            const char* legacy = haptics::legacyEffectKey(info.id);
-            const bool  haveNew = h.contains(info.key);
-            if (!haveNew && !(legacy && h.contains(legacy))) continue;
-            const QJsonObject o = h.value(haveNew ? info.key : legacy).toObject();
-            readFx(o, c.hapticsFx[static_cast<size_t>(i)]);
-            if (info.kind == haptics::Kind::Slip)
-            {
-                haptics::SlipParams& s = (info.id == haptics::Effect::Skid) ? c.hapticsSlipLat : c.hapticsSlipLon;
-                for (int k = 0; k < haptics::SLIP_KEY_COUNT; ++k)
-                    if (info.slipKeys[k])
-                        haptics::slipField(s, k) = o.value(info.slipKeys[k]).toDouble(haptics::slipField(s, k));
-                // Old single-carrier file: its freqHz was the one carrier;
-                // carry it onto the component the old effect was (skid =
-                // texture = scrub, lockup = judder = lock).
-                if (!haveNew && o.contains("freqHz")) s.aHz = o.value("freqHz").toDouble(s.aHz);
-            }
-            if (info.kind == haptics::Kind::Road)
-            {
-                c.hapticsRoad.fullMm     = o.value("fullMm").toDouble(c.hapticsRoad.fullMm);
-                c.hapticsRoad.hpHz       = o.value("hpHz").toDouble(c.hapticsRoad.hpHz);
-                c.hapticsRoad.surface    = o.value("surface").toDouble(c.hapticsRoad.surface);
-                c.hapticsRoad.surfaceKmh = o.value("surfaceKmh").toDouble(c.hapticsRoad.surfaceKmh);
-                c.hapticsRoad.surfaceHz  = o.value("surfaceHz").toDouble(c.hapticsRoad.surfaceHz);
-                c.hapticsRoad.model      = o.value("model").toDouble(c.hapticsRoad.model);
-                c.hapticsRoad.bodyMm     = o.value("bodyMm").toDouble(c.hapticsRoad.bodyMm);
-                c.hapticsRoad.bodyHz     = o.value("bodyHz").toDouble(c.hapticsRoad.bodyHz);
-                c.hapticsRoad.hopHz      = o.value("hopHz").toDouble(c.hapticsRoad.hopHz);
-                c.hapticsRoad.damping    = o.value("damping").toDouble(c.hapticsRoad.damping);
-                c.hapticsRoad.rough      = o.value("rough").toDouble(c.hapticsRoad.rough);
-                c.hapticsRoad.suspPct    = o.value("suspPct").toDouble(c.hapticsRoad.suspPct);
-                c.hapticsRoad.suspHz     = o.value("suspHz").toDouble(c.hapticsRoad.suspHz);
-                c.hapticsRoad.fullLearn  = o.value("fullLearn").toDouble(c.hapticsRoad.fullLearn);
-            }
-            if (info.kind == haptics::Kind::Kerb)
-            {
-                haptics::KerbParams& k = c.hapticsKerb;
-                k.pitchCm  = o.value("pitchCm").toDouble(k.pitchCm);
-                k.riseMm   = o.value("riseMm").toDouble(k.riseMm);
-                k.ribMm    = o.value("ribMm").toDouble(k.ribMm);
-                k.fullMm   = o.value("fullMm").toDouble(k.fullMm);
-                k.detectMm = o.value("detectMm").toDouble(k.detectMm);
-            }
-            if (info.kind == haptics::Kind::Surface)
-            {
-                haptics::SurfaceParams& s = c.hapticsSurface;
-                s.stones  = o.value("stones").toDouble(s.stones);
-                s.crunch  = o.value("crunch").toDouble(s.crunch);
-                s.studs   = o.value("studs").toDouble(s.studs);
-                s.puddles = o.value("puddles").toDouble(s.puddles);
-                s.aquaKmh = o.value("aquaKmh").toDouble(s.aquaKmh);
-                s.smooth  = o.value("smooth").toDouble(s.smooth);
-            }
-            if (info.kind == haptics::Kind::Wheels)
-            {
-                haptics::WheelsParams& w = c.hapticsWheels;
-                w.balance = o.value("balance").toDouble(w.balance);
-                w.flat   = o.value("flat").toDouble(w.flat);
-                w.judder = o.value("judder").toDouble(w.judder);
-                w.puncture = o.value("puncture").toDouble(w.puncture);
-                w.bite   = o.value("bite").toDouble(w.bite);
-                w.drag   = o.value("drag").toDouble(w.drag);
-                w.biteHz = o.value("biteHz").toDouble(w.biteHz);
-                w.dragHz = o.value("dragHz").toDouble(w.dragHz);
-            }
-            if (info.kind == haptics::Kind::Impacts)
-            {
-                haptics::ImpactParams& m = c.hapticsImpacts;
-                m.fromMmS = o.value("fromMmS").toDouble(m.fromMmS);
-                m.fullMmS = o.value("fullMmS").toDouble(m.fullMmS);
-                m.heaveG  = o.value("heaveG").toDouble(m.heaveG);
-            }
-            if (info.kind == haptics::Kind::Abs || info.kind == haptics::Kind::Tc)
-            {
-                const bool abs = (info.kind == haptics::Kind::Abs);
-                haptics::PulseParams& q = abs ? c.hapticsAbs : c.hapticsTc;
-                q.sharp  = o.value("sharp").toDouble(q.sharp);
-                q.spread = o.value("spread").toDouble(q.spread);
-                q.holdMs = o.value("holdMs").toDouble(q.holdMs);
-                if (abs)
-                {
-                    q.slow   = o.value("slow").toDouble(q.slow);
-                    q.buzz   = o.value("buzz").toDouble(q.buzz);
-                    q.buzzHz = o.value("buzzHz").toDouble(q.buzzHz);
-                    q.slipLink  = o.value("slipLink").toDouble(q.slipLink);
-                    q.lockLink  = o.value("lockLink").toDouble(q.lockLink);
-                    q.scrubLink = o.value("scrubLink").toDouble(q.scrubLink);
-                    q.brakeFull = o.value("brakeFull").toDouble(q.brakeFull);
-                    q.fromWheels = o.value("fromWheels").toDouble(q.fromWheels);
-                    q.lowOff     = o.value("lowOff").toDouble(q.lowOff);
-                }
-            }
-            if (info.kind == haptics::Kind::Driveline)
-            {
-                haptics::DrivelineParams& d = c.hapticsDriveline;
-                d.clutch   = o.value("clutch").toDouble(d.clutch);
-                d.clutchHz = o.value("clutchHz").toDouble(d.clutchHz);
-                d.lug      = o.value("lug").toDouble(d.lug);
-                d.lugHz    = o.value("lugHz").toDouble(d.lugHz);
-                d.gearbox  = o.value("gearbox").toDouble(d.gearbox);
-                d.whine    = o.value("whine").toDouble(d.whine);
-                d.whinePitch = o.value("whinePitch").toDouble(d.whinePitch);
-                d.shunt    = o.value("shunt").toDouble(d.shunt);
-                d.shuntHz  = o.value("shuntHz").toDouble(d.shuntHz);
-                d.ignoreN  = o.value("ignoreN").toDouble(d.ignoreN);
-                d.diff     = o.value("diff").toDouble(d.diff);
-                d.diffType = o.value("diffType").toDouble(d.diffType);
-                d.diffHz   = o.value("diffHz").toDouble(d.diffHz);
-                d.driven   = o.value("driven").toDouble(d.driven);
-            }
-            if (info.kind == haptics::Kind::Engine)
-            {
-                haptics::EngineParams& e = c.hapticsEngine;
-                e.cylinders = o.value("cylinders").toDouble(e.cylinders);
-                e.litres    = o.value("litres").toDouble(e.litres);
-                e.layout    = o.value("layout").toDouble(e.layout);
-                e.maxRpm    = o.value("maxRpm").toDouble(e.maxRpm);
-                e.rock      = o.value("rock").toDouble(e.rock);
-                e.thump     = o.value("thump").toDouble(e.thump);
-                e.buzz      = o.value("buzz").toDouble(e.buzz);
-                e.order     = o.value("order").toDouble(e.order);
-                e.limHit    = o.value("limHit").toDouble(e.limHit);
-                e.limHz     = o.value("limHz").toDouble(e.limHz);
-                e.limJit    = o.value("limJit").toDouble(e.limJit);
-                e.inertia   = o.value("inertia").toDouble(e.inertia);
-                e.turbo     = o.value("turbo").toDouble(e.turbo);
-                e.liftoff   = o.value("liftoff").toDouble(e.liftoff);
-                e.pops      = o.value("pops").toDouble(e.pops);
-                e.tcCut     = o.value("tcCut").toDouble(e.tcCut);
+                if (n >= haptics::MAX_ROUTES) break;
+                const QJsonObject ro = v.toObject();
+                const int axis   = ro.value("axis").toInt(-1);
+                const int shaker = ro.value("shaker").toInt(-1);
+                if (axis < 0 && shaker < 0) continue;
+                p.routes[n].axis   = (shaker >= 0) ? -1 : axis;
+                p.routes[n].shaker = shaker;
+                // Read as written: validate() refuses a harm outside
+                // 1..8 on a save, and load() clamps it with a warning.
+                p.routes[n].harm   = ro.value("harm").toInt(1);
+                p.routes[n].gain   = ro.value("gain").toDouble(0.0);
+                p.routes[n].part   = haptics::partFromKey(ro.value("part").toString("all").toStdString().c_str());
+                ++n;
             }
         }
-        if (h.contains("masterGain"))  c.hapticsMasterGain = h.value("masterGain").toDouble(1.0);
-        if (h.contains("positionBudget")) c.hapticsPositionBudget = h.value("positionBudget").toDouble(0.4);
-        if (h.contains("axisDelayMs")) c.hapticsAxisDelayMs = h.value("axisDelayMs").toDouble(0.0);
-        if (h.contains("followCar"))   c.hapticsFollowCar = h.value("followCar").toBool(true);
+        // Old single-carrier slip file: its freqHz was the one carrier;
+        // carry it onto the component the old effect was (skid = texture =
+        // scrub, lockup = judder = lock).
+        if (info.kind == haptics::Kind::Slip && !haveNew && o.contains("freqHz"))
+        {
+            haptics::SlipParams& s = (info.id == haptics::Effect::Skid) ? c.hapticsSlipLat : c.hapticsSlipLon;
+            s.aHz = o.value("freqHz").toDouble(s.aHz);
+        }
     }
+    if (h.contains("masterGain"))  c.hapticsMasterGain = h.value("masterGain").toDouble(1.0);
+    if (h.contains("positionBudget")) c.hapticsPositionBudget = h.value("positionBudget").toDouble(0.4);
+    if (h.contains("axisDelayMs")) c.hapticsAxisDelayMs = h.value("axisDelayMs").toDouble(0.0);
+    if (h.contains("followCar"))   c.hapticsFollowCar = h.value("followCar").toBool(true);
 }
 
 // ---- Control-loading "device" object (families shifter/pedal) --------------

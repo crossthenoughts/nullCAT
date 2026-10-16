@@ -1113,6 +1113,77 @@ private slots:
                      "Removed slaveIndex=2 entry leaked back into rig.json.");
         QCOMPARE(rig.value("numDrives").toInt(), 2);
     }
+
+    // ---- the haptics parameter contract ----
+    // Every tunable the strip offers (a HapticsRegistry ParamSpec row) lives
+    // in the config and comes back from a save and a load exactly: a row
+    // added without its storage, or stored but not read or not written,
+    // fails here naming the tile and the key. Two passes with different
+    // values, so a value that happens to be the default cannot pass by
+    // chance. And every key the writer puts in a tile's object is a
+    // registry row of that tile, a key every tile carries, or one kept for
+    // older files below: nothing is written that nothing can tune.
+    void hapticsContract_everyRegistryRowRoundTrips()
+    {
+        const auto valueFor = [](const haptics::ParamSpec& p, int i, int k, int pass) -> double
+        {
+            if (p.opts)   // a choice: an index inside the row's range
+            {
+                const int n = static_cast<int>(p.max - p.min) + 1;
+                return p.min + ((i + k + pass) % std::max(1, n));
+            }
+            const int s = ((i * 37 + k * 11 + pass * 29) % 89) + 1;   // 1..89
+            return p.min + (p.max - p.min) * s / 91.0;
+        };
+        QStringList bad;
+        for (int pass = 0; pass < 2; ++pass)
+        {
+            QJsonObject in;
+            for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+            {
+                const haptics::EffectInfo& info = haptics::effectInfo(i);
+                QJsonObject o;
+                for (int k = 0; k < info.paramCount; ++k) o[info.params[k].key] = valueFor(info.params[k], i, k, pass);
+                in[info.key] = o;
+            }
+            AppConfig c;
+            Config::readHapticsObject(in, c);
+            const QJsonObject out = Config::writeHapticsObject(c);
+            for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+            {
+                const haptics::EffectInfo& info = haptics::effectInfo(i);
+                const QJsonObject o = out.value(info.key).toObject();
+                for (int k = 0; k < info.paramCount; ++k)
+                {
+                    const char* key = info.params[k].key;
+                    const double want = valueFor(info.params[k], i, k, pass);
+                    if (!o.contains(key) || o.value(key).toDouble() != want)
+                        bad << QString("%1.%2 (pass %3: in %4, out %5)").arg(info.key, key).arg(pass).arg(want)
+                                   .arg(o.contains(key) ? QString::number(o.value(key).toDouble()) : QString("absent"));
+                }
+            }
+        }
+        QVERIFY2(bad.isEmpty(), qPrintable("registry rows that do not round-trip: " + bad.join("; ")));
+
+        // Every written key accounted for.
+        static const char* const kEveryTile[] = { "ampPct", "freqHz", "durMs", "jitter", "peakPct", "routes" };
+        const QJsonObject out = Config::writeHapticsObject(AppConfig{});
+        QStringList stray;
+        for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+        {
+            const haptics::EffectInfo& info = haptics::effectInfo(i);
+            const QJsonObject o = out.value(info.key).toObject();
+            for (auto it = o.begin(); it != o.end(); ++it)
+            {
+                const std::string key = it.key().toStdString();
+                bool known = false;
+                for (const char* e : kEveryTile) known = known || key == e;
+                for (int k = 0; k < info.paramCount && !known; ++k) known = key == info.params[k].key;
+                if (!known) stray << QString("%1.%2").arg(info.key, it.key());
+            }
+        }
+        QVERIFY2(stray.isEmpty(), qPrintable("keys written that no registry row offers: " + stray.join(", ")));
+    }
 };
 
 QTEST_MAIN(TestConfigTwoFile)

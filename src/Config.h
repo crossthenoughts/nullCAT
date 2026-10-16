@@ -507,6 +507,14 @@ public:
     // readHapticsObject + saveRig and saving one is writeHapticsObject.
     static QJsonObject writeHapticsObject(const AppConfig& c);
     static void        readHapticsObject(const QJsonObject& h, AppConfig& c);
+    // The field that holds a tile's setting, by its config key (registry
+    // order index, ParamSpec key or one of the keys every tile carries:
+    // ampPct, freqHz, durMs, jitter, peakPct); nullptr when the tile has no
+    // such key. The one map from key to storage: read and write go through
+    // it, and a tile's object is exactly its common keys plus its registry
+    // rows, so a new registry row needs one line here and nowhere else.
+    static double*       hapticsField(AppConfig& c, int effect, const char* key);
+    static const double* hapticsField(const AppConfig& c, int effect, const char* key);
 
     // Recompute derived fields (countsPerMm) for every drive.
     // Called by load() automatically; the dialog also calls this after
