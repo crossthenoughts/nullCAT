@@ -1153,6 +1153,97 @@ int main()
         approx(buzzAtRedline(0.002),  62.5,  1.0, "engine: auto buzz band tops at loopHz/8 on a 500 Hz loop");
     }
 
+    // ================= engine foldback: firings past the loop's limit =================
+    {
+        // A V8, thumps only, steady revs on a 500 Hz loop (a PC). Measured:
+        // the strongest frequency 4..250 Hz in the thumps, and the share of
+        // their energy below 60 Hz (a throb the firing rate does not have).
+        struct Spec { double rms, peakHz, lowShare; };
+        auto thumpsAt = [](double rpm, double fold, double loopHz) {
+            haptics::EngineModel m; uint64_t rng = 7;
+            EffectParams p; p.ampPct = 100.0; p.freqHz = 30.0; p.jitter = 0.0;
+            EngineParams e; e.cylinders = 8.0; e.litres = 4.0; e.layout = 1.0; e.maxRpm = 8000.0;
+            e.rock = 0.0; e.buzz = 0.0; e.inertia = 0.0; e.foldback = fold;
+            const double dt = 1.0 / loopHz;
+            const int warm = static_cast<int>(0.3 * loopHz), n = static_cast<int>(2.0 * loopHz);
+            std::vector<double> x;
+            for (int i = 0; i < warm + n; ++i)
+            {
+                m.drive(rpm / 60.0 * 4.0, 1.0, false);
+                const double v = m.step(dt, p, e, 1.0, rng).thumps;
+                if (i >= warm) x.push_back(v);
+            }
+            Spec s{ 0.0, 0.0, 0.0 };
+            double tot = 0.0; for (double v : x) tot += v * v;
+            s.rms = std::sqrt(tot / x.size());
+            if (tot < 1e-12) return s;
+            double best = 0.0, low = 0.0, all = 0.0;
+            for (double f = 4.0; f <= 250.0; f += 0.5)
+            {
+                double re = 0.0, im = 0.0;
+                for (size_t k = 0; k < x.size(); ++k) { const double ph = 2.0 * 3.14159265358979 * f * k * dt; re += x[k] * std::cos(ph); im += x[k] * std::sin(ph); }
+                const double pw = re * re + im * im;
+                all += pw; if (f < 60.0) low += pw;
+                if (pw > best) { best = pw; s.peakHz = f; }
+            }
+            s.lowShare = low / all;
+            return s;
+        };
+        // Wrap (the default, as before): past 250 firings a second the
+        // thumps fold back, their strongest line at 500 - the firing rate,
+        // falling as the revs climb; at 2000 rpm, on the cycle, a throb.
+        CHECK(std::fabs(thumpsAt(4750.0, 0.0, 500.0).peakHz - 183.5) <= 1.0, "foldback wrap: 317 firings/s read as 183 Hz on a 500 Hz loop (the fold)");
+        CHECK(thumpsAt(2000.0, 0.0, 500.0).lowShare > 0.4, "foldback wrap: a V8 at 2000 rpm throbs below 60 Hz on a 500 Hz loop");
+        // Stop and keep rising: each thump starts at its true instant, so
+        // the throb is gone; under the limit they play like a 2 kHz loop.
+        for (double fold : { 1.0, 2.0 })
+        {
+            const Spec a = thumpsAt(2000.0, fold, 500.0), ref = thumpsAt(2000.0, 0.0, 2000.0);
+            CHECK(a.lowShare < 0.05 && std::fabs(a.peakHz - ref.peakHz) <= 1.0, "foldback stop / keep rising: no throb at 2000 rpm, the firing rate as on a 2 kHz loop");
+            CHECK(std::fabs(a.rms - ref.rms) <= 0.25 * ref.rms, "foldback stop / keep rising: as strong as on a 2 kHz loop under the limit");
+        }
+        // Stop: nothing past 0.45 x the loop rate (225 firings/s here).
+        bool silent = true;
+        for (double rpm = 3500.0; rpm <= 8000.0; rpm += 500.0) silent = silent && thumpsAt(rpm, 1.0, 500.0).rms < 1e-9;
+        CHECK(silent, "foldback stop: no thumps from 3500 rpm on a 500 Hz loop (nothing left to fold)");
+        // Keep rising: the strongest line climbs with the revs, the half
+        // order (every other firing) from about 3500 rpm and the quarter
+        // from about 6750, and never falls back within either.
+        bool halfOk = true, quarterOk = true;
+        double last = 0.0;
+        for (double rpm = 3500.0; rpm <= 6500.0; rpm += 250.0)
+        {
+            const double hz = thumpsAt(rpm, 2.0, 500.0).peakHz;
+            halfOk = halfOk && std::fabs(hz - rpm / 30.0) <= 1.0 && hz > last; last = hz;
+        }
+        last = 0.0;
+        for (double rpm = 6750.0; rpm <= 8000.0; rpm += 250.0)
+        {
+            const double hz = thumpsAt(rpm, 2.0, 500.0).peakHz;
+            quarterOk = quarterOk && std::fabs(hz - rpm / 60.0) <= 1.0 && hz > last; last = hz;
+        }
+        CHECK(halfOk, "foldback keep rising: 3500 to 6500 rpm the half order, rising with the revs");
+        CHECK(quarterOk, "foldback keep rising: 6750 to 8000 rpm (more than a firing a cycle) the quarter order, rising");
+        // A firing with no share takes no pool slot: on stop, past the
+        // limit, a lift-off pop (one 33 ms thump) rings out whole instead
+        // of being pushed out of the pool by silent firings 3 ms apart.
+        {
+            haptics::EngineModel m; uint64_t rng = 3;
+            EffectParams p; p.ampPct = 100.0; p.freqHz = 30.0; p.jitter = 0.0;
+            EngineParams e; e.cylinders = 8.0; e.litres = 4.0; e.layout = 1.0; e.maxRpm = 8000.0;
+            e.rock = 0.0; e.buzz = 0.0; e.inertia = 0.0; e.liftoff = 1.0; e.foldback = 1.0;
+            int ringing = 0;
+            for (int i = 0; i < 400; ++i)
+            {
+                m.drive(5000.0 / 60.0 * 4.0, i < 200 ? 1.0 : 0.0, false);   // 333 firings/s, then a lift
+                const double v = m.step(0.002, p, e, 1.0, rng).thumps;
+                if (i >= 200 && std::fabs(v) > 1e-9) ++ringing;
+            }
+            CHECK(m.liftOffCount() == 1 && ringing >= 14, "foldback stop: a pop past the limit rings its whole length (silent firings take no pool slot)");
+        }
+        CHECK(EngineParams{}.foldback == 0.0, "foldback: wrap (as before) is the default");
+    }
+
     // ================= per-corner road replay =================
     {
         using haptics::FxType; using haptics::Part; using haptics::RoadParams; using haptics::SinkKind;

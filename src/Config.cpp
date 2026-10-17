@@ -253,7 +253,7 @@ constexpr FieldRow<EngineParams> kEngineFields[] = {
     { "buzz", &EngineParams::buzz }, { "order", &EngineParams::order }, { "limHit", &EngineParams::limHit },
     { "limHz", &EngineParams::limHz }, { "limJit", &EngineParams::limJit }, { "inertia", &EngineParams::inertia },
     { "turbo", &EngineParams::turbo }, { "liftoff", &EngineParams::liftoff }, { "pops", &EngineParams::pops },
-    { "tcCut", &EngineParams::tcCut },
+    { "tcCut", &EngineParams::tcCut }, { "foldback", &EngineParams::foldback },
 };
 constexpr FieldRow<RoadParams> kRoadFields[] = {
     { "fullMm", &RoadParams::fullMm }, { "hpHz", &RoadParams::hpHz }, { "surface", &RoadParams::surface },

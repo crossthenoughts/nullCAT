@@ -9,6 +9,18 @@ middle number carries breaking changes and the last carries fixes.
 Development branch. Nothing here is in a release yet.
 
 ### Added
+- Engine tile: **foldback**, what the firing thumps do once they come faster
+  than the controller can play them (half its loop rate: 250 a second on a
+  500 Hz PC, which a V8 reaches at about 3750 rpm; 1000 on a 2 kHz Pi).
+  **wrap (as now)**, the default, plays them as before: past that point they
+  fold back into a throb that falls as the revs climb, and on a 500 Hz loop a
+  V8 at 2000 rpm also throbs at about 33 Hz. **stop** fades them out before
+  that point and lets the buzz carry the engine. **keep rising** hands over
+  to every other firing, then every fourth, near that point, so the pitch you
+  feel keeps climbing and never falls back (an octave or two below the real
+  firing rate up there; the thumps soften just after each hand-over). Both
+  new settings start each thump at its true moment between two cycles, which
+  removes the low throb. Yours, not the car's: a car preset never changes it.
 - Road tile, suspension model: **learn full mm** (off by default, to try):
   full mm learned for each car from how far its suspension moves while you
   drive, shown on the tile, with your own full mm kept for when it is off.

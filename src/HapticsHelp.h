@@ -96,6 +96,14 @@ constexpr ParamHelp kHelp[] = {
       "How hard the engine stutters while the sim's traction control cuts, 0 to 1 (0 = not at all). A modern "
       "TC trims torque smoothly; an ignition-cut TC stutters. Road car: 0. GT3: 0 to 0.3. Single-seater: 0. "
       "Rally or an older car with a cut-based TC: 0.4 to 0.8. The TC tile plays the drive easing either way." },
+    { "rpmVibe", "foldback",
+      "What the firing thumps do once they come faster than the controller can play them: half its loop "
+      "rate, 250 a second on a 500 Hz PC (a V8 from about 3750 rpm), 1000 on a 2 kHz Pi. Wrap: as before; "
+      "past that point the firings fold back into a throb that falls as the revs climb. Stop: the thumps "
+      "fade out before that point and the buzz carries the engine on. Keep rising: near that point every "
+      "other firing takes over, then every fourth, so the pitch you feel keeps climbing and never falls "
+      "back (up there it plays an octave or two below the real firing rate). Yours, not the car's: a car "
+      "preset leaves it alone. Mostly matters on the PC." },
     { "rpmVibe", "freqHz",
       "The weight of each firing thump, 10 to 80 Hz: lower is heavier. Road car: 30 to 40. GT3: 22 to 30. "
       "Single-seater: 30 to 45." },

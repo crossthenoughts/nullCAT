@@ -54,6 +54,7 @@ struct EngineParams
     double liftoff   = 1.0;   // lift-off transient strength 0..2
     double pops      = 0.0;   // overrun pops 0..1 (fuel-cut crackle; 0 for a road car)
     double tcCut     = 0.0;   // traction control dropping firings 0..1 (0 = the engine ignores it: a modern TC trims torque smoothly)
+    double foldback  = 0.0;   // firings faster than the loop can play: 0 wrap (as before), 1 stop, 2 keep rising
 };
 
 namespace engine_k {
@@ -154,6 +155,20 @@ namespace engine_k {
     constexpr double kDyingHitGain        = 1.2;    // thumps up to (1 + this) x as it dies
     constexpr double kDyingLope           = 0.6;    // ...and this much extra lope
     constexpr double kStallKick           = 1.5;    // the last kick as it stops
+    // Firings faster than the control loop can play (half its rate) fold
+    // back: on a 500 Hz loop a V8 past 3750 rpm fires 250 times a second
+    // and reads as a throb that FALLS as the revs climb. foldback picks
+    // what happens instead. 1 (stop): the firings fade out before the
+    // limit and the buzz carries the engine on. 2 (keep rising): as a
+    // firing rate nears the limit, every other firing hands over to the
+    // half order, then the quarter (the Shepard tone's trick, on real
+    // engine orders), so the felt pitch keeps climbing and never wraps.
+    // Both also start each thump at its true instant between two cycles:
+    // on the cycle, a firing every 2.1 cycles landed 2, 2, 2, ..., 3
+    // cycles apart, a throb of its own.
+    constexpr double kFoldFullBelow       = 0.30;   // x the loop rate: a firing rate plays in full below this
+    constexpr double kFoldGoneAbove       = 0.45;   // ...and not at all above (the limit is 0.5)
+    constexpr int    kFoldOrders          = 4;      // keep rising: the full, half, quarter and eighth order
 }
 
 // One cycle's output, kept as its three components with their carriers so
@@ -230,6 +245,17 @@ public:
         m_tcPhase = 0.0; m_tcRate = engine_k::kTcCutHz; m_tcWasCut = false;
         m_hiLoadAgo = 1e9; m_liftHoldoff = 0.0; m_flutterLeft = 0; m_flutterT = 0.0; m_popWait = 0.0;
         m_running = false; m_sawCranking = false; m_catchFlare = 0.0;
+        m_fireCount = 0;
+    }
+
+    // A firing stream's share at hz on a loop running at loopHz (foldback):
+    // 1 well under the loop's limit, 0 close to it, a smooth step between.
+    static double foldShare(double hz, double loopHz)
+    {
+        using namespace engine_k;
+        const double lo = kFoldFullBelow * loopHz, hi = kFoldGoneAbove * loopHz;
+        const double u  = std::max(0.0, std::min(1.0, (hi - hz) / (hi - lo)));
+        return u * u * (3.0 - 2.0 * u);
     }
 
     // Lift-off events seen (tests, status).
@@ -396,32 +422,75 @@ public:
             m_firePhase += m_fireHz * dtSec;
             if (m_firePhase >= 1.0)
             {
+                // foldback: each firing's share of a thump, the rate its
+                // thumps overlap at, and how long before the end of this
+                // cycle it fired. 0 (wrap) leaves all three as they were,
+                // and one firing a cycle (any more were always dropped);
+                // keep rising takes every one, since its slower orders
+                // still come round above a firing a cycle.
+                const int fold = static_cast<int>(e.foldback + 0.5);
+                const int firings = (fold == 2) ? std::min(8, static_cast<int>(m_firePhase)) : 1;
                 m_firePhase = wrap(m_firePhase);
-                const bool tcDrop = tcInCut && !cranking && wavesynth::rand01(rng) < tcDepth;
-                if (tcDrop) ++m_tcDrops;
-                if (cranking)
+                const double loopHz = 1.0 / std::max(1e-6, dtSec);
+                double orderShare[kFoldOrders] = {};
+                double overlapHz = m_fireHz;
+                if (fold == 2)
                 {
-                    // No combustion yet: each compression stroke is a slow lump.
-                    firePulse(p.ampPct * level * kThumpMix * e.thump * heavy * kCrankHit * m_revScale);
+                    // Each order takes what the faster ones left: the full
+                    // rate plays alone well under the limit, and near it the
+                    // half order (every other firing) takes over, then the
+                    // quarter.
+                    double rest = 1.0, rateSum = 0.0, shareSum = 0.0;
+                    for (int k = 0; k < kFoldOrders; ++k)
+                    {
+                        const double hz = m_fireHz / static_cast<double>(1u << k);
+                        orderShare[k] = rest * foldShare(hz, loopHz);
+                        rest -= orderShare[k];
+                        rateSum += orderShare[k] * hz; shareSum += orderShare[k];
+                    }
+                    if (shareSum > 1e-9) overlapHz = rateSum / shareSum;
                 }
-                else if (!cut && !tcDrop)
+                for (int j = firings - 1; j >= 0; --j)
                 {
-                    // Boost: more air per firing = a heavier hit, on top of
-                    // load. A turbo engine's only: what a sim reports for a
-                    // naturally aspirated car (0, or its manifold pressure
-                    // near 1 bar) changes nothing.
-                    const double boostUp = (e.turbo >= 0.5 && m_boost > 0.0)
-                        ? std::min(kBoostHitMax, 1.0 + kBoostGain * m_boost / kBoostRefBar) : 1.0;
-                    // Closed throttle: in gear the wheels pump the engine
-                    // (heavier), in neutral it freewheels (lighter).
-                    const double floorHit = (m_inGearOverrun ? kOverrunHit : kCoastHit);
-                    const double hit     = m_limiter ? limHit
-                                         : std::min(kBoostHitMax, (floorHit + (1.0 - floorHit) * m_load) * boostUp)
-                                           * (1.0 + kDyingHitGain * dying);
-                    const double overlap = m_fireHz * m_pulseDur;
-                    const double norm    = 1.0 / std::max(1.0, std::sqrt(overlap));
-                    const double resolve = std::max(0.0, std::min(1.0, 1.0 - (overlap - kResolveFullOverlap) / kResolveFadeSpan));
-                    firePulse(p.ampPct * level * kThumpMix * e.thump * heavy * beat * hit * norm * resolve * m_revScale);
+                    double share = 1.0, ago = 0.0;
+                    if (fold == 1 || fold == 2)
+                    {
+                        ago = std::min(dtSec, (m_firePhase + j) / m_fireHz);
+                        if (fold == 1) share = foldShare(m_fireHz, loopHz);
+                        else
+                        {
+                            share = 0.0;
+                            for (int k = 0; k < kFoldOrders; ++k)
+                                if (m_fireCount % (1ull << k) == 0) share += orderShare[k];
+                        }
+                    }
+                    ++m_fireCount;
+                    const bool tcDrop = tcInCut && !cranking && wavesynth::rand01(rng) < tcDepth;
+                    if (tcDrop) ++m_tcDrops;
+                    if (cranking)
+                    {
+                        // No combustion yet: each compression stroke is a slow lump.
+                        firePulse(p.ampPct * level * kThumpMix * e.thump * heavy * kCrankHit * m_revScale);
+                    }
+                    else if (!cut && !tcDrop && share > 1e-6)   // a firing with no share takes no pool slot
+                    {
+                        // Boost: more air per firing = a heavier hit, on top of
+                        // load. A turbo engine's only: what a sim reports for a
+                        // naturally aspirated car (0, or its manifold pressure
+                        // near 1 bar) changes nothing.
+                        const double boostUp = (e.turbo >= 0.5 && m_boost > 0.0)
+                            ? std::min(kBoostHitMax, 1.0 + kBoostGain * m_boost / kBoostRefBar) : 1.0;
+                        // Closed throttle: in gear the wheels pump the engine
+                        // (heavier), in neutral it freewheels (lighter).
+                        const double floorHit = (m_inGearOverrun ? kOverrunHit : kCoastHit);
+                        const double hit     = m_limiter ? limHit
+                                             : std::min(kBoostHitMax, (floorHit + (1.0 - floorHit) * m_load) * boostUp)
+                                               * (1.0 + kDyingHitGain * dying);
+                        const double overlap = overlapHz * m_pulseDur;
+                        const double norm    = 1.0 / std::max(1.0, std::sqrt(overlap));
+                        const double resolve = std::max(0.0, std::min(1.0, 1.0 - (overlap - kResolveFullOverlap) / kResolveFadeSpan));
+                        firePulse(p.ampPct * level * kThumpMix * e.thump * heavy * beat * hit * norm * resolve * m_revScale * share, 1.0, ago);
+                    }
                 }
             }
         }
@@ -570,19 +639,22 @@ public:
 private:
     static double wrap(double ph) { return ph - static_cast<double>(static_cast<int>(ph)); }
     // lenMul stretches one pulse (the blow-off whoosh) past the thump length.
-    void firePulse(double amp, double lenMul = 1.0)
+    // startSec: how far into the pulse this cycle already is (a firing
+    // between two cycles, foldback 1 and 2).
+    void firePulse(double amp, double lenMul = 1.0, double startSec = 0.0)
     {
         int slot = 0;   // free slot, else the one closest to finishing
         for (int s = 1; s < engine_k::kPulses; ++s)
             if (m_pulseT[s] / m_pulseLen[s] > m_pulseT[slot] / m_pulseLen[slot]) slot = s;
         m_pulseAmp[slot] = amp;
         m_pulseLen[slot] = std::max(0.25, lenMul);
-        m_pulseT[slot]   = 0.0;
+        m_pulseT[slot]   = startSec;
     }
 
     double m_fireHz = 0.0, m_load = 0.5;
     bool   m_limiter = false;
     double m_firePhase = 0.0, m_crankPhase = 0.0, m_rockPhase = 0.0;
+    uint64_t m_fireCount = 0;     // firings since clear(): which belong to the half and quarter orders (foldback 2)
     double m_revScale = 1.0;
     double m_cutPhase = 0.0, m_cutRate = 12.0;
     bool   m_wasCut = false;

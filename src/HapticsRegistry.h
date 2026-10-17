@@ -247,6 +247,7 @@ constexpr ParamSpec kEngineParams[] = {    { "ampPct",    "amp %",              
     { "liftoff",   "lift-off x",            0,   2,     0.1,  nullptr },
     { "pops",      "pops x",                0,   1,     0.1,  nullptr },
     { "tcCut",     "TC cut x",              0,   1,     0.1,  nullptr },   // traction control dropping firings (0 = ignore TC)
+    { "foldback",  "foldback",              0,   2,     1,    "wrap (as now)|stop|keep rising" },   // firings faster than the loop can play
     { "freqHz",    "thump hz",              10,  80,    1,    nullptr },
     { "jitter",    "lope",                  0,   1,     0.05, nullptr },
 };

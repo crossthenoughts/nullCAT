@@ -404,7 +404,7 @@ private slots:
             QJsonObject e;
             QJsonObject abs; abs["ampPct"] = 50.0; abs["sharp"] = 1.0; abs["spread"] = 0.0; e["abs"] = abs;
             QJsonObject dl; dl["gearbox"] = 1.0; dl["whinePitch"] = 3.0; dl["ignoreN"] = 0.0; dl["diffHz"] = 20.0; e["driveline"] = dl;
-            QJsonObject eng; eng["ampPct"] = 40.0; eng["durMs"] = 99.0; eng["peakPct"] = 5.0;
+            QJsonObject eng; eng["ampPct"] = 40.0; eng["durMs"] = 99.0; eng["peakPct"] = 5.0; eng["foldback"] = 2.0;
             QJsonArray routes; { QJsonObject ro; ro["axis"] = 0; ro["gain"] = 2.0; routes.append(ro); } eng["routes"] = routes;
             e["engine"] = eng;
             const QJsonObject h = CarTable::toHapticsObject(e);
@@ -416,6 +416,7 @@ private slots:
             QVERIFY(!h.value(haptics::effectInfo(haptics::Effect::Engine).key).toObject().contains("routes"));
             QVERIFY(!h.value(haptics::effectInfo(haptics::Effect::Engine).key).toObject().contains("durMs"));
             QVERIFY(!h.value(haptics::effectInfo(haptics::Effect::Engine).key).toObject().contains("peakPct"));
+            QVERIFY(!h.value(haptics::effectInfo(haptics::Effect::Engine).key).toObject().contains("foldback"));   // yours, not the car's
             AppConfig r = rigWithRoutes();
             r.hapticsAbs.sharp = 0.3; r.hapticsDriveline.whinePitch = 1.0;
             Config::readHapticsObject(h, r);

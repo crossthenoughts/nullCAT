@@ -291,6 +291,7 @@ Engine-only fields (`rpmVibe`):
 | `turbo` | `0` | 0 no, 1 yes. Shapes the lift-off event: a pop, or the blow-off whoosh and compressor flutter. |
 | `liftoff` | `1` | Lift-off event strength (0 to 2), scaled by `boost` when the sim sends it. |
 | `pops` | `0` | Overrun pops (0 to 1): fuel-cut crackle on a shut throttle above 30 % of the redline. |
+| `foldback` | `0` | Firing thumps faster than the controller can play (half its loop rate: 250 a second on a 500 Hz PC, 1000 on a 2 kHz Pi). 0 wrap: as before, they fold back into a throb that falls as the revs climb. 1 stop: they fade out before that point and the buzz carries on. 2 keep rising: near that point every other firing takes over, then every fourth, so the felt pitch keeps climbing (an octave or two below the real firing rate up there). Yours: a car preset never changes it. |
 | `tcCut` | `0` | Traction control dropping firings (0 to 1): while the sim's TC cuts, bursts of dropped firings, deeper with throttle, x this. 0 = the engine ignores TC (a modern TC trims torque smoothly); toward 1 for an ignition-cut TC. |
 
 ### axes[] (one object per drive)
