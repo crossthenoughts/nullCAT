@@ -559,7 +559,10 @@ int main()
             while (std::chrono::steady_clock::now() < until) {}
             inside.fetch_sub(1);
         });
-        const int sent = 300;
+        // Fewer than the smallest default receive buffer holds: each small
+        // datagram costs a whole kernel buffer, so the Pi's default takes
+        // about 220 of these and 300 overflowed it before either thread read.
+        const int sent = 150;
         char line[64];
         for (int k = 1; k <= sent; ++k) { std::snprintf(line, sizeof line, "NULLCAT,%d,%d,%d,%d,%d,%d", k, k, k, k, k, k); sendUdp(port, line); }
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
