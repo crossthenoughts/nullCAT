@@ -1577,8 +1577,15 @@ bool WebServer::start()
             // Body: {"effect": "<registry key>"}.
             const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(req.body));
             const std::string key = doc.isObject() ? doc.object().value("effect").toString().toStdString() : std::string();
+            // Every press and every refusal is in the log, with the reason:
+            // a refusal on the page used to leave nothing behind to read.
+            const auto refuse = [&](const std::string& why)
+            {
+                LOG_INFO("Haptics: Test " + (key.empty() ? std::string("(no effect)") : key) + " refused: " + why);
+                errResp(res, why);
+            };
             const haptics::EffectInfo* info = haptics::findEffect(key.c_str());
-            if (!info) { errResp(res, "Unknown effect."); return; }
+            if (!info) { refuse("Unknown effect."); return; }
 
             // The effect as SAVED has to be able to produce something, and
             // one of the axes it routes to has to be live, or the button is
@@ -1590,47 +1597,84 @@ bool WebServer::start()
                 // Read whole (an apply in flight writes it under the same
                 // lock); released before the command goes to the engine.
                 std::lock_guard<std::mutex> io(m_profilesIo);
-                if (!saved.load(m_configPath)) { errResp(res, "Cannot read the saved config: " + saved.lastError()); return; }
+                if (!saved.load(m_configPath)) { refuse("Cannot read the saved config: " + saved.lastError()); return; }
             }
             const AppConfig& sc = saved.get();
             const haptics::EffectParams& ep = sc.hapticsFx[static_cast<size_t>(info->id)];
             if (ep.ampPct <= 0.0)
-            { errResp(res, "Effect amplitude is 0 in the saved config: set amp % and Save first."); return; }
+            { refuse("Effect amplitude is 0 in the saved config: set amp % and Save first."); return; }
             if (!haptics::Layer::hasRoute(ep))
-            { errResp(res, "Effect has no route in the saved config: open its route chip, set a gain, then Save."); return; }
+            { refuse("Effect has no route in the saved config: open its route chip, set a gain, then Save."); return; }
             if (sc.hapticsMasterGain <= 0.0)
-            { errResp(res, "Master gain is 0: nothing can be felt."); return; }
+            { refuse("Master gain is 0: nothing can be felt."); return; }
             if (m_motion->hapticsTileMuted(static_cast<int>(info->id)))
-            { errResp(res, "This effect is muted: unmute it (its M) to test it."); return; }
+            { refuse("This effect is muted: unmute it (its M) to test it."); return; }
 
+            // Each destination with the state it is in, and what would make
+            // it live: a seat axis plays while unparked (online), a belt
+            // while tensioned, a device while engaged, a shaker while its
+            // card is open. The old message told a parked seat axis to
+            // "engage the device or tension the belt".
             const MotionStatus ms = m_motion->getMotionStatus();
-            bool routedLive = false;
-            std::string routedNames;
+            bool routedLive = false, needLoop = false, needUnpark = false, needTension = false, needEngage = false,
+                 needCard = false, busy = false;
+            std::string routed;
             for (const haptics::Route& r : ep.routes)
             {
                 if (r.gain <= 0.0) continue;
+                std::string name, state;
                 // An open shaker channel is live with the loop stopped too
                 // (the idle clock steps the layer).
                 if (r.shaker >= 0)
                 {
-                    routedNames += (routedNames.empty() ? "" : ", ") + std::string("shaker ") + std::to_string(r.shaker + 1);
+                    name = "shaker " + std::to_string(r.shaker + 1);
                     if (m_shakers && m_shakers->channelLive(r.shaker)) routedLive = true;
-                    continue;
+                    else { state = "sound card not open"; needCard = true; }
                 }
-                if (r.axis < 0) continue;
-                if (static_cast<size_t>(r.axis) < sc.drives.size())
-                    routedNames += (routedNames.empty() ? "" : ", ") + sc.drives[r.axis].name;
-                // numDrives is 0 until the loop runs: nothing is live then.
-                if (r.axis < ms.numDrives
-                    && (ms.axisState[r.axis] == AxisMotionState::ONLINE
-                        || ms.axisState[r.axis] == AxisMotionState::BLENDING))
-                    routedLive = true;
+                else
+                {
+                    if (r.axis < 0) continue;
+                    const DriveConfig* d = (static_cast<size_t>(r.axis) < sc.drives.size()) ? &sc.drives[static_cast<size_t>(r.axis)] : nullptr;
+                    name = (d && !d->name.empty()) ? d->name : "axis " + std::to_string(r.axis + 1);
+                    const bool belt   = d && d->axisType == "belt";
+                    const bool device = d && (d->axisType == "shifter" || d->axisType == "pedal");
+                    // numDrives is 0 until the loop runs: nothing is live then.
+                    if (r.axis >= ms.numDrives) { state = "loop not running"; needLoop = true; }
+                    else switch (ms.axisState[r.axis])
+                    {
+                        case AxisMotionState::ONLINE:
+                        case AxisMotionState::BLENDING:  routedLive = true; break;
+                        case AxisMotionState::PARKED:
+                            if (belt)        { state = "slack";    needTension = true; }
+                            else if (device) { state = "released"; needEngage  = true; }
+                            else             { state = "parked";   needUnpark  = true; }
+                            break;
+                        case AxisMotionState::HOMING:    state = "homing";    busy = true; break;
+                        case AxisMotionState::UNPARKING: state = "unparking"; busy = true; break;
+                        case AxisMotionState::PARKING:   state = "parking";   busy = true; break;
+                        case AxisMotionState::ESTOPPING: state = "e-stop";    busy = true; break;
+                        case AxisMotionState::TESTING:   state = "in a commissioning test"; busy = true; break;
+                    }
+                }
+                routed += (routed.empty() ? "" : ", ") + name + (state.empty() ? "" : ": " + state);
             }
             if (!routedLive)
-            { errResp(res, "Nothing it routes to is live (" + routedNames + "): start the loop, then engage the device or tension the belt (shakers: open the sound card)."); return; }
+            {
+                std::string todo;
+                const auto add = [&todo](const char* s) { todo += (todo.empty() ? "" : ", ") + std::string(s); };
+                if (needLoop)    add("start the loop");
+                if (needUnpark)  add("unpark the seat axes");
+                if (needTension) add("tension the belt");
+                if (needEngage)  add("engage the device");
+                if (needCard)    add("open the sound card (reopen on the shaker line)");
+                if (todo.empty() && busy) add("wait until they finish (or end the commissioning test)");
+                refuse("Nothing it routes to is live (" + routed + ")" + (todo.empty() ? std::string(".") : ": " + todo + "."));
+                return;
+            }
 
             MotionCommand cmd; cmd.type = MotionCommand::Type::HapticsTest; cmd.intVal = static_cast<int>(info->id);
-            if (!m_motion->enqueueCommand(cmd)) { errResp(res, "Command queue full."); return; }
+            if (!m_motion->enqueueCommand(cmd)) { refuse("Command queue full."); return; }
+            LOG_INFO("Haptics: Test " + key + " (" + routed + ").");
             okResp(res);
         });
 

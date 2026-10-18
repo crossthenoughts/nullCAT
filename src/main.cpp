@@ -25,10 +25,13 @@
 #include "CarCache.h"
 #include "ShakerBank.h"
 #include "HapticsIdleClock.h"
+#include "BoundedCall.h"
 #include "ControlLoop.h"
 #include "WebServer.h"
 #include "DirectInputButtons.h"
 #include "ForegroundKeeper.h"
+#include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <windows.h>
 
@@ -338,12 +341,13 @@ int main(int argc, char* argv[])
         master.shutdown();
     }
 
+    LOG_INFO("Shutdown: Stopping the haptics clock...");
     idleClock.stop();
-    shakers.close();
-    telemetry.shutdown();
 
-    // Persist the session's learned gear ratios (loop stopped, snapshot
-    // final): a car finished since the last poll, then the car being driven.
+    // Persist the session's learned gear ratios (loop and haptics clock
+    // stopped, snapshot final): a car finished since the last poll, then
+    // the car being driven. Before the sound cards close: a card's close
+    // can hang.
     rememberFinishedCar();
     {
         const MotionStatus ms = motion.getMotionStatus();
@@ -352,6 +356,16 @@ int main(int argc, char* argv[])
         else if (carCache.unsaved()) LOG_WARNING("CarCache: learned gear ratios could not be saved.");
     }
 
+    // A card that went away while open can hang its close for good: given
+    // a few seconds, then exit without it (the system releases the card).
+    LOG_INFO("Shutdown: Closing the shaker cards...");
+    const bool shakersClosed = runWithin([&shakers]() { shakers.close(); }, std::chrono::seconds(3));
+    if (!shakersClosed)
+        LOG_WARNING("Shakers: a card did not close within 3 s (unplugged while open?): exiting without it.");
+    telemetry.shutdown();
+
     LOG_INFO(strf("Application exited with code %d.", exitCode));
+    // The card's close is still waiting: its destructor would wait again.
+    if (!shakersClosed) { std::fflush(nullptr); std::_Exit(exitCode); }
     return exitCode;
 }

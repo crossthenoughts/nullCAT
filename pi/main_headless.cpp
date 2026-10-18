@@ -26,6 +26,7 @@
 #include "CarCache.h"
 #include "ShakerBank.h"
 #include "HapticsIdleClock.h"
+#include "BoundedCall.h"
 #include "ControlLoop.h"
 #include "StatusModel.h"
 #include "WebServer.h"
@@ -444,6 +445,7 @@ int main(int argc, char* argv[])
         LOG_INFO("Stopping control loop...");
         loop.waitForStop();
     }
+    LOG_INFO("Stopping the buttons and the web server...");
     buttons.stop();
     webServer.stop();
     if (master.isInitialized())
@@ -451,13 +453,13 @@ int main(int argc, char* argv[])
         LOG_INFO("Closing EtherCAT master...");
         master.shutdown();
     }
+    LOG_INFO("Stopping the haptics clock...");
     idleClock.stop();
-    shakers.close();
-    telemetry.shutdown();
 
-    // Persist the session's learned gear ratios (loop is stopped, so the
-    // published snapshot is final): a car finished since the last poll,
-    // then the car being driven. Nothing confident learned = no write.
+    // Persist the session's learned gear ratios (loop and haptics clock
+    // stopped, so the published snapshot is final): a car finished since
+    // the last poll, then the car being driven. Nothing confident learned
+    // = no write. Before the sound cards close: a card's close can hang.
     rememberFinishedCar();
     {
         const MotionStatus ms = motion.getMotionStatus();
@@ -466,6 +468,17 @@ int main(int argc, char* argv[])
         else if (carCache.unsaved()) LOG_WARNING("CarCache: learned gear ratios could not be saved.");
     }
 
+    // A card that went away while open (a USB card unplugged) can hang its
+    // close for good: the service sat until systemd killed it. Given a few
+    // seconds, then exit without it (the system releases the card).
+    LOG_INFO("Closing the shaker cards...");
+    const bool shakersClosed = runWithin([&shakers]() { shakers.close(); }, std::chrono::seconds(3));
+    if (!shakersClosed)
+        LOG_WARNING("Shakers: a card did not close within 3 s (unplugged while open?): exiting without it.");
+    telemetry.shutdown();
+
     LOG_INFO(strf("Exited with code %d.", g_exitCode.load()));
+    // The card's close is still waiting: its destructor would wait again.
+    if (!shakersClosed) { std::fflush(nullptr); std::_Exit(g_exitCode.load()); }
     return g_exitCode.load();
 }

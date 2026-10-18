@@ -33,6 +33,7 @@
 #include "Config.h"
 #include "Logging.h"
 #include "httplib.h"
+#include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -263,6 +264,22 @@ int main()
     std::filesystem::remove_all(cfgDir);
     std::filesystem::create_directories(cfgDir);
     { Config seed; seed.load((cfgDir / "config.json").string()); }   // cold start writes host.json + rig.json
+    // The limiter routed to axis 1 in the saved rig, so a Test of it gets
+    // as far as the live check (the Test reads the saved rig).
+    {
+        QFile f(QString::fromStdString((cfgDir / "rig.json").string()));
+        if (f.open(QIODevice::ReadOnly))
+        {
+            QJsonObject root = QJsonDocument::fromJson(f.readAll()).object();
+            f.close();
+            QJsonObject g = root.value("global").toObject(), h = g.value("haptics").toObject();
+            QJsonObject lim = h.value("limiter").toObject();
+            QJsonArray routes; { QJsonObject ro; ro["axis"] = 0; ro["gain"] = 0.5; routes.append(ro); }
+            lim["ampPct"] = 30.0; lim["routes"] = routes;
+            h["limiter"] = lim; g["haptics"] = h; root["global"] = g;
+            if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) { f.write(QJsonDocument(root).toJson()); f.close(); }
+        }
+    }
     // A two-car shipped table beside it, as the mains find cars.json
     // beside the executable.
     {
@@ -375,6 +392,15 @@ int main()
     }
     check(has(post("/api/haptics/test", "{\"effect\":\"slipLat\"}"), "amplitude is 0"),
           "POST /api/haptics/test: a saved effect at amp 0 is refused with the reason");
+    {
+        // Routed, but the loop is not running: the refusal names each
+        // destination with its state and the one thing to do (it used to
+        // tell a parked seat axis to "engage the device or tension the belt").
+        const std::string r = post("/api/haptics/test", "{\"effect\":\"limiter\"}");
+        check(has(r, "\"ok\":false") && has(r, ": loop not running") && has(r, "start the loop")
+              && !has(r, "tension the belt") && !has(r, "engage the device"),
+              ("POST /api/haptics/test: routed with the loop stopped, the refusal names the state and only the fix it needs " + r).c_str());
+    }
     check(has(post("/api/haptics/test", "{\"effect\":\"skid\"}"), "Unknown effect"),
           "POST /api/haptics/test: the retired skid key is not an API name");
     check(has(post("/api/haptics/test", "{\"effect\":\"nope\"}"), "Unknown effect"),

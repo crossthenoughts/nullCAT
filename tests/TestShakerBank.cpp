@@ -15,12 +15,17 @@
 //        rerouted notifications and the quiet watchdog call) closes the
 //        gate, the status says why, pushes are skipped; reopen() from
 //        the web thread brings it back and the tone plays again.
+//   SB-4 the shutdown's bounded close (runWithin): a call back in time is
+//        waited for; one that hangs is left at the limit.
 //
 //   ctest -R ShakerBank
 // ============================================================
 #include "ShakerBank.h"
+#include "BoundedCall.h"
 
+#include <atomic>
 #include <chrono>
+#include <memory>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -189,6 +194,27 @@ int main()
         check(info[1].levels[1] > 0.4 && info[1].levels[1] < 0.6 && info[0].levels[0] < 0.02,
               "SB-3 ...and a tone on shaker 4 plays on device 2's second channel after the reopen");
         bank.close();
+    }
+
+    // ---- SB-4 the shutdown's bounded close (runWithin) ----
+    // A card unplugged while open hung a Pi's shutdown in its close until
+    // systemd killed the service (the learned gear ratios lost). The
+    // shutdown now gives the close a few seconds and goes on without it.
+    // A call that comes back in time is waited for and ran; one that does
+    // not is left behind at the limit, not waited for (joining it instead
+    // fails the timing check), and still finishes on its own.
+    {
+        bool ran = false;
+        check(runWithin([&ran]() { ran = true; }, std::chrono::milliseconds(500)) && ran,
+              "SB-4 runWithin: a call that comes back in time is waited for (true, it ran)");
+        auto finished = std::make_shared<std::atomic<bool>>(false);
+        const auto t0 = std::chrono::steady_clock::now();
+        const bool done = runWithin([finished]() { std::this_thread::sleep_for(std::chrono::milliseconds(600)); finished->store(true); },
+                                    std::chrono::milliseconds(50));
+        const double waitedMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        check(!done && waitedMs < 400.0, "SB-4 runWithin: a call that hangs is left at the limit (false, not waited for)");
+        std::this_thread::sleep_for(std::chrono::milliseconds(800));
+        check(finished->load(), "SB-4 ...and the abandoned call still runs to its end on its own");
     }
 
     std::printf("\nTestShakerBank: %d passed, %d failed\n", g_pass, g_fail);

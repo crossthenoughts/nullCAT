@@ -379,6 +379,20 @@ Development branch. Nothing here is in a release yet.
   rig keeps its own values: change them on the tile.
 
 ### Fixed
+- Shutting down with a shaker card that went away while open (a USB card
+  unplugged mid-session) could hang in the card's close until the system
+  killed nullCAT (on the Pi the service sat 90 s, then was killed), and
+  the learned gear ratios, saved after the cards closed, were lost. They
+  are now saved before the cards close, the close gets 3 s and nullCAT
+  exits without it after that (the system releases the card), and each
+  shutdown step is in the log.
+- A haptics **Test** refused with nothing live now names each place the
+  effect routes to with its state (parked, slack, released, homing, loop
+  not running, sound card not open, in a commissioning test) and only the
+  fix it needs: unpark the seat axes, tension the belt, engage the device,
+  start the loop, open the sound card. It used to tell a parked seat axis
+  to "engage the device or tension the belt". Every Test press and every
+  refusal is in the log, with the reason.
 - On Windows, shakers playing with the control loop stopped (or on a rig
   with no drives) stuttered: the clock that drives them then never asked
   Windows for its 1 ms timer, so it woke every 15.6 ms and the sound card
