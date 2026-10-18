@@ -240,7 +240,7 @@ private:
     bool snapshotProfile(const std::string& name, std::string& err);
     // Merge a (partial) haptics object over the live set: rig.json first,
     // then staged live. Caller holds m_profilesIo.
-    bool applyHapticsObjectLocked(const QJsonObject& h, std::string& err);
+    bool applyHapticsObjectLocked(const QJsonObject& h, std::string& err, bool* changed = nullptr);
 
     // Car table (cars.json shipped beside the executable + cars.local.json
     // beside the config): the entry for the car the sim names, applied by

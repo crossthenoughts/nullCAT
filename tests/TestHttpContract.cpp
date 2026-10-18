@@ -428,6 +428,24 @@ int main()
     check(has(get("/api/haptics/schema"), "\"carKeys\":[\"ampPct\",\"jitter\",\"clutch\"")
           && has(get("/api/haptics/schema"), "\"carKeys\":[]") && has(get("/api/haptics/schema"), "\"id\":0"),
           "GET /api/haptics/schema marks the settings that follow the car, per tile");
+    {
+        // ...and the ones a type of car (a starting point) sets, from the
+        // shipped presets.json: the Lateral tile's slide size, nothing on
+        // the Engine tile (the car's), never a car-owned key.
+        const QJsonArray fx = QJsonDocument::fromJson(QByteArray::fromStdString(get("/api/haptics/schema")))
+                                  .object().value("effects").toArray();
+        bool latPeak = false, engineNone = false, disjoint = true;
+        for (const QJsonValue& v : fx)
+        {
+            const QJsonObject e = v.toObject();
+            const QJsonArray tk = e.value("typeKeys").toArray(), ck = e.value("carKeys").toArray();
+            if (e.value("key").toString() == "slipLat") latPeak = tk.contains(QJsonValue("peakDeg"));
+            if (e.value("key").toString() == "rpmVibe") engineNone = e.contains("typeKeys") && tk.isEmpty();
+            for (const QJsonValue& k : tk) if (ck.contains(k)) disjoint = false;
+        }
+        check(latPeak && engineNone && disjoint,
+              "GET /api/haptics/schema marks the settings a starting point sets (typeKeys), none of them the car's");
+    }
     // Sticky per-sim effect record: readable empty, clearable, and the
     // status carries the dots for the current game in registry order.
     check(has(get("/api/haptics/status"), "\"games\":[") && has(get("/api/haptics/status"), "\"effects\":{"),
@@ -651,6 +669,11 @@ int main()
               && has(rig, "\"turbo\":1") && has(rig, "\"followCar\":true"),
               "the starting point is in the saved rig; the pulled car's engine and the follow switch stayed");
         check(genNow() == gen0 + 1, "GET /api/status hapCarGen bumped on the starting point");
+        // The same starting point again changes nothing: no write, and the
+        // generation stays (it used to move and refuse a page's save, 409,
+        // for nothing).
+        check(has(post("/api/haptics/presets/apply", "{\"name\":\"Open wheeler\"}"), "\"ok\":true") && genNow() == gen0 + 1,
+              "POST /api/haptics/presets/apply of the one already applied: accepted, the generation stays");
     }
     // Follow car: in a game the table does not cover, a car is left alone;
     // in one it covers, a car the table has no entry for puts the car tiles

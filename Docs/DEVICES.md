@@ -81,8 +81,9 @@ same port as motion telemetry:
 
 **The bindings.** The rig already knows which channel means what: the
 default bindings match the SimHub plugin's order. Change them only if
-your sender uses a different order, in the Sim channels section of the
-web Setup view (it has a Reset to defaults button). The Devices section
+your sender uses a different order, in the Sim channels section at the
+bottom of the web Setup view (folded until you open it; it has a Reset
+to defaults button). The Devices section
 shows whether the stream is being received.
 
 **The effects.** On a shifter with detents configured:
@@ -289,7 +290,10 @@ trim lives in the routes (a 0.3 gain on the Engine route instead of 0.7)
 and the car-level feel moves with the car. On the tiles, the settings a
 car's entry can set have a faint tint (your own saved entries carry all of
 them; the shipped ones all but the diff's strength and the engine's TC
-cut); everything untinted stays put when the car changes.
+cut). The settings a starting point sets (the type of car: how the tyres
+let go, the suspension, the kerbs, the wheels, the knocks) have a warm
+tint of their own. Everything untinted stays put when the car or the
+type changes.
 
 The **car** row on the Master tile shows the car the sim is naming and
 what the table has for it (`Mazda 787B · stock`, `· yours` for your own

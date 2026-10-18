@@ -106,6 +106,11 @@ public:
     // while open and put back to full (checkHealth).
     uint32_t volumeResets() const  { return m_volumeResets.load(std::memory_order_relaxed); }
 
+    // Tests only: stop the card's audio callbacks without closing it (a
+    // card gone quiet), and start them again. Held, the device's own stop
+    // notification is ignored, as for our own close.
+    void holdCallbacksForTest(bool hold);
+
 private:
     struct Impl;
     Impl*  m_impl = nullptr;

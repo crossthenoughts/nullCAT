@@ -11,6 +11,7 @@
   --ink:#1c1b16; --ink-soft:#6f685a; --hair:rgba(28,27,22,.16);
   --ok:#2f7d4f; --warn:#b07d18; --danger:#bb3322; --live:#356c83;
   --carkey:rgba(53,108,131,.09);
+  --typekey:rgba(176,125,24,.10);
   --cardefault:rgba(214,64,140,.13);
   --logo-blend:multiply;
 }
@@ -19,6 +20,7 @@ html[data-theme="dark"]{
   --ink:#e7e9ec; --ink-soft:#8b94a0; --hair:rgba(231,233,236,.13);
   --ok:#33c75a; --warn:#ffb12e; --danger:#ff4d3d; --live:#27d3df;
   --carkey:rgba(39,211,223,.08);
+  --typekey:rgba(255,177,46,.08);
   --cardefault:rgba(255,105,180,.12);
   --logo-blend:normal;
 }
@@ -375,6 +377,9 @@ body[data-view="setup"] .vw-op{ display:none !important; }
 /* A setting the car table sets (follow car, pull, save for this car): a
    faint tint, so each tile shows what moves with the car. */
 .hr.carkey{ background:var(--carkey); border-radius:4px; margin:0 -4px; padding:1px 4px; }
+/* A setting the type of car sets (a starting point on the Master tile):
+   its own faint tint, warm where the car's is cool. */
+.hr.typekey{ background:var(--typekey); border-radius:4px; margin:0 -4px; padding:1px 4px; }
 /* ...pink instead while the car has no entry in the table and follow car
    put those settings on their defaults. */
 .hap-strip.cardefault .hr.carkey{ background:var(--cardefault); }

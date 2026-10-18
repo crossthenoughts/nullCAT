@@ -41,6 +41,8 @@
 #include <thread>
 #include <regex>
 #include <algorithm>
+#include <map>
+#include <set>
 
 // Local interface enumeration for the Host-header allowlist.
 #ifdef _WIN32
@@ -878,7 +880,16 @@ bool WebServer::start()
                 // thread.
                 if (m_motion && m_config && !(m_loop && m_loop->isRunning()))
                 {
-                    if (m_configReloader && !m_configReloader())
+                    bool reloaded = true;
+                    if (m_configReloader)
+                    {
+                        // rig.json read under the lock every other read of
+                        // it and every apply takes (a car apply or a save
+                        // landing mid-reload).
+                        std::lock_guard<std::mutex> io(m_profilesIo);
+                        reloaded = m_configReloader();
+                    }
+                    if (!reloaded)
                         LOG_WARNING("WebServer: config reload from disk failed -- "
                                     "initializing with the in-memory config.");
                     else
@@ -1682,10 +1693,22 @@ bool WebServer::start()
         // JSON: key, label, kind, channels, the tunables to show with their
         // ranges, and the defaults. The browser builds its tiles from this,
         // so it carries no copy of the effect list.
-        svr.Get("/api/haptics/schema", [](const httplib::Request&, httplib::Response& res)
+        svr.Get("/api/haptics/schema", [this](const httplib::Request&, httplib::Response& res)
         {
             QJsonArray effects;
             const QJsonObject freshHaptics = Config::writeHapticsObject(AppConfig{});
+            // The settings a type of car (a starting point) sets, per tile:
+            // any shipped starting point's, so a tile shows what moves with
+            // the type as it shows what moves with the car.
+            std::map<std::string, std::set<std::string>> typeKeys;
+            for (const HapticsPresets::Preset& p : m_presets.list())
+                for (auto t = p.haptics.constBegin(); t != p.haptics.constEnd(); ++t)
+                    if (t.value().isObject())
+                    {
+                        const QJsonObject tile = t.value().toObject();
+                        for (auto k = tile.constBegin(); k != tile.constEnd(); ++k)
+                            typeKeys[t.key().toStdString()].insert(k.key().toStdString());
+                    }
             for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
             {
                 const haptics::EffectInfo& info = haptics::effectInfo(i);
@@ -1712,6 +1735,12 @@ bool WebServer::start()
                 QJsonArray carKeys;
                 for (const std::string& k : CarTable::carKeys(info.key)) carKeys.append(QString::fromStdString(k));
                 e["carKeys"] = carKeys;
+                // ...and the settings a starting point (Road car, Cup car,
+                // GT3, Open wheeler) sets: the type of car's.
+                QJsonArray typeArr;
+                if (const auto it = typeKeys.find(info.key); it != typeKeys.end())
+                    for (const std::string& k : it->second) typeArr.append(QString::fromStdString(k));
+                e["typeKeys"] = typeArr;
                 QJsonArray ch;
                 for (const char* c : info.channels) { if (!c) break; ch.append(c); }
                 e["channels"] = ch;
@@ -2987,8 +3016,9 @@ bool WebServer::applyCarEntry(const CarTable::Match& m, std::string& err)
 {
     if (m.source.empty()) { err = "no entry"; return false; }
     std::lock_guard<std::mutex> lk(m_profilesIo);
-    if (!applyHapticsObjectLocked(CarTable::toHapticsObject(m.entry), err)) return false;
-    m_carGen.fetch_add(1);
+    bool changed = false;
+    if (!applyHapticsObjectLocked(CarTable::toHapticsObject(m.entry), err, &changed)) return false;
+    if (changed) m_carGen.fetch_add(1);
     return true;
 }
 
@@ -2998,8 +3028,9 @@ bool WebServer::applyCarEntry(const CarTable::Match& m, std::string& err)
 bool WebServer::applyCarDefaults(std::string& err)
 {
     std::lock_guard<std::mutex> lk(m_profilesIo);
-    if (!applyHapticsObjectLocked(CarTable::defaultHapticsObject(), err)) return false;
-    m_carGen.fetch_add(1);
+    bool changed = false;
+    if (!applyHapticsObjectLocked(CarTable::defaultHapticsObject(), err, &changed)) return false;
+    if (changed) m_carGen.fetch_add(1);
     return true;
 }
 
@@ -3011,22 +3042,31 @@ bool WebServer::applyPreset(const std::string& name, std::string& err)
     const HapticsPresets::Preset p = m_presets.get(name);
     if (p.name.empty()) { err = "no starting point called '" + name + "'"; return false; }
     std::lock_guard<std::mutex> lk(m_profilesIo);
-    if (!applyHapticsObjectLocked(p.haptics, err)) return false;
-    m_carGen.fetch_add(1);
+    bool changed = false;
+    if (!applyHapticsObjectLocked(p.haptics, err, &changed)) return false;
+    if (changed) m_carGen.fetch_add(1);
     return true;
 }
 
 // Merge a haptics object (a whole profile, or a car entry's five tiles)
 // over the live set: into rig.json (the working copy), then staged live.
 // Serialised with saves from the web by m_profilesIo, held by the caller.
-bool WebServer::applyHapticsObjectLocked(const QJsonObject& h, std::string& err)
+// changed (optional): whether the set moved. One that changes nothing is
+// not written or staged, and its caller leaves the apply generation where
+// it is: a re-apply of the same car or starting point used to move it and
+// refuse another page's save (409) for nothing.
+bool WebServer::applyHapticsObjectLocked(const QJsonObject& h, std::string& err, bool* changed)
 {
+    if (changed) *changed = false;
     if (m_configPath.empty()) { err = "no config path"; return false; }
     // The set as written (no clamp): it is saved back, and a clamped value
     // must never reach the file. What runs is a clamped copy.
     Config cfg;
     if (!cfg.load(m_configPath, /*forRun=*/false)) { err = "cannot read the config: " + cfg.lastError(); return false; }
+    const QJsonObject before = Config::writeHapticsObject(cfg.get());
     Config::readHapticsObject(h, cfg.get());
+    if (Config::writeHapticsObject(cfg.get()) == before) return true;
+    if (changed) *changed = true;
     AppConfig run = cfg.get();
     std::vector<std::string> clamped;
     Config::clampHaptics(run, clamped);
@@ -3047,10 +3087,11 @@ bool WebServer::loadProfile(const std::string& name, std::string& err)
     std::lock_guard<std::mutex> lk(m_profilesIo);
     QJsonObject h = m_profiles.get(name);
     h.remove("followCar");
-    if (!applyHapticsObjectLocked(h, err)) { err = "profile " + err; return false; }
+    bool changed = false;
+    if (!applyHapticsObjectLocked(h, err, &changed)) { err = "profile " + err; return false; }
     // A rewrite of the live set like the others: the generation moves, so
     // a page with a stale copy cannot save it over the profile.
-    m_carGen.fetch_add(1);
+    if (changed) m_carGen.fetch_add(1);
     m_profiles.setActive(name);
     m_profiles.save(m_configPath);
     // The profile's whole set replaces the tiles, the car-owned ones

@@ -439,6 +439,22 @@ void ShakerOutput::closeLocked()
     m_channelsActual.store(0, std::memory_order_release);
 }
 
+void ShakerOutput::holdCallbacksForTest(bool hold)
+{
+    std::lock_guard<std::mutex> lk(m_mx);
+    if (!m_impl->deviceOk) return;
+    if (hold)
+    {
+        m_closing.store(true, std::memory_order_release);   // the stop we ask for is not a loss
+        ma_device_stop(&m_impl->device);
+    }
+    else
+    {
+        ma_device_start(&m_impl->device);
+        m_closing.store(false, std::memory_order_release);
+    }
+}
+
 bool ShakerOutput::reopen()
 {
     std::string dev; int ch; double hz; int rate; bool asked;

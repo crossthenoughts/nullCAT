@@ -122,19 +122,6 @@
         <label class="frow" title="THIS machine's address to listen on - never the game PC's. 0.0.0.0 or blank = all interfaces (recommended). A specific IP restricts to one interface and fails if the machine loses that address."><span>Telemetry bind</span><input id="cf-sbind" value="" placeholder="auto"></label>
         <div class="fldtip">This machine's listen address, not the sender's. Blank or 0.0.0.0 = all interfaces (recommended).</div>
       </div>
-      <div class="cgrp vw-setup" style="grid-column:1/-1">
-        <div class="gt">Sim channels (numbered line)</div>
-        <div class="fldtip">For senders that use the numbered NULLCATX line (FlyPT Mover, SimTools, a
-          feeder of your own): which slot carries which channel, with a scale and offset for its
-          units. The SimHub plugin names every channel it sends, and a named channel always wins,
-          so nothing here affects a SimHub setup. Saved with the rig config.</div>
-        <div id="ncxRows"></div>
-        <div class="frow" style="margin-top:6px">
-          <button class="btn btn-sm" id="ncxAdd" type="button">+ Add binding</button>
-          <button class="btn btn-sm" id="ncxDefaults" type="button">Reset to defaults</button>
-          <span class="fldtip" id="ncxMsg"></span>
-        </div>
-      </div>
       <div class="cgrp vw-setup">
         <div class="gt">Logging</div>
         <label class="frow"><span>Level</span>
@@ -175,6 +162,19 @@
         <div id="devCards"><p class="cfg-note">No device axes configured. Add an axis and set its type to shifter or pedal.</p></div>
       </div>
       <div class="cgrp vw-setup">
+        <div class="gt">GPIO control panel</div>
+        <label class="frow"><span>Mode</span>
+          <select id="cf-gpiomode">
+            <option value="off">Off</option>
+            <option value="estop">E-STOP only</option>
+            <option value="estop_led">E-STOP + LEDs</option>
+            <option value="full">E-STOP + buttons + LEDs</option>
+          </select></label>
+        <div class="frow"><span>LED test</span>
+          <button class="btn btn-sm btn-action" id="cf-ledtest" type="button">Run LED test</button></div>
+        <div class="cfg-note" style="grid-column:1/-1">Pins use defaults (see wiring PDF); edit <code>host.json</code> for custom pins. Mode change needs a restart; LED test runs immediately.</div>
+      </div>
+      <div class="cgrp vw-setup">
         <div class="gt">Advanced / EtherCAT tuning</div>
         <label class="frow"><span>Command sync cycles</span><input id="cf-cmdsync" type="number"></label>
         <label class="frow"><span>WKC valid. cycles</span><input id="cf-wkccyc" type="number"></label>
@@ -189,19 +189,6 @@
         <label class="frow" title="A second card, for example a second stereo dongle: its channels follow the first card's in the shaker numbering. Empty = none."><span>Audio device 2</span><input id="cf-audiodev2" type="text" list="audioDevList" placeholder="(none)"></label>
         <label class="frow"><span>Channels 2</span><input id="cf-audioch2" type="number" min="1" max="8" step="1"></label>
         <div class="fldtip" id="shakerStatus">Shakers off.</div>
-      </div>
-      <div class="cgrp vw-setup">
-        <div class="gt">GPIO control panel</div>
-        <label class="frow"><span>Mode</span>
-          <select id="cf-gpiomode">
-            <option value="off">Off</option>
-            <option value="estop">E-STOP only</option>
-            <option value="estop_led">E-STOP + LEDs</option>
-            <option value="full">E-STOP + buttons + LEDs</option>
-          </select></label>
-        <div class="frow"><span>LED test</span>
-          <button class="btn btn-sm btn-action" id="cf-ledtest" type="button">Run LED test</button></div>
-        <div class="cfg-note" style="grid-column:1/-1">Pins use defaults (see wiring PDF); edit <code>host.json</code> for custom pins. Mode change needs a restart; LED test runs immediately.</div>
       </div>
       <div class="cgrp vw-op" id="axisGrp" style="grid-column:1/-1">
         <div class="gt">Per-axis configuration</div>
@@ -229,6 +216,25 @@
           <div style="margin-top:6px">
             <span class="cfg-note" id="btnBindStatus"></span>
             <button class="btn btn-sm btn-start" id="btnBindSave" type="button" disabled>Save bindings</button>
+          </div>
+        </div>
+      </div>
+      <!-- Sim channels for the numbered line: last, and folded by default.
+           A SimHub setup never needs it, and its ~90 rows sat between the
+           shaker settings and the button bindings. -->
+      <div class="cgrp vw-setup" style="grid-column:1/-1">
+        <div class="gt bind-head" id="ncxHead"><span class="arrow" id="ncxArrow">▸</span>
+          Sim channels (numbered line) <span class="c">FlyPT Mover, SimTools, your own feeder · not needed for SimHub</span></div>
+        <div class="bind-body collapsed" id="ncxBody">
+          <div class="fldtip">For senders that use the numbered NULLCATX line (FlyPT Mover, SimTools, a
+            feeder of your own): which slot carries which channel, with a scale and offset for its
+            units. The SimHub plugin names every channel it sends, and a named channel always wins,
+            so nothing here affects a SimHub setup. Saved with the rig config.</div>
+          <div id="ncxRows"></div>
+          <div class="frow" style="margin-top:6px">
+            <button class="btn btn-sm" id="ncxAdd" type="button">+ Add binding</button>
+            <button class="btn btn-sm" id="ncxDefaults" type="button">Reset to defaults</button>
+            <span class="fldtip" id="ncxMsg"></span>
           </div>
         </div>
       </div>

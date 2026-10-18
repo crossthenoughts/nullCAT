@@ -9,6 +9,10 @@ middle number carries breaking changes and the last carries fixes.
 Development branch. Nothing here is in a release yet.
 
 ### Added
+- Haptics tiles: the settings a **starting point** sets (the type of car:
+  Road car, Cup car, GT3 / GT, Open wheeler) have a warm tint of their own,
+  as the settings the car table sets have theirs, with a note on hover, so
+  each tile shows what moves with the type and what moves with the car.
 - Shakers on Windows: each card is opened **exclusively** (no Windows
   mixer or app volume in the way, and about half the delay: 29 ms instead
   of 56 on a bench card), falling back to shared, with the reason on the
@@ -379,6 +383,14 @@ Development branch. Nothing here is in a release yet.
   rig keeps its own values: change them on the tile.
 
 ### Fixed
+- Applying a car's preset, the car defaults, a starting point or a profile
+  that changes nothing (the same one again) no longer counts as a change:
+  it used to refuse the next Save from any other open page ("NOT SAVED:
+  the settings changed on the controller") for nothing.
+- Setup view: the **Button bindings** now come straight after the shaker
+  settings, and the long **Sim channels** table (only for senders that
+  use the numbered line, never SimHub) moves below them, folded until you
+  open it, instead of sitting in the way.
 - Shutting down with a shaker card that went away while open (a USB card
   unplugged mid-session) could hang in the card's close until the system
   killed nullCAT (on the Pi the service sat 90 s, then was killed), and

@@ -44,7 +44,8 @@ static const double kPi = 3.14159265358979;
 // Push a 40 Hz tone of level A on one shaker (others silent) at the
 // control rate, in real time, for `ms`: the null device consumes on its
 // own clock, so the producer must keep pace with it.
-static void playTone(haptics::ShakerBank& bank, int shaker, double A, int ms, double controlHz = 2000.0)
+template <class Sink>   // a ShakerBank, or one ShakerOutput
+static void playTone(Sink& bank, int shaker, double A, int ms, double controlHz = 2000.0)
 {
     using clock = std::chrono::steady_clock;
     const auto t0 = clock::now();
@@ -128,6 +129,49 @@ int main()
         info = bank.info();
         check(info[0].levels[0] > 0.4 && info[0].levels[0] < 0.6 && info[0].levels[1] < 0.02, "SB-2 a tone on shaker 1 plays on the card's first channel");
         bank.close();
+    }
+
+    // ---- SB-2b ----
+    {
+        // The same at the card itself. The status above shows only the
+        // card's own channels, so it read silent for shakers 3 and 4 even
+        // with the cap gone; and the null backend never folds. What the
+        // card is fed on its channel 3 is the push the cap must stop:
+        // reverting the channelsActual cap in ShakerOutput::push fails this.
+        haptics::ShakerOutput out;
+        check(out.open("null:2", 4, 2000.0), "SB-2b a null:2 card asked for 4 opens on its own");
+        playTone(out, 2, 0.5, 600);   // shaker 3: the card has no channel for it
+        std::printf("  SB-2b the card's own levels with a tone on shaker 3: [%.3f %.3f %.3f %.3f]\n",
+                    out.level(0), out.level(1), out.level(2), out.level(3));
+        check(out.level(2) < 0.02 && out.level(0) < 0.02 && out.level(1) < 0.02,
+              "SB-2b a tone pushed on shaker 3 reaches no channel of the card (pushed as silence)");
+        out.close();
+    }
+
+    // ---- SB-2c the quiet watchdog ----
+    {
+        // A card that stops calling for audio without a word (a USB card
+        // wedged or pulled where the backend never says) is marked lost
+        // once it has been quiet for kQuietSec, and put back in play by
+        // itself once it calls again. Nothing exercised it before.
+        haptics::ShakerOutput out;
+        check(out.open("null", 2, 2000.0), "SB-2c a null card opens");
+        out.checkHealth();
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        out.checkHealth();
+        check(out.isOpen() && out.error().empty(), "SB-2c ...calling back: open, no error");
+        out.holdCallbacksForTest(true);
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        out.checkHealth();   // the last callback count, from here
+        std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(haptics::ShakerOutput::kQuietSec * 1000.0) + 300));
+        out.checkHealth();
+        check(!out.isOpen() && out.error().find("gone quiet") != std::string::npos,
+              "SB-2c quiet past kQuietSec: marked lost, the status says it has gone quiet");
+        out.holdCallbacksForTest(false);
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        out.checkHealth();
+        check(out.isOpen() && out.error().empty(), "SB-2c ...calling again: back in play by itself, no error");
+        out.close();
     }
 
     // ---- SB-3 ----

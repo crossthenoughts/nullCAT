@@ -379,6 +379,9 @@ $('testHead').onclick=()=>{ const was=$('testPanel').classList.contains('collaps
 // Button bindings: collapsed by default. It is a commissioning-time task, and
 // left expanded its full-width panel pushed the config Save bar off screen.
 { const h=$('bindHead'); if(h) h.onclick=()=>toggle($('bindBody'),$('bindArrow')); }
+// Sim channels (numbered line): folded by default too, below the shaker
+// settings and the bindings (a SimHub setup never opens it).
+{ const h=$('ncxHead'); if(h) h.onclick=()=>toggle($('ncxBody'),$('ncxArrow')); }
 $('logHead').onclick=()=>toggle($('logPanelWrap'),$('logArrow'));
 $('logArrow').onclick=()=>toggle($('logPanelWrap'),$('logArrow'));
 
@@ -1093,6 +1096,9 @@ let HAP_FX=[], HAP_DEF={};
 // the one it carries instead while the car has no entry and follow car put
 // these settings on their defaults (tinted pink).
 const HAP_CARKEY_TIP='Follows the car: a car\'s entry in the car table can set this (follow car, or pull), and "save for this car" keeps yours. Untinted settings are general: a new car leaves them as they are.';
+// ...and on a setting the type of car sets (a starting point: Road car, Cup
+// car, GT3, Open wheeler), tinted in its own colour.
+const HAP_TYPEKEY_TIP='Follows the type of car: applying a starting point on the Master tile (Road car, Cup car, GT3 / GT, Open wheeler) sets this. A new car leaves it as it is.';
 const HAP_CARDEFAULT_TIP='The car table has no entry for this car, so this setting is on its default rather than the last car\'s. Pick a car like it in the preset box and apply it, or tune it and "save for this car".';
 let hapCarDefaultOn=false;   // the car tiles are on the defaults (the car has no entry)
 function hapCarKeyTip(){ return hapCarDefaultOn?HAP_CARDEFAULT_TIP:HAP_CARKEY_TIP; }
@@ -1116,7 +1122,7 @@ async function hapLoadSchema(){
     const j=await r.json();
     HAP_FX=(j.effects||[]).map(e=>({
       k:e.key, label:e.label, transient:e.kind==='transient', slip:e.kind==='slip', parts:!!e.parts, fxIdx:e.fxIdx,
-      id:e.id, carKeys:e.carKeys||[], chan:e.channels||[], tip:e.tip||'',
+      id:e.id, carKeys:e.carKeys||[], typeKeys:e.typeKeys||[], chan:e.channels||[], tip:e.tip||'',
       params:(e.params||[]).map(p=>[p.key,p.label,p.min,p.max,p.step,p.opts,p.help||''])}));
     HAP_DEF={};
     for(const e of j.effects||[]) HAP_DEF[e.key]=Object.assign({routes:[]},e.defaults||{});
@@ -2030,7 +2036,7 @@ function hapInit(){
     else if(!fx.transient&&fx.fxIdx!==undefined) h+='<div class="hk hwheels" data-in="1" title="What this effect is driven with: now/peak since Reset peaks (Test = 1.00)">in -</div>';
     h+='<div class="hrows">';
     for(const [key,lab,min,max,st,opts] of fx.params){
-      h+='<div class="hr'+(fx.carKeys.includes(key)?' carkey':'')+'" data-pk="'+key+'"><span class="hk">'+lab+'</span>';
+      h+='<div class="hr'+(fx.carKeys.includes(key)?' carkey':fx.typeKeys.includes(key)?' typekey':'')+'" data-pk="'+key+'"><span class="hk">'+lab+'</span>';
       if(opts&&opts.length===2&&/^(off|no)$/i.test(opts[0]))   // an on/off choice: a tickbox (value 0 / 1)
         h+='<input type="checkbox" data-k="'+key+'"'+(Math.round(+dv[key])===1?' checked':'')+'></div>';
       else if(opts)   // a choice, not a number: value = option index
@@ -2049,7 +2055,7 @@ function hapInit(){
     // a setting the car table sets says so first (or, while the car has no
     // entry, that it is on its default).
     for(const [key,,,,,,help] of fx.params){
-      const car=fx.carKeys.includes(key)?hapCarKeyTip():'';
+      const car=fx.carKeys.includes(key)?hapCarKeyTip():fx.typeKeys.includes(key)?HAP_TYPEKEY_TIP:'';
       if(!help&&!car) continue;
       const row=tile.querySelector('[data-pk="'+key+'"]'); if(row){ const t=car+(car&&help?'\n\n':'')+(help||''); row.dataset.phelp=help||''; row.dataset.help=t; row.title=t; }
     }
