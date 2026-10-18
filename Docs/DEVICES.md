@@ -169,6 +169,31 @@ settings names each card with its sample rate, buffer and underrun
 count, with a **test** button per channel (40 Hz for a second) to check
 which shaker is which.
 
+On Windows nullCAT takes each shaker card for itself (exclusive mode):
+no Windows mixer, no app volume, nothing else playing through it, and a
+shorter buffer. It also holds the card at full volume, unmuted, every
+channel, the way the Pi sets a card to full line level, and puts it back
+if anything turns it down or mutes it while nullCAT runs. Set the volume
+on the amps. Shakers that feel faint on Windows are worth checking for
+another program using the card: SimHub was found binding a shaker card
+on some starts, even with it no longer bound there, and muting it.
+Before the first run, in Windows:
+- the card must be allowed for apps (Settings, Sound, the card, **Allow
+  apps and Windows to use this device for audio**), or nullCAT cannot
+  open it;
+- in the classic Sound panel (`mmsys.cpl`), set the card up with at least
+  as many channels as you have shakers (**Configure**: quadraphonic, 5.1
+  or 7.1); exclusive mode plays the card in the format set there
+  (**Properties**, **Advanced**, where **Allow applications to take
+  exclusive control** must stay ticked).
+
+The shaker line shows **[exclusive]**, or **[shared]** with the reason
+when another program holds the card (then Windows' mixer and volumes
+apply again). At start the log says what the card was at when nullCAT
+set it to full, and the shaker line counts any time it was turned down
+while running: a count that keeps climbing means another program is
+still fighting over the card.
+
 Every effect's route editor then lists **Shaker 1..N** below the axes.
 A shaker route has a gain (1 = full scale at 100 % amplitude; the output
 soft-clips, never clips hard) and a **harmonic**: x1 plays the effect's

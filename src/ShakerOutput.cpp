@@ -41,8 +41,14 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#if defined(_WIN32)
+#undef CLSCTX_ALL   // miniaudio's own (23), the same value combaseapi.h defines
+#include <mmdeviceapi.h>
+#include <endpointvolume.h>
+#endif
 
 namespace haptics {
 
@@ -52,7 +58,58 @@ struct ShakerOutput::Impl
     bool       contextOk = false;
     ma_device  device;
     bool       deviceOk = false;
+    bool         wasapi = false;   // the card is a Windows endpoint (its volume is held at full)
+    std::wstring endpointId;       // ...this one ("" = the default output)
 };
+
+#if defined(_WIN32)
+// A shaker card at full volume on Windows, as the Pi sets a card to full
+// line level: the endpoint's master level, its mute and each channel's
+// level. On a USB card the endpoint volume is the card's own hardware
+// volume, which exclusive mode does not bypass, and another program
+// (SimHub) was found binding a shaker card and muting it. id: the card's
+// endpoint ("" = the default output). found: the master level it had (0..1, -1 = unread).
+// Returns whether anything was changed. Any thread (COM is set up and
+// released here when the thread has none).
+static bool holdFullVolume(const std::wstring& id, float& found, bool& wasMuted)
+{
+    found = -1.0f; wasMuted = false;
+    const HRESULT ci = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    bool changed = false;
+    IMMDeviceEnumerator* en = nullptr; IMMDevice* dev = nullptr; IAudioEndpointVolume* vol = nullptr;
+    if (SUCCEEDED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator),
+                                   reinterpret_cast<void**>(&en))) && en)
+    {
+        const HRESULT hr = id.empty() ? en->GetDefaultAudioEndpoint(eRender, eConsole, &dev) : en->GetDevice(id.c_str(), &dev);
+        if (SUCCEEDED(hr) && dev
+            && SUCCEEDED(dev->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL, nullptr, reinterpret_cast<void**>(&vol))) && vol)
+        {
+            float m = 0.0f; BOOL mute = FALSE;
+            if (SUCCEEDED(vol->GetMasterVolumeLevelScalar(&m))) found = m;
+            if (SUCCEEDED(vol->GetMute(&mute)) && mute)
+            {
+                wasMuted = true;
+                if (SUCCEEDED(vol->SetMute(FALSE, nullptr))) changed = true;
+            }
+            if (found >= 0.0f && found < 0.999f && SUCCEEDED(vol->SetMasterVolumeLevelScalar(1.0f, nullptr))) changed = true;
+            UINT n = 0;
+            if (SUCCEEDED(vol->GetChannelCount(&n)))
+                for (UINT c = 0; c < n; ++c)
+                {
+                    float cv = 1.0f;
+                    if (SUCCEEDED(vol->GetChannelVolumeLevelScalar(c, &cv)) && cv < 0.999f
+                        && SUCCEEDED(vol->SetChannelVolumeLevelScalar(c, 1.0f, nullptr)))
+                        changed = true;
+                }
+        }
+    }
+    if (vol) vol->Release();
+    if (dev) dev->Release();
+    if (en)  en->Release();
+    if (SUCCEEDED(ci)) CoUninitialize();   // S_OK and S_FALSE are ours to balance; a thread already in another mode is not
+    return changed;
+}
+#endif
 
 ShakerOutput::ShakerOutput() : m_impl(new Impl)
 {
@@ -128,6 +185,16 @@ void ShakerOutput::checkHealth()
     std::lock_guard<std::mutex> lk(m_mx);
     const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
+#if defined(_WIN32)
+    // Windows or another program can turn a card down or mute it at any
+    // time: back to full, at most once a second, counted for the status line.
+    if (m_impl->wasapi && m_impl->deviceOk && m_open.load(std::memory_order_acquire) && nowMs - m_volumeCheckMs >= 1000)
+    {
+        m_volumeCheckMs = nowMs;
+        float had = -1.0f; bool muted = false;
+        if (holdFullVolume(m_impl->endpointId, had, muted)) m_volumeResets.fetch_add(1, std::memory_order_relaxed);
+    }
+#endif
     const uint64_t calls = m_callbacks.load(std::memory_order_relaxed);
     if (m_lost.load(std::memory_order_acquire) == kLostQuiet)
     {
@@ -218,6 +285,7 @@ bool ShakerOutput::open(const std::string& deviceName, int channels, double cont
     const bool wantNull = (deviceName == "null") || (deviceName.rfind("null:", 0) == 0);
     const int  nullOwn  = (wantNull && deviceName.size() > 5) ? std::atoi(deviceName.c_str() + 5) : 0;
     const bool alsa = (m_impl->context.backend == ma_backend_alsa);
+    const bool wasapi = !wantNull && (m_impl->context.backend == ma_backend_wasapi);
     if (!deviceName.empty() && !wantNull)
     {
         ma_device_info* playback = nullptr; ma_uint32 count = 0;
@@ -241,12 +309,21 @@ bool ShakerOutput::open(const std::string& deviceName, int channels, double cont
         if (!haveId) { m_error = "audio device not found: " + deviceName; return false; }
         cfg.playback.pDeviceID = &chosen;
     }
-    // On ALSA ask for the card exclusively: in shared mode miniaudio opens
+    m_impl->wasapi = wasapi;
+    m_impl->endpointId.clear();
+#if defined(_WIN32)
+    if (wasapi && haveId) m_impl->endpointId = std::wstring(chosen.wasapi);
+#endif
+    // Ask for the card exclusively. On ALSA in shared mode miniaudio opens
     // its "dmix" layer first (two channels, a 16384-frame buffer: eight
     // shakers squeezed into stereo and 60 ms or more late; found on the
     // bench), exclusively the card itself ("hw": every channel, the periods
-    // asked for). A card another program holds falls back to shared below.
-    if (alsa && !wantNull) cfg.playback.shareMode = ma_share_mode_exclusive;
+    // asked for). On Windows, exclusively the card plays without the
+    // Windows mixer, the app's volume or other programs' sound, in its own
+    // format (the classic Sound panel's speaker setup and default format)
+    // and with a short buffer. A card another program holds, or one that
+    // refuses, falls back to shared below.
+    if ((alsa || wasapi) && !wantNull) cfg.playback.shareMode = ma_share_mode_exclusive;
 
     ma_result r;
     if (wantNull)
@@ -267,8 +344,9 @@ bool ShakerOutput::open(const std::string& deviceName, int channels, double cont
         // the reason kept for the status line.
         if (r != MA_SUCCESS && cfg.playback.shareMode == ma_share_mode_exclusive)
         {
-            fallbackReason = std::string("card not available on its own (") + ma_result_description(r)
-                           + "), shared: 2 channels, high latency";
+            fallbackReason = std::string("card not available on its own (") + ma_result_description(r) + "), "
+                           + (wasapi ? "shared through Windows: its mixer and volumes apply"
+                                     : "shared: 2 channels, high latency");
             cfg.playback.shareMode = ma_share_mode_shared;
             r = ma_device_init(&m_impl->context, &cfg, &m_impl->device);
         }
@@ -310,6 +388,25 @@ bool ShakerOutput::open(const std::string& deviceName, int channels, double cont
         m_deviceName += (cfg.playback.shareMode == ma_share_mode_exclusive) ? " [direct]" : " [shared]";
 #if defined(__linux__)
         fullLineLevel(cfg.playback.pDeviceID->alsa);
+#endif
+    }
+    // On Windows the same, and the card held at full volume (checkHealth
+    // puts it back if anything turns it down); what it was is in the name,
+    // so the start-up log says.
+    if (wasapi)
+    {
+        m_deviceName += (cfg.playback.shareMode == ma_share_mode_exclusive) ? " [exclusive]" : " [shared]";
+#if defined(_WIN32)
+        float had = -1.0f; bool muted = false;
+        if (holdFullVolume(m_impl->endpointId, had, muted))
+        {
+            char note[96];
+            std::snprintf(note, sizeof note, " - the card was at %.0f %%%s: set to 100 %%",
+                          std::max(0.0f, had) * 100.0f, muted ? " and muted" : "");
+            m_deviceName += note;
+        }
+        m_volumeCheckMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
 #endif
     }
     if (!fallbackReason.empty()) m_deviceName += " - " + fallbackReason;

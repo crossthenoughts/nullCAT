@@ -102,6 +102,9 @@ public:
     // The whole delay from the control loop to the card's output, ms: the
     // ring's target plus the card's buffer.
     double   latencyMs() const     { return m_dsp.targetMs() + m_bufferMs; }
+    // Windows: how many times the card's volume was found turned down
+    // while open and put back to full (checkHealth).
+    uint32_t volumeResets() const  { return m_volumeResets.load(std::memory_order_relaxed); }
 
 private:
     struct Impl;
@@ -120,6 +123,9 @@ private:
     std::string m_reqDevice; int m_reqChannels = 2; double m_reqControlHz = 2000.0; int m_reqRate = 48000; bool m_reqValid = false;
     // Health: the callback count at the last look and when that was.
     uint64_t m_healthCallbacks = 0; int64_t m_healthMs = 0;
+    // Windows: the card's volume, last checked when (ms) and put back how often.
+    int64_t m_volumeCheckMs = 0;
+    std::atomic<uint32_t> m_volumeResets{0};
 
     void closeLocked();
     static void dataCallback(void* device, void* out, const void* in, unsigned frames);

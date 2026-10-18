@@ -1366,7 +1366,7 @@ function shakerStatus(s){
     if(!d.open) return (d.name||'(default)')+': '+(d.error||'not open');
     const want=d.channelsWanted||d.channels;
     const short=d.channels<want?', '+d.channels+' of '+want+' channels: shakers '+(d.first+d.channels+1)+'-'+(d.first+want)+' silent':'';
-    return d.name+' ('+(d.first+1)+'-'+(d.first+d.channels)+short+') '+d.rate+' Hz, latency '+(d.latencyMs!=null?d.latencyMs:d.bufferMs)+' ms (card '+d.bufferMs+' ms), underruns '+d.underruns+', levels '+(d.levels||[]).map(v=>(+v).toFixed(2)).join(' ');
+    return d.name+' ('+(d.first+1)+'-'+(d.first+d.channels)+short+') '+d.rate+' Hz, latency '+(d.latencyMs!=null?d.latencyMs:d.bufferMs)+' ms (card '+d.bufferMs+' ms), underruns '+d.underruns+(d.volumeResets>0?', turned down '+d.volumeResets+'x by something else (put back to full)':'')+', levels '+(d.levels||[]).map(v=>(+v).toFixed(2)).join(' ');
   };
   const line=$('shakerLine'); if(line) line.textContent='Shakers: '+(k.open?'':'not open: ')+devs.map(devText).join(' | ')+'.';
   const ro=$('shakerReopen'); if(ro) ro.hidden=!devs.some(d=>!d.open);

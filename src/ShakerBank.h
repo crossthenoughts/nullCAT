@@ -106,6 +106,7 @@ public:
         int    firstShaker = 0, channels = 0, channelsWanted = 0, sampleRate = 0;
         double bufferMs = 0.0, latencyMs = 0.0;   // the card's buffer; the whole delay to the output
         uint64_t underruns = 0;
+        uint32_t volumeResets = 0;   // Windows: the card turned down while open and put back to full
         int    fill = 0;
         std::vector<float> levels;
     };
@@ -123,7 +124,7 @@ public:
                 if (i.open) i.channels = std::min(s.want, s.out->channelsActual());
                 i.name = s.out->deviceName(); i.error = s.out->error();
                 i.sampleRate = s.out->sampleRate(); i.bufferMs = s.out->bufferMs(); i.latencyMs = s.out->latencyMs();
-                i.underruns = s.out->underruns(); i.fill = s.out->fill();
+                i.underruns = s.out->underruns(); i.fill = s.out->fill(); i.volumeResets = s.out->volumeResets();
                 for (int c = 0; c < s.want; ++c) i.levels.push_back((i.open && c < i.channels) ? s.out->level(c) : 0.0f);
             }
             out.push_back(i);

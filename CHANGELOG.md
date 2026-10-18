@@ -9,6 +9,17 @@ middle number carries breaking changes and the last carries fixes.
 Development branch. Nothing here is in a release yet.
 
 ### Added
+- Shakers on Windows: each card is opened **exclusively** (no Windows
+  mixer or app volume in the way, and about half the delay: 29 ms instead
+  of 56 on a bench card), falling back to shared, with the reason on the
+  shaker line, when another program holds it. nullCAT also holds the card
+  at **full volume**, unmuted, every channel, and puts it back if anything
+  turns it down or mutes it while running. Another program (SimHub, with
+  the card no longer bound in it) was found binding a shaker card again on
+  some starts and muting it, which left every shaker effect barely felt;
+  exclusive mode also keeps such a program from opening the card. The
+  start log says what the card was at; the shaker line counts any time it
+  was turned down. The volume belongs on the amps.
 - Engine tile: **foldback**, what the firing thumps do once they come faster
   than the controller can play them (half its loop rate: 250 a second on a
   500 Hz PC, which a V8 reaches at about 3750 rpm; 1000 on a 2 kHz Pi).
