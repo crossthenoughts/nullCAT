@@ -4,11 +4,18 @@ Notable changes to nullCAT. Format follows [Keep a Changelog](https://keepachang
 versioning is [Semantic Versioning](https://semver.org/) - while on `0.x`, the
 middle number carries breaking changes and the last carries fixes.
 
-## [0.9.8] - unreleased
+## [0.9.8] - 2026-10-19
 
-Development branch. Nothing here is in a release yet.
+The haptics release, on the Raspberry Pi and Windows together: the
+first Windows release since 0.9.4. Goes with SimHub plugin 1.8
+(protocol 1.8).
 
 ### Added
+- The SimHub plugin ships with every release, with its README and its
+  annotated settings file: in the Windows zip's `simhub` folder (sending
+  to `127.0.0.1`, nullCAT on the same PC), and on its own for a Pi rig as
+  `nullCAT-v0.9.8-simhub-plugin-pi.zip` (sending to `192.168.50.1`, the
+  Pi's telemetry port). It used to be built from source.
 - Haptics tiles: the settings a **starting point** sets (the type of car:
   Road car, Cup car, GT3 / GT, Open wheeler) have a warm tint of their own,
   as the settings the car table sets have theirs, with a note on hover, so

@@ -6,7 +6,11 @@
 # Produces dist\nullCAT-v<version>-win64.zip from a FRESH build directory, so
 # no stale artifacts (old exes, test binaries, machine-local host.json/rig.json/
 # buttons.json, scratch files) can ride along. Qt runtime is deployed with
-# windeployqt automatically.
+# windeployqt automatically. The SimHub plugin is built from the same tree and
+# ships in the zip's simhub folder (DLL, annotated settings, README; host
+# 127.0.0.1), and also as dist\nullCAT-v<version>-simhub-plugin-pi.zip for Pi
+# rigs (host 192.168.50.1, the Pi's telemetry port). Building it needs the
+# .NET SDK and SimHub installed (its DLLs are the references).
 #
 # Usage (from a "x64 Native Tools Command Prompt for VS 2022" PowerShell, or any
 # shell where cmake + your Qt install are reachable):
@@ -51,6 +55,17 @@ Invoke-Tool "Build" "cmake --build `"$build`" --config Release"
 # ---- 2. Test gate: a release zip is never cut from a red suite ----
 Invoke-Tool "Test gate" "cd /d `"$build`" && ctest -C Release --output-on-failure"
 
+# ---- 2b. The SimHub plugin, built fresh from this tree (needs the .NET SDK
+# and SimHub installed: its DLLs are the build references). It ships with
+# its annotated settings file and README, in the zip's simhub folder and as
+# a zip of its own for Pi rigs, whose SimHub runs on the game PC. ----
+$plugDir = Join-Path $repo "integrations\simhub\NullcatChannelExporter"
+foreach ($d in @("bin", "obj")) { if (Test-Path (Join-Path $plugDir $d)) { Remove-Item -Recurse -Force (Join-Path $plugDir $d) } }
+Invoke-Tool "SimHub plugin" "cd /d `"$plugDir`" && dotnet build -c Release -nologo"
+$plugDll   = Join-Path $plugDir "bin\Release\net48\NullcatChannelExporter.dll"
+$plugFiles = @($plugDll, (Join-Path $plugDir "NullcatChannelExporter.json"), (Join-Path $plugDir "README.md"))
+foreach ($f in $plugFiles) { if (-not (Test-Path $f)) { throw "SimHub plugin file missing: $f" } }
+
 # ---- 3. Stage the ALLOWLIST (nothing else ships) ----
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force $stage | Out-Null
@@ -87,6 +102,8 @@ Copy-Item "$repo\BUILD_INSTRUCTIONS.md" $stage
 New-Item -ItemType Directory -Force (Join-Path $stage "docs\media") | Out-Null
 Copy-Item "$repo\Docs\*.md"                    (Join-Path $stage "docs")
 Copy-Item "$repo\Docs\media\simhub-*.png"      (Join-Path $stage "docs\media")
+New-Item -ItemType Directory -Force (Join-Path $stage "simhub") | Out-Null
+foreach ($f in $plugFiles) { Copy-Item $f (Join-Path $stage "simhub") }
 
 # ---- 4. Qt runtime via windeployqt (into the STAGE dir, release-only) ----
 Invoke-Tool "windeployqt" ("`"$QtDir\bin\windeployqt.exe`" --release --no-translations " +
@@ -102,7 +119,8 @@ $mustHave = @("nullCAT.exe", "nullCATWatchdog.exe", "LICENSE.txt", "SAFETY.md",
               "THIRD_PARTY_NOTICES.md", "web\index.html", "Qt6Core.dll",
               "platforms\qwindows.dll", "host.reference.json", "rig.reference.json",
               "cars.json", "presets.json", "KNOWN_LIMITATIONS.md", "docs\FIRST_SETUP_WINDOWS.md",
-              "docs\media\simhub-update-command.png", "docs\CONFIG_REFERENCE.md")
+              "docs\media\simhub-update-command.png", "docs\CONFIG_REFERENCE.md",
+              "simhub\NullcatChannelExporter.dll", "simhub\NullcatChannelExporter.json", "simhub\README.md")
 foreach ($f in $mustHave) {
     if (-not (Test-Path (Join-Path $stage $f))) { throw "Missing from stage: $f" }
 }
@@ -113,36 +131,54 @@ foreach ($f in $mustHave) {
 # are required. Windows Explorer and 7-Zip cope, but some non-Windows tools
 # create files with literal backslashes in the name instead of directories.
 # ZipFile::CreateFromDirectory writes conformant entries.
-if (Test-Path $zip) { Remove-Item -Force $zip }
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 # Entry names are written explicitly with '/'. Neither Compress-Archive nor
 # ZipFile::CreateFromDirectory can be trusted here: on .NET Framework (which
 # is what Windows PowerShell 5.1 runs) both use Path.DirectorySeparatorChar,
 # so both emit backslashes. Only .NET Core+ normalises them.
-$fs = [IO.File]::Open($zip, [IO.FileMode]::Create)
-try {
-    $archive = New-Object IO.Compression.ZipArchive($fs, [IO.Compression.ZipArchiveMode]::Create)
+function Write-ConformantZip([string]$From, [string]$To) {
+    if (Test-Path $To) { Remove-Item -Force $To }
+    $fs = [IO.File]::Open($To, [IO.FileMode]::Create)
     try {
-        foreach ($f in (Get-ChildItem $stage -Recurse -File)) {
-            $rel = $f.FullName.Substring($stage.Length + 1).Replace('\', '/')
-            $entry  = $archive.CreateEntry($rel, [IO.Compression.CompressionLevel]::Optimal)
-            $out    = $entry.Open()
-            $in     = [IO.File]::OpenRead($f.FullName)
-            try { $in.CopyTo($out) } finally { $in.Dispose(); $out.Dispose() }
-        }
-    } finally { $archive.Dispose() }
-} finally { $fs.Dispose() }
+        $archive = New-Object IO.Compression.ZipArchive($fs, [IO.Compression.ZipArchiveMode]::Create)
+        try {
+            foreach ($f in (Get-ChildItem $From -Recurse -File)) {
+                $rel = $f.FullName.Substring($From.Length + 1).Replace('\', '/')
+                $entry  = $archive.CreateEntry($rel, [IO.Compression.CompressionLevel]::Optimal)
+                $out    = $entry.Open()
+                $in     = [IO.File]::OpenRead($f.FullName)
+                try { $in.CopyTo($out) } finally { $in.Dispose(); $out.Dispose() }
+            }
+        } finally { $archive.Dispose() }
+    } finally { $fs.Dispose() }
+    # Fail the build rather than ship a non-conformant archive.
+    $zf = [IO.Compression.ZipFile]::OpenRead($To)
+    $bad = @($zf.Entries | Where-Object { $_.FullName -match '\\' }).Count
+    $entries = $zf.Entries.Count
+    $zf.Dispose()
+    if ($bad -gt 0) { throw "$bad zip entries use backslash separators (ZIP spec requires '/')" }
+    Write-Host "-- archive $(Split-Path -Leaf $To): $entries entries, all separators conformant"
+}
+Write-ConformantZip $stage $zip
 
-# Fail the build rather than ship a non-conformant archive.
-$zf = [IO.Compression.ZipFile]::OpenRead($zip)
-$bad = @($zf.Entries | Where-Object { $_.FullName -match '\\' }).Count
-$entries = $zf.Entries.Count
-$zf.Dispose()
-if ($bad -gt 0) { throw "$bad zip entries use backslash separators (ZIP spec requires '/')" }
-Write-Host "-- archive: $entries entries, all separators conformant"
+# The SimHub plugin on its own for a Pi rig (the DLL, its annotated settings,
+# the README), its settings pointed at the Pi's telemetry port (192.168.50.1,
+# Docs/PI_SETUP.md) instead of 127.0.0.1, which the Windows zip's copy keeps
+# (SimHub and nullCAT on one PC).
+$plugStage = Join-Path $dist "nullCAT-v$Version-simhub-plugin-pi"
+if (Test-Path $plugStage) { Remove-Item -Recurse -Force $plugStage }
+New-Item -ItemType Directory -Force $plugStage | Out-Null
+foreach ($f in $plugFiles) { Copy-Item $f $plugStage }
+$plugJson = Join-Path $plugStage "NullcatChannelExporter.json"
+$jsonText = [IO.File]::ReadAllText($plugJson)
+if (-not $jsonText.Contains('"host": "127.0.0.1"')) { throw "SimHub plugin settings: the default host line has changed; update the Pi preset step" }
+[IO.File]::WriteAllText($plugJson, $jsonText.Replace('"host": "127.0.0.1"', '"host": "192.168.50.1"'), (New-Object Text.UTF8Encoding($false)))
+$plugZip = "$plugStage.zip"
+Write-ConformantZip $plugStage $plugZip
 
 $size = [math]::Round((Get-Item $zip).Length / 1MB, 1)
 Write-Host "== DONE: $zip ($size MB) ==" -ForegroundColor Green
+Write-Host "== DONE: $plugZip (the SimHub plugin for a Pi rig, host 192.168.50.1) ==" -ForegroundColor Green
 Write-Host "Contents staged in $stage for inspection."
 Write-Host "Reminder: Npcap is a user-installed prerequisite (cannot ship in the zip)."

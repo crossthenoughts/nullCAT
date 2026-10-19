@@ -23,7 +23,7 @@ sent at all, which leaves its effect silently inert on the rig.
 In SimHub's plugin list it appears as **nullCAT Channel Exporter**:
 "Sends raw telemetry to nullCAT over UDP: rpm, speed, gear, pedals,
 ABS/TC/limiter flags, and optional per-wheel slip, load and suspension
-channels for the haptic layer". Version 1.7 of the plugin goes with
+channels for the haptic layer". Version 1.8 of the plugin (protocol 1.8) goes with
 nullCAT 0.9.8; it works with 0.9.6 and 0.9.7 too (the extra channels are simply
 ignored there).
 
@@ -33,17 +33,31 @@ feeder can send the same lines (see the sender templates in
 
 ## Install
 
-1. Build `NullcatChannelExporter.csproj` (Visual Studio or
-   `dotnet build`). If SimHub is not in the default location, pass
-   `-p:SimHubPath="D:\SimHub"`.
-2. Copy `NullcatChannelExporter.dll` into your SimHub folder.
-3. Start SimHub and enable **nullCAT Channel Exporter** when prompted
+Every nullCAT release carries the plugin ready to use, with this README
+and its settings file:
+
+- **nullCAT on Windows:** the `simhub` folder in the Windows zip. Its
+  `NullcatChannelExporter.json` sends to `127.0.0.1` (SimHub and nullCAT
+  on the same PC).
+- **nullCAT on a Pi:** `nullCAT-v<version>-simhub-plugin-pi.zip` on the
+  release page. Its settings send to `192.168.50.1`, the Pi's telemetry
+  port in Docs/PI_SETUP.md.
+
+1. Close SimHub. Copy `NullcatChannelExporter.dll` into your SimHub
+   folder, and on a first install `NullcatChannelExporter.json` next to
+   it (when updating, keep your own JSON).
+2. Start SimHub and enable **nullCAT Channel Exporter** when prompted
    (or under Settings, Plugins).
+
+To build it yourself instead: `NullcatChannelExporter.csproj` with
+Visual Studio or `dotnet build`. If SimHub is not in the default
+location, pass `-p:SimHubPath="D:\SimHub"`.
 
 ## Point it at your controller
 
-Copy the `NullcatChannelExporter.json` from this folder next to the DLL
-and edit it. It is annotated: every `_help...` line explains the setting
+The settings live in `NullcatChannelExporter.json` next to the DLL (the
+release copies come preset, see above; a built copy starts at
+`127.0.0.1`). It is annotated: every `_help...` line explains the setting
 below it and is ignored by the plugin. The two settings everyone needs:
 
 ```json

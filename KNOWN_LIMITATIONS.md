@@ -38,6 +38,57 @@ two-hour drive).
   than a measurement; the stall-free cadence and the 0.5 ms command
   steps (versus 2 ms) are the mechanical reasons to expect it.
 
+### Where the Windows stalls come from
+
+On a 0.9.8 test rig (Ryzen 7 5800X, the motherboard's Intel I211
+network port, six drives, 500 Hz) the loop held for 8 to 12 ms about
+twice a second with the game closed and about eight times a second with
+it running. The time is lost between sending a frame to the drives and
+getting it back: in Npcap, the network driver, or another driver holding
+the processor. Moving the loop to another CPU core does not change it.
+Things worth trying, in this order:
+
+- In Device Manager, the EtherCAT network port's **Advanced** tab: turn
+  off **Interrupt Moderation** and **Energy Efficient Ethernet** (or
+  Green Ethernet).
+- Run LatencyMon for a few minutes, with the game closed and then
+  running: it names the driver that holds the processor too long.
+- A dedicated PCIe network card for the EtherCAT segment.
+
+### Haptics on Windows
+
+The Windows loop runs at 500 Hz, so an effect can carry nothing above
+250 Hz (the Pi's 2 kHz loop goes to 1000 Hz). Most effects sit well
+below that. What reaches it:
+
+- **Engine firing thumps.** A V8 fires 250 times a second at about
+  3750 rpm. Past that, on the default **foldback** setting (wrap), the
+  thumps fold back into a throb that falls as the revs climb. **stop**
+  fades them out before that point; **keep rising** carries on at every
+  other firing, then every fourth, so the pitch keeps climbing.
+- **The engine buzz.** On automatic order it reaches the redline at
+  62.5 Hz on Windows (120 Hz on the Pi), so it sits lower. A hand-set
+  order above about 0.75 makes the motor also play a faint falling
+  mirror tone near the redline.
+- **Force devices** (a shifter or pedal) need the Pi: the force loop
+  needs 2 kHz, and the Devices section is hidden on Windows.
+
+### Shakers on Windows
+
+nullCAT takes each shaker card for itself (exclusive mode) and holds it
+at full volume. Set the volume on the amps. Two things outside nullCAT
+can still get in the way:
+
+- The card must be allowed for apps (Windows Settings, Sound, the card,
+  **Allow apps and Windows to use this device for audio**), and set up
+  with enough channels in the classic Sound panel (`mmsys.cpl`,
+  **Configure**: quadraphonic, 5.1 or 7.1).
+- Another program using the card. SimHub was found binding a shaker
+  card it had once used, on some starts, and muting it, which left every
+  shaker effect barely felt. With nullCAT running first it cannot take
+  the card; the shaker line counts any time something turned the card
+  down.
+
 None of this makes the Windows build unsafe or unusable, and that is
 the point of the architecture: every one of those events is absorbed
 by design. A stalled loop holds its last frame and resynchronizes
@@ -53,7 +104,7 @@ is the reference platform, and its logs simply have nothing to absorb.
 
 Validated on the reference rigs: 6 drives on one segment on the Pi
 (CSP vertical and horizontal actuators, a CST belt tensioner, and a
-CST force device), 5 drives on Windows, daily use on both platforms.
+CST force device), 6 drives on Windows, daily use on both platforms.
 Larger topologies (7 to 10 drives) are untested and are a stated goal
 of the beta program; if you run a bigger chain, your results are
 exactly the data the project needs.
@@ -130,12 +181,14 @@ performance, and size, the A6 still comes out favourably.
 
 ## Security model: trusted LAN
 
-The web UI and API are served over plain HTTP and are unauthenticated,
-intended for a trusted private network. Do not port-forward the controller
-to the internet. What IS enforced: no CORS headers (arbitrary web pages
-cannot read API responses cross-origin), a fail-closed Host-header
-allowlist that blocks DNS rebinding (only Hosts naming this machine, or
-names listed in `webAllowedHosts` in host.json, are served), and
-power-off/restart additionally require the client address to be on the
-local network. There is no token or password auth in v1; anyone on your
-LAN can command the rig.
+The web UI and API are served over plain HTTP, intended for a trusted
+private network. Do not port-forward the controller to the internet.
+What IS enforced: no CORS headers (arbitrary web pages cannot read API
+responses cross-origin), a fail-closed Host-header allowlist that blocks
+DNS rebinding (only Hosts naming this machine, or names listed in
+`webAllowedHosts` in host.json, are served), and power-off/restart
+additionally require the client address to be on the local network. An
+optional **web password** (Setup, Network / telemetry) makes every
+browser enter it once before it can see or control the rig; it keeps
+casual access out on a shared network, but over plain HTTP it is not
+encryption. Without it, anyone on your LAN can command the rig.
