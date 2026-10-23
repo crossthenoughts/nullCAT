@@ -221,7 +221,7 @@ public:
     // Deinit-seat bus guard: one broadcast state read;
     // copies each slave's AL state into out[0..n-1] (slave 1 -> out[0]).
     // Returns the number of slaves reported, 0 on failure/sim.
-    int probeSlaveALStates(uint16_t* out, int maxSlaves);
+    int probeSlaveALStates(uint16_t* out, int maxSlaves, uint16_t* codes = nullptr);
 
     // Canonical recovery on a dedicated thread. The RT control loop
     // signals via signalRecoveryNeeded() when WkcMonitor detects sustained

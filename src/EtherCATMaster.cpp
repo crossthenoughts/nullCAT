@@ -2966,11 +2966,13 @@ const char* EtherCATMaster::ds402ErrorCodeString(uint16_t code)
     }
 }
 
-int EtherCATMaster::probeSlaveALStates(uint16_t* out, int maxSlaves)
+int EtherCATMaster::probeSlaveALStates(uint16_t* out, int maxSlaves, uint16_t* codes)
 {
     // Deinit-seat bus guard: one mutex-guarded broadcast state read, AL state
-    // per slave copied out. Read-only; safe from the RT thread while it owns
-    // SOEM (the seat pass runs after stopPump/setRtLoopActive).
+    // per slave copied out (and the AL status code when asked: the reason a
+    // slave left OP, 0x001a = sync error). A slave that does not answer reads
+    // as NONE. Read-only; safe from the RT thread while it owns SOEM (the
+    // seat pass runs after stopPump/setRtLoopActive).
     if (!m_initialized || m_simulationMode || !out) return 0;
     ecx_contextt* ctx = ctxPtr(m_ctx);
     if (!ctx) return 0;
@@ -2984,7 +2986,10 @@ int EtherCATMaster::probeSlaveALStates(uint16_t* out, int maxSlaves)
 
     int n = std::min(m_slaveCount, maxSlaves);
     for (int i = 1; i <= n; ++i)
+    {
         out[i - 1] = ctx->slavelist[i].state;
+        if (codes) codes[i - 1] = ctx->slavelist[i].ALstatuscode;
+    }
     return n;
 }
 

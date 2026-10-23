@@ -285,6 +285,25 @@ void ControlLoopWorker::run()
                 ++probes;
                 if (wkc == expWkc) ++good; else if (wkc > 0) ++part; else ++dead;
             }
+            // When the check fails, what each slave says about itself, in one
+            // line: NONE (no answer) means the ring is broken there; SAFE-OP
+            // with a status code means the drive left OP and says why
+            // (0x001a = sync error). Read once; the loop is stopped here.
+            const auto describeBus = [&]() -> std::string
+            {
+                uint16_t st[MAX_DRIVES] = {}, code[MAX_DRIVES] = {};
+                const int n = m_master->probeSlaveALStates(st, MAX_DRIVES, code);
+                std::string s;
+                for (int i = 0; i < n; ++i)
+                {
+                    const uint16_t base = static_cast<uint16_t>(st[i] & 0x0F);
+                    const char* nm = (base == 0x08) ? "OP" : (base == 0x04) ? "SAFE-OP" : (base == 0x02) ? "PRE-OP"
+                                   : (base == 0x01) ? "INIT" : (base == 0x03) ? "BOOT" : "NONE";
+                    s += (i ? ", " : "") + std::to_string(i + 1) + ":" + nm;
+                    if (st[i] & 0x10) { char c[24]; snprintf(c, sizeof(c), "+ERR 0x%04x", code[i]); s += c; }
+                }
+                return s.empty() ? std::string("no slave answered the state read") : s;
+            };
             if (good >= SEAT_PROBE_MIN_GOOD)
             {
                 // Healthy bus. Say how long it took when replies were late.
@@ -308,6 +327,7 @@ void ControlLoopWorker::run()
                 RT_LOG_WARNING("ControlLoop: Deinit seat on a PARTIAL bus (good=%d partial=%d"
                     " dead=%d of %d) -- seating reachable axes only.",
                     good, part, dead, probes);
+                RT_LOG_WARNING("ControlLoop: Deinit seat bus check: %s", describeBus().c_str());
             }
             else
             {
@@ -317,6 +337,7 @@ void ControlLoopWorker::run()
                     " check drive power / bus cabling. De-init continues.",
                     good, part, dead, probes,
                     PlatformRT::elapsedMicros(PlatformRT::now(), probeStart) / 1e6, expWkc);
+                RT_LOG_ERROR("ControlLoop: Deinit seat bus check: %s", describeBus().c_str());
             }
         }
         // Mid-phase abort tracking: SEAT_ABORT_SEC of consecutive bad WKC ends
