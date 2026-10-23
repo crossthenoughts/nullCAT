@@ -265,6 +265,11 @@ private:
     double m_wkcValidationThreshold = 0.9;   // fraction of cycles requiring WKC==expected
     int    m_rtCore                 = 3;     // the control loop's CPU (host.json rtCore/rtPinCore), -1 = not pinned
 
+public:
+    // How the frames have been leaving (Windows: the sender threads); "" = nothing to say.
+    std::string sendPathSummary() const;
+private:
+
     alignas(64) char m_iomap[SOEM_IOMAP_SIZE] = {};
 
     int              m_slaveCount = 0;

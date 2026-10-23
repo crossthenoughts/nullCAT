@@ -390,6 +390,53 @@ first Windows release since 0.9.4. Goes with SimHub plugin 1.8
   rig keeps its own values: change them on the tile.
 
 ### Fixed
+- Windows: the loop no longer stalls on the network driver. Every stall
+  the Windows test rig has logged since its first sessions in June (8 to
+  31 ms holds, several times a second) was the loop sitting inside the
+  frame send, waiting for the adapter driver to report the transmit done,
+  while the frame itself had left in microseconds. Frames now leave
+  through sender threads and the loop goes straight on to the reply, so
+  the hitches in slow smooth motion and homing are gone. A Windows build
+  you make yourself needs the SOEM patch in `deploy/` applied as
+  BUILD_INSTRUCTIONS step 5 shows; a build without it still runs on the
+  old path and says so in the loop-stop line. host.json `asyncSend`
+  (Windows only, default true) switches the old path back for comparison.
+- Windows: a reply that arrives after its frame index has come round
+  again (16 frames later) is dropped rather than taken for the new reply.
+  With the loop no longer waiting on the driver, one run of late replies
+  could lock the loop into reading replies 32 ms old for the rest of the
+  session (inputs, status words and homing positions all stale), and
+  because a reply echoes the outputs it carried, replay the last 32 ms of
+  the park on a torque belt as a 31 Hz buzz after Stop.
+- Windows: an adapter that comes up answering every frame about 15 ms
+  late (slaves found, then every slave "failed to reach PreOp", and the
+  window frozen for most of a minute: the old "init takes several tries")
+  is re-opened automatically, up to three times, before init goes on. The
+  log says "First exchange answered in N us", or which re-open cleared it.
+- The recovery scan now waits for 300 ms of continuous frame loss (was
+  15 ms). A Windows adapter pauses delivery for up to about 180 ms at a
+  time, and every pause used to start a scan that was blind while it ran
+  and "recovered" slaves that were never lost (443 scans in one 18 minute
+  session).
+- Windows: the bus check before the de-init seat pass no longer fails on
+  the adapter's delivery pauses. It used to classify a fixed 20 frames,
+  and ten late replies inside one pause read as a dead bus: the seat was
+  skipped with "bus unhealthy" and the verticals dropped onto the stop
+  when the drives de-energised. It now collects good replies for up to a
+  second and a late reply only costs time; a dead bus is still told apart
+  at the end of that second. The mid-press abort moved from
+  0.5 s to 2 s of continuous loss for the same reason (the longest pause
+  seen is 0.5 s).
+- Windows: the working-counter validation after the drives reach OP no
+  longer fails on a delivery pause. It sampled a fixed 50 ms and needed
+  90% of it good, so a pause inside the sample read as "PDO transport not
+  established" and init failed. It now collects the same 45 good replies
+  within a second and a late reply only costs time.
+- Working-counter misses are logged by the minute, not by the cycle: one
+  line per minute that had misses (cycles lost, runs, longest run,
+  session total) and a line for any single outage of 100 ms or more. A
+  Windows rig with twenty short delivery pauses a second wrote three
+  lines per pause, 78,000 lines in 24 minutes.
 - Applying a car's preset, the car defaults, a starting point or a profile
   that changes nothing (the same one again) no longer counts as a change:
   it used to refuse the next Save from any other open page ("NOT SAVED:

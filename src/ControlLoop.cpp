@@ -47,15 +47,20 @@ extern "C" {
 // (SEAT_RELIEF_FLOOR_PCT / _RISE_PCT / _CAP_MM).
 static constexpr double SEAT_DWELL_SEC = 1.0;
 
-// Deinit-seat bus-health guard. Pre-flight: 20
-// paced WKC-checked cycles; >=18 good = seat normally; partial-majority = seat
-// only slaves confirmed in OP; otherwise skip the seat entirely (the drives'
-// own 100ms watchdog has already de-energized them on a dead bus). Mid-phase:
-// 0.5s of consecutive bad WKC aborts all remaining seat phases -- a seat
-// pass on a dead bus otherwise runs blind on frozen PDO data.
-static constexpr int    SEAT_PROBE_CYCLES   = 20;
+// Deinit-seat bus-health guard. Pre-flight: paced WKC-checked cycles until
+// SEAT_PROBE_MIN_GOOD good replies have been seen, within SEAT_PROBE_MAX_SEC.
+// A late reply only costs time: a Windows adapter pauses delivery for up to
+// ~0.5 s at a time (2026-10-22), and a fixed 20-cycle probe landed inside one
+// (10 dead of 20) and skipped the seat on a healthy bus, dropping the rig.
+// Reached = seat normally; window spent with partial frames outnumbering
+// dead ones = seat only slaves confirmed in OP; otherwise skip the seat
+// entirely (the drives' own 100ms watchdog has already de-energized them on
+// a dead bus). Mid-phase: SEAT_ABORT_SEC of consecutive bad WKC aborts all
+// remaining seat phases -- a seat pass on a dead bus otherwise runs blind on
+// frozen PDO data; 2 s clears the longest adapter pause seen by a wide margin.
 static constexpr int    SEAT_PROBE_MIN_GOOD = 18;
-static constexpr double SEAT_ABORT_SEC      = 0.5;
+static constexpr double SEAT_PROBE_MAX_SEC  = 1.0;
+static constexpr double SEAT_ABORT_SEC      = 2.0;
 
 // Slave recovery lives on EtherCATMaster's recovery thread
 // (doRecoveryScan); the RT loop only signals it via
@@ -183,7 +188,6 @@ void ControlLoopWorker::run()
     double   maxJitterUs = 0.0;
     uint64_t lastStatsEmit = 0;
     const uint64_t statsInterval = static_cast<uint64_t>(m_config.controlLoopHz);
-    uint64_t badFrameCount = 0;
 
     // EtherCAT send/receive round-trip time tracking (hardware path only).
     double   rttMinUs = 1e9;
@@ -244,7 +248,7 @@ void ControlLoopWorker::run()
     }
 
     faultMonitor.configure(numDrives);
-    wkcMonitor.configure(m_config.controlLoopHz);   // time-based recovery trigger (~15ms)
+    wkcMonitor.configure(m_config.controlLoopHz);   // time-based recovery trigger (~300ms)
 
     // ---- Deinit SEAT-ONLY pass ----
     // The loop was stopped; deinit re-engaged this RT thread purely to press the vertical
@@ -257,30 +261,38 @@ void ControlLoopWorker::run()
     if (m_seatOnlyMode.load(std::memory_order_acquire))
     {
         // ---- Bus-health pre-flight ----
-        // Classify SEAT_PROBE_CYCLES paced frames before pressing anything:
-        // a seat sequence on a dead/degraded bus runs blind on frozen PDO
-        // data and then de-energizes axes that never reached the stop.
+        // Collect paced, WKC-checked frames before pressing anything: a seat
+        // sequence on a dead/degraded bus runs blind on frozen PDO data and
+        // then de-energizes axes that never reached the stop. Late replies
+        // (the Windows adapter's delivery pauses) only spend the window.
         bool seatSkipped = false;
         bool seatable[MAX_DRIVES];
         const bool* seatMask = nullptr;
         for (int i = 0; i < MAX_DRIVES; ++i) seatable[i] = true;
         if (m_master && !m_master->isSimulation())
         {
-            int good = 0, part = 0, dead = 0;
+            int good = 0, part = 0, dead = 0, probes = 0;
             const int expWkc = m_master->getExpectedWKC();
-            for (int p = 0; p < SEAT_PROBE_CYCLES; ++p)
+            const PlatformRT::Timestamp probeStart = PlatformRT::now();
+            const int maxProbes = std::max(SEAT_PROBE_MIN_GOOD,
+                static_cast<int>(m_config.controlLoopHz * SEAT_PROBE_MAX_SEC));
+            while (probes < maxProbes && good < SEAT_PROBE_MIN_GOOD)
             {
                 PlatformRT::waitUntil(nextCycleTime);
                 PlatformRT::advancePeriod(nextCycleTime, cycleCountsTarget);
                 int wkc = m_master->sendReceive();
                 m_master->processCyclicMailbox(1);
+                ++probes;
                 if (wkc == expWkc) ++good; else if (wkc > 0) ++part; else ++dead;
             }
             if (good >= SEAT_PROBE_MIN_GOOD)
             {
-                // Healthy bus -- today's path, unchanged.
+                // Healthy bus. Say how long it took when replies were late.
+                if (dead + part > 0)
+                    RT_LOG_INFO("ControlLoop: Deinit seat pre-flight: %d good replies in %d cycles"
+                        " (%d late, %d partial) -- seating.", good, probes, dead, part);
             }
-            else if (part > SEAT_PROBE_CYCLES / 2)
+            else if (part > dead)
             {
                 // Partial bus (frames return, some slaves missing): seat only
                 // axes whose slave reads OPERATIONAL. 0x08 = EC_STATE_OPERATIONAL
@@ -295,15 +307,16 @@ void ControlLoopWorker::run()
                 seatMask = seatable;
                 RT_LOG_WARNING("ControlLoop: Deinit seat on a PARTIAL bus (good=%d partial=%d"
                     " dead=%d of %d) -- seating reachable axes only.",
-                    good, part, dead, SEAT_PROBE_CYCLES);
+                    good, part, dead, probes);
             }
             else
             {
                 seatSkipped = true;
                 RT_LOG_ERROR("ControlLoop: Deinit seat SKIPPED -- bus unhealthy (good=%d"
-                    " partial=%d dead=%d of %d, expectedWKC=%d). Axes were NOT seated;"
+                    " partial=%d dead=%d of %d in %.1f s, expectedWKC=%d). Axes were NOT seated;"
                     " check drive power / bus cabling. De-init continues.",
-                    good, part, dead, SEAT_PROBE_CYCLES, expWkc);
+                    good, part, dead, probes,
+                    PlatformRT::elapsedMicros(PlatformRT::now(), probeStart) / 1e6, expWkc);
             }
         }
         // Mid-phase abort tracking: SEAT_ABORT_SEC of consecutive bad WKC ends
@@ -607,24 +620,12 @@ void ControlLoopWorker::run()
         // cycle so the state machine cannot transition on garbage data and
         // the homing sequence cannot compute a target from a garbage actualPos.
         // Last known-good values are retained until the next clean frame.
+        // The WkcMonitor keeps the count and logs it by the minute.
         if (m_master && !m_master->isSimulation() && m_master->isOperational())
         {
             bool frameValid = (lastWkc == m_master->getExpectedWKC());
             for (int i = 0; i < numDrives; ++i)
                 if (driveCache[i]) driveCache[i]->setFrameValid(frameValid);
-            if (!frameValid)
-            {
-                ++badFrameCount;
-                if (badFrameCount % 100 == 1)
-                    RT_LOG_WARNING("ControlLoop: Bad frame (wkc=%d expected=%d)"
-                        " -- holding previous PDO values this cycle (total bad: %llu)",
-                        lastWkc, m_master->getExpectedWKC(),
-                        (unsigned long long)badFrameCount);
-            }
-            else
-            {
-                badFrameCount = 0;
-            }
         }
 
         // ---- 3. Run motion controller ----
@@ -985,12 +986,6 @@ void ControlLoopWorker::run()
                 rttSumUs = 0.0;
                 rttCount = 0;
             }
-
-            if (wkcMonitor.getConsecutiveErrors() > 0)
-                RT_LOG_WARNING("ControlLoop: WKC errors this second: total=%llu consecutive=%d recoveries=%d",
-                    (unsigned long long)wkcMonitor.getTotalErrors(),
-                    wkcMonitor.getConsecutiveErrors(),
-                    wkcMonitor.getRecoveryAttempts());
         }
     }
 
@@ -1100,6 +1095,11 @@ void ControlLoopWorker::run()
 
     RT_LOG_INFO("ControlLoop: Stopping after %llu cycles. Total WKC errors: %llu",
         (unsigned long long)cycleCount, (unsigned long long)wkcMonitor.getTotalErrors());
+    if (m_master)
+    {
+        const std::string sp = m_master->sendPathSummary();
+        if (!sp.empty()) RT_LOG_INFO("ControlLoop: %s", sp.c_str());
+    }
 
     // Per-axis conditioning/guard session summary -> standard log (not the soem diag).
     // Off the hot path (loop has exited). Skips axes that never conditioned (PP/torque/

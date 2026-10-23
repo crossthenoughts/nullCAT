@@ -169,13 +169,23 @@ SOEM is **not** bundled with this repository; you fetch and build it yourself.
 git clone https://github.com/OpenEtherCATsociety/SOEM.git C:\libs\SOEM-src
 cd C:\libs\SOEM-src
 git checkout b410bf6ef599d5c85302ea45cae5f55f8e9aa394
+git apply --whitespace=nowarn C:\path\to\nullCAT\deploy\soem-win32-async-send.patch
 cmake -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 cmake --install build --prefix C:\libs\SOEM --config Release
 ```
 
 Check out the pinned revision above. It is the revision CI builds and the one
-the published binaries are built against. SOEM's `master` moves, and headers
+the published binaries are built against. The `git apply` line is this
+project's one change to SOEM's Windows network layer: the EtherCAT frames
+leave through a few sender threads, so the control loop never waits for the
+network driver's "transmit done" report (on the Intel I210 and I211 that
+report can come 15 ms late while the frame itself left in microseconds).
+Every frame also carries a sequence tag, so a reply that arrives late is
+never mistaken for the reply to a newer frame reusing its index. CI applies
+the same patch. A SOEM built without it still links and runs; the
+loop then sends inline, and the log's loop-stop line says "this build's SOEM
+has no sender threads". SOEM's `master` moves, and headers
 and library must come from the same tree: the generated `ec_options.h` sizes
 the context struct, so mixing versions silently changes the struct layout
 (ABI mismatch) rather than failing loudly.

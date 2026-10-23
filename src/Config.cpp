@@ -65,6 +65,7 @@ static void writeHostConfig(const AppConfig& c, QJsonObject& obj)
     obj["controlLoopHz"]            = c.controlLoopHz;
     obj["rtPinCore"]                = c.rtPinCore;
     obj["rtCore"]                   = c.rtCore;
+    obj["asyncSend"]                = c.asyncSend;
     obj["tempPollSec"]              = c.tempPollSec;
     obj["telemetryPort"]               = c.telemetryPort;
     obj["telemetryBindAddr"]           = QString::fromStdString(c.telemetryBindAddr);
@@ -125,6 +126,7 @@ static void readHostConfig(const QJsonObject& obj, AppConfig& c)
     if (obj.contains("controlLoopHz"))            c.controlLoopHz            = obj.value("controlLoopHz").toInt(500);
     if (obj.contains("rtPinCore"))                c.rtPinCore                = obj.value("rtPinCore").toBool(true);
     if (obj.contains("rtCore"))                   c.rtCore                   = obj.value("rtCore").toInt(-1);
+    if (obj.contains("asyncSend"))                c.asyncSend                = obj.value("asyncSend").toBool(true);
     if (obj.contains("tempPollSec"))              c.tempPollSec              = obj.value("tempPollSec").toDouble(15.0);
     if (obj.contains("telemetryPort"))               c.telemetryPort               = obj.value("telemetryPort").toInt(4444);
     if (obj.contains("telemetryBindAddr"))           c.telemetryBindAddr           = obj.value("telemetryBindAddr").toString("").toStdString();  // "" = platform default

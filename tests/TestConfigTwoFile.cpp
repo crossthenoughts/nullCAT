@@ -1125,11 +1125,13 @@ private slots:
         Config c; QVERIFY(c.load(anchor(dir).toStdString()));   // cold start
         QCOMPARE(c.get().rtPinCore, true);
         QCOMPARE(c.get().rtCore, -1);
-        c.get().rtPinCore = false; c.get().rtCore = 14;
+        QCOMPARE(c.get().asyncSend, true);
+        c.get().rtPinCore = false; c.get().rtCore = 14; c.get().asyncSend = false;
         QVERIFY(c.saveHost(anchor(dir).toStdString()));
         Config back; QVERIFY(back.load(anchor(dir).toStdString()));
         QCOMPARE(back.get().rtPinCore, false);
         QCOMPARE(back.get().rtCore, 14);
+        QCOMPARE(back.get().asyncSend, false);   // the Windows send path switch rides host.json too
         back.get().rtCore = 999;
         bool flagged = false;
         for (const std::string& e : back.get().validate()) flagged = flagged || e.rfind("rtCore", 0) == 0;

@@ -1,0 +1,300 @@
+diff --git a/oshw/win32/nicdrv.c b/oshw/win32/nicdrv.c
+index 957d6dd..9183ef6 100644
+--- a/oshw/win32/nicdrv.c
++++ b/oshw/win32/nicdrv.c
+@@ -65,6 +65,200 @@ const uint16 secMAC[3] = EC_SECONDARY_MAC_ARRAY;
+ 
+ static char errbuf[PCAP_ERRBUF_SIZE];
+ 
++/* ---- nullCAT: frames sent from helper threads ----------------------------
++ * pcap_sendpacket is a synchronous WriteFile to the Npcap driver, which
++ * completes it only once the NIC driver reports the transmit done. On the
++ * Intel I210/I211 under Windows 11 that report arrives up to 15 ms late
++ * while the frame itself left the card in microseconds, and the calling
++ * thread (the control loop) sat in the call for the whole of it (nullCAT
++ * trace, 2026-10-21: every stall was this wait). Here the caller hands the
++ * frame to one of a few sender threads and goes straight on to the receive.
++ * Each sender has its own pcap handle on the same adapter, because the
++ * driver takes one write at a time per handle: a sender still waiting for
++ * an old completion report does not hold the next frame up. The caller
++ * waits only until the sender has entered its write (tens of microseconds),
++ * so frames leave in order. With every sender busy the frame goes the old
++ * way, inline. oshw_async_send = 0 restores the old path for comparison.
++ *
++ * A frame index is one of EC_MAXBUF (16) and comes round again 16 frames
++ * later. With the caller no longer waiting on the driver, 16 frames can be
++ * in flight after a run of late replies, and the oldest reply then carries
++ * the index of the frame just sent: SOEM would take it for the new reply,
++ * and from then on every cycle would read a reply 16 frames old (and, as
++ * the reply echoes the outputs it carried, write 16-frame-old outputs back
++ * into the process image). So every frame sent here carries a sequence tag
++ * in bytes 4-5 of its source address (slaves only touch bit 1 of byte 0),
++ * and a reply whose tag is not the latest one sent with its index is
++ * dropped before SOEM sees it. */
++#define OSHW_SENDERS            32
++#define OSHW_SEND_START_WAIT_US 500
++
++int oshw_async_send = 1;
++/* [0] frames handed to a sender, [1] sent inline (every sender busy),
++ * [2] callers that waited the full start wait without the sender starting,
++ * [3] replies dropped as stale (an older frame with the same index),
++ * [4] late replies: the latest frame with that index, but its caller had
++ *     already given up waiting (SOEM drops it; counted so the log can tell
++ *     "late" from "lost") */
++unsigned long oshw_async_stats[5] = { 0, 0, 0, 0, 0 };
++
++typedef struct
++{
++   pcap_t *sock;
++   uint8   buf[EC_BUFSIZE];
++   int     len;
++   HANDLE  go;
++   HANDLE  thread;
++   volatile LONG busy;      /* taken by a caller until the write returns */
++   volatile LONG started;   /* the sender has entered the write */
++   volatile LONG stop;
++} oshw_sender_t;
++
++static oshw_sender_t g_senders[OSHW_SENDERS];
++static int           g_sender_count = 0;
++static unsigned      g_sender_next  = 0;
++static LARGE_INTEGER g_qpf;
++static int           g_tagging = 0;          /* frames carry the sequence tag */
++static volatile LONG g_tag_next = 0;
++static uint16        g_tag[EC_MAXBUF];        /* latest tag sent with each index */
++
++static DWORD WINAPI oshw_sender_main(LPVOID arg)
++{
++   oshw_sender_t *s = (oshw_sender_t *)arg;
++   for (;;)
++   {
++      WaitForSingleObject(s->go, INFINITE);
++      if (s->stop) break;
++      InterlockedExchange(&s->started, 1);
++      pcap_sendpacket(s->sock, s->buf, s->len);
++      InterlockedExchange(&s->busy, 0);
++   }
++   return 0;
++}
++
++static void oshw_senders_close(void)
++{
++   int i;
++   for (i = 0; i < g_sender_count; i++)
++   {
++      oshw_sender_t *s = &g_senders[i];
++      InterlockedExchange(&s->stop, 1);
++      if (s->go) SetEvent(s->go);
++      if (s->thread) { WaitForSingleObject(s->thread, 5000); CloseHandle(s->thread); }
++      if (s->go) CloseHandle(s->go);
++      if (s->sock) pcap_close(s->sock);
++      memset(s, 0, sizeof(*s));
++   }
++   g_sender_count = 0;
++   g_tagging = 0;
++}
++
++static void oshw_senders_open(const char *ifname)
++{
++   int i;
++   struct bpf_program none;
++   oshw_senders_close();
++   if (!oshw_async_send) return;
++   QueryPerformanceFrequency(&g_qpf);
++   for (i = 0; i < OSHW_SENDERS; i++)
++   {
++      oshw_sender_t *s = &g_senders[i];
++      memset(s, 0, sizeof(*s));
++      /* send only: a small kernel buffer and a filter that keeps nothing */
++      s->sock = pcap_open(ifname, 65536, PCAP_OPENFLAG_NOCAPTURE_LOCAL, -1, NULL, errbuf);
++      if (s->sock == NULL) break;
++      pcap_setbuff(s->sock, 16384);
++      if (pcap_compile(s->sock, &none, "less 1", 1, 0) == 0)
++      {
++         pcap_setfilter(s->sock, &none);
++         pcap_freecode(&none);
++      }
++      s->go = CreateEvent(NULL, FALSE, FALSE, NULL);
++      s->thread = (s->go != NULL) ? CreateThread(NULL, 0, oshw_sender_main, s, 0, NULL) : NULL;
++      if (s->thread == NULL)
++      {
++         if (s->go) CloseHandle(s->go);
++         pcap_close(s->sock);
++         memset(s, 0, sizeof(*s));
++         break;
++      }
++      SetThreadPriority(s->thread, THREAD_PRIORITY_TIME_CRITICAL);
++      g_sender_count = i + 1;
++   }
++   memset(g_tag, 0, sizeof(g_tag));
++   g_tagging = (g_sender_count > 0);
++}
++
++/* With the frames leaving through other handles, the receive handle sees the
++ * driver's loop-back copies of our own transmissions (an open skips only its
++ * own sends). A frame that has passed a slave comes back with the source
++ * address's locally administered bit set (every EtherCAT slave chip does
++ * this), so the unprocessed copies are the frames carrying our source
++ * address with that bit clear (bytes 4-5 hold the sequence tag, so only the
++ * first four bytes are compared): a filter in the driver drops them, and
++ * the receive path checks again in case the filter could not be set. */
++static void oshw_mac_bytes(const uint16 *mac, unsigned char *out)
++{
++   int i;
++   for (i = 0; i < 3; i++) { out[2 * i] = (unsigned char)(mac[i] >> 8); out[2 * i + 1] = (unsigned char)(mac[i] & 0xff); }
++}
++
++static int oshw_own_source(const unsigned char *sa)
++{
++   unsigned char p[6], s[6];
++   oshw_mac_bytes(priMAC, p);
++   oshw_mac_bytes(secMAC, s);
++   return (memcmp(sa, p, 4) == 0) || (memcmp(sa, s, 4) == 0);
++}
++
++static void oshw_drop_own_frames(pcap_t *sock)
++{
++   struct bpf_program fp;
++   unsigned char p[6], s[6];
++   char expr[160];
++   oshw_mac_bytes(priMAC, p);
++   oshw_mac_bytes(secMAC, s);
++   sprintf(expr, "not ether[6:4] = 0x%02x%02x%02x%02x and not ether[6:4] = 0x%02x%02x%02x%02x",
++           p[0], p[1], p[2], p[3], s[0], s[1], s[2], s[3]);
++   if (pcap_compile(sock, &fp, expr, 1, 0) == 0)
++   {
++      pcap_setfilter(sock, &fp);
++      pcap_freecode(&fp);
++   }
++}
++
++/* Hand a frame to a free sender: 0 = handed over, -1 = every sender busy. */
++static int oshw_send_async(const uint8 *frame, int len)
++{
++   int k;
++   LARGE_INTEGER t0, t1;
++   for (k = 0; k < g_sender_count; k++)
++   {
++      oshw_sender_t *s = &g_senders[(g_sender_next + k) % g_sender_count];
++      if (InterlockedCompareExchange(&s->busy, 1, 0) != 0) continue;
++      g_sender_next = (unsigned)((g_sender_next + k + 1) % g_sender_count);
++      memcpy(s->buf, frame, len);
++      s->len = len;
++      InterlockedExchange(&s->started, 0);
++      SetEvent(s->go);
++      /* until the sender is in its write, so the next frame cannot overtake this one */
++      QueryPerformanceCounter(&t0);
++      while (!s->started)
++      {
++         YieldProcessor();
++         QueryPerformanceCounter(&t1);
++         if ((t1.QuadPart - t0.QuadPart) * 1000000 / g_qpf.QuadPart > OSHW_SEND_START_WAIT_US)
++         {
++            oshw_async_stats[2]++;
++            break;
++         }
++      }
++      oshw_async_stats[0]++;
++      return 0;
++   }
++   return -1;
++}
++
+ static void ecx_clear_rxbufstat(int *rxbufstat)
+ {
+    int i;
+@@ -134,6 +328,11 @@ int ecx_setupnic(ecx_portt *port, const char *ifname, int secondary)
+       printf("interface %s could not open with pcap\n", ifname);
+       return 0;
+    }
++   if (psock == &(port->sockhandle))
++   {
++      oshw_senders_open(ifname);
++      if (g_sender_count > 0) oshw_drop_own_frames(*psock);
++   }
+ 
+    for (i = 0; i < EC_MAXBUF; i++)
+    {
+@@ -153,6 +352,7 @@ int ecx_closenic(ecx_portt *port)
+ {
+    timeEndPeriod(1);
+ 
++   oshw_senders_close();
+    if (port->sockhandle != NULL)
+    {
+       DeleteCriticalSection(&(port->getindex_mutex));
+@@ -258,7 +458,30 @@ int ecx_outframe(ecx_portt *port, uint8 idx, int stacknumber)
+       stack = &(port->redport->stack);
+    }
+    lp = (*stack->txbuflength)[idx];
++   if (g_tagging)
++   {
++      /* sequence tag in source address bytes 4-5; ecx_recvpkt accepts a reply
++       * for this index only while it carries the latest tag sent with it.
++       * A resend of a frame still in flight (ecx_srconfirm retries the same
++       * index every EC_TIMEOUTRET) keeps its tag, so any of its replies will
++       * do, as in unpatched SOEM. The tag goes in before the buffer is marked
++       * in flight, so a receiver on another thread never sees the new state
++       * with the old tag. */
++      uint16 tag;
++      if ((*stack->rxbufstat)[idx] == EC_BUF_TX)
++         tag = g_tag[idx];
++      else
++         tag = (uint16)InterlockedIncrement(&g_tag_next);
++      (*stack->txbuf)[idx][10] = (uint8)(tag >> 8);
++      (*stack->txbuf)[idx][11] = (uint8)(tag & 0xff);
++      g_tag[idx] = tag;
++   }
+    (*stack->rxbufstat)[idx] = EC_BUF_TX;
++   if (!stacknumber && oshw_async_send && g_sender_count > 0)
++   {
++      if (oshw_send_async((*stack->txbuf)[idx], lp) == 0) return 0;   /* as pcap_sendpacket reports success */
++      oshw_async_stats[1]++;
++   }
+    rval = pcap_sendpacket(*stack->sock, (*stack->txbuf)[idx], lp);
+    if (rval == PCAP_ERROR)
+    {
+@@ -294,6 +517,12 @@ int ecx_outframe_red(ecx_portt *port, uint8 idx)
+       datagramP->index = idx;
+       /* rewrite MAC source address 1 to secondary */
+       ehp->sa1 = htons(secMAC[1]);
++      if (g_tagging)
++      {
++         /* the dummy carries the primary frame's tag (see ecx_outframe) */
++         port->txbuf2[10] = (uint8)(g_tag[idx] >> 8);
++         port->txbuf2[11] = (uint8)(g_tag[idx] & 0xff);
++      }
+       /* transmit over secondary socket */
+       port->redport->rxbufstat[idx] = EC_BUF_TX;
+       if (pcap_sendpacket(port->redport->sockhandle, (u_char const *)&(port->txbuf2), port->txbuflength2) == PCAP_ERROR)
+@@ -336,6 +565,30 @@ static int ecx_recvpkt(ecx_portt *port, int stacknumber)
+       return 0;
+    }
+    bytesrx = header->len;
++   if (g_sender_count > 0 && header->caplen >= 12 && oshw_own_source(pkt_data + 6))
++   {
++      /* the driver's loop-back copy of a frame one of the sender handles sent */
++      port->tempinbufs = 0;
++      return 0;
++   }
++   if (g_tagging && header->caplen >= 18 && pkt_data[12] == 0x88 && pkt_data[13] == 0xa4)
++   {
++      /* the reply to an older frame that carried the same index (see the note
++       * at the top): SOEM would take it for the reply to the frame just sent */
++      uint8  idxf = pkt_data[17];
++      uint16 tag  = (uint16)(((uint16)pkt_data[10] << 8) | pkt_data[11]);
++      if (idxf < EC_MAXBUF && tag != g_tag[idxf])
++      {
++         oshw_async_stats[3]++;
++         port->tempinbufs = 0;
++         return 0;
++      }
++      if (idxf < EC_MAXBUF && (*stack->rxbufstat)[idxf] != EC_BUF_TX)
++      {
++         /* nobody is waiting for it any more: the reply is late, not lost */
++         oshw_async_stats[4]++;
++      }
++   }
+    if (bytesrx > lp)
+    {
+       bytesrx = lp;

@@ -210,13 +210,16 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\SOEM\install
-          key: soem-${{ env.SOEM_REV }}-windows-msvc
-      - name: Build SOEM (pinned)
+          key: soem-${{ env.SOEM_REV }}-windows-msvc-${{ hashFiles('deploy/soem-win32-async-send.patch') }}
+      - name: Build SOEM (pinned, with the Windows send patch)
         if: steps.soem-cache.outputs.cache-hit != 'true'
         run: |
           git clone https://github.com/OpenEtherCATsociety/SOEM.git C:\SOEM
           cd C:\SOEM
           git checkout $env:SOEM_REV
+          # Frames leave through sender threads so the control loop never waits
+          # for the driver's transmit-complete report (deploy/soem-win32-async-send.patch).
+          git apply --whitespace=nowarn "${{ github.workspace }}\deploy\soem-win32-async-send.patch"
           cmake -S . -B build
           cmake --build build --config Release
           cmake --install build --prefix C:\SOEM\install --config Release

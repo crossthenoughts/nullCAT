@@ -274,7 +274,7 @@ target_link_libraries(TestLogRouting PRIVATE Threads::Threads)
 add_test(NAME TestLogRouting COMMAND TestLogRouting)
 
 # Pins the WKC monitor semantics the recovery stack depends on:
-# time-based trigger threshold (configure -> max(3, hz*0.015)), signal
+# time-based trigger threshold (configure -> max(3, hz*0.3)), signal
 # fires exactly at the threshold cycle, inRecovery latches (one signal per
 # sustained loss), good-frame clears, reset(). Header-only pure logic --
 # needs Logging.cpp for the RT_LOG ring, nothing else.

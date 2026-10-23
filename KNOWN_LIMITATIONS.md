@@ -27,7 +27,9 @@ two-hour drive).
   for 25 to 33 ms and two to five command cycles were skipped. Each
   one is a brief hold of the last command frame, in other words a
   micro-stutter, felt most in slow smooth motion and during homing.
-  The Pi logged zero stall events, in every session.
+  The Pi logged zero stall events, in every session. 0.9.8 removes the
+  stall itself on Windows (see below); what remains of each pause is one
+  cycle of held inputs.
 - **Bus health.** The Windows sessions showed up to a few hundred
   working-counter (WKC) misses and dozens of DC sync-loss events per
   session. The Pi showed zero of both across nearly fifteen million
@@ -38,22 +40,38 @@ two-hour drive).
   than a measurement; the stall-free cadence and the 0.5 ms command
   steps (versus 2 ms) are the mechanical reasons to expect it.
 
-### Where the Windows stalls come from
+### Where the Windows stalls came from, and what is left
 
-On a 0.9.8 test rig (Ryzen 7 5800X, the motherboard's Intel I211
-network port, six drives, 500 Hz) the loop held for 8 to 12 ms about
-twice a second with the game closed and about eight times a second with
-it running. The time is lost between sending a frame to the drives and
-getting it back: in Npcap, the network driver, or another driver holding
-the processor. Moving the loop to another CPU core does not change it.
-Things worth trying, in this order:
+The stalls had one cause. The loop sent each frame with a call that only
+returns once the adapter driver reports the transmit done, and on the
+Intel I210 and I211 that report can come 15 or 31 ms late (the driver's
+own housekeeping timer) while the frame itself left in microseconds.
+Since 0.9.8 the frames leave through sender threads and the loop goes
+straight on to the reply, so the loop keeps its cadence and the drives
+get every frame on time. The hitches are gone.
 
-- In Device Manager, the EtherCAT network port's **Advanced** tab: turn
-  off **Interrupt Moderation** and **Energy Efficient Ethernet** (or
-  Green Ethernet).
-- Run LatencyMon for a few minutes, with the game closed and then
-  running: it names the driver that holds the processor too long.
-- A dedicated PCIe network card for the EtherCAT segment.
+What is left is the other half of the same pause: the reply sits in the
+adapter until that timer fires, so the loop gives up waiting for it
+(2 ms), holds the previous inputs for that cycle and counts a
+working-counter miss. On the 0.9.8 test rig (Ryzen 7 5800X, Intel I210
+and onboard I211, six drives, 500 Hz) that is about twenty short pauses
+a second with the game running, mostly under 15 ms, a few up to 180 ms.
+Motion is unaffected. The misses show in the log's minute summary and
+in the loop-stop line as "late replies"; "stale replies" there is the
+count of old replies caught and dropped. The pauses are a driver and
+interrupt matter, not nullCAT's. Things worth checking, in this order:
+
+- In Device Manager, the EtherCAT network port's **Resources** tab: the
+  IRQ should be a negative number (message-signalled interrupts). A
+  small positive number means a line interrupt shared with other
+  devices. On the test rig both ports are message-signalled and the pauses
+  remain, so this is a check, not a fix.
+- The port's **Advanced** tab: **Interrupt Moderation** off, **Energy
+  Efficient Ethernet** off, **System Idle Power Saver** off. The
+  **Power Management** tab: do not allow the computer to turn the device
+  off.
+- A dedicated PCIe network card does not change the pauses on this rig;
+  the PCIe I210 and the onboard I211 behave the same.
 
 ### Haptics on Windows
 

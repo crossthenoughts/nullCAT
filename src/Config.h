@@ -252,6 +252,11 @@ struct AppConfig
     // installer isolates cores 2 and 3 for the loop).
     bool        rtPinCore      = true;
     int         rtCore         = -1;
+    // host, Windows only: the EtherCAT frames leave through helper threads,
+    // so the loop never waits for the network driver's transmit-complete
+    // report (up to 15 ms late on the Intel I210/I211). false = the loop
+    // sends inline, the old path, for comparison.
+    bool        asyncSend      = true;
 
     int     telemetryPort     = 4444;
     // host: UDP bind address for telemetry input. "127.0.0.1" for the

@@ -51,6 +51,7 @@ warnings repeat at every start until you fix it.
 | `nicName` | string | `""` | EtherCAT adapter (device path on Linux, e.g. `eth0`; adapter description on Windows). Empty = auto-detect the first non-loopback adapter. Use a dedicated NIC for the EtherCAT segment. The Pi installer seeds `eth0` (the onboard port). |
 | `controlLoopHz` | int | `500` | RT loop rate, clamped 100 to 4000. The Pi reference platform runs 2000. On Windows, 500 is the validated rate; 1000 was unstable in testing. |
 | `rtPinCore` | bool | `true` | Keep the control loop on one CPU (`rtCore`). `false` lets the operating system place it. On Windows: **Pin the control loop to one CPU core** in Application Settings. Applies at the next loop start. |
+| `asyncSend` | bool | `true` | Windows only. The EtherCAT frames leave through a few helper threads, so the control loop never waits for the network driver's "transmit done" report; on the Intel I210 and I211 that report can come 15 ms late while the frame itself left in microseconds, and the loop used to sit in the send for all of it (the stalls). `false` sends from the loop itself, the old way, for comparison. The log's loop-stop line says how many frames went each way. The Pi ignores it. |
 | `rtCore` | int | `-1` | The logical CPU the loop runs on when pinned. `-1` = auto: core 3 on the Pi (the installer keeps cores 2 and 3 for the loop), and on Windows the first thread of the last physical core (14 on an 8-core / 16-thread CPU, 10 on a 6 / 12; never an efficiency core). Logical CPUs come in pairs per core on a CPU with hyperthreading (14 and 15 are one core). A CPU the machine does not have runs as auto. On Windows, keep the game and SimHub off this CPU and its twin (Task Manager, Details, Set affinity) for the steadiest loop. |
 | `tempPollSec` | double | Linux `15.0`, Windows `0.0` | Drive IGBT temperature poll period for the web drive cards. `0` disables. Polled over SDO in OP, round-robin, one drive at a time. |
 | `telemetryPort` | int | `4444` | UDP port for telemetry input. |
@@ -79,8 +80,8 @@ warnings repeat at every start until you fix it.
 | `enableCapabilityScan` | bool | `false` | Runs ~24 SDO reads per drive during init. Useful on first bring-up, otherwise leave off. |
 | `commandSyncCycles` | int | `10` | Cycles to hold controlword 0x07 while syncing target to actual position before the 0x0F (Operation Enabled) transition. |
 | `sync0RecycleRounds` | int | `2` | Wedged-SYNC0 recovery during init: drives whose pulse unit fails to start after a cold power-on are cycled PreOP / disarm / re-arm / SafeOP and re-checked, up to this many rounds (about half a second per affected drive, narrated in the log). `0` disables; a failed init then advises retrying Initialize manually. Range 0 to 5. |
-| `wkcValidationCycles` | int | `50` | Post-OP working-counter validation window, cycles. |
-| `wkcValidationThreshold` | double | `0.9` | Fraction of the window that must return the expected WKC. |
+| `wkcValidationCycles` | int | `50` | Post-OP working-counter validation: the number of 1 ms cycles it is sized for. Validation passes once `cycles x threshold` cycles (45 by default) have returned the expected WKC, and gives up after 20x `wkcValidationCycles` cycles (1 s by default). A late reply only spends the window. |
+| `wkcValidationThreshold` | double | `0.9` | Fraction of `wkcValidationCycles` that must return the expected WKC. |
 
 ### Logging and runtime
 

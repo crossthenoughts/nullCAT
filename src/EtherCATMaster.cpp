@@ -13,6 +13,19 @@
 // ============================================================
 
 #include "EtherCATMaster.h"
+
+#ifdef _WIN32
+// Our SOEM build's Windows network layer (oshw/win32/nicdrv.c, the nullCAT
+// sender-thread patch, deploy/soem-win32-async-send.patch) exports the
+// switch and the counters. A SOEM without the patch links these stand-ins
+// instead (/alternatename), and sendPathSummary() says so.
+extern "C" int oshw_async_send;
+extern "C" unsigned long oshw_async_stats[5];
+extern "C" int oshw_async_send_fallback = 0;
+extern "C" unsigned long oshw_async_stats_fallback[5] = { 0, 0, 0, 0, 0 };
+#pragma comment(linker, "/alternatename:oshw_async_send=oshw_async_send_fallback")
+#pragma comment(linker, "/alternatename:oshw_async_stats=oshw_async_stats_fallback")
+#endif
 #include "AxisKind.h"
 #include "A6FaultCodes.h"
 #include "SdoWorker.h"
@@ -156,6 +169,27 @@ void EtherCATMaster::applyConfig(const AppConfig& cfg)
     m_wkcValidationCycles    = cfg.wkcValidationCycles;
     m_wkcValidationThreshold = cfg.wkcValidationThreshold;
     m_rtCore                 = PlatformRT::resolveRtCore(cfg.rtCore, cfg.rtPinCore);
+#ifdef _WIN32
+    oshw_async_send = cfg.asyncSend ? 1 : 0;
+#endif
+}
+
+// How the frames have been leaving (Windows: the sender threads, see
+// oshw_async_send); empty where there is nothing to say.
+std::string EtherCATMaster::sendPathSummary() const
+{
+#ifdef _WIN32
+    if (&oshw_async_send == &oshw_async_send_fallback)
+        return "frames sent inline: this build's SOEM has no sender threads";
+    return strf("frames: %lu through the sender threads, %lu inline (every sender busy), "
+                "%lu waited over 500 us for a sender to start, %lu stale replies dropped "
+                "(an older frame with the same index), %lu late replies (arrived after "
+                "their cycle gave up) (asyncSend=%s)",
+                oshw_async_stats[0], oshw_async_stats[1], oshw_async_stats[2], oshw_async_stats[3],
+                oshw_async_stats[4], oshw_async_send ? "true" : "false");
+#else
+    return std::string();
+#endif
 }
 
 InitResult EtherCATMaster::initializeAndEnterOp(const std::string& nicName)
@@ -730,6 +764,7 @@ InitResult EtherCATMaster::initialize(const std::string& nicName)
     // to misparse them as discovery responses, crashing with 0xc0000005.
     // The drain in discoverAndPrepareSlaves (post-PreOp) targets a different source
     // of stale frames and remains; these two drains are not redundant.
+    auto drainRx = [&]()
     {
         uint16_t dummy = 0;
         for (int flush = 0; flush < 8; ++flush)
@@ -737,6 +772,65 @@ InitResult EtherCATMaster::initialize(const std::string& nicName)
             ecx_BRD(&ctx->port, 0x0000, 0, sizeof(dummy), &dummy, EC_TIMEOUTRET);
         }
         LOG_INFO("EtherCATMaster: Pre-config-init NIC receive-buffer drain complete.");
+    };
+    drainRx();
+
+    // The first real exchange, timed: three broadcast reads, best of three.
+    // A reply normally takes well under a millisecond. On the rig PC the
+    // Windows adapter sometimes comes up delivering every frame on its
+    // driver's housekeeping timer instead of its interrupt (2026-10-22: every
+    // reply ~15 ms late for the whole run). Discovery still passes (20 ms
+    // timeout) but every register read after it times out, each slave
+    // "fails to reach PreOp" and init takes close to a minute with the
+    // window frozen. Re-opening the adapter has cleared it every time, so on
+    // Windows that is tried a few times before carrying on.
+    {
+        const double kSlowReplyUs = 5000.0;
+        for (int attempt = 0; ; ++attempt)
+        {
+            double bestUs  = -1.0;
+            int    bestWkc = 0;
+            for (int probe = 0; probe < 3; ++probe)
+            {
+                uint16_t w = 0;
+                const PlatformRT::Timestamp t0 = PlatformRT::now();
+                const int wkc = ecx_BRD(&ctx->port, 0x0000, 0x0000, sizeof(w), &w, EC_TIMEOUTSAFE);
+                const double us = PlatformRT::elapsedMicros(PlatformRT::now(), t0);
+                if (wkc > 0 && (bestUs < 0.0 || us < bestUs)) { bestUs = us; bestWkc = wkc; }
+            }
+            if (bestWkc > 0 && bestUs <= kSlowReplyUs)
+            {
+                LOG_INFO(strf("EtherCATMaster: First exchange answered in %.0f us (%d slave(s) on the bus).",
+                              bestUs, bestWkc));
+                break;
+            }
+            const std::string what = (bestWkc > 0)
+                ? strf("slow (%.1f ms)", bestUs / 1000.0)
+                : std::string("unanswered within 20 ms");
+#ifdef _WIN32
+            if (attempt < 3)
+            {
+                LOG_WARNING(strf("EtherCATMaster: First exchange %s -- re-opening the adapter (%d/3).",
+                                 what.c_str(), attempt + 1));
+                ecx_close(ctx);
+                m_ecxOpen = false;
+                std::this_thread::sleep_for(std::chrono::milliseconds(250));
+                if (!ecx_init(ctx, m_resolvedAdapterName.c_str()))
+                {
+                    m_lastError = strf("ecx_init() failed re-opening '%s'. Run as Administrator, check Npcap.",
+                                       nicName.c_str());
+                    LOG_ERROR(m_lastError);
+                    return InitResult::fail(InitError::NicNotFound, m_lastError);
+                }
+                m_ecxOpen = true;
+                drainRx();
+                continue;
+            }
+#endif
+            LOG_WARNING(strf("EtherCATMaster: First exchange %s -- carrying on; with drives on the bus "
+                             "expect init to struggle.", what.c_str()));
+            break;
+        }
     }
 
     // Single config_init attempt (no retry -- retry corrupts SOEM state)
@@ -2252,32 +2346,40 @@ InitResult EtherCATMaster::stageOPTransition(ecx_contextt* ctx)
 }
 
 // ============================================================
-// After all slaves confirm OPERATIONAL, pump for
-// m_wkcValidationCycles at 1ms cadence and require at least
-// m_wkcValidationThreshold fraction of cycles to show
-// WKC == m_expectedWKC. This catches the failure mode
-// where drives reach ALState=0x08 but PDO transport is not yet
-// flowing (WKC below expected).
+// After all slaves confirm OPERATIONAL, pump at 1ms cadence until
+// m_wkcValidationCycles * m_wkcValidationThreshold cycles have shown
+// WKC == m_expectedWKC (45 of 50 by default). This catches the failure
+// mode where drives reach ALState=0x08 but PDO transport is not yet
+// flowing (WKC below expected). A reply that does not come in time only
+// spends the window, which is 20x the configured cycle count (1 s by
+// default): a Windows adapter pauses delivery for up to ~0.5 s at a
+// time, and a fixed 50 ms sample with a pause inside it read as "PDO
+// transport not established" on a healthy bus.
 // ============================================================
 InitResult EtherCATMaster::verifyOperationalWKC(ecx_contextt* ctx)
 {
     const int64_t ticksPer1Ms = PlatformRT::periodCounts(1000.0);
     const int cycles = (m_wkcValidationCycles > 0) ? m_wkcValidationCycles : 50;
     const double threshold = m_wkcValidationThreshold;
+    const int needGood  = std::max(1, static_cast<int>(cycles * threshold + 0.999999));
+    const int maxCycles = std::max(cycles, cycles * 20);
+    const PlatformRT::Timestamp t0 = PlatformRT::now();
 
     int goodCycles = 0;
+    int total = 0;
     PlatformRT::Timestamp next = PlatformRT::now();
 
-    for (int i = 0; i < cycles; ++i)
+    while (total < maxCycles && goodCycles < needGood)
     {
         PlatformRT::advancePeriod(next, ticksPer1Ms);
         uint32_t ex = 0;
         int wkc = safeSendReceive(ctx, &ex);
         PlatformRT::waitUntil(next);
+        ++total;
 
         if (ex != 0)
         {
-            LOG_ERROR(strf("verifyOperationalWKC: process data crash at cycle %d (0x%08x)", i + 1, ex));
+            LOG_ERROR(strf("verifyOperationalWKC: process data crash at cycle %d (0x%08x)", total, ex));
             return InitResult::fail(InitError::OPTransitionFailed,
                 "WKC validation: process data crash");
         }
@@ -2286,26 +2388,32 @@ InitResult EtherCATMaster::verifyOperationalWKC(ecx_contextt* ctx)
 
         Logger::instance().logDiag(strf(
             "DIAG | wkc_validate | cycle=%d | wkc=%d | expected=%d | good=%d",
-            i + 1, wkc, m_expectedWKC, goodCycles));
+            total, wkc, m_expectedWKC, goodCycles));
     }
 
-    double fraction = (cycles > 0) ? static_cast<double>(goodCycles) / cycles : 0.0;
+    const bool pass = (goodCycles >= needGood);
+    const double fraction = (total > 0) ? static_cast<double>(goodCycles) / total : 0.0;
     Logger::instance().logDiag(strf(
-        "DIAG | wkc_validate_result | good=%d | total=%d | fraction=%.3f | threshold=%.3f | pass=%d",
-        goodCycles, cycles, fraction, threshold, fraction >= threshold ? 1 : 0));
+        "DIAG | wkc_validate_result | good=%d | total=%d | need=%d | fraction=%.3f | threshold=%.3f | pass=%d",
+        goodCycles, total, needGood, fraction, threshold, pass ? 1 : 0));
 
-    if (fraction < threshold)
+    if (!pass)
     {
         std::string msg = strf(
-            "WKC validation failed: %.0f%% of cycles had WKC=%d, need %.0f%% (expected WKC=%d). "
+            "WKC validation failed: %d of %d cycles had WKC=%d in %.0f ms, need %d (expected WKC=%d). "
             "PDO transport not established.",
-            fraction * 100.0, m_expectedWKC, threshold * 100.0, m_expectedWKC);
+            goodCycles, total, m_expectedWKC,
+            PlatformRT::elapsedMicros(PlatformRT::now(), t0) / 1000.0, needGood, m_expectedWKC);
         LOG_ERROR("EtherCATMaster: " + msg);
         return InitResult::fail(InitError::OPTransitionFailed, msg);
     }
 
-    LOG_INFO(strf("EtherCATMaster: WKC validation passed (%.0f%% good, %d/%d cycles, WKC=%d).",
-        fraction * 100.0, goodCycles, cycles, m_expectedWKC));
+    if (total > goodCycles)
+        LOG_INFO(strf("EtherCATMaster: WKC validation passed (%d good of %d cycles, %d late, WKC=%d).",
+            goodCycles, total, total - goodCycles, m_expectedWKC));
+    else
+        LOG_INFO(strf("EtherCATMaster: WKC validation passed (%.0f%% good, %d/%d cycles, WKC=%d).",
+            fraction * 100.0, goodCycles, total, m_expectedWKC));
     return InitResult::success();
 }
 
@@ -3275,7 +3383,7 @@ int EtherCATMaster::sendReceive()
     if (wkc != m_expectedWKC)
     {
         static int errCount = 0;
-        if (++errCount % 1000 == 1)
+        if (++errCount % 10000 == 1)
             LOG_WARNING(strf("WKC mismatch: expected %d got %d (count:%d)", m_expectedWKC, wkc, errCount));
         return -1;
     }
