@@ -11,8 +11,13 @@ middle number carries breaking changes and the last carries fixes.
   with nothing to set up (wheel speeds, tyre loads, suspension travel, each
   tyre's slide, the surface under it, punctures, tyre wear, the rain and
   how wet the track is, the pit flag), so the slip, Road, Kerb, Surface
-  and Wheels tiles play from it. Its cars run on the tiles' defaults until
-  they get car table entries.
+  and Wheels tiles play from it.
+- The car table covers four more games: Assetto Corsa Competizione (54
+  cars), Assetto Corsa EVO (71), Assetto Corsa Rally (18) and Le Mans
+  Ultimate (36). Each car has its engine, limiter, driveline, ABS and TC
+  as a starting point from the real car and its class, so with **follow
+  car** on the tiles change as you change cars. Hover the car row on the
+  Haptics strip to see the exact name and id the game sends.
 - A support bundle for problem reports: double-click `support-bundle.cmd`
   in the Windows folder, or run `os-setup/support-bundle.sh` on the Pi. It
   puts the logs, your settings files and a short system summary (on the Pi

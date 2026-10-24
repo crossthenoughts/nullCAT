@@ -572,10 +572,10 @@ private slots:
     }
 
     // Each title files its cars under its own prefix (the shipped table's
-    // games list): Competizione and Le Mans Ultimate have theirs; EVO and
-    // Rally stay apart from AC until each gets its own (they only ride on
-    // AC's support today). An entry saved for a Competizione car before its
-    // prefix existed is still found.
+    // games list): Competizione, Le Mans Ultimate, EVO and Rally each have
+    // theirs, apart from AC's (EVO shares some content ids with AC). A car of
+    // each is found by its id and by the name the game shows. An entry saved
+    // for a Competizione car before its prefix existed is still found.
     void shippedTable_eachTitleItsOwnPrefix()
     {
         const QString path = QString(NULLCAT_SOURCE_DIR) + "/resources/cars.json";
@@ -586,8 +586,16 @@ private slots:
         QCOMPARE(t.keyFor("LMU", "x"), std::string("lmu:x"));
         QCOMPARE(t.keyFor("Le Mans Ultimate", "x"), std::string("lmu:x"));
         QCOMPARE(t.keyFor("AssettoCorsa", "x"), std::string("ac:x"));
-        QCOMPARE(t.keyFor("AssettoCorsaEVO", "x"), std::string("assettocorsaevo:x"));
-        QCOMPARE(t.keyFor("AssettoCorsaRally", "x"), std::string("assettocorsarally:x"));
+        QCOMPARE(t.keyFor("AssettoCorsaEVO", "x"), std::string("acevo:x"));
+        QCOMPARE(t.keyFor("Assetto Corsa EVO", "x"), std::string("acevo:x"));
+        QCOMPARE(t.keyFor("AssettoCorsaRally", "x"), std::string("acr:x"));
+        QCOMPARE(t.keyFor("Assetto Corsa Rally", "x"), std::string("acr:x"));
+        QCOMPARE(t.find("AssettoCorsaCompetizione", "porsche_991ii_gt3_r").key, std::string("acc:porsche_991ii_gt3_r"));
+        QCOMPARE(t.find("LMU", "Ferrari_499P_2023").key, std::string("lmu:Ferrari_499P_2023"));
+        QCOMPARE(t.find("LMU", "Ferrari 499P").key, std::string("lmu:Ferrari_499P_2023"));
+        QCOMPARE(t.find("AssettoCorsaRally", "Lancia Delta Integrale Evo").key, std::string("acr:Lancia Delta Integrale Evo"));
+        QCOMPARE(t.find("AssettoCorsaEVO", "ks_ferrari_f2004").key, std::string("acevo:ks_ferrari_f2004"));
+        QCOMPARE(t.find("AssettoCorsa", "ks_ferrari_f2004").key, std::string("ac:ks_ferrari_f2004"));   // AC's own, not EVO's
         CarTable u;
         QJsonObject mine; mine["name"] = "Porsche 992 GT3 R"; mine["notes"] = "mine";
         u.putUser("assettocorsacompetizione:Porsche 992 GT3 R", mine);
@@ -600,7 +608,7 @@ private slots:
         const QString path = QString(NULLCAT_SOURCE_DIR) + "/resources/cars.json";
         CarTable t;
         QVERIFY2(t.loadStock(path.toStdString()), "resources/cars.json missing or unreadable");
-        QVERIFY2(t.stockCount() >= 450, "the shipped table lost cars");
+        QVERIFY2(t.stockCount() >= 640, "the shipped table lost cars");
         QCOMPARE(t.find("AssettoCorsa", "ks_mazda_787b").source, std::string("stock"));
         QCOMPARE(t.find("Automobilista2", "Lotus 98T").source, std::string("stock"));
         QCOMPARE(t.find("Automobilista2", "McLaren MP4/4").source, std::string("stock"));
@@ -654,7 +662,9 @@ private slots:
         // applied over a fresh one-axis rig validates clean, so the table
         // can never put a value the strip refuses into a rig.
         QFile f(path); QVERIFY(f.open(QIODevice::ReadOnly));
-        const QJsonObject cars = QJsonDocument::fromJson(f.readAll()).object().value("cars").toObject();
+        const QJsonObject root = QJsonDocument::fromJson(f.readAll()).object();
+        const QJsonObject cars = root.value("cars").toObject();
+        const QStringList games = root.value("games").toObject().keys();   // every entry under a declared game
         const std::pair<const char*, const char*> sections[] = {
             { "engine", haptics::effectInfo(haptics::Effect::Engine).key }, { "limiter", "limiter" },
             { "driveline", "driveline" }, { "abs", "abs" }, { "tc", "tc" } };
@@ -677,7 +687,7 @@ private slots:
                              qPrintable(it.key() + ": " + section + "." + kt.key() + " is not a car-owned key"));
             }
             QVERIFY2(e.value("notes").isString() && !e.value("notes").toString().isEmpty(), qPrintable(it.key() + ": notes"));
-            QVERIFY2(it.key().startsWith("ac:") || it.key().startsWith("ams2:"), qPrintable(it.key()));
+            QVERIFY2(games.contains(it.key().section(':', 0, 0)), qPrintable(it.key() + ": not under a game the table declares"));
             const std::string key = it.key().toStdString();
             const size_t colon = key.find(':');
             const std::string nk = key.substr(0, colon) + ":" + CarTable::normalise(key.substr(colon + 1));
