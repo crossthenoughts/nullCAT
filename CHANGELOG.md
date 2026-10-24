@@ -51,6 +51,9 @@ middle number carries breaking changes and the last carries fixes.
   only some drives had worked on used to read the same as no reply at all,
   so the whole seat pass was skipped and the verticals dropped when de-init
   de-energised them.
+- Windows: stopping or re-opening the bus while the network driver was
+  stuck on a frame could crash nullCAT. That frame is now left to finish
+  on its own.
 
 ## [0.9.8] - 2026-10-23
 
