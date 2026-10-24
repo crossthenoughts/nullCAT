@@ -18,6 +18,7 @@
 #include "A6FaultCodes.h"
 #include "Logging.h"
 #include "DcPhaseLock.h"
+#include "SeatPreflight.h"
 
 #ifdef SOEM_AVAILABLE
 extern "C" {
@@ -52,11 +53,12 @@ static constexpr double SEAT_DWELL_SEC = 1.0;
 // A late reply only costs time: a Windows adapter pauses delivery for up to
 // ~0.5 s at a time (2026-10-22), and a fixed 20-cycle probe landed inside one
 // (10 dead of 20) and skipped the seat on a healthy bus, dropping the rig.
-// Reached = seat normally; window spent with partial frames outnumbering
-// dead ones = seat only slaves confirmed in OP; otherwise skip the seat
-// entirely (the drives' own 100ms watchdog has already de-energized them on
-// a dead bus). Mid-phase: SEAT_ABORT_SEC of consecutive bad WKC aborts all
-// remaining seat phases -- a seat pass on a dead bus otherwise runs blind on
+// Reached = seat normally; at least SEAT_PROBE_MIN_GOOD partial frames in the
+// window = seat only the vertical axes whose slave reads OP, the seat phases
+// then holding frames to the partial level (SeatPreflight.h); otherwise skip
+// the seat entirely (the drives' own 100ms watchdog has already de-energized
+// them on a dead bus). Mid-phase: SEAT_ABORT_SEC of consecutive bad frames
+// aborts all remaining seat phases -- a seat pass on a dead bus otherwise runs blind on
 // frozen PDO data; 2 s clears the longest adapter pause seen by a wide margin.
 static constexpr int    SEAT_PROBE_MIN_GOOD = 18;
 static constexpr double SEAT_PROBE_MAX_SEC  = 1.0;
@@ -266,25 +268,28 @@ void ControlLoopWorker::run()
         // then de-energizes axes that never reached the stop. Late replies
         // (the Windows adapter's delivery pauses) only spend the window.
         bool seatSkipped = false;
+        int  seatWkcFloor = 0;   // a partial seat: the least work a frame may carry (see seatFrameOk)
         bool seatable[MAX_DRIVES];
         const bool* seatMask = nullptr;
         for (int i = 0; i < MAX_DRIVES; ++i) seatable[i] = true;
         if (m_master && !m_master->isSimulation())
         {
-            int good = 0, part = 0, dead = 0, probes = 0;
+            SeatTally tally;
             const int expWkc = m_master->getExpectedWKC();
             const PlatformRT::Timestamp probeStart = PlatformRT::now();
             const int maxProbes = std::max(SEAT_PROBE_MIN_GOOD,
                 static_cast<int>(m_config.controlLoopHz * SEAT_PROBE_MAX_SEC));
-            while (probes < maxProbes && good < SEAT_PROBE_MIN_GOOD)
+            while (tally.probes < maxProbes && tally.good < SEAT_PROBE_MIN_GOOD)
             {
                 PlatformRT::waitUntil(nextCycleTime);
                 PlatformRT::advancePeriod(nextCycleTime, cycleCountsTarget);
-                int wkc = m_master->sendReceive();
+                // Classified on the raw working counter: sendReceive()
+                // returns -1 for any mismatch, so a partial bus read as dead.
+                m_master->sendReceive();
                 m_master->processCyclicMailbox(1);
-                ++probes;
-                if (wkc == expWkc) ++good; else if (wkc > 0) ++part; else ++dead;
+                tally.add(m_master->lastRawWkc(), expWkc);
             }
+            const int good = tally.good, part = tally.partial, dead = tally.dead, probes = tally.probes;
             // When the check fails, what each slave says about itself, in one
             // line: NONE (no answer) means the ring is broken there; SAFE-OP
             // with a status code means the drive left OP and says why
@@ -304,30 +309,51 @@ void ControlLoopWorker::run()
                 }
                 return s.empty() ? std::string("no slave answered the state read") : s;
             };
-            if (good >= SEAT_PROBE_MIN_GOOD)
+            const SeatPlan plan = seatPlanFor(good, part, SEAT_PROBE_MIN_GOOD);
+            if (plan == SeatPlan::Seat)
             {
                 // Healthy bus. Say how long it took when replies were late.
                 if (dead + part > 0)
                     RT_LOG_INFO("ControlLoop: Deinit seat pre-flight: %d good replies in %d cycles"
                         " (%d late, %d partial) -- seating.", good, probes, dead, part);
             }
-            else if (part > dead)
+            else if (plan == SeatPlan::Partial)
             {
                 // Partial bus (frames return, some slaves missing): seat only
                 // axes whose slave reads OPERATIONAL. 0x08 = EC_STATE_OPERATIONAL
                 // (SOEM headers are not visible in this TU by design).
                 uint16_t st[MAX_DRIVES] = {};
                 int n = m_master->probeSlaveALStates(st, MAX_DRIVES);
+                bool anySeat = false;   // a vertical axis that can be seated
                 for (int i = 0; i < numDrives && i < MAX_DRIVES; ++i)
                 {
                     int slaveIdx = driveCache[i] ? driveCache[i]->getSlaveIndex() : (i + 1);
                     seatable[i] = (slaveIdx >= 1 && slaveIdx <= n) && (st[slaveIdx - 1] == 0x08);
+                    if (seatable[i] && driveCache[i] && !driveCache[i]->isFault()
+                        && i < static_cast<int>(m_config.drives.size())
+                        && axisCaps(m_config.drives[i].axisType, m_config.drives[i].mode).seatable)
+                        anySeat = true;
                 }
-                seatMask = seatable;
-                RT_LOG_WARNING("ControlLoop: Deinit seat on a PARTIAL bus (good=%d partial=%d"
-                    " dead=%d of %d) -- seating reachable axes only.",
-                    good, part, dead, probes);
-                RT_LOG_WARNING("ControlLoop: Deinit seat bus check: %s", describeBus().c_str());
+                if (anySeat)
+                {
+                    seatMask = seatable;
+                    seatWkcFloor = tally.partialFloor(expWkc);
+                    RT_LOG_WARNING("ControlLoop: Deinit seat on a PARTIAL bus (good=%d partial=%d"
+                        " dead=%d of %d) -- seating reachable axes only.",
+                        good, part, dead, probes);
+                    RT_LOG_WARNING("ControlLoop: Deinit seat bus check: %s", describeBus().c_str());
+                }
+                else
+                {
+                    // Frames come back, but no vertical axis's drive is in OP
+                    // (every drive out of OP reads like a partial bus too).
+                    seatSkipped = true;
+                    RT_LOG_ERROR("ControlLoop: Deinit seat SKIPPED -- no vertical axis is reachable in OP"
+                        " (good=%d partial=%d dead=%d of %d). Axes were NOT seated;"
+                        " check drive power / bus cabling. De-init continues.",
+                        good, part, dead, probes);
+                    RT_LOG_ERROR("ControlLoop: Deinit seat bus check: %s", describeBus().c_str());
+                }
             }
             else
             {
@@ -376,9 +402,9 @@ void ControlLoopWorker::run()
             m_motion->stepSeatHoming(driveCache, numDrives);   // homing search/hold, raw + FE-capped
             if (m_master)
             {
-                int wkc = m_master->sendReceive();
+                m_master->sendReceive();
                 m_master->processCyclicMailbox(1);   // keep the cyclic mailbox serviced (≤1 op/cycle)
-                if (m_master->isSimulation() || wkc == m_master->getExpectedWKC())
+                if (m_master->isSimulation() || seatFrameOk(m_master->lastRawWkc(), m_master->getExpectedWKC(), seatWkcFloor))
                     busLostConsec = 0;
                 else if (++busLostConsec >= seatAbortConsecBad)
                 {
@@ -418,9 +444,9 @@ void ControlLoopWorker::run()
             m_motion->stepSeatRelief(driveCache, numDrives);   // ease off one step + torque watch
             if (m_master)
             {
-                int wkc = m_master->sendReceive();
+                m_master->sendReceive();
                 m_master->processCyclicMailbox(1);
-                if (m_master->isSimulation() || wkc == m_master->getExpectedWKC())
+                if (m_master->isSimulation() || seatFrameOk(m_master->lastRawWkc(), m_master->getExpectedWKC(), seatWkcFloor))
                     busLostConsec = 0;
                 else if (++busLostConsec >= seatAbortConsecBad)
                 {
@@ -447,9 +473,9 @@ void ControlLoopWorker::run()
             PlatformRT::advancePeriod(nextCycleTime, cycleCountsTarget);
             if (m_master)
             {
-                int wkc = m_master->sendReceive();
+                m_master->sendReceive();
                 m_master->processCyclicMailbox(1);
-                if (m_master->isSimulation() || wkc == m_master->getExpectedWKC())
+                if (m_master->isSimulation() || seatFrameOk(m_master->lastRawWkc(), m_master->getExpectedWKC(), seatWkcFloor))
                     busLostConsec = 0;
                 else if (++busLostConsec >= seatAbortConsecBad)
                 {

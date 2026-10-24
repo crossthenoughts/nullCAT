@@ -23,6 +23,11 @@ middle number carries breaking changes and the last carries fixes.
   keep your settings in `%LOCALAPPDATA%\nullCAT\NullcatChannelExporter.json`:
   the plugin reads it first and SimHub updates never touch it. SimHub's
   log names the file it used.
+- De-init on a rig with a drive switched off (or out of operation): the
+  seat pass now presses down the vertical axes it can still reach. A frame
+  only some drives had worked on used to read the same as no reply at all,
+  so the whole seat pass was skipped and the verticals dropped when de-init
+  de-energised them.
 
 ## [0.9.8] - 2026-10-23
 

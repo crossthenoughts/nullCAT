@@ -17,6 +17,7 @@
 #include "HomingSequence.h"
 #include "MockA6Drive.h"
 #include "Config.h"
+#include "SeatPreflight.h"
 
 #include <cstdio>
 #include <vector>
@@ -172,6 +173,57 @@ int main()
         check(sMin < 0.1,  "seated seat pressed to the REAL stop before de-energize");
         check(!s35.actuals.empty() && s35.actuals.back() < 0.05,
               "seated seat holds ON the stop (rig cannot drop on de-energize)");
+    }
+
+    // ---- The de-init seat pass's bus check, one frame at a time: a frame
+    // every slave worked on is good, one only some worked on is partial (the
+    // pass seats the axes still in OP), no reply is dead. The pass used to
+    // read every mismatch as dead and skipped the whole seat on a rig with
+    // one drive off. ----
+    {
+        check(classifySeatProbe(18, 18) == SeatProbe::Good,    "seat probe: the expected working counter is a good frame");
+        check(classifySeatProbe(6, 18)  == SeatProbe::Partial, "seat probe: some slaves worked on it = partial, not dead");
+        check(classifySeatProbe(17, 18) == SeatProbe::Partial, "seat probe: one slave short = partial");
+        check(classifySeatProbe(19, 18) == SeatProbe::Partial, "seat probe: more than expected is not a clean frame");
+        check(classifySeatProbe(0, 18)  == SeatProbe::Dead,    "seat probe: a reply no slave worked on = dead");
+        check(classifySeatProbe(-1, 18) == SeatProbe::Dead,    "seat probe: no reply = dead");
+        check(classifySeatProbe(0, 0)   == SeatProbe::Dead,    "seat probe: nothing expected, nothing back = dead, never good");
+
+        // The verdict from the window's counts (18 is the shipped target).
+        check(seatPlanFor(18, 0, 18)   == SeatPlan::Seat,    "seat plan: 18 good frames seat normally");
+        check(seatPlanFor(0, 500, 18)  == SeatPlan::Partial, "seat plan: a window of partial frames seats the reachable axes");
+        check(seatPlanFor(0, 240, 18)  == SeatPlan::Partial, "seat plan: half the window lost to a delivery pause is still partial");
+        check(seatPlanFor(0, 10, 18)   == SeatPlan::Skip,    "seat plan: a few partial frames are not a partial bus");
+        check(seatPlanFor(17, 0, 18)   == SeatPlan::Skip,    "seat plan: one good frame short of 18 with nothing else skips");
+
+        // During the press, relief and dwell.
+        check(seatFrameOk(18, 18, 0),   "seat frame: a healthy bus wants every slave");
+        check(!seatFrameOk(6, 18, 0),   "seat frame: a healthy bus losing slaves is a bad frame");
+        check(!seatFrameOk(-1, 18, 0),  "seat frame: no reply is a bad frame");
+        check(seatFrameOk(6, 18, 6),    "seat frame: a partial bus as the pre-flight found it is fine (no abort while seating)");
+        check(seatFrameOk(9, 18, 6),    "seat frame: a partial bus with a slave back is fine");
+        check(!seatFrameOk(3, 18, 6),   "seat frame: a partial bus getting worse is a bad frame");
+        check(!seatFrameOk(-1, 18, 6),  "seat frame: no reply on a partial bus is a bad frame");
+        check(!seatFrameOk(19, 18, 0),  "seat frame: more than expected on a healthy bus is not a clean frame");
+
+        // Verdict boundaries: Seat wins, 18 partial is enough, the two counts never add up.
+        check(seatPlanFor(18, 500, 18) == SeatPlan::Seat,    "seat plan: 18 good frames seat normally whatever else came");
+        check(seatPlanFor(0, 18, 18)   == SeatPlan::Partial, "seat plan: exactly 18 partial frames is a partial bus");
+        check(seatPlanFor(10, 10, 18)  == SeatPlan::Skip,    "seat plan: good and partial frames are not summed");
+
+        // The tally and the floor a partial seat is held to.
+        {
+            SeatTally t;
+            t.add(18, 18); t.add(-1, 18); t.add(9, 18); t.add(6, 18); t.add(9, 18);
+            check(t.good == 1 && t.dead == 1 && t.partial == 3 && t.probes == 5, "seat tally: counts every probe once by kind");
+            check(t.partialFloor(18) == 9, "seat tally: the floor is the latest partial level, not an earlier glitch");
+            SeatTally none;
+            none.add(18, 18); none.add(-1, 18);
+            check(none.partialFloor(18) == 0, "seat tally: no partial frame, no floor (a healthy-bus seat)");
+            SeatTally high;
+            high.add(19, 18);
+            check(high.partialFloor(18) == 18, "seat tally: the floor never sits above a full frame");
+        }
     }
 
     std::printf("\n==== %d passed, %d failed ====\n", g_pass, g_fail);

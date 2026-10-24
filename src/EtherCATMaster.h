@@ -130,6 +130,10 @@ public:
     }
 
     int  getExpectedWKC()  const { return m_expectedWKC; }
+    // The last sendReceive()'s raw working counter, -1 when no reply came
+    // (sendReceive() itself returns -1 for any mismatch). Written and read
+    // on the thread that owns the exchange (the RT loop).
+    int  lastRawWkc()      const { return m_lastRawWkc; }
     bool hasPumpCrashed()  const { return m_pumpCrashed.load(); }
 
     // Test-only wrappers - expose drainElistImpl.
@@ -277,6 +281,7 @@ private:
     std::atomic<int64_t> m_dcPhaseNs{0};   // DC reference phase within cycle (ns), passive diagnostic
     std::string      m_lastError;
     int     m_expectedWKC = 0;
+    int     m_lastRawWkc  = -1;   // see lastRawWkc(); RT thread only
 
     void* m_ctx = nullptr;
 

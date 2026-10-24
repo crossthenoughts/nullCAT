@@ -3330,8 +3330,9 @@ void EtherCATMaster::shutdown()
 
 int EtherCATMaster::sendReceive()
 {
+    m_lastRawWkc = -1;
     if (!m_initialized) return -1;
-    if (m_simulationMode) return m_expectedWKC;
+    if (m_simulationMode) { m_lastRawWkc = m_expectedWKC; return m_expectedWKC; }
 
     ecx_contextt* ctx = ctxPtr(m_ctx);
     uint32_t ex = 0;
@@ -3341,6 +3342,7 @@ int EtherCATMaster::sendReceive()
         std::lock_guard<std::mutex> lk(m_soemAccessMutex);
         wkc = safeSendReceive(ctx, &ex);
     }
+    if (ex == 0) m_lastRawWkc = wkc;
 
     if (ex != 0)
     {
