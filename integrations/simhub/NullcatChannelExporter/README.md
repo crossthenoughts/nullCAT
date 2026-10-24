@@ -55,10 +55,21 @@ location, pass `-p:SimHubPath="D:\SimHub"`.
 
 ## Point it at your controller
 
-The settings live in `NullcatChannelExporter.json` next to the DLL (the
-release copies come preset, see above; a built copy starts at
-`127.0.0.1`). It is annotated: every `_help...` line explains the setting
-below it and is ignored by the plugin. The two settings everyone needs:
+The settings live in `NullcatChannelExporter.json`. When SimHub starts,
+the plugin looks for it in three places and reads the first it finds:
+
+1. `%LOCALAPPDATA%\nullCAT\NullcatChannelExporter.json` (paste
+   `%LOCALAPPDATA%` into Explorer's address bar and make a `nullCAT`
+   folder there). The best place for your own settings: any editor can
+   save there, and SimHub updates never touch it.
+2. The copy Windows keeps when you edit the file next to the DLL without
+   administrator rights (see below).
+3. `NullcatChannelExporter.json` next to the DLL, where a release puts it
+   (the release copies come preset, see above; a built copy starts at
+   `127.0.0.1`).
+
+It is annotated: every `_help...` line explains the setting below it and
+is ignored by the plugin. The two settings everyone needs:
 
 ```json
 "host": "192.168.1.50",
@@ -69,16 +80,23 @@ below it and is ignored by the plugin. The two settings everyone needs:
 telemetry (nullCAT tells the streams apart by their headers). Without
 the file the plugin sends to `127.0.0.1:4444`.
 
-Editing the file where it sits: SimHub lives under `Program Files`, and
+Editing the file next to the DLL: SimHub lives under `Program Files`, and
 Windows quietly saves a file you edit there with an ordinary editor into
-a private copy (`%LOCALAPPDATA%\VirtualStore\Program Files (x86)\SimHub`)
-that SimHub never reads, so your change seems to vanish. Edit the file
-somewhere else and copy it into the SimHub folder, or run the editor as
-administrator. To check what the plugin actually read, look in SimHub's
-log (`Logs\SimHub.txt` in the SimHub folder) for the line
-`nullCAT Channel Exporter: sending to ...`, which names the address and
-the settings file, or find `NullcatChannelExporter.Target` under
-Settings, Properties.
+a private copy, for the usual install
+`%LOCALAPPDATA%\VirtualStore\Program Files (x86)\SimHub\NullcatChannelExporter.json`.
+The plugin reads that copy too, so the edit counts, but the
+`%LOCALAPPDATA%\nullCAT` folder is the simpler place to keep your
+settings.
+
+The first file found wins, so a copy in an earlier place hides the ones
+after it: an old VirtualStore copy left from an edit long ago would stop
+a newer file next to the DLL from counting. Delete the copy you do not
+want. To check what the plugin actually read, look in SimHub's log
+(`Logs\SimHub.txt` in the SimHub folder) for the line
+`nullCAT Channel Exporter: sending to ...`. It names the address and the
+settings file it used, any other copies it found but did not read (or
+every place it looked, when it found none). Or find
+`NullcatChannelExporter.Target` under Settings, Properties.
 
 ## What is sent without any setup
 

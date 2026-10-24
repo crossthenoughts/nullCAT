@@ -10,6 +10,12 @@ middle number carries breaking changes and the last carries fixes.
 - Automobilista 2: the Super Trophy Truck now finds its car table entry.
   The game names it "Super Trophy Trucks" and the entry was singular, so
   the truck ran on the defaults until you picked it from the list.
+- SimHub plugin: a settings file edited in place in the SimHub folder no
+  longer seems to vanish. Windows saves such an edit into a private copy
+  the plugin used to ignore; it now reads that copy too. Simpler still,
+  keep your settings in `%LOCALAPPDATA%\nullCAT\NullcatChannelExporter.json`:
+  the plugin reads it first and SimHub updates never touch it. SimHub's
+  log names the file it used.
 
 ## [0.9.8] - 2026-10-23
 

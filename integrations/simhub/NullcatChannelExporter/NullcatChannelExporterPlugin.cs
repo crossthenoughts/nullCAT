@@ -23,7 +23,9 @@
 // when it binds all four wheels. A group that is not in force is simply
 // absent (never a row of zeros a receiver could mistake for "no slip").
 //
-// Configuration: NullcatChannelExporter.json next to this DLL,
+// Configuration: NullcatChannelExporter.json, read once at start from the
+// first of %LOCALAPPDATA%\nullCAT\, the VirtualStore copy of the file
+// beside this DLL, and the file beside this DLL (see SettingsCandidates),
 //   { "host": "192.168.1.50", "port": 4444,
 //     "skidProp": "", "lockupProp": "", "roadProp": "", "curbsProp": "",
 //     "slipAngleFLProp": "", ... "slipAngleRRProp": "", "slipAngleScale": 1,
@@ -126,20 +128,60 @@ namespace NullcatChannelExporter
 
         private DateTime _lastIdentity = DateTime.MinValue;
 
+        // Where the settings file is read from; the first that exists wins.
+        // SimHub sits under Program Files, where an editor's save without
+        // administrator rights is quietly redirected by Windows into a
+        // VirtualStore copy the plugin used to ignore, so an edit seemed to
+        // vanish. 1: a user-writable folder that SimHub updates never touch;
+        // 2: that VirtualStore copy of the file beside the DLL; 3: the file
+        // beside the DLL, where a release puts it.
+        private static string[] SettingsCandidates(string dllDir)
+        {
+            const string name = "NullcatChannelExporter.json";
+            var list = new System.Collections.Generic.List<string>();
+            var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (!string.IsNullOrEmpty(local))
+            {
+                list.Add(Path.Combine(local, "nullCAT", name));
+                if (!string.IsNullOrEmpty(dllDir))
+                {
+                    // Windows keeps VirtualStore copies for the system drive's
+                    // protected folders only (a UNC root has no trailing slash,
+                    // so the rest would read as rooted and escape the folder).
+                    var root    = Path.GetPathRoot(dllDir) ?? "";
+                    var sysRoot = Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.Windows)) ?? "";
+                    if (root.Length > 0 && dllDir.Length > root.Length
+                        && string.Equals(root, sysRoot, StringComparison.OrdinalIgnoreCase))
+                        list.Add(Path.Combine(local, "VirtualStore", dllDir.Substring(root.Length).TrimStart('\\', '/'), name));
+                }
+            }
+            list.Add(Path.Combine(dllDir ?? ".", name));
+            return list.ToArray();
+        }
+
         public void Init(PluginManager pluginManager)
         {
             _pm = pluginManager;
             var host = "127.0.0.1";
             var port = 4444;
-            var settingsNote = "no NullcatChannelExporter.json beside the DLL, defaults";
+            var settingsNote = "no NullcatChannelExporter.json found, defaults";
             for (var g = 0; g < Groups.Length; g++) { _fileProps[g] = new string[4]; _groupProps[g] = new string[4]; }
             try
             {
                 var dir  = Path.GetDirectoryName(typeof(NullcatChannelExporterPlugin).Assembly.Location);
-                var path = Path.Combine(dir ?? ".", "NullcatChannelExporter.json");
-                if (File.Exists(path))
+                var candidates = SettingsCandidates(dir);
+                string path = null;
+                foreach (var c in candidates) if (File.Exists(c)) { path = c; break; }
+                if (path == null)
+                    settingsNote = "no NullcatChannelExporter.json found (looked in " + string.Join(", ", candidates) + "), defaults";
+                else
                 {
                     settingsNote = "settings from " + path;
+                    // A copy found earlier hides the later ones: say which, so
+                    // a stale copy in the way is easy to spot and delete.
+                    var skipped = new System.Collections.Generic.List<string>();
+                    foreach (var c in candidates) if (c != path && File.Exists(c)) skipped.Add(c);
+                    if (skipped.Count > 0) settingsNote += " (also present, not read: " + string.Join(", ", skipped) + ")";
                     // Tiny hand parser: known keys only, no JSON library needed.
                     var text = File.ReadAllText(path);
                     var h = ExtractString(text, "host");
