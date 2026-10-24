@@ -1554,8 +1554,11 @@ function hapCarRow(c){
   const now=$('hapCarNow');
   if(now){
     now.textContent=hapCarText(c);
-    now.title=(c&&c.defaults)?'The car table has no entry for '+c.car+', so follow car put the engine, limiter, driveline, ABS and TC on their defaults (the pink settings) rather than keep the last car\'s. Pick a car like it in the preset box and apply it, or tune them and save for this car.'
-      :(c&&c.near)?'No entry under this exact name: the table\'s '+(c.name||c.key)+' is the nearest (the name the sim gives starts with it). Save for this car to file your own under the sim\'s name.':'';
+    // What the sim sent, exactly (the name and the id), and the entry it
+    // matched: what a car table entry must be keyed by.
+    const sent=(c&&c.car)?'\nThe sim sends: "'+c.car+'"'+(c.carId?', id "'+c.carId+'"':'')+(c.game?' ('+c.game+')':'')+(c.key?'; matched '+c.key:'; no entry matches'):'';
+    now.title=(((c&&c.defaults)?'The car table has no entry for '+c.car+', so follow car put the engine, limiter, driveline, ABS and TC on their defaults (the pink settings) rather than keep the last car\'s. Pick a car like it in the preset box and apply it, or tune them and save for this car.'
+      :(c&&c.near)?'No entry under this exact name: the table\'s '+(c.name||c.key)+' is the nearest (the name the sim gives starts with it). Save for this car to file your own under the sim\'s name.':'')+sent).trim();
   }
   // Forget drops yours for THIS car: a near match is another car's entry.
   const fb=$('hapCarForget'); if(fb) fb.disabled=!(c&&c.source==='user'&&!c.near);
