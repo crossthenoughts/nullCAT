@@ -70,8 +70,12 @@ speed, gear, clutch, throttle, and the haptic channels below) to the
 same port as motion telemetry:
 
 - **SimHub:** install the nullCAT Channel Exporter plugin from
-  `integrations/simhub/` in the repository. It sends all 13 channels;
-  see its README for the settings file.
+  `integrations/simhub/` in the repository. It sends the channels it can
+  read from the running game, out of the protocol's 75 (protocol 1.8;
+  the list grows as titles are added, see `Docs/PROTOCOL.md`). The
+  per-wheel ones are built in for Assetto Corsa, Competizione, EVO, Rally
+  and Automobilista 2; other games need a property bound in its settings
+  file (see its README).
 - **FlyPT Mover / other tools:** any tool that can compose a text UDP
   line from telemetry fields works. Send
   `NULLCATX,<rpm>,<speedKmh>,<gear>,<clutchPct>,<throttlePct>` at
@@ -79,12 +83,14 @@ same port as motion telemetry:
   haptic channels in the order given in `Docs/PROTOCOL.md` if your
   tool can supply them.
 
-**The bindings.** The rig already knows which channel means what: the
-default bindings match the SimHub plugin's order. Change them only if
+**The bindings.** Only a sender that uses the numbered `NULLCATX` line
+alone needs them (FlyPT Mover and the like): the SimHub plugin also sends
+every channel by name, so there is nothing to bind for it. The default
+bindings follow the order in `Docs/PROTOCOL.md`; change them only if
 your sender uses a different order, in the Sim channels section at the
 bottom of the web Setup view (folded until you open it; it has a Reset
-to defaults button). The Devices section
-shows whether the stream is being received.
+to defaults button). The Devices section shows whether the stream is
+being received.
 
 **The effects.** On a shifter with detents configured:
 

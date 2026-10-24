@@ -2,7 +2,7 @@
 
 Sends raw sim telemetry to nullCAT for the force-device effects (shifter,
 active pedal) and the haptic effect layer. Up to three UDP lines per tick,
-nothing else (wire protocol 1.7, see `Docs/PROTOCOL.md` in the nullCAT
+nothing else (wire protocol 1.8, see `Docs/PROTOCOL.md` in the nullCAT
 repo):
 
     NULLCATX,<rpm>,<speedKmh>,<gear>,<clutchPct>,<throttlePct>,
