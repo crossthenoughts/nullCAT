@@ -73,9 +73,9 @@ same port as motion telemetry:
   `integrations/simhub/` in the repository. It sends the channels it can
   read from the running game, out of the protocol's 81 (protocol 1.9;
   the list grows as titles are added, see `Docs/PROTOCOL.md`). The
-  per-wheel ones are built in for Assetto Corsa, Competizione, EVO, Rally
-  and Automobilista 2; other games need a property bound in its settings
-  file (see its README).
+  per-wheel ones are built in for Assetto Corsa, Competizione, EVO, Rally,
+  Automobilista 2 and Le Mans Ultimate; other games need a property bound
+  in its settings file (see its README).
 - **FlyPT Mover / other tools:** any tool that can compose a text UDP
   line from telemetry fields works. Send
   `NULLCATX,<rpm>,<speedKmh>,<gear>,<clutchPct>,<throttlePct>` at
@@ -432,11 +432,12 @@ effect silent.
 
 With the SimHub plugin, rpm, speed, gear, clutch, throttle, brake, ABS,
 limiter and traction control arrive automatically, and for Assetto
-Corsa, Competizione, EVO, Rally and Automobilista 2 so do the per-wheel
-channels: the plugin knows which raw fields each of those sims exposes
-and sends them by itself, so the tiles have their input with nothing to
-set up. Kerb works by itself in Automobilista 2 (the surface under each
-tyre), Competizione and EVO (the game's own kerb channel); in Assetto
+Corsa, Competizione, EVO, Rally, Automobilista 2 and Le Mans Ultimate so
+do the per-wheel channels: the plugin knows which raw fields each of
+those sims exposes and sends them by itself, so the tiles have their
+input with nothing to set up. Kerb works by itself in Automobilista 2 and
+Le Mans Ultimate (the surface under each tyre), Competizione and EVO (the
+game's own kerb channel); in Assetto
 Corsa set its **detect mm** (below). For another sim the per-wheel
 channels, road and kerbs need SimHub properties named in the plugin's
 settings file (see the plugin README). Any other motion software that can send a text line
@@ -449,8 +450,8 @@ texture rather than a tone.
 A tyre in the air goes quiet: no road, surface, kerb or slip through
 that corner, and nothing from the Wheels tile, until it lands. nullCAT
 knows a tyre is in the air when the sim says so (Automobilista 2) or when
-it carries next to none of its usual load (Assetto Corsa, Competizione,
-EVO, Rally). It needs no settings.
+it carries next to none of its usual load (Assetto Corsa, EVO, Rally, Le
+Mans Ultimate). It needs no settings.
 
 ### Tyre slip
 
@@ -518,8 +519,8 @@ weaker by its share of the loaded one's load, so the outside tyre in a
 corner shakes harder. The loaded tyre is never weighted up, so a sim that
 sends loads plays as strong as one that does not.
 
-Automobilista 2 has no slip angle, only how fast each tyre slides over
-the road. nullCAT takes out the part that is along the road (the wheel
+Automobilista 2 and Le Mans Ultimate have no slip angle, only how fast
+each tyre slides over the road. nullCAT takes out the part that is along the road (the wheel
 locking or spinning, and the small slip every tyre shows rolling down a
 straight), turns what is left into a slip angle against the road speed,
 and plays it like any sim's slip angle, so **peak deg** and **onset %**
@@ -717,7 +718,8 @@ makes as you come on and off it. On and off are abrupt, as in a car.
 Route it with a part so the corner on the kerb rumbles.
 
 Which tyre is on a kerb comes from the sim: the surface under each tyre
-(Automobilista 2); else the game's own kerb channel (Competizione, EVO:
+(Automobilista 2, Le Mans Ultimate); else the game's own kerb channel
+(Competizione, EVO:
 all wheels, full at **peak %**); else, in a sim that sends the road
 height under each tyre (Assetto Corsa), the kerb's edge and ribs: one
 tyre jumping by half of **detect mm** or more (full at it) against its partner on the same axle in a
@@ -755,7 +757,9 @@ How wet the road is comes from the sim: its wetness per tyre or for the
 track where it sends one, else the rain falling, from which nullCAT lets
 the water stand on the road (about a minute of heavy rain to stand, a few
 minutes to dry). Automobilista 2 sends the surface under each tyre (snow
-and ice included) and its rain. Test runs gravel, then snow, then a wet
+and ice included) and its rain; Le Mans Ultimate the surface under each
+tyre, its rain and how wet the track is; Competizione its rain and how wet
+the track is (no surface: its puddles play, its stones and crunch do not). Test runs gravel, then snow, then a wet
 road, at 80 km/h.
 
 ### Wheels
@@ -782,7 +786,7 @@ own rate.
   shows after repeated heavy stops, not on the first. It is a push fore
   and aft: route it to a belt, surge or a shaker.
 - **puncture x** (1): when the sim says a tyre is punctured (Automobilista
-  2), the wheel rides on its folded sidewall: a heavy thump once a
+  2, Le Mans Ultimate), the wheel rides on its folded sidewall: a heavy thump once a
   revolution.
 - **bite x** (0.5) and **drag x** (0.3): the pads on the turning disc.
   The bite is the grab as the pedal goes on, or is squeezed harder: a

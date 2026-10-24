@@ -1695,7 +1695,7 @@ function hapLive(s){
         let why=dim?(wheelLive?'Per-wheel data is live: this trim applies to the single-channel fallback only':'The single channel is live: this trim applies to per-wheel data only'):'';
         // The Lateral baseline: only on the slip-speed path; base deg only when fixed.
         if(k==='slipLat'&&(key==='baseMode'||key==='baseDegF'||key==='baseDegR')){
-          if(+s.hapLatSrc!==3){ dim=true; why='Only for a sim that sends a slip speed rather than a slip angle (Automobilista 2)'; }
+          if(+s.hapLatSrc!==3){ dim=true; why='Only for a sim that sends a slip speed rather than a slip angle (Automobilista 2, Le Mans Ultimate)'; }
           else if(key!=='baseMode'&&Math.round(+t.dv.baseMode)!==2){ dim=true; why='Used with baseline fixed only'; }
         }
         row.classList.toggle('dim',dim);
@@ -2026,8 +2026,8 @@ function hapInit(){
       :(wset===2)?'Per wheel: road travel mm now/peak since Reset peaks; "air" while that tyre is off the ground'
       :'Per wheel: now/peak since Reset peaks (Test = 1.00 on every wheel)';
     if(wset>=0) h+='<div class="hk hwheels" data-wheels="'+wset+'" title="'+wtitle+'"><span>FL -</span><span>FR -</span><span>RL -</span><span>RR -</span></div>';
-    if(fx.k==='slipLat') h+='<div class="hk hwheels" data-ang="1" title="Each wheel\'s slip angle as played, degrees, and after the slash its straight-line baseline (learned on the straights and taken off, where the sim sends a slip speed: Automobilista 2). A baseline that stays 0 or keeps climbing means it is not learning right."><span>FL -</span><span>FR -</span><span>RL -</span><span>RR -</span></div>'
-      +'<div class="hap-game"><span class="hk hwstate" data-angstate="1" title="Where the slip angle comes from. From a slip speed (Automobilista 2): whether the straight-line baseline is learning (amber), learned, learned and held (baseline: learn once), or fixed, and how many seconds of straights it has learned over. It learns on steady straights above 60 km/h, off the brake.">angle -</span>'
+    if(fx.k==='slipLat') h+='<div class="hk hwheels" data-ang="1" title="Each wheel\'s slip angle as played, degrees, and after the slash its straight-line baseline (learned on the straights and taken off, where the sim sends a slip speed: Automobilista 2, Le Mans Ultimate). A baseline that stays 0 or keeps climbing means it is not learning right."><span>FL -</span><span>FR -</span><span>RL -</span><span>RR -</span></div>'
+      +'<div class="hap-game"><span class="hk hwstate" data-angstate="1" title="Where the slip angle comes from. From a slip speed (Automobilista 2, Le Mans Ultimate): whether the straight-line baseline is learning (amber), learned, learned and held (baseline: learn once), or fixed, and how many seconds of straights it has learned over. It learns on steady straights above 60 km/h, off the brake.">angle -</span>'
       +'<button class="btn btn-sm" type="button" data-relearn="1" title="Throw away the learned straight-line baseline and learn it again from the next straights (a new car does this by itself). With baseline fixed it changes nothing.">relearn</button></div>';
     if(fx.k==='abs') h+='<div class="hk hwstate" data-abssrc="1" title="What says ABS is working right now: the sim\'s flag (held over its gaps), the wheels (with from wheels on: their dumps, and the rate they come at), or both.">ABS -</div>';
     if(fx.k==='wheels') h+='<div class="hap-game"><span class="hk hwstate" data-wstate="1" title="The tyres right now: flat spots (mm, from lock-ups), brake discs hot enough to judder, a puncture. Amber or red while there is anything. They last until a different car, ten minutes without the sim, or fresh tyres; with fresh tyres on pit/restart on, also until a restart, a jump back to the pits or new tyres at a stop.">tyres -</span>'

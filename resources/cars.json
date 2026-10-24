@@ -10,6 +10,15 @@
    "Automobilista2",
    "Automobilista 2",
    "AMS2"
+  ],
+  "acc": [
+   "AssettoCorsaCompetizione",
+   "Assetto Corsa Competizione",
+   "ACC"
+  ],
+  "lmu": [
+   "LMU",
+   "Le Mans Ultimate"
   ]
  },
  "cars": {

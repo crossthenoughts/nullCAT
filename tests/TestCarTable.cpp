@@ -571,6 +571,30 @@ private slots:
         QCOMPARE(e.hapticsFollowCar, true);
     }
 
+    // Each title files its cars under its own prefix (the shipped table's
+    // games list): Competizione and Le Mans Ultimate have theirs; EVO and
+    // Rally stay apart from AC until each gets its own (they only ride on
+    // AC's support today). An entry saved for a Competizione car before its
+    // prefix existed is still found.
+    void shippedTable_eachTitleItsOwnPrefix()
+    {
+        const QString path = QString(NULLCAT_SOURCE_DIR) + "/resources/cars.json";
+        CarTable t;
+        QVERIFY(t.loadStock(path.toStdString()));
+        QCOMPARE(t.keyFor("AssettoCorsaCompetizione", "x"), std::string("acc:x"));
+        QCOMPARE(t.keyFor("Assetto Corsa Competizione", "x"), std::string("acc:x"));
+        QCOMPARE(t.keyFor("LMU", "x"), std::string("lmu:x"));
+        QCOMPARE(t.keyFor("Le Mans Ultimate", "x"), std::string("lmu:x"));
+        QCOMPARE(t.keyFor("AssettoCorsa", "x"), std::string("ac:x"));
+        QCOMPARE(t.keyFor("AssettoCorsaEVO", "x"), std::string("assettocorsaevo:x"));
+        QCOMPARE(t.keyFor("AssettoCorsaRally", "x"), std::string("assettocorsarally:x"));
+        CarTable u;
+        QJsonObject mine; mine["name"] = "Porsche 992 GT3 R"; mine["notes"] = "mine";
+        u.putUser("assettocorsacompetizione:Porsche 992 GT3 R", mine);
+        QVERIFY(u.loadStock(path.toStdString()));
+        QCOMPARE(u.find("AssettoCorsaCompetizione", "Porsche 992 GT3 R").source, std::string("user"));
+    }
+
     void shippedTable_parses()
     {
         const QString path = QString(NULLCAT_SOURCE_DIR) + "/resources/cars.json";

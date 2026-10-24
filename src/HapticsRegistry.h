@@ -333,7 +333,7 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "and the slide plays here or on Longitudinal slip by its direction. The carrier slows and roughens as the slide "
       "grows (squeal, moan, shudder). The lighter tyre of an axle plays weaker when wheel loads arrive; the two wheels of "
       "an axle move together. Route with a part (a corner, an axle, all). Needs per-wheel slip angles; else a "
-      "per-wheel slip speed (Automobilista 2), turned into an angle less the straight-line angle learned on the "
+      "per-wheel slip speed (Automobilista 2, Le Mans Ultimate), turned into an angle less the straight-line angle learned on the "
       "straights (baseline: learn, learn once, or fixed at base deg F / R; the tile shows both, relearn starts it "
       "over); else the per-wheel combined slip (any sliding tyre, spinning and locking included), from onset % of "
       "peak % up to full at peak % (the chip shows the value arriving and its peak); else the single skid channel. "
@@ -377,7 +377,7 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "follows speed, each rib a little different (jitter), and the step up onto the kerb (rise mm). A post gets "
       "the kerb's height (a thud on and off; it cannot carry the hum), a belt or shaker the ribs and a kick on and "
       "off, stronger with speed. Route with a part so the corner on the kerb rumbles. Which tyre is on a kerb comes "
-      "from the sim's surface type (Automobilista 2), else the stronger of the curbs channel (Competizione, "
+      "from the sim's surface type (Automobilista 2, Le Mans Ultimate), else the stronger of the curbs channel (Competizione, "
       "EVO: the game's own; full at peak %, all wheels) and, with detect mm set, a tyre jumping that far against "
       "its axle mate within a few hundredths of a second on a real road profile: a kerb's edge and ribs, never the "
       "road's camber (Assetto Corsa).",
@@ -406,7 +406,7 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "squelch). Studs: studded tyres biting on ice and snow, a rough buzz. Puddles: on a wet road, puddles "
       "laid out along it; the water drags at a tyre as it enters (stronger with speed), above aqua km/h in "
       "standing water the tyre floats and the road under it goes quiet, and it bites as it comes out. smooth x "
-      "is how far water fills the Road tile's texture. Needs the surface under each tyre (Automobilista 2) "
+      "is how far water fills the Road tile's texture. Needs the surface under each tyre (Automobilista 2, Le Mans Ultimate) "
       "and the wetness or the rain.", nullptr, {} },
     { Effect::Wheels,      "wheels",      "Wheels",       Kind::Wheels, EventType::COUNT, FxType::Wheels,
       { "speedKmh", "~slipRatio*|wheelSpeed*", "~brakePct", "~load*", "~deflated*" }, { 0.0, 12.0, 0.0, 0.0 }, kWheelsParams, static_cast<int>(std::size(kWheelsParams)),
@@ -417,7 +417,7 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "longer and harder it slid, and it thumps softly once a revolution from then on, wearing slowly round "
       "again. Judder: discs made hot by hard braking pulse the braking force twice a revolution while you "
       "brake (best on a belt, surge or a shaker). Puncture: when the sim says a tyre is deflated (Automobilista "
-      "2), the wheel rides on its folded sidewall, a heavy thump once a revolution. Bite and drag: the pads on "
+      "2, Le Mans Ultimate), the wheel rides on its folded sidewall, a heavy thump once a revolution. Bite and drag: the pads on "
       "the turning disc, a grab as the brake goes on and a rub while it stays on, each a rough grain at its own "
       "hz (at 100 km/h, following the wheel's speed), at the caliper rather than through the suspension; "
       "nothing from a locked wheel. A wheel in the air does none of the rest. Each wheel turns at its own "

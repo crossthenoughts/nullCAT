@@ -113,17 +113,21 @@ by itself.
 | Game | Sent per wheel, without setup | Feeds |
 |---|---|---|
 | Assetto Corsa | slip angle, wheel speeds, tyre loads, the combined slip, suspension travel, the road height under each tyre, wheelbase and track | Longitudinal slip, Lateral slip, Road, Kerb |
-| Assetto Corsa Competizione, EVO, Rally | slip angle, a real slip ratio, wheel speeds, loads, combined slip, suspension travel, road height, wheelbase and track, the game's kerb vibration | Longitudinal slip, Lateral slip, Road, Kerb |
+| Assetto Corsa Competizione | slip angle, a real slip ratio, wheel speeds, combined slip, suspension travel, road height, wheelbase and track, the game's kerb vibration, the rain and how wet the track is (no loads: the game leaves them at zero) | Longitudinal slip, Lateral slip, Road, Kerb, Surface (puddles only: no surface under each tyre) |
+| Assetto Corsa EVO, Rally | slip angle, a real slip ratio, wheel speeds, loads, combined slip, suspension travel, road height, wheelbase and track, the game's kerb vibration | Longitudinal slip, Lateral slip, Road, Kerb |
+| Le Mans Ultimate | wheel speeds, tyre loads, suspension travel, the tyre's slide over the road (nullCAT turns it into a slip angle), the surface under each tyre, punctures, tyre wear, the rain and how wet the track is | Longitudinal slip, Lateral slip, Road, Kerb, Surface, Wheels |
 | Automobilista 2 | wheel speeds, suspension velocities, tyre slip speed (nullCAT turns it into a slip angle), the surface under each tyre (snow and ice included), the rain, which tyres are on the ground and which are punctured | Longitudinal slip, Lateral slip, Road, Kerb, Surface, Wheels; a tyre in the air goes quiet |
 
 Every game also sends the body's vertical acceleration, pitch and roll
 from SimHub's own motion data, for the Road tile's chassis model, and the
 lap number and the pit flag, so the Wheels tile can bring fresh tyres on a
-restart or a jump back to the pits. Automobilista 2 and the Assetto Corsa
-family send the game's own pit flag from the start; other games send
+restart or a jump back to the pits. Automobilista 2, Le Mans Ultimate and
+the Assetto Corsa family send the game's own pit flag from the start
+(Le Mans Ultimate's: in the garage or stopped in the pit box); other
+games send
 SimHub's once the game has shown it set (a game SimHub cannot read it for
-is left to nullCAT's fallback). Automobilista 2 also sends its tyre wear,
-so new tyres at a stop are fresh tyres too.
+is left to nullCAT's fallback). Automobilista 2 and Le Mans Ultimate also
+send their tyre wear, so new tyres at a stop are fresh tyres too.
 
 Plain Assetto Corsa has no slip angle field, so the plugin works one out
 for each tyre: the angle between where the tyre points and where its

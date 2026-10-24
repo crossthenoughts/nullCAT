@@ -7,6 +7,12 @@ middle number carries breaking changes and the last carries fixes.
 ## [Unreleased]
 
 ### Added
+- Le Mans Ultimate: the SimHub plugin 1.9 sends its per-wheel channels
+  with nothing to set up (wheel speeds, tyre loads, suspension travel, each
+  tyre's slide, the surface under it, punctures, tyre wear, the rain and
+  how wet the track is, the pit flag), so the slip, Road, Kerb, Surface
+  and Wheels tiles play from it. Its cars run on the tiles' defaults until
+  they get car table entries.
 - A support bundle for problem reports: double-click `support-bundle.cmd`
   in the Windows folder, or run `os-setup/support-bundle.sh` on the Pi. It
   puts the logs, your settings files and a short system summary (on the Pi
@@ -28,6 +34,10 @@ middle number carries breaking changes and the last carries fixes.
   reports it.
 
 ### Changed
+- Assetto Corsa Competizione: the rain and how wet the track is now reach
+  the Surface and Road tiles (SimHub plugin 1.9). The plugin no longer
+  sends Competizione's tyre loads, which the game leaves at zero, so the
+  rig shows them as not sent rather than as a row of zeros.
 - The Engine tile's buzz order is a setting of the rig, no longer of the
   car: it stays as you set it when the car changes (a PC usually wants
   about 0.75, the Pi 0) instead of going back to automatic with every car.

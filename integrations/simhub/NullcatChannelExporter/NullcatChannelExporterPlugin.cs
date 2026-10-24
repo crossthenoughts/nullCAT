@@ -81,7 +81,14 @@ namespace NullcatChannelExporter
         // The settings file overrides a group only when it binds all four
         // wheels. Keyed by SimHub's GameName, compared without case or
         // punctuation.
-        private struct PresetGroup { public string Group, Prefix; public double Scale; public PresetGroup(string g, string p, double s) { Group = g; Prefix = p; Scale = s; } }
+        // Prefix + 01..04 names a wheel's value; with Field, a struct per
+        // wheel (Prefix01.Field, SimHub's naming for an array of structs).
+        private struct PresetGroup
+        {
+            public string Group, Prefix, Field; public double Scale;
+            public PresetGroup(string g, string p, double s) { Group = g; Prefix = p; Field = null; Scale = s; }
+            public PresetGroup(string g, string p, string f, double s) { Group = g; Prefix = p; Field = f; Scale = s; }
+        }
         // Assetto Corsa's combined slip reads about 1 to 2 as the tyre starts to
         // slide and 10 and up in a spin (SimHub's own slip LEDs map 1..10):
         // 6 = let go = 100 on the wire, a starting point the rig's peak % trims.
@@ -95,7 +102,17 @@ namespace NullcatChannelExporter
             new PresetGroup("suspTravel", "DataCorePlugin.GameRawData.Physics.SuspensionTravel",  1000),
         };
         private static readonly PresetGroup[] PresetACC = {
-            // Competizione, EVO, Rally: a real slip ratio per wheel, the rest as AC.
+            // Competizione: a real slip ratio per wheel, the rest as AC, but
+            // no load (the game leaves WheelLoad at zero: not sending it shows
+            // "not sent" on the rig instead of a row of zeros).
+            new PresetGroup("slipRatio",  "DataCorePlugin.GameRawData.Physics.slipRatio",         1),
+            new PresetGroup("wheelSpeed", "DataCorePlugin.GameRawData.Physics.WheelAngularSpeed", 1),
+            new PresetGroup("wheelSlip",  "DataCorePlugin.GameRawData.Physics.WheelSlip",         AcSlipScale),
+            new PresetGroup("suspTravel", "DataCorePlugin.GameRawData.Physics.SuspensionTravel",  1000),
+        };
+        private static readonly PresetGroup[] PresetACEvoRally = {
+            // EVO and Rally ride on Competizione's layout until each gets its
+            // own pass (a real slip ratio per wheel, the rest as AC).
             new PresetGroup("slipRatio",  "DataCorePlugin.GameRawData.Physics.slipRatio",         1),
             new PresetGroup("wheelSpeed", "DataCorePlugin.GameRawData.Physics.WheelAngularSpeed", 1),
             new PresetGroup("load",       "DataCorePlugin.GameRawData.Physics.WheelLoad",         1),
@@ -109,12 +126,24 @@ namespace NullcatChannelExporter
             new PresetGroup("suspVel",    "DataCorePlugin.GameRawData.mSuspensionVelocity", 1000),
             new PresetGroup("wheelSlip",  "DataCorePlugin.GameRawData.mTyreSlipSpeed",      20),
         };
+        // Le Mans Ultimate (SimHub's rFactor 2 layout of its shared memory):
+        // wheel rotation (rad/s), tyre load (N), suspension deflection
+        // (m -> mm). The slide, flats, surface, wear and weather go in
+        // AppendLmu.
+        private const string LmuWheels = "DataCorePlugin.GameRawData.CurrentPlayerTelemetry.mWheels";
+        private static readonly PresetGroup[] PresetLMU = {
+            new PresetGroup("wheelSpeed", LmuWheels, "mRotation",             1),
+            new PresetGroup("load",       LmuWheels, "mTireLoad",             1),
+            new PresetGroup("suspTravel", LmuWheels, "mSuspensionDeflection", 1000),
+        };
         private static PresetGroup[] PresetFor(string gameName)
         {
             var g = Norm(gameName);
             if (g == "assettocorsa") return PresetAC;
-            if (g == "assettocorsacompetizione" || g == "assettocorsaevo" || g == "assettocorsarally") return PresetACC;
+            if (g == "assettocorsacompetizione") return PresetACC;
+            if (g == "assettocorsaevo" || g == "assettocorsarally") return PresetACEvoRally;
             if (g == "automobilista2") return PresetAMS2;
+            if (g == "lmu") return PresetLMU;
             return null;
         }
         // The Assetto Corsa family: AC and, riding on its shared memory
@@ -253,7 +282,7 @@ namespace NullcatChannelExporter
                 foreach (var pg in preset)
                 {
                     if (pg.Group != Groups[g]) continue;
-                    for (var w = 0; w < 4; w++) _groupProps[g][w] = pg.Prefix + "0" + (w + 1);
+                    for (var w = 0; w < 4; w++) _groupProps[g][w] = pg.Prefix + "0" + (w + 1) + (pg.Field != null ? "." + pg.Field : "");
                     _groupScale[g] = pg.Scale;
                 }
             }
@@ -382,6 +411,18 @@ namespace NullcatChannelExporter
                 pitKnown = true;
                 inPit = pitRaw > 0 ? 1 : 0;
             }
+            else if (family == "lmu")
+            {
+                // In the garage stall, or stopped in the pit box (pit state
+                // 3); the game's mInPits is the whole pit lane.
+                double stall, state;
+                if (ReadRaw(pluginManager, "DataCorePlugin.GameRawData.CurrentPlayer.mInGarageStall", out stall)
+                    && ReadRaw(pluginManager, "DataCorePlugin.GameRawData.CurrentPlayer.mPitState", out state))
+                {
+                    pitKnown = true;
+                    inPit = (stall > 0 || state == 3) ? 1 : 0;
+                }
+            }
             if (inPit > 0) _pitWorks = true;
             if (pitKnown || _pitWorks) y.Append(",inPit=").Append(inPit.ToString("0", CultureInfo.InvariantCulture));
             try
@@ -409,13 +450,18 @@ namespace NullcatChannelExporter
             }
             AppendChassis(y, d);
             if (IsAcFamily(family))
+            {
                 AppendAcContact(y, d);
+                if (family == "assettocorsacompetizione") AppendAccWeather(y, pluginManager);
+            }
             else if (family == "automobilista2")
             {
                 AppendAms2Surface(y, pluginManager);
                 AppendAms2SlipSpeed(y, pluginManager);
                 AppendAms2TyreWear(y, pluginManager);
             }
+            else if (family == "lmu")
+                AppendLmu(y, pluginManager);
             Send(y.ToString());
 
             // Identity once a second: which game and car the channels
@@ -563,6 +609,66 @@ namespace NullcatChannelExporter
                 if (!ReadRaw(pm, "DataCorePlugin.GameRawData.mTyreSlipSpeed0" + (w + 1), out ss[w]) || double.IsNaN(ss[w]) || double.IsInfinity(ss[w])) return;
             for (var w = 0; w < 4; w++)
                 y.Append(",slipSpeed").Append(Wheels[w]).Append('=').Append(Math.Abs(ss[w]).ToString("0.###", CultureInfo.InvariantCulture));
+        }
+
+        // Competizione's weather (protocol 1.6 tokens): the rain from the
+        // game's rain intensity (0 none .. 5 thunderstorm, as 0..1), and the
+        // water on the road from its track grip status (0 green, 1 fast and
+        // 2 optimum are dry; 3 greasy, 4 damp, 5 wet, 6 flooded), a starting
+        // scale for the Surface and Road tiles.
+        private static readonly double[] AccGripWet = { 0, 0, 0, 0.15, 0.35, 0.7, 1.0 };
+        private static void AppendAccWeather(StringBuilder y, PluginManager pm)
+        {
+            double rain, grip;
+            if (ReadRaw(pm, "DataCorePlugin.GameRawData.Graphics.rainIntensity", out rain))
+                y.Append(",rain=").Append(Math.Max(0.0, Math.Min(1.0, rain / 5.0)).ToString("0.###", CultureInfo.InvariantCulture));
+            if (ReadRaw(pm, "DataCorePlugin.GameRawData.Graphics.trackGripStatus", out grip))
+            {
+                var i = (int)Math.Round(grip);
+                if (i >= 0 && i < AccGripWet.Length)
+                    y.Append(",wet=").Append(AccGripWet[i].ToString("0.###", CultureInfo.InvariantCulture));
+            }
+        }
+
+        // Le Mans Ultimate's per-wheel extras and weather: the contact patch
+        // sliding over the road (the lateral and longitudinal patch speeds
+        // together, m/s), a flat tyre, the surface (the game's 0 dry, 1 wet,
+        // 2 grass, 3 dirt, 4 gravel, 5 kerb, 6 special), the wear (the
+        // game's 1 new .. 0 worn, sent as worn), the rain and the track's
+        // average wetness (both 0..1). Each group only when all four wheels
+        // read.
+        private static readonly int[] LmuSurfaceClass = { 0, 0, 4, 5, 3, 2, 0 };
+        private static bool ReadWheels(PluginManager pm, string field, double[] into)
+        {
+            for (var w = 0; w < 4; w++)
+                if (!ReadRaw(pm, LmuWheels + "0" + (w + 1) + "." + field, out into[w])) return false;
+            return true;
+        }
+        private static void AppendLmu(StringBuilder y, PluginManager pm)
+        {
+            var a = new double[4]; var b = new double[4];
+            if (ReadWheels(pm, "mLateralPatchVel", a) && ReadWheels(pm, "mLongitudinalPatchVel", b))
+                for (var w = 0; w < 4; w++)
+                    y.Append(",slipSpeed").Append(Wheels[w]).Append('=')
+                     .Append(Math.Sqrt(a[w] * a[w] + b[w] * b[w]).ToString("0.###", CultureInfo.InvariantCulture));
+            if (ReadWheels(pm, "mFlat", a))
+                for (var w = 0; w < 4; w++) y.Append(",deflated").Append(Wheels[w]).Append('=').Append(a[w] > 0 ? '1' : '0');
+            if (ReadWheels(pm, "mSurfaceType", a))
+                for (var w = 0; w < 4; w++)
+                {
+                    var t = (int)Math.Round(a[w]);
+                    var cls = (t >= 0 && t < LmuSurfaceClass.Length) ? LmuSurfaceClass[t] : 0;
+                    y.Append(",surface").Append(Wheels[w]).Append('=').Append(cls.ToString(CultureInfo.InvariantCulture));
+                }
+            if (ReadWheels(pm, "mWear", a))
+                for (var w = 0; w < 4; w++)
+                    y.Append(",tyreWear").Append(Wheels[w]).Append('=')
+                     .Append(Math.Max(0.0, Math.Min(1.0, 1.0 - a[w])).ToString("0.####", CultureInfo.InvariantCulture));
+            double rain, wet;
+            if (ReadRaw(pm, "DataCorePlugin.GameRawData.Data.mRaining", out rain))
+                y.Append(",rain=").Append(Math.Max(0.0, Math.Min(1.0, rain)).ToString("0.###", CultureInfo.InvariantCulture));
+            if (ReadRaw(pm, "DataCorePlugin.GameRawData.Data.mAvgPathWetness", out wet))
+                y.Append(",wet=").Append(Math.Max(0.0, Math.Min(1.0, wet)).ToString("0.###", CultureInfo.InvariantCulture));
         }
 
         // Automobilista 2 tyre wear (protocol 1.9): 0 new .. 1 worn out, as

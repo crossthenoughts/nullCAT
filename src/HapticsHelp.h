@@ -227,7 +227,7 @@ constexpr ParamHelp kHelp[] = {
       "Grip budget: a tyre has one grip for cornering and for braking or driving, so trail braking and power "
       "out of a corner slide earlier, as they do in a car. Never less than either tile alone. On for most." },
     { "slipLat", "baseMode",
-      "For sims that give a tyre's sliding speed rather than its slip angle (Automobilista 2): the small slip "
+      "For sims that give a tyre's sliding speed rather than its slip angle (Automobilista 2, Le Mans Ultimate): the small slip "
       "every tyre shows on a straight (its own creep along the road, and toe), taken off so only the corner "
       "plays. Below 25 km/h the slide fades out (gone by 10), where that sim's sliding speed says little. Learn: "
       "learned on the straights, and kept up to date. Learn once: learned once per car, then held, so a "
@@ -416,7 +416,7 @@ constexpr ParamHelp kHelp[] = {
       "done is not seen), when you jump back to the pits or the garage, and when a stop changes the tyres "
       "(where the sim reports tyre wear). Driving into the pits "
       "keeps them, and so does a stop without new tyres. Works best with the SimHub plugin 1.9, which sends "
-      "the pit flag, the lap and (Automobilista 2) the tyre wear; with an older sender it goes by the car "
+      "the pit flag, the lap and (Automobilista 2, Le Mans Ultimate) the tyre wear; with an older sender it goes by the car "
       "jumping from speed to a standstill and staying there. Off: only the fresh tyres button, a different car "
       "or ten minutes without the sim." },
 
