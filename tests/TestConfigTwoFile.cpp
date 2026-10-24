@@ -832,6 +832,14 @@ private slots:
         QCOMPARE(d.parkTimeSec,       def.parkTimeSec);
         QCOMPARE(d.torqueMinPct,      def.torqueMinPct);
         QCOMPARE(d.torqueMaxPct,      def.torqueMaxPct);
+        QCOMPARE(d.beltSlewPctPerSec, def.beltSlewPctPerSec);
+        // Behaviour, not the number: an axis that omits the key must get a cap
+        // that passes the motion software's tension cue sharply. The cap acts
+        // on the telemetry tension only (the haptics overlay is never slewed);
+        // a cue swinging 30% at 100 Hz needs 2*pi*f*A ~ 18850 %/s, which the
+        // old default (3000) rounded into a triangle a quarter the size.
+        QVERIFY2(d.beltSlewPctPerSec >= 6.283185307 * 100.0 * 30.0,
+                 "default belt slew cap blunts a 30% tension cue at 100 Hz");
         QCOMPARE(d.spikeFilterEnabled,def.spikeFilterEnabled);
         // Positional defaults are index-derived, not struct-derived.
         QCOMPARE(d.slaveIndex, 1);

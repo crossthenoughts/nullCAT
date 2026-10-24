@@ -327,12 +327,12 @@ Engine-only fields (`rpmVibe`):
 | `spikeMaxMm` | double | `5.0` | |
 | `torqueMinPct` | double | `5.0` | Torque axes: floor tension while tracking, percent of rated. |
 | `torqueMaxPct` | double | `50.0` | Torque axes: tension at full-scale telemetry. The drive's own 0x6072 limit is the hard ceiling above this. |
-| `beltSlewPctPerSec` | double | `3000.0` | Belt guard: safety envelope on tension rate of change. Passes every real haptic effect; stretches a single garbage frame's full-scale step over ~100 ms. |
+| `beltSlewPctPerSec` | double | `20000.0` | Belt guard: the fastest the belt tension from your motion telemetry may change, in % of rated torque per second, applied each control cycle. It shapes the tension cue your motion software sends (and any vibration it mixes into it), limits how far a frame that jumps can move the belt in one cycle, and paces the ease back to minimum tension when telemetry stops, the take-up when it returns and the relaxer's ease (`beltRelaxerSec`). nullCAT's own haptic effects on the belt are not limited by it. Lower is softer: at 20000 the tension can move 40% in one cycle on a PC (500 Hz) and 10% on the Pi (2 kHz), so a jump across the default 5 to 50% range takes 2 to 4 ms; at 3000 it takes about 15 ms. |
 | `beltOverspeedRpm` | double | `600.0` | Belt guard: sustained shaft speed above this means the load is lost (snapped or detached belt). |
 | `beltOverspeedMs` | double | `200.0` | Persistence for the overspeed trip. Transient flicks reset the timer. Trip result: torque zero, latched slack; only an explicit belt tension command re-tensions. |
 | `beltMaxTravelRevs` | double | `3.0` | Belt guard: cumulative net winding since tension-up. Catches a slow continuous spin that stays under any rpm threshold. `0` disables. |
 | `beltMaxRpm` | double | `800.0` | Master-side velocity fold knee. Commanded tension folds to zero across a band above this speed, capping the slack-take-up lunge. `0` disables the fold (not recommended). This fold is the enforced speed limit on A6 CST axes; the drive-side speed objects do not restrain CST (see DRIVE_TUNING.md). |
-| `beltRelaxerSec` | double | `0.0` | Belt guard: sustained near-max dwell. Tension at or above `beltRelaxerPct`% of `torqueMaxPct` for this long eases to minimum until demand drops. Pre-empts the drive's i2t overload fault. `0` disables. |
+| `beltRelaxerSec` | double | `0.0` | Belt guard: sustained near-max dwell. Tension at or above `beltRelaxerPct`% of `torqueMaxPct` for this long eases to minimum until demand drops, at the rate `beltSlewPctPerSec` allows (quick at the default). Pre-empts the drive's i2t overload fault. `0` disables. |
 | `beltRelaxerPct` | double | `80.0` | |
 
 `rotationCount` in old rig files is ignored on load and no longer saved.

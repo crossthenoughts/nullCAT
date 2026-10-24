@@ -1371,7 +1371,7 @@ std::vector<std::string> AppConfig::validate() const
         if (kcaps.beltType && (d.mode == "cst" || d.mode == "torque"))
         {
             if (d.beltSlewPctPerSec < 100.0)
-                errors.push_back(pfx + "beltSlewPctPerSec must be >= 100 (haptics need ~1000+; 3000 recommended)");
+                errors.push_back(pfx + "beltSlewPctPerSec must be >= 100 (20000 recommended)");
             if (d.beltOverspeedRpm < 50.0 || d.beltOverspeedRpm > 6000.0)
                 errors.push_back(pfx + "beltOverspeedRpm out of range [50, 6000]");
             if (d.beltOverspeedMs < 20.0 || d.beltOverspeedMs > 5000.0)

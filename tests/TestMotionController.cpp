@@ -869,6 +869,10 @@ private slots:
     {
         AppConfig cfg = makeAxisConfig("belt", "torque", "endstop", 100.0, 1.5,
                                        5.0, 50.0);
+        // The golden was captured with the slew cap at 3000 %/s. The pin guards
+        // the code path, not the shipped default: hold the cap at its capture
+        // value so a retuned default cannot read as drift.
+        cfg.drives[0].beltSlewPctPerSec = 3000.0;
         MotionController mc;
         mc.configure(cfg);
         mc.startHoming();                       // belt: skip-homing, marks homed

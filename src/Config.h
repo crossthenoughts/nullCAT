@@ -176,9 +176,17 @@ struct DriveConfig
     // Belt guards (torque mode only). NOTE all values are MOTOR-side: with a
     // reduction ratio R the strap sees torque x R and the motor spins R x faster
     // for the same strap speed, so revisit these (and torqueMax) when R changes.
-    //  - Slew: safety envelope on d(tension)/dt, NOT an effect shaper. Haptics need
-    //    ~2pi*f*A %/s (30Hz +-5% ~ 940); 3000 passes everything the telemetry source can send while
-    //    stretching a single garbage frame's 0->300% step over ~100ms.
+    //  - Slew: a cap on how fast the TELEMETRY tension may change, applied per
+    //    control cycle (rate x cycle time) in stepBeltOnline, before the haptics
+    //    overlay. It shapes the motion software's tension cue (and any vibration
+    //    it mixes into it), limits how far one frame that jumps moves the belt,
+    //    and paces the stall ease-to-min, the relaxer's ease to min and its
+    //    release, the take-up when the stream resumes and the recovery after a
+    //    velocity fold. nullCAT's own haptic overlay is added later with no
+    //    slew, so this never limits the belt effects. A sine at f Hz and A % in
+    //    the cue needs 2*pi*f*A %/s. At 20000: 40% per cycle at 500 Hz (a 5..50%
+    //    jump in 2 cycles, 4 ms), 10% per cycle at 2 kHz (~2.5 ms); at 3000
+    //    ~15 ms either way. 3000 through 0.9.8; 20000 from 0.9.9.
     //  - Overspeed: sustained shaft speed = lost load (snapped/detached belt). Trip =
     //    |rpm| > beltOverspeedRpm continuously for beltOverspeedMs -> torque 0 +
     //    latched slack (PARKED; ONLY an explicit TensionBelts re-tensions --
@@ -186,7 +194,8 @@ struct DriveConfig
     //    reset the timer; they never persist.
     //  - Relaxer: sustained near-max dwell guard (force/thermal axis). Tension >=
     //    beltRelaxerPct% of torqueMaxPct for beltRelaxerSec -> ease to torqueMin
-    //    until demand drops below (pct-10)%. 0 sec = disabled. Also pre-empts the
+    //    (at the slew cap's rate, so quick at 20000) until demand drops below
+    //    (pct-10)%. 0 sec = disabled. Also pre-empts the
     //    drive's i2t overload fault (which would park the whole rig).
     //  - Travel cap: cumulative NET winding since tension-up. An rpm threshold can
     //    miss a slow continuous spin (bare shaft at min tension idles below any sane
@@ -209,7 +218,7 @@ struct DriveConfig
     // drive_profiles torqueOnly), NOT app-managed. The drive-side speed objects
     // (0x607F, C03.47/48) do not restrain CST on the A6 (C03.47/48 are
     // local-mode-only per manual p239); the fold is the enforced speed limit.
-    double beltSlewPctPerSec = 3000.0;
+    double beltSlewPctPerSec = 20000.0;
     double beltOverspeedRpm  = 600.0;
     double beltOverspeedMs   = 200.0;
     double beltMaxTravelRevs = 3.0;     // 0 = disabled

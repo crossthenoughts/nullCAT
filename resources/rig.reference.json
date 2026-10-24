@@ -38,7 +38,7 @@
             "spikeMaxMm": 5.0,
             "torqueMinPct": 5.0,
             "torqueMaxPct": 50.0,
-            "beltSlewPctPerSec": 3000.0,
+            "beltSlewPctPerSec": 20000.0,
             "beltOverspeedRpm": 600.0,
             "beltOverspeedMs": 200.0,
             "beltMaxTravelRevs": 3.0,

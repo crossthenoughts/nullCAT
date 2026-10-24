@@ -1682,11 +1682,12 @@ double MotionController::stepBeltOnline(int i, AxisMotionState& state,
         if (rt.beltRelaxed) tension = ac.torqueMinPct;
     }
 
-    // ---- Slew cap (command-domain): safety envelope on d(tension)/dt,
-    // NOT an effect shaper -- 3000%/s passes every legitimate haptic
-    // (30Hz +-5% ripple needs ~940%/s) while stretching a garbage frame's
-    // instant 0->300% step over ~100ms. The e-stop path bypasses this
-    // (it breaks out above and commands 0 immediately).
+    // ---- Slew cap (command-domain): limits d(tension)/dt of the TELEMETRY
+    // tension only. It shapes the motion software's tension cue, spreads a
+    // frame that jumps and paces the stall ease and the resume take-up; the
+    // haptics overlay is added later in process() with no slew, so this
+    // never limits nullCAT's own belt effects (see Config.h). The e-stop path
+    // bypasses this (it breaks out above and commands 0 immediately).
     {
         const double maxStep = ac.beltSlewPctPerSec * m_cycleTimeSec;
         tension = std::max(rt.lastTension - maxStep,

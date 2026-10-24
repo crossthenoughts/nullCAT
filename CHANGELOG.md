@@ -20,6 +20,15 @@ middle number carries breaking changes and the last carries fixes.
   be judged next to the Limiter and Driveline tests. A Test never teaches
   the car's learned redline: a car tested before the game sent its maximum
   rpm still learns the game's figure, not the Test's.
+- Belt: the slew cap now defaults to 20000 %/s (was 3000), so the belt
+  follows the tension cue from your motion software more sharply. The cap
+  only shapes that cue: it limits how far a frame that jumps can move the
+  belt and paces the ease to minimum tension when telemetry stops (and the
+  relaxer's, if you use it). nullCAT's own effects on the belt were never
+  limited by it, whatever the old description said. A jump across the
+  default 5 to 50% range now takes 2 to 4 ms instead of about 15. A rig.json
+  from an earlier version already holds 3000 for each belt: set
+  **Slew cap** to 20000 on the belt in Setup to change it.
 
 ### Fixed
 - Automobilista 2: the Super Trophy Truck now finds its car table entry.

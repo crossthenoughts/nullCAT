@@ -417,7 +417,7 @@ private:
         double  torqueMinPct      = 5.0;      // holding torque at telemetry=0 (snug)
         double  torqueMaxPct      = 50.0;     // max torque at telemetry=65535
         // Belt guards (see Config.h for semantics; all MOTOR-side values)
-        double  beltSlewPctPerSec = 3000.0;   // d(tension)/dt safety envelope
+        double  beltSlewPctPerSec = 20000.0;  // telemetry d(tension)/dt cap (configure() copies the rig's value)
         double  beltOverspeedRpm  = 600.0;    // sustained-speed trip threshold
         double  beltOverspeedMs   = 200.0;    // persistence before trip
         double  beltMaxTravelRevs = 3.0;      // net-winding cap since tension-up (0 = off)

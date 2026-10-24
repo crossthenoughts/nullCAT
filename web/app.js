@@ -792,12 +792,12 @@ const AXIS_SPEC=[
   {k:'spikeMaxMm',label:'Spike max',type:'num',min:0.1,max:500,step:0.01,unit:'mm/cyc',pos:true},
   {k:'torqueMinPct',label:'Torque min',type:'num',min:0,max:300,step:1,unit:'%',torque:true,tip:'Floor tension while tracking - the belt stays snug at zero demand. Raise for a firmer resting hold.'},
   {k:'torqueMaxPct',label:'Torque max',type:'num',min:0,max:300,step:1,unit:'%',torque:true,tip:'Tension at full-scale telemetry - the overall strength of the effect. The drive 0x6072 limit still caps above it.'},
-  {k:'beltSlewPctPerSec',label:'Slew cap',type:'num',min:100,max:20000,step:100,unit:'%/s',torque:true,tip:'How fast tension may change: lower = softer, laggier haptics; higher = snappier. Also stretches a single garbage frame instead of letting it snap the belt. 3000 passes every real effect.'},
+  {k:'beltSlewPctPerSec',label:'Slew cap',type:'num',min:100,max:20000,step:100,unit:'%/s',torque:true,tip:'How fast the belt tension from your motion telemetry may change, each control cycle. It shapes the tension cue, limits how far a frame that jumps can move the belt, and paces the ease to minimum when telemetry stops and the relaxer ease. The haptic effects on the belt are not limited by it. Lower is softer; 20000 is the default.'},
   {k:'beltOverspeedRpm',label:'Overspeed',type:'num',min:50,max:6000,step:10,unit:'rpm',torque:true,tip:'Snapped-belt detector: shaft speed sustained above this trips to slack. Set above any speed a worn strap can reach in use.'},
   {k:'beltOverspeedMs',label:'Overspeed time',type:'num',min:20,max:5000,step:10,unit:'ms',torque:true,tip:'How long the overspeed must persist before tripping - haptic flicks and hand pulls reset it.'},
   {k:'beltMaxTravelRevs',label:'Travel cap (0=off)',type:'num',min:0,max:100,step:0.5,unit:'revs',torque:true,tip:'Net winding since tension-up. Catches the SLOW runaway an rpm limit never sees (bare shaft idling along). A strapped belt cannot reach it at any speed.'},
   {k:'beltMaxRpm',label:'Speed fold (0=off)',type:'num',min:0,max:3000,step:50,unit:'rpm',torque:true,tip:'THE enforced speed limit on these drives (their own CST speed objects do not restrain): tension folds to zero above this, capping the slack take-up lunge.'},
-  {k:'beltRelaxerSec',label:'Relaxer (0=off)',type:'num',min:0,max:120,step:1,unit:'s',torque:true,tip:'Sustained near-max tension for this long eases to min until demand drops - pre-empts the drive thermal fault that would park the whole rig.'},
+  {k:'beltRelaxerSec',label:'Relaxer (0=off)',type:'num',min:0,max:120,step:1,unit:'s',torque:true,tip:'Sustained near-max tension for this long eases to min (at the Slew cap rate) until demand drops - pre-empts the drive thermal fault that would park the whole rig.'},
   {k:'beltRelaxerPct',label:'Relaxer band',type:'num',min:20,max:100,step:1,unit:'%',torque:true,tip:'Fraction of Torque max that counts as near-max for the relaxer dwell.'},
 ];
 function condMode(){ return (cfgObj&&cfgObj.conditioningMode)||'bypass'; }
@@ -2512,8 +2512,8 @@ function buildTestAxes(){
     // nullCAT deliberately does not do. Levers take part in heave and the
     // per-leg tests only.
     if(vert && d.axisType!=='rotary_lever'){
-      row.appendChild(mkSel('tfr',[[0,'f/r —'],[1,'Front'],[-1,'Rear']],p.fr|0));
-      row.appendChild(mkSel('tlr',[[0,'l/r —'],[1,'Left'],[-1,'Right']],p.lr|0));
+      row.appendChild(mkSel('tfr',[[0,'f/r -'],[1,'Front'],[-1,'Rear']],p.fr|0));
+      row.appendChild(mkSel('tlr',[[0,'l/r -'],[1,'Left'],[-1,'Right']],p.lr|0));
     } else {
       row.appendChild(document.createElement('span'));
       row.appendChild(document.createElement('span'));

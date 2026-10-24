@@ -49,6 +49,10 @@ static AppConfig makeBeltConfig(double minPct = 5.0, double maxPct = 50.0)
     dc.mode                = "torque";
     dc.torqueMinPct        = minPct;
     dc.torqueMaxPct        = maxPct;
+    // Pinned, not the default: the slew and fold tests below count the cap's
+    // pacing at 3000 %/s (30% per 10 ms cycle). They test the guard, not the
+    // shipped default (which is pinned in TestConfigTwoFile).
+    dc.beltSlewPctPerSec   = 3000.0;
     dc.strokeMm            = 100.0;
     dc.countsPerMm         = 100.0;
     dc.maxVelocityMmS      = 200.0;
