@@ -23,6 +23,7 @@
 #include "../src/PlatformRT.h"
 #include "../src/EffectStatus.h"
 #include "../src/HapticsProfiles.h"
+#include "../src/SupportRedact.h"
 
 class TestConfigTwoFile : public QObject
 {
@@ -1227,6 +1228,36 @@ private slots:
             }
         }
         QVERIFY2(stray.isEmpty(), qPrintable("keys written that no registry row offers: " + stray.join(", ")));
+    }
+
+    // The support bundle (the dashboard's Download logs) carries host.json
+    // and rig.json with the web password blanked: an escaped quote inside it
+    // is part of it, an empty one stays empty, every occurrence goes, the
+    // name as a value is not a key, and a shape that cannot be blanked (not
+    // a string, never ends) is refused so the file is left out.
+    void supportBundle_blanksTheWebPassword()
+    {
+        // The password: se"sa\me, as JSON writes it.
+        std::string t = "{\n  \"webAuthToken\" :  \"se\\\"sa\\\\me\",\n  \"nicName\": \"eth0\"\n}";
+        QVERIFY(t.find("se\\\"sa\\\\me") != std::string::npos);   // the check below can fail
+        QVERIFY(redactWebAuthToken(t));
+        QVERIFY2(t.find("se\\\"sa") == std::string::npos && t.find("sa\\\\me") == std::string::npos, t.c_str());
+        QVERIFY(t.find("\"webAuthToken\" :  \"<redacted>\",") != std::string::npos);
+        QVERIFY(t.find("\"nicName\": \"eth0\"") != std::string::npos);
+        std::string e = "{\"webAuthToken\":\"\"}";
+        QVERIFY(redactWebAuthToken(e));
+        QCOMPARE(e, std::string("{\"webAuthToken\":\"\"}"));   // no password set: nothing to hide
+        std::string two = "{\"a\":{\"webAuthToken\":\"x1\"},\"webAuthToken\":\"x2\",\"note\":\"webAuthToken\"}";
+        QVERIFY(redactWebAuthToken(two));
+        QVERIFY(two.find("x1") == std::string::npos && two.find("x2") == std::string::npos);
+        QVERIFY(two.find("\"note\":\"webAuthToken\"") != std::string::npos);
+        std::string none = "{\"nicName\":\"eth0\"}";
+        QVERIFY(redactWebAuthToken(none));
+        QCOMPARE(none, std::string("{\"nicName\":\"eth0\"}"));
+        std::string num = "{\"webAuthToken\": 1234}";
+        QVERIFY2(!redactWebAuthToken(num), "a value that is not a string is refused");
+        std::string open = "{\"webAuthToken\": \"secret";
+        QVERIFY2(!redactWebAuthToken(open), "a value that never ends is refused");
     }
 
     // The validator holds every registry row to the range and the choices

@@ -571,6 +571,27 @@ int main()
               "POST /api/host: every host key the page does not send stays (e-stop pin, loop CPU, allowed hosts)");
         { std::ofstream o(hp, std::ios::binary | std::ios::trunc); o << original; }   // as it was for the rest of the run
     }
+    // The dashboard's Download logs carries host.json with the web password
+    // blanked (a bundle is made to be shared), escaped quote and all.
+    {
+        const std::filesystem::path hp = cfgDir / "host.json";
+        const auto readText = [](const std::filesystem::path& p)
+        { std::ifstream i(p, std::ios::binary); return std::string(std::istreambuf_iterator<char>(i), std::istreambuf_iterator<char>()); };
+        const std::string original = readText(hp);
+        QJsonObject h = QJsonDocument::fromJson(QByteArray::fromStdString(original)).object();
+        h["webAuthToken"] = QStringLiteral("open\"sesame");
+        { std::ofstream o(hp, std::ios::binary | std::ios::trunc); o << QJsonDocument(h).toJson().toStdString(); }
+        const std::string b = get("/api/logbundle");
+        check(has(b, "==== host.json ====") && has(b, "<redacted>") && !has(b, "sesame"),
+              "GET /api/logbundle: host.json is in, its web password blanked");
+        // A key written with an escape (a hand edit) is the same key to the
+        // parser: the file is left out rather than shared.
+        { std::ofstream o(hp, std::ios::binary | std::ios::trunc); o << "{\"web\\u0041uthToken\": \"hidden1\"}"; }
+        const std::string b2 = get("/api/logbundle");
+        check(has(b2, "==== host.json ====") && has(b2, "(left out") && !has(b2, "hidden1"),
+              "GET /api/logbundle: a password under an escaped key name leaves host.json out");
+        { std::ofstream o(hp, std::ios::binary | std::ios::trunc); o << original; }
+    }
     // Profiles: save snapshots the saved set, it lists, loads (the saved
     // rig's haptics object is the snapshot again, an edit made in between
     // undone), binds to a car name (naming that car loads it), and

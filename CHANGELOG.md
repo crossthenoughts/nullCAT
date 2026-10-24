@@ -57,6 +57,8 @@ middle number carries breaking changes and the last carries fixes.
   **Slew cap** to 20000 on the belt in Setup to change it.
 
 ### Fixed
+- The dashboard's **Download logs** no longer puts your web password in
+  the file: it is blanked, as the support bundle scripts do.
 - Automobilista 2: the Super Trophy Truck now finds its car table entry.
   The game names it "Super Trophy Trucks" and the entry was singular, so
   the truck ran on the defaults until you picked it from the list.

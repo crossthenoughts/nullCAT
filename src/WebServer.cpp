@@ -21,6 +21,7 @@
 #include "CommissioningMode.h"  // test-mode plan builders (/api/test/*)
 #include "AxisKind.h"           // axis classification authority
 #include "HapticsHelp.h"        // each haptic setting's hover text (schema "help")
+#include "SupportRedact.h"      // the web password blanked in the support bundle
 #include <QJsonDocument>   // /api/test/start body parsing
 #include <QJsonObject>
 #include <QJsonArray>
@@ -1122,10 +1123,29 @@ bool WebServer::start()
                 s += tailFile(appLog, 512 * 1024);
                 s += "\n==== soem log tail ====\n";
                 s += tailFile(soemLog, 256 * 1024);
+                // The settings files with the web password blanked (the
+                // bundle is made to be shared), or left out when it cannot
+                // be blanked. Read back as JSON too: a key written with an
+                // escape ("webAuthToken", a hand edit) is the same key
+                // to the parser but not to the text match.
+                const auto settingsFile = [&](const char* name) -> std::string
+                {
+                    std::string text = wholeFile(siblingFile(m_configPath, name));
+                    bool ok = redactWebAuthToken(text);
+                    if (ok)
+                    {
+                        const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(text));
+                        const QJsonValue tok = doc.isObject() ? doc.object().value("webAuthToken") : QJsonValue(QJsonValue::Undefined);
+                        if (tok.isString() && !tok.toString().isEmpty() && tok.toString() != QStringLiteral("<redacted>")) ok = false;
+                        else if (!tok.isUndefined() && !tok.isString()) ok = false;
+                    }
+                    if (!ok) text = "(left out: its web password could not be blanked)\n";
+                    return text;
+                };
                 s += "\n==== rig.json ====\n";
-                s += wholeFile(siblingFile(m_configPath, "rig.json"));
+                s += settingsFile("rig.json");
                 s += "\n==== host.json ====\n";
-                s += wholeFile(siblingFile(m_configPath, "host.json"));
+                s += settingsFile("host.json");
             }
             res.set_header("Content-Disposition",
                            "attachment; filename=\"nullcat-support-bundle.txt\"");
