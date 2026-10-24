@@ -90,6 +90,8 @@ Copy-Item "$rel\SAFETY.md"              $stage
 Copy-Item "$rel\README.txt"             $stage
 Copy-Item "$rel\install-task.ps1"       $stage
 Copy-Item "$rel\uninstall-task.ps1"     $stage
+Copy-Item "$rel\support-bundle.ps1"     $stage
+Copy-Item "$rel\support-bundle.cmd"     $stage
 Copy-Item "$rel\host.nuc.example.json"  $stage
 New-Item -ItemType Directory -Force (Join-Path $stage "logs") | Out-Null
 
@@ -120,7 +122,8 @@ $mustHave = @("nullCAT.exe", "nullCATWatchdog.exe", "LICENSE.txt", "SAFETY.md",
               "platforms\qwindows.dll", "host.reference.json", "rig.reference.json",
               "cars.json", "presets.json", "KNOWN_LIMITATIONS.md", "docs\FIRST_SETUP_WINDOWS.md",
               "docs\media\simhub-update-command.png", "docs\CONFIG_REFERENCE.md",
-              "simhub\NullcatChannelExporter.dll", "simhub\NullcatChannelExporter.json", "simhub\README.md")
+              "simhub\NullcatChannelExporter.dll", "simhub\NullcatChannelExporter.json", "simhub\README.md",
+              "support-bundle.ps1", "support-bundle.cmd")
 foreach ($f in $mustHave) {
     if (-not (Test-Path (Join-Path $stage $f))) { throw "Missing from stage: $f" }
 }

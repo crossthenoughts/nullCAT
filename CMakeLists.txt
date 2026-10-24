@@ -324,7 +324,7 @@ endif()
 
 # Ship the deploy artifacts in the release folder (README + appliance scripts +
 # the NUC host.json template) so a zipped Release is a complete handoff.
-foreach(_deploy_file README.txt install-task.ps1 uninstall-task.ps1 host.nuc.example.json)
+foreach(_deploy_file README.txt install-task.ps1 uninstall-task.ps1 support-bundle.ps1 support-bundle.cmd host.nuc.example.json)
     add_custom_command(TARGET nullCAT POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/deploy/${_deploy_file}"

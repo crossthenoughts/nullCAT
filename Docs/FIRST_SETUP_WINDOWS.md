@@ -245,7 +245,7 @@ Belts slack/tension around getting in and out.
 | A drive panel shows an `Er` code | Look it up in [DriveFacts.md](DriveFacts.md); many clear with **Reset Faults** |
 | TELEMETRY stuck on *Listening…* | SimHub motion enabled? Sending UDP to `127.0.0.1:4444`? Port matches Settings? Command format exactly as in step 8 (Decimal, 16-bit **UNSIGNED**, `NULLCAT,` prefix)? A rig sitting at rest should be sending values near `32767`; near-zero or negative fields mean signed output was picked. |
 | Motion feels wrong / too aggressive | Revisit axis speeds and stroke in the web UI; start lower |
-| Anything unexplained | `logs\app.log` next to the exe narrates everything with timestamps. Read the last screenful, or attach it when asking for help |
+| Anything unexplained | `logs\app.log` next to the exe narrates everything with timestamps; read the last screenful. To ask for help, double-click `support-bundle.cmd` in the nullCAT folder: it puts the logs, your settings and a short system summary into one zip next to the exe, with any web password blanked, ready to attach |
 
 The WKC error counter in the app ticking up occasionally is normal on
 Windows and harmless; see [KNOWN_LIMITATIONS.md](../KNOWN_LIMITATIONS.md)

@@ -59,7 +59,8 @@ cp "$REPO/pi/nullcat-pi.service"            "$STAGE/os-setup/"
 cp "$REPO/pi/nullcat-update@.service"       "$STAGE/os-setup/"
 cp "$REPO/pi/nullcat-poweroff.sudoers"      "$STAGE/os-setup/" 2>/dev/null || true
 cp "$REPO/pi/os-setup/nullcat-update.sh"    "$STAGE/os-setup/"
-chmod +x "$STAGE/os-setup/nullcat-update.sh" "$STAGE/nullcat-pi" "$STAGE/provision"
+cp "$REPO/pi/os-setup/support-bundle.sh"    "$STAGE/os-setup/"
+chmod +x "$STAGE/os-setup/nullcat-update.sh" "$STAGE/os-setup/support-bundle.sh" "$STAGE/nullcat-pi" "$STAGE/provision"
 
 # ---- Manifest: what the updater reads before applying.
 # layout: versioned-directory scheme generation (install.sh >= 0.9.5).
@@ -78,7 +79,7 @@ for f in host.json rig.json buttons.json cars.local.json config.json; do
     if [ -e "$STAGE/$f" ]; then echo "FORBIDDEN file staged: $f" >&2; exit 1; fi
 done
 for f in nullcat-pi provision manifest.json web/index.html \
-         os-setup/nullcat-update.sh os-setup/nullcat-pi.service \
+         os-setup/nullcat-update.sh os-setup/support-bundle.sh os-setup/nullcat-pi.service \
          os-setup/nullcat-update@.service SAFETY.md \
          host.reference.json rig.reference.json cars.json presets.json docs/PI_SETUP.md; do
     if [ ! -e "$STAGE/$f" ]; then echo "MISSING from stage: $f" >&2; exit 1; fi

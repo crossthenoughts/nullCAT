@@ -6,6 +6,14 @@ middle number carries breaking changes and the last carries fixes.
 
 ## [Unreleased]
 
+### Added
+- A support bundle for problem reports: double-click `support-bundle.cmd`
+  in the Windows folder, or run `os-setup/support-bundle.sh` on the Pi. It
+  puts the logs, your settings files and a short system summary (on the Pi
+  also the service's and the updater's journals) into one file to attach
+  when you ask for help, with any web password blanked in the copy. See
+  "If something goes wrong" in the setup guides.
+
 ### Changed
 - The Engine tile's Test with no game running now climbs from idle to the
   redline and ends on the limiter's cut, instead of only idling, so it can
