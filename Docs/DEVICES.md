@@ -428,7 +428,7 @@ effect silent.
 | Driveline | a slipping clutch juddering at a launch, the engine lugging at low revs (below) | clutch, rpm, gear (speed, throttle) |
 | Surface | what the ground does under each tyre: stones on gravel, snow crunching, studs on ice, puddles dragging and floating the tyre (below) | the surface under each tyre, speed (rain or wetness) |
 | Wheels | each wheel turning: slightly out of balance, flat spots from lock-ups, hot brake discs juddering, through the tyre and suspension (below) | speed (per-wheel slip ratio or wheel speeds, brake) |
-| Impacts | the edge of a hit: the bump stop, a landing, a kerb strike, a top-out, as a knock on a belt or shaker and a short jolt on a seat actuator (below) | the suspension per corner, or the body's vertical acceleration |
+| Impacts | the edge of a hit: the bump stop, a landing, a kerb strike, a top-out, a wall or another car, as a knock on a belt or shaker and a short jolt on a seat actuator (below) | the suspension per corner, or the body's accelerations |
 
 With the SimHub plugin, rpm, speed, gear, clutch, throttle, brake, ABS,
 limiter and traction control arrive automatically, and for Assetto
@@ -831,6 +831,11 @@ it never reaches a belt or a shaker. This tile plays only that.
 - A sudden jump in the body's vertical g, on every corner: a landing, a
   heavy compression. **heave g** (0.5) is the jump that starts a knock,
   full at three times that; 0 turns it off.
+- A sudden jump in the body's g along and across the car, on every
+  corner: a wall, a contact with another car. **hit g** (2) is the jump
+  that starts a knock, full at three times that; 0 turns it off. Raise it
+  if kerbs or gear shifts knock, lower it if light contacts pass
+  unnoticed. Needs the SimHub plugin 1.9.
 
 A belt or shaker gets a knock that rings at **ring hz** (40) and dies
 over **ring ms** (50). A seat actuator gets one short jolt for its

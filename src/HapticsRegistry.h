@@ -239,6 +239,7 @@ constexpr ParamSpec kImpactParams[] = {         // impacts: the edge of a hit th
     { "fromMmS", "from mm/s",  100, 3000, 50,   nullptr },   // a suspension velocity jump that starts a knock
     { "fullMmS", "full mm/s",  300, 8000, 100,  nullptr },   // ...and a full one
     { "heaveG",  "heave g",    0,   5,    0.1,  nullptr },   // a vertical g jump that knocks the whole car (0 off)
+    { "hitG",    "hit g",      0,   10,   0.1,  nullptr },   // a horizontal g jump (a wall, a contact) that knocks the whole car (0 off)
 };
 constexpr ParamSpec kEngineParams[] = {    { "ampPct",    "amp %",                 0,   100,   1,    nullptr, kParamCar },
     { "cylinders", "cyl / rotors",          1,   16,    1,    nullptr, kParamCar },
@@ -426,16 +427,17 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "for each wheel's own speed and the lock-ups, the brake for the judder and the pads.",
       nullptr, {} },
     { Effect::Impacts,     "impacts",     "Impacts",      Kind::Impacts, EventType::COUNT, FxType::Impacts,
-      { "suspVel*|suspTravel*|accHeave", nullptr }, { 0.0, 40.0, 50.0, 0.0 }, kImpactParams, static_cast<int>(std::size(kImpactParams)),
+      { "suspVel*|suspTravel*|accHeave|accSurge|accSway", nullptr }, { 0.0, 40.0, 50.0, 0.0 }, kImpactParams, static_cast<int>(std::size(kImpactParams)),
       "The edge of a hit, which the motion cue rounds off and never sends to a belt or shaker: a corner's "
       "suspension stopping or starting dead between two sim samples (the bump stop on a big compression, a "
       "landing, a kerb strike, the suspension topping out), from from mm/s of sudden change, full at full mm/s; "
-      "and a sudden jump in the body's vertical g (heave g, 0 = off) on every corner; never with the car standing "
+      "and a sudden jump in the body's vertical g (heave g, 0 = off), or in its g along and across the car (a "
+      "wall, a contact with another car: hit g, 0 = off), on every corner; never with the car standing "
       "(a reset drops it onto the ground). A belt or shaker gets a "
       "knock ringing at ring hz and dying over ring ms; a post one short jolt, up for a compression, down for a "
       "top-out (keep its route small: the motion already moves the body). Route with a part so a post knocks "
-      "for its own corner. Needs the suspension velocity or travel per corner, or the body's vertical "
-      "acceleration.",
+      "for its own corner. Needs the suspension velocity or travel per corner, or the body's accelerations "
+      "(hits need the SimHub plugin 1.9).",
       nullptr, {} },
 };
 } // namespace registry_detail

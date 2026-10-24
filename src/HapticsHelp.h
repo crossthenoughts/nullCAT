@@ -436,9 +436,13 @@ constexpr ParamHelp kHelp[] = {
       "The sudden change that is a full knock, 300 to 8000 mm/s. 1500 by default: a hit of 2 to 4 times the "
       "start plays strong." },
     { "impacts", "heaveG",
-      "A jump in the body's vertical g between two samples that knocks every corner (a landing, a heavy "
+      "A sudden jump in the body's vertical g that knocks every corner (a landing, a heavy "
       "compression), 0 to 5 (0 = off), full at 3 times it. 0.5 by default: about 2 to 18 a minute on the "
       "tracks measured; 0.75 to 1 if it knocks on every bump." },
+    { "impacts", "hitG",
+      "A sudden jump in the body's g along and across the car (a wall, a contact with another "
+      "car) that knocks every corner, 0 to 10 (0 = off), full at 3 times it. 2 by default; raise it if kerbs "
+      "or gear shifts knock, lower it if light contacts pass unnoticed. Needs the SimHub plugin 1.9." },
 };
 
 } // namespace help_detail

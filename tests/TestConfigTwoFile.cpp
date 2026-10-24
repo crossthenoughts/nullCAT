@@ -322,6 +322,9 @@ private slots:
         DriveConfig& d = a.get().drives[0];
         d.beltSource = "g"; d.beltGMode = "accel"; d.beltGFromG = 0.2; d.beltGFullG = 2.5;
         d.beltGCurve = 1.5; d.beltGSmoothMs = 45.0;
+        QCOMPARE(QString::fromStdString(d.beltGSway), QString("off"));
+        QCOMPARE(QString::fromStdString(d.beltGHeave), QString("off"));
+        d.beltGSway = "right"; d.beltGSwayMix = 0.75; d.beltGHeave = "lift"; d.beltGHeaveMix = 2.0;
         QVERIFY(a.save(anchor(dir).toStdString()));
         Config b; QVERIFY(b.load(anchor(dir).toStdString()));
         const DriveConfig& r = b.get().drives[0];
@@ -329,6 +332,9 @@ private slots:
         QCOMPARE(QString::fromStdString(r.beltGMode), QString("accel"));
         QCOMPARE(r.beltGFromG, 0.2); QCOMPARE(r.beltGFullG, 2.5);
         QCOMPARE(r.beltGCurve, 1.5); QCOMPARE(r.beltGSmoothMs, 45.0);
+        QCOMPARE(QString::fromStdString(r.beltGSway), QString("right"));
+        QCOMPARE(QString::fromStdString(r.beltGHeave), QString("lift"));
+        QCOMPARE(r.beltGSwayMix, 0.75); QCOMPARE(r.beltGHeaveMix, 2.0);
     }
 
     // Reload from the freshly-written pair round-trips to a usable config.

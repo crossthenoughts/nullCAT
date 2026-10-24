@@ -738,6 +738,7 @@ public:
     void driveImpactVelocity(int wheel, double mmS){ m_impacts.driveVelocity(wheel, mmS); }
     void driveImpactTravel(int wheel, double mm)   { m_impacts.driveTravel(wheel, mm); }
     void driveImpactHeave(double ms2)              { m_impacts.driveHeave(ms2); }
+    void driveImpactHorizontal(double surgeMs2, double swayMs2, int present) { m_impacts.driveHorizontal(surgeMs2, swayMs2, present); }
     void impactsStill()                            { m_impacts.still(); }
     void impactKnock(int wheel, double severity, double sign) { m_impacts.knock(wheel, severity, sign); }
     const ImpactModel& impactModel() const         { return m_impacts; }

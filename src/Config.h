@@ -236,20 +236,33 @@ struct DriveConfig
     // Belt cue: where the tension comes from.
     //  "motion": the motion software's tension on this axis's slot of the
     //            motion line (as ever).
-    //  "g":      nullCAT maps the car's longitudinal g (the channel
-    //            accSurge, protocol 1.9) straight onto
+    //  "g":      nullCAT maps the car's g (the channels accSurge, accSway
+    //            and accHeave, protocol 1.9) straight onto
     //            torqueMinPct..torqueMaxPct.
-    // With "g": beltGMode picks what tightens ("decel" braking, "accel"
-    // accelerating, "both" either; a sender whose sign runs the other way
-    // is answered by picking the other one). Tension leaves torqueMinPct
+    // With "g", what tightens it, per axis of the car (a sender whose sign
+    // runs the other way is answered by picking the other one):
+    //   beltGMode  surge: "decel" braking, "accel" accelerating, "both", "off"
+    //   beltGSway  sway:  "left", "right" (corners one way or the other),
+    //              "both", "off" (the default)
+    //   beltGHeave heave, its change from its own running mean (gravity
+    //              and the hills off): "lift" (over a crest), "press"
+    //              (into a compression), "both", "off" (the default)
+    // Each g is folded by its choice; sway and heave count at
+    // beltGSwayMix and beltGHeaveMix against surge's 1, and the sum is the
+    // g that tightens the belt. Tension leaves torqueMinPct
     // at beltGFromG and reaches torqueMaxPct at beltGFullG (beltGCurve 1 =
     // a straight line; above 1 softer at small g, below 1 sharper), the g
-    // low-passed over beltGSmoothMs (the channel arrives about 60 times a
-    // second). The stale-stream stages, relaxer, slew cap and speed fold
+    // low-passed over beltGSmoothMs (the channels arrive about 60 times a
+    // second through SimHub, about 333 with the plugin's Kunos direct
+    // feed). The stale-stream stages, relaxer, slew cap and speed fold
     // apply as for "motion"; a channel stream that stops is a stream that
     // stops (hold, ease to min, park slack).
     std::string beltSource    = "motion";
     std::string beltGMode     = "decel";
+    std::string beltGSway     = "off";
+    double      beltGSwayMix  = 1.0;
+    std::string beltGHeave    = "off";
+    double      beltGHeaveMix = 1.0;
     double      beltGFromG    = 0.05;
     double      beltGFullG    = 1.5;
     double      beltGCurve    = 1.0;

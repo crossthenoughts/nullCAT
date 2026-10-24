@@ -280,6 +280,7 @@ constexpr FieldRow<WheelsParams> kWheelsFields[] = {
 };
 constexpr FieldRow<ImpactParams> kImpactFields[] = {
     { "fromMmS", &ImpactParams::fromMmS }, { "fullMmS", &ImpactParams::fullMmS }, { "heaveG", &ImpactParams::heaveG },
+    { "hitG", &ImpactParams::hitG },
 };
 // ABS and TC share the struct; each tile's registry rows say which it uses.
 constexpr FieldRow<PulseParams> kPulseFields[] = {
@@ -551,6 +552,10 @@ static void writeDriveConfig(const DriveConfig& d, QJsonObject& obj)
     obj["beltRelaxerPct"]            = d.beltRelaxerPct;
     obj["beltSource"]                = QString::fromStdString(d.beltSource);
     obj["beltGMode"]                 = QString::fromStdString(d.beltGMode);
+    obj["beltGSway"]                 = QString::fromStdString(d.beltGSway);
+    obj["beltGSwayMix"]              = d.beltGSwayMix;
+    obj["beltGHeave"]                = QString::fromStdString(d.beltGHeave);
+    obj["beltGHeaveMix"]             = d.beltGHeaveMix;
     obj["beltGFromG"]                = d.beltGFromG;
     obj["beltGFullG"]                = d.beltGFullG;
     obj["beltGCurve"]                = d.beltGCurve;
@@ -675,6 +680,10 @@ static void readDriveConfig(const QJsonObject& obj, int idx, DriveConfig& d)
     rdDbl (obj, "beltRelaxerPct",         d.beltRelaxerPct);
     rdStr (obj, "beltSource",             d.beltSource, true);
     rdStr (obj, "beltGMode",              d.beltGMode, true);
+    rdStr (obj, "beltGSway",              d.beltGSway, true);
+    rdDbl (obj, "beltGSwayMix",           d.beltGSwayMix);
+    rdStr (obj, "beltGHeave",             d.beltGHeave, true);
+    rdDbl (obj, "beltGHeaveMix",          d.beltGHeaveMix);
     rdDbl (obj, "beltGFromG",             d.beltGFromG);
     rdDbl (obj, "beltGFullG",             d.beltGFullG);
     rdDbl (obj, "beltGCurve",             d.beltGCurve);
@@ -1401,8 +1410,18 @@ std::vector<std::string> AppConfig::validate() const
                 errors.push_back(pfx + "beltRelaxerPct out of range [20, 100]");
             if (d.beltSource != "motion" && d.beltSource != "g")
                 errors.push_back(pfx + "beltSource must be \"motion\" or \"g\"");
-            if (d.beltGMode != "both" && d.beltGMode != "accel" && d.beltGMode != "decel")
-                errors.push_back(pfx + "beltGMode must be \"both\", \"accel\" or \"decel\"");
+            if (d.beltGMode != "both" && d.beltGMode != "accel" && d.beltGMode != "decel" && d.beltGMode != "off")
+                errors.push_back(pfx + "beltGMode must be \"both\", \"accel\", \"decel\" or \"off\"");
+            if (d.beltGSway != "off" && d.beltGSway != "left" && d.beltGSway != "right" && d.beltGSway != "both")
+                errors.push_back(pfx + "beltGSway must be \"off\", \"left\", \"right\" or \"both\"");
+            if (d.beltGHeave != "off" && d.beltGHeave != "lift" && d.beltGHeave != "press" && d.beltGHeave != "both")
+                errors.push_back(pfx + "beltGHeave must be \"off\", \"lift\", \"press\" or \"both\"");
+            if (!(d.beltGSwayMix >= 0.0 && d.beltGSwayMix <= 3.0))
+                errors.push_back(pfx + "beltGSwayMix out of range [0, 3]");
+            if (!(d.beltGHeaveMix >= 0.0 && d.beltGHeaveMix <= 3.0))
+                errors.push_back(pfx + "beltGHeaveMix out of range [0, 3]");
+            if (d.beltSource == "g" && d.beltGMode == "off" && d.beltGSway == "off" && d.beltGHeave == "off")
+                errors.push_back(pfx + "beltSource is \"g\" with beltGMode, beltGSway and beltGHeave all \"off\": the belt never tightens");
             if (d.beltGFromG < 0.0 || d.beltGFromG > 2.0)
                 errors.push_back(pfx + "beltGFromG out of range [0, 2]");
             if (d.beltGFullG < 0.2 || d.beltGFullG > 6.0 || d.beltGFullG < d.beltGFromG + 0.05)

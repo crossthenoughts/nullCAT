@@ -282,6 +282,14 @@ private slots:
         AppConfig e = cfg; e.drives[0].beltGCurve = 5.0;          QVERIFY(names(e, "beltGCurve"));
         AppConfig f = cfg; f.drives[0].beltGSmoothMs = 500.0;     QVERIFY(names(f, "beltGSmoothMs"));
         AppConfig g = cfg; g.drives[0].beltGFromG = -0.1;         QVERIFY(names(g, "beltGFromG"));
+        AppConfig h = cfg; h.drives[0].beltGSway = "sideways";    QVERIFY(names(h, "beltGSway"));
+        AppConfig k = cfg; k.drives[0].beltGHeave = "up";         QVERIFY(names(k, "beltGHeave"));
+        AppConfig m = cfg; m.drives[0].beltGSwayMix = 3.5;        QVERIFY(names(m, "beltGSwayMix"));
+        AppConfig n = cfg; n.drives[0].beltGHeaveMix = -0.1;      QVERIFY(names(n, "beltGHeaveMix"));
+        // Cornering or heave alone is valid; all three off is flagged.
+        AppConfig o = cfg; o.drives[0].beltGMode = "off"; o.drives[0].beltGSway = "left";
+        QVERIFY2(o.validate().empty(), "a belt from g on cornering alone is valid");
+        AppConfig q = o; q.drives[0].beltGSway = "off"; QVERIFY(names(q, "never tightens"));
     }
 
     // homingTorquePct = 0 (must be >= 1)
@@ -464,7 +472,7 @@ private slots:
         cfg.hapticsWheels.puncture = 0.5; QVERIFY(cfg.validate().empty());
     }
 
-    // Impacts: from 100..3000, full 300..8000 and above from, heave 0..5 g,
+    // Impacts: from 100..3000, full 300..8000 and above from, heave 0..5 g, hit 0..10 g,
     // the ring 15..120 Hz over 10..200 ms.
     void impacts_ranges()
     {
@@ -477,6 +485,8 @@ private slots:
         cfg.hapticsImpacts.fullMmS = 400.0;  QVERIFY2(refused("fullMmS must be above"), "full below from is refused");
         cfg.hapticsImpacts.fullMmS = 2500.0; cfg.hapticsImpacts.heaveG = 6.0; QVERIFY2(refused("heaveG"), "heave 6 g is refused");
         cfg.hapticsImpacts.heaveG = 0.0;
+        cfg.hapticsImpacts.hitG = 12.0; QVERIFY2(refused("hitG"), "a 12 g hit threshold is refused");
+        cfg.hapticsImpacts.hitG = 0.0;
         haptics::EffectParams& p = cfg.hapticsFx[static_cast<size_t>(haptics::Effect::Impacts)];
         p.durMs = 5.0; QVERIFY2(refused("durMs"), "a 5 ms ring is refused");
         p.durMs = 80.0; p.ampPct = 50.0; p.freqHz = 200.0; QVERIFY2(refused("impacts: freqHz"), "a 200 Hz ring is refused");

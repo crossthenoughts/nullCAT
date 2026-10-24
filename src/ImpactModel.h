@@ -15,8 +15,13 @@
 //            a kerb strike, the suspension topping out), from from mm/s,
 //            full at full mm/s;
 //   body     a jump in the body's vertical acceleration (a landing, a
-//            heavy compression) from heave g, full at 3 x that, on every
-//            corner.
+//            heavy compression) from heave g, full at 3 x that, or in its
+//            acceleration along and across the car together (a wall, a
+//            car's contact) from hit g, full at 3 x that, on every corner
+//            (the stronger of the two). A jump is the change from the
+//            sample before; on a feed faster than about 120 Hz (learned
+//            from its samples), the change since the value current 12 ms
+//            before, so it knocks as a 60 Hz feed does.
 // A knock is a ring at freq hz decaying over ring ms on a belt or shaker
 // (it starts from zero and rises within a quarter cycle: the edge), and one
 // short jolt on a post, a raised cosine back to where it started: up when
@@ -43,7 +48,10 @@ namespace impact_k {
     constexpr double kHarderBy    = 1.5;     // ...unless the new hit is this much harder than what still rings
     constexpr double kThudHz      = 15.0;    // a post: one jolt at this rate
     constexpr double kG           = 9.80665;
-    constexpr double kHeaveFullX  = 3.0;     // the body: full at this x heave g
+    constexpr double kHeaveFullX  = 3.0;     // the body: full at this x heave g...
+    constexpr double kHitFullX    = 3.0;     // ...and at this x hit g
+    constexpr double kJumpWindowSec = 0.012; // the body's jump on a fast feed: the change since the value current this long ago
+    constexpr double kFastFeedSec = 0.008;   // ...a feed whose samples come closer than this (learned); slower, the sample before
     constexpr double kMinSampleSec = 0.002;  // a travel sample closer than this to the last is not a new sample
     constexpr double kMaxSampleSec = 0.25;   // ...nor one after a gap this long (the stream stalled)
     constexpr double kSampleLearn = 0.2;     // the sim's sample interval, learned from the travel's changes
@@ -81,6 +89,15 @@ public:
         if (!std::isfinite(ms2)) return;
         m_heaveIn = ms2; m_heaveDriven = true;
     }
+    // The body's acceleration along and across the car, m/s^2 (0 for one
+    // the sim does not send), and which of them it sent (1 along, 2
+    // across): a different set from the last starts the jumps afresh (a
+    // value missing for a frame is no jump to 0).
+    void driveHorizontal(double surgeMs2, double swayMs2, int present = 3)
+    {
+        if (!std::isfinite(surgeMs2) || !std::isfinite(swayMs2)) return;
+        m_surgeIn = surgeMs2; m_swayIn = swayMs2; m_horizDriven = true; m_horizSet = present;
+    }
     // Per cycle, BEFORE step(): the car is standing still. The inputs are
     // tracked as ever (so the first move after has a true last sample to
     // jump from) but nothing knocks: a car dropped onto the ground at a
@@ -102,20 +119,45 @@ public:
         const double full = std::max(from + 1.0, q.fullMmS);
         const bool   still = m_still;
         m_still = false;
-        // The body: a jump in vertical acceleration between two samples.
-        if (m_heaveDriven)
+        m_now += dtSec;
+        // The body: a jump in vertical acceleration, or in the horizontal
+        // one (along and across together), knocks every corner; the
+        // stronger of the two plays, the heave's way or up for a hit.
+        double bodyS = 0.0, bodySign = 1.0, ja = 0.0, jb = 0.0;
+        if (!m_heaveDriven) m_heave.clear();
+        else if (m_heave.sample(m_now, m_heaveIn, 0.0, ja, jb) && q.heaveG > 0.0)
         {
-            if (m_heaveSeen && m_heaveIn != m_heavePrev && q.heaveG > 0.0 && !still)
-            {
-                const double jumpG = std::fabs(m_heaveIn - m_heavePrev) / kG;
-                const double s = (jumpG - q.heaveG) / ((kHeaveFullX - 1.0) * q.heaveG);
-                if (s > 0.0)
-                    for (C& c : m_c) start(c, std::min(1.0, s), (m_heaveIn > m_heavePrev) ? 1.0 : -1.0, false);
-            }
-            m_heavePrev = m_heaveIn; m_heaveSeen = true;
+            const double s = (std::fabs(ja) / kG - q.heaveG) / ((kHeaveFullX - 1.0) * q.heaveG);
+            if (s > bodyS) { bodyS = s; bodySign = (ja > 0.0) ? 1.0 : -1.0; }
         }
-        else m_heaveSeen = false;
-        m_heaveDriven = false;
+        if (!m_horizDriven || m_horizSet != m_horizSetLast) m_horiz.clear();
+        m_horizSetLast = m_horizDriven ? m_horizSet : 0;
+        if (m_horizDriven && m_horiz.sample(m_now, m_surgeIn, m_swayIn, ja, jb) && q.hitG > 0.0)
+        {
+            const double s = (std::hypot(ja, jb) / kG - q.hitG) / ((kHitFullX - 1.0) * q.hitG);
+            if (s > bodyS) { bodyS = s; bodySign = 1.0; }
+        }
+        m_bodySince += dtSec;
+        if (bodyS > 0.0 && !still)
+        {
+            const double s = std::min(1.0, bodyS);
+            // The same edge again on a faster feed's next sample (within the
+            // window of the body knock it started): that knock grows to it,
+            // one knock, not one restarted on every sample of the edge.
+            if (m_bodySince < kJumpWindowSec)
+            {
+                for (C& c : m_c)
+                    if (c.body && c.env > 0.0 && s > c.env) { c.env = s; c.lastSev = s; }
+            }
+            else
+            {
+                bool started = false;
+                for (C& c : m_c)
+                    if (start(c, s, bodySign, false)) { c.body = true; started = true; }
+                if (started) m_bodySince = 0.0;
+            }
+        }
+        m_heaveDriven = m_horizDriven = false;
 
         const double ringHz = std::max(5.0, p.freqHz);
         const double ringTau = std::max(0.005, p.durMs / 1000.0);
@@ -216,7 +258,8 @@ public:
     void clear()
     {
         for (C& c : m_c) c = C{};
-        m_heaveIn = m_heavePrev = 0.0; m_heaveDriven = m_heaveSeen = false;
+        m_heaveIn = m_surgeIn = m_swayIn = 0.0; m_heaveDriven = m_horizDriven = false;
+        m_heave = Track{}; m_horiz = Track{}; m_now = 0.0; m_bodySince = 1e9; m_horizSet = m_horizSetLast = 0;
         m_still = false;
         m_level = 0.0;
     }
@@ -230,21 +273,76 @@ private:
         double sinceSample = 0.0, vLast = 0.0, dtSample = 1.0 / 60.0;
         // the knock
         double env = 0.0, eNow = 0.0, t = 0.0, phase = 0.0, sign = 1.0, sinceKnock = 1e9, lastSev = 0.0;
+        bool   body = false;   // the knock ringing is the body's (a faster feed's next sample may grow it)
         uint32_t count = 0;
         Out    out;
     };
 
-    void start(C& c, double s, double sign, bool force)
+    // True when the knock starts (or, started this same cycle, grows to it).
+    bool start(C& c, double s, double sign, bool force)
     {
         using namespace impact_k;
-        if (s <= 0.0) return;
-        if (!force && c.sinceKnock < kMinGapSec && s < kHarderBy * c.eNow) return;
-        c.env = s; c.t = 0.0; c.phase = 0.0; c.sign = sign; c.sinceKnock = 0.0; c.lastSev = s; ++c.count;
+        if (s <= 0.0) return false;
+        // A knock started this same cycle (the body's, then the corner's):
+        // one knock, the stronger of the two.
+        const bool again = (c.env > 0.0 && c.t == 0.0);
+        if (!force)
+        {
+            if (again) { if (s <= c.env) return false; }
+            else if (c.sinceKnock < kMinGapSec && s < kHarderBy * c.eNow) return false;
+        }
+        c.env = s; c.t = 0.0; c.phase = 0.0; c.sign = sign; c.sinceKnock = 0.0; c.lastSev = s;
+        c.body = false;   // the body's loop marks its own
+        if (!again) ++c.count;
+        return true;
     }
 
+    // The body's samples (one or two values): a new sample is told by its
+    // value changing. Its jump is the change from the sample before; on a
+    // fast feed (samples learned to come closer than kFastFeedSec), the
+    // largest change from the samples since the one that was current
+    // kJumpWindowSec ago, that one included: the change over the span a
+    // 60 Hz sample covers, not its smaller steps. A 60 Hz feed whose
+    // samples happen to arrive close together is still sample to sample.
+    struct Track
+    {
+        static constexpr int kN = 16;
+        double t[kN] = {}, a[kN] = {}, b[kN] = {};
+        int n = 0, head = 0;
+        double interval = 1.0 / 60.0;   // learned time between samples (kept through a gap)
+        void clear() { n = 0; head = 0; }
+        // True for a new sample after the first, with the jump in (ja, jb).
+        bool sample(double now, double va, double vb, double& ja, double& jb)
+        {
+            if (n > 0 && va == a[head] && vb == b[head]) return false;
+            if (n > 0)
+            {
+                const double gap = now - t[head];
+                if (gap > 0.0 && gap < impact_k::kMaxSampleSec) interval += impact_k::kSampleLearn * (gap - interval);
+            }
+            const double window = (interval < impact_k::kFastFeedSec) ? impact_k::kJumpWindowSec : 0.0;
+            ja = jb = 0.0;
+            double best = -1.0;
+            for (int k = 0; k < n; ++k)
+            {
+                const int i = (head - k + kN) % kN;
+                const double da = va - a[i], db = vb - b[i], d = da * da + db * db;
+                if (d > best) { best = d; ja = da; jb = db; }
+                if (now - t[i] >= window) break;   // current a window ago (or the sample before): the last that counts
+            }
+            const bool jumped = (n > 0);
+            head = (head + 1) % kN; t[head] = now; a[head] = va; b[head] = vb;
+            n = std::min(kN, n + 1);
+            return jumped;
+        }
+    };
+
     C m_c[WHEEL_COUNT];
-    double m_heaveIn = 0.0, m_heavePrev = 0.0;
-    bool   m_heaveDriven = false, m_heaveSeen = false;
+    double m_heaveIn = 0.0, m_surgeIn = 0.0, m_swayIn = 0.0, m_now = 0.0;
+    double m_bodySince = 1e9;   // since the last body knock started
+    int    m_horizSet = 0, m_horizSetLast = 0;   // which horizontal values were sent (1 along, 2 across)
+    bool   m_heaveDriven = false, m_horizDriven = false;
+    Track  m_heave, m_horiz;
     bool   m_still = false;   // this cycle: standing still (no knocks)
     double m_level = 0.0;
 };

@@ -242,6 +242,7 @@ struct ImpactParams
     double fromMmS = 400.0;   // a jump in a corner's suspension velocity between two samples that starts a knock
     double fullMmS = 1500.0;  // ...and the jump that is a full one
     double heaveG  = 0.5;     // a jump in the body's vertical acceleration (g) that knocks every corner (0 = off)
+    double hitG    = 2.0;     // a jump in its acceleration along and across the car (g; a wall, a contact) that knocks every corner (0 = off)
 };
 
 // The Driveline tile: clutch judder and lugging wind-up, each a mix and

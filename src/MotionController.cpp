@@ -158,7 +158,11 @@ void MotionController::configure(const AppConfig& config)
         ac.beltRelaxerSec    = dc.beltRelaxerSec;
         ac.beltRelaxerPct    = dc.beltRelaxerPct;
         ac.beltFromG         = (dc.beltSource == "g");
-        ac.beltGMode         = (dc.beltGMode == "both") ? 0 : (dc.beltGMode == "accel") ? 1 : 2;
+        ac.beltGMode         = (dc.beltGMode == "off") ? 0 : (dc.beltGMode == "accel") ? 1 : (dc.beltGMode == "both") ? 3 : 2;
+        ac.beltGSway         = (dc.beltGSway == "left") ? 1 : (dc.beltGSway == "right") ? 2 : (dc.beltGSway == "both") ? 3 : 0;
+        ac.beltGHeave        = (dc.beltGHeave == "press") ? 1 : (dc.beltGHeave == "lift") ? 2 : (dc.beltGHeave == "both") ? 3 : 0;
+        ac.beltGSwayMix      = std::isfinite(dc.beltGSwayMix)  ? std::max(0.0, std::min(3.0, dc.beltGSwayMix))  : 1.0;
+        ac.beltGHeaveMix     = std::isfinite(dc.beltGHeaveMix) ? std::max(0.0, std::min(3.0, dc.beltGHeaveMix)) : 1.0;
         // Clamped into their ranges here as well: validation only warns on
         // load, and a curve at or below 0 would ask for more than torque max.
         ac.beltGFromG        = std::max(0.0, std::min(2.0, dc.beltGFromG));
@@ -203,10 +207,16 @@ void MotionController::configure(const AppConfig& config)
                           ac.torqueMinPct, ac.torqueMaxPct, dc.reductionRatio.c_str(),
                           ac.torqueMaxPct * rf));
             if (ac.beltFromG)
-                LOG_INFO(strf("MotionController: Axis %d belt from the car's g: tightens on %s, %.2f..%.2f g, "
-                              "curve %.2f, smoothed %.0f ms", i + 1,
-                              ac.beltGMode == 0 ? "both" : ac.beltGMode == 1 ? "acceleration" : "braking",
+            {
+                static const char* const kSurge[4] = { "off", "acceleration", "braking", "both" };
+                static const char* const kSway[4]  = { "off", "left", "right", "both" };
+                static const char* const kHeave[4] = { "off", "press", "lift", "both" };
+                LOG_INFO(strf("MotionController: Axis %d belt from the car's g: surge %s, sway %s x%.2f, "
+                              "heave %s x%.2f, %.2f..%.2f g, curve %.2f, smoothed %.0f ms", i + 1,
+                              kSurge[ac.beltGMode & 3], kSway[ac.beltGSway & 3], ac.beltGSwayMix,
+                              kHeave[ac.beltGHeave & 3], ac.beltGHeaveMix,
                               ac.beltGFromG, ac.beltGFullG, ac.beltGCurve, ac.beltGSmoothMs));
+            }
         }
 
         if (isBelt)
@@ -1047,7 +1057,7 @@ void MotionController::tensionBelts()
             rt.beltDwellSec     = 0.0;
             rt.beltRelaxed      = false;
             rt.beltLastTripWhy  = 0;            // card guard flag clears on tension-up
-            rt.beltGLive        = false;        // the g filter starts afresh (not from the last session's braking)
+            for (auto& c : rt.beltGCh) c.live = c.meanLive = false;   // the g filters start afresh (not from the last session's braking)
             RT_LOG_INFO("MotionController: Axis %d (belt) tensioning -- blending in.", i + 1);
         }
     }
@@ -1543,22 +1553,25 @@ double MotionController::decodeTargetMm(int i, double raw)
     return std::max(ac.minPos, std::min(ac.maxPos, targetMm));
 }
 
-// A car pulls well under 8 g along the road outside a crash; a value past
-// it is a junk frame (a reset, a glitch), not a cue.
+// A car pulls well under 8 g outside a crash; a value past it is a junk
+// frame (a reset, a glitch), not a cue.
 static constexpr double kBeltGJunkMs2 = 8.0 * 9.80665;
 // One junk frame does not restart the g smoothing; a gap this long does.
 static constexpr double kBeltGReseedSec = 0.1;
-// A sender that stops sending accSurge leaves the parser holding its
-// last value while the rest of the stream lives on: an accSurge that
-// has not changed in this long reads as no g (the belt eases to minimum,
-// ONLINE; never the stale stages, which would park a belt slack while
-// the car sits in the pits).
+// A sender that stops sending one of the g channels leaves the parser
+// holding its last value while the rest of the stream lives on: a value
+// that has not changed in this long reads as no g (the belt eases to
+// minimum, ONLINE; never the stale stages, which would park a belt slack
+// while the car sits in the pits).
 static constexpr double kBeltGFrozenSec = 0.5;
+// Heave is felt as its change from the steady part (gravity, a long
+// banking, a hill), taken as its mean over about this long.
+static constexpr double kBeltGHeaveMeanSec = 2.0;
 
 // The belt's live tension demand this cycle from its source (Config.h
-// beltSource): the motion line's slot for this axis, or the car's
-// longitudinal g. False when there is none (no usable frame; the channel
-// stream stale, silent on accSurge or junk): the caller stages the
+// beltSource): the motion line's slot for this axis, or the car's g.
+// False when there is none (no usable frame; the channel stream stale,
+// or silent or junk on every g the belt takes): the caller stages the
 // standby exactly as for a lost motion line. RT thread only.
 bool MotionController::beltDemand(int i, const TelemetryData& td, double& tension)
 {
@@ -1571,37 +1584,77 @@ bool MotionController::beltDemand(int i, const TelemetryData& td, double& tensio
     }
     AxisRuntime& rt = m_runtime[i];
     const NcxValues v = m_ncxMap.extract(td);
-    const double a = v.val[NcxValues::AccSurge];
-    if (!v.fresh || !v.have[NcxValues::AccSurge] || !std::isfinite(a) || std::fabs(a) > kBeltGJunkMs2)
+    static constexpr NcxValues::Token kTok[3] = { NcxValues::AccSurge, NcxValues::AccSway, NcxValues::AccHeave };
+    const int    mode[3] = { ac.beltGMode, ac.beltGSway, ac.beltGHeave };
+    const double mix[3]  = { 1.0, ac.beltGSwayMix, ac.beltGHeaveMix };
+    bool usable[3] = {}, anyUsable = false;
+    for (int k = 0; k < 3; ++k)
     {
-        if ((rt.beltGBadSec += m_cycleTimeSec) > kBeltGReseedSec) rt.beltGLive = false;
-        return false;
+        if (mode[k] == 0) continue;
+        const double a = v.val[kTok[k]];
+        usable[k] = v.fresh && v.have[kTok[k]] && std::isfinite(a) && std::fabs(a) <= kBeltGJunkMs2;
+        anyUsable = anyUsable || usable[k];
     }
-    rt.beltGBadSec = 0.0;
-    if (a != rt.beltGLastRaw) { rt.beltGLastRaw = a; rt.beltGSameSec = 0.0; }
-    else if ((rt.beltGSameSec += m_cycleTimeSec) > kBeltGFrozenSec)
+    const double dt = m_cycleTimeSec;
+    const double smoothA = (ac.beltGSmoothMs > 0.0) ? dt / (ac.beltGSmoothMs / 1000.0 + dt) : 1.0;
+    double x = 0.0;
+    for (int k = 0; k < 3; ++k)
     {
-        tension = beltGTension(i, 0.0);   // no g, through the smoothing (no step either way)
-        return true;
+        if (mode[k] == 0) continue;
+        AxisRuntime::BeltGChan& c = rt.beltGCh[k];
+        if (!usable[k])
+        {
+            // Held as it was for a junk frame, dropped after a real gap;
+            // heave's mean kept through a pause, dropped after a long one.
+            c.badSec += dt;
+            if (c.badSec > kBeltGReseedSec)    c.live = false;
+            if (c.badSec > kBeltGHeaveMeanSec) c.meanLive = false;
+        }
+        else
+        {
+            c.badSec = 0.0;
+            const double raw = v.val[kTok[k]];
+            const double rawG = raw / 9.80665;
+            double g = rawG;
+            // Unchanged too long: no g, through the smoothing (no step
+            // either way): surge and sway 0, heave its steady part (the
+            // value itself while there is none yet, so a parked car's
+            // gravity never reads as a g).
+            if (raw != c.lastRaw) { c.lastRaw = raw; c.sameSec = 0.0; }
+            else if ((c.sameSec += dt) > kBeltGFrozenSec)
+                g = (k != 2) ? 0.0 : c.meanLive ? c.mean : rawG;
+            if (!c.live) c.f = g;
+            else         c.f += (g - c.f) * smoothA;
+            if (k == 2)
+            {
+                if (!c.meanLive)  c.mean = g;
+                else if (c.live)  c.mean += (g - c.mean) * (dt / (kBeltGHeaveMeanSec + dt));
+                c.meanLive = true;
+            }
+            c.live = true;
+        }
+        if (!c.live) continue;
+        const double s = (k == 2) ? c.f - c.mean : c.f;
+        const double folded = (mode[k] == 1) ? std::max(0.0, s)
+                            : (mode[k] == 2) ? std::max(0.0, -s)
+                            : std::fabs(s);
+        x += mix[k] * folded;
     }
-    tension = beltGTension(i, a);
+    // Unusable on every g the belt takes: the standby stages, as a lost line
+    // (nothing selected never has a demand: the belt waits at minimum).
+    if (!anyUsable) return false;
+    tension = beltGTension(i, x);
     return true;
 }
 
-// Belt from g: the car's longitudinal g, low-passed over beltGSmoothMs,
-// folded by the mode (what tightens), then mapped from beltGFromG to
-// beltGFullG onto torqueMinPct..torqueMaxPct (a straight line at curve 1).
-double MotionController::beltGTension(int i, double accMs2)
+// Belt from g: x is what tightens it, in g (each axis's g low-passed over
+// beltGSmoothMs, folded by its mode, sway and heave at their share),
+// mapped from beltGFromG to beltGFullG onto torqueMinPct..torqueMaxPct (a
+// straight line at curve 1).
+double MotionController::beltGTension(int i, double x)
 {
     const AxisConfig& ac = m_axisConfig[i];
-    AxisRuntime& rt = m_runtime[i];
-    const double g = accMs2 / 9.80665;
-    if (!rt.beltGLive || ac.beltGSmoothMs <= 0.0) rt.beltG = g;
-    else rt.beltG += (g - rt.beltG) * (m_cycleTimeSec / (ac.beltGSmoothMs / 1000.0 + m_cycleTimeSec));
-    rt.beltGLive = true;
-    const double x = (ac.beltGMode == 1) ? std::max(0.0, rt.beltG)
-                   : (ac.beltGMode == 2) ? std::max(0.0, -rt.beltG)
-                   : std::fabs(rt.beltG);
+    if (!std::isfinite(x)) x = 0.0;
     double u = std::max(0.0, std::min(1.0, (x - ac.beltGFromG) / std::max(1e-6, ac.beltGFullG - ac.beltGFromG)));
     if (ac.beltGCurve != 1.0) u = std::pow(u, ac.beltGCurve);
     const double t = ac.torqueMinPct + (ac.torqueMaxPct - ac.torqueMinPct) * u;
@@ -2423,7 +2476,7 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
                 rt.beltDwellSec     = 0.0;
                 rt.beltRelaxed      = false;
                 rt.beltLastTripWhy  = 0;
-                rt.beltGLive        = false;
+                for (auto& c : rt.beltGCh) c.live = c.meanLive = false;
 
                 state = AxisMotionState::BLENDING;
                 RT_LOG_INFO("MotionController: Axis %d BLENDING into live telemetry.", i + 1);

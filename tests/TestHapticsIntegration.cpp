@@ -3437,6 +3437,272 @@ int main()
         }
     }
 
+    // ---- I-27: Impacts from the body's g along and across the car ----
+    // A wall at speed knocks, and so does a crash that sheds speed faster
+    // than a reset check allows when the car's g confirms it; a junk value
+    // (past 1000 m/s^2) does not; a reset's jump (the speed glitch) with a
+    // spike in the same sample does not; one junk sample under hard braking
+    // does not; a car standing does not; hit g 0 does not.
+    {
+        using haptics::FxType; using haptics::Part;
+        const double dt = 0.002, G = 9.80665;
+        struct Rig { haptics::Layer L; haptics::LawsState st; NcxValues v{}; };
+        auto make = [&](double hitG) {
+            auto r = std::make_unique<Rig>();
+            haptics::EffectParams ip; ip.ampPct = 100.0; ip.freqHz = 40.0; ip.durMs = 50.0; ip.routes[0] = { 0, 1.0, Part::All };
+            r->L.configureFx(FxType::Impacts, ip);
+            haptics::ImpactParams q; q.hitG = hitG; r->L.configureImpacts(q);
+            r->v.fresh = true;
+            r->v.have[NcxValues::SpeedKmh] = true; r->v.val[NcxValues::SpeedKmh] = 120.0;
+            r->v.have[NcxValues::AccSurge] = r->v.have[NcxValues::AccSway] = true;
+            return r;
+        };
+        // One 60 Hz sample of surge (g) at speed (km/h), then 0.3 s more
+        // of the same; knocks on FL after.
+        auto sample = [&](Rig& r, double surgeG, double kmh) {
+            r.v.val[NcxValues::AccSurge] = surgeG * G; r.v.val[NcxValues::SpeedKmh] = kmh;
+            for (int i = 0; i < static_cast<int>(0.3 / dt); ++i) { haptics::driveLaws(r.L, r.st, r.v, dt); r.L.step(dt); }
+            return r.L.impactModel().knocks(WheelFL);
+        };
+        {
+            auto r = make(2.0);
+            sample(*r, 0.0, 120.0);
+            check(sample(*r, -8.0, 120.0) == 1, "I-27: an 8 g wall at speed knocks");
+            check(sample(*r, 0.0, 120.0) == 2, "I-27: ...and the 8 g back is a knock of its own");
+        }
+        {
+            auto r = make(2.0);
+            sample(*r, 0.0, 120.0);
+            const uint32_t k = sample(*r, 150.0, 120.0);  // 1471 m/s^2: junk
+            check(k == 0 && sample(*r, 0.0, 120.0) == 0, "I-27: a value past 1000 m/s^2 (about 100 g) is junk: no knock, nor on the way back");
+        }
+        {
+            auto r = make(2.0);
+            sample(*r, 0.0, 120.0);
+            r->v.val[NcxValues::AccSurge] = -8.0 * G; r->v.val[NcxValues::SpeedKmh] = 60.0;   // 120 to 60 in one sample: a glitch
+            for (int i = 0; i < static_cast<int>(0.3 / dt); ++i) { haptics::driveLaws(r->L, r->st, r->v, dt); r->L.step(dt); }
+            check(r->L.impactModel().knocks(WheelFL) == 0, "I-27: a reset's jump with a spike in the same sample knocks nothing");
+        }
+        // A 60 Hz stream: speed and the g change every sample, as a sim's do.
+        // brake(r, secs, g): braking at g from the current speed; then one
+        // sample of (dv km/h, surge g, sway g).
+        auto brake = [&](Rig& r, double secs, double gBrake, double swayG = 0.3) {
+            const int samples = static_cast<int>(secs * 60.0);
+            for (int k = 0; k < samples; ++k)
+            {
+                r.v.val[NcxValues::SpeedKmh] -= gBrake * G / 60.0 * 3.6;
+                r.v.val[NcxValues::AccSurge] = -gBrake * G + 0.01 * (k % 3);
+                r.v.val[NcxValues::AccSway]  = swayG * G + 0.01 * (k % 2);
+                for (int i = 0; i < static_cast<int>(1.0 / 60.0 / dt); ++i) { haptics::driveLaws(r.L, r.st, r.v, dt); r.L.step(dt); }
+            }
+        };
+        auto one = [&](Rig& r, double dvKmh, double surgeG, double swayG) {
+            r.v.val[NcxValues::SpeedKmh] -= dvKmh;
+            r.v.val[NcxValues::AccSurge] = surgeG * G; r.v.val[NcxValues::AccSway] = swayG * G;
+            for (int i = 0; i < static_cast<int>(1.0 / 60.0 / dt); ++i) { haptics::driveLaws(r.L, r.st, r.v, dt); r.L.step(dt); }
+        };
+        {
+            // A crash: 36 km/h shed in one sample with the car's g saying so
+            // (50 g): not a reset, and a knock (it was a glitch, and past
+            // the old 300 m/s^2 cap, junk).
+            auto r = make(2.0);
+            r->v.val[NcxValues::SpeedKmh] = 150.0;
+            brake(*r, 1.0, 1.0);
+            one(*r, 36.0, -50.0, 0.3);
+            brake(*r, 0.3, 1.0);
+            check(r->st.glitchSec == 0.0, "I-27: 36 km/h shed in a sample with 50 g along the car is a crash, not a reset");
+            check(r->L.impactModel().knocks(WheelFL) >= 1, "I-27: ...and it knocks");
+        }
+        {
+            // A reset at speed: 110 km/h gone in a sample (to the pits), the
+            // car's g 8 g, far short of what that would take: a reset,
+            // nothing knocks (an 8 g jump would).
+            auto r = make(2.0);
+            r->v.val[NcxValues::SpeedKmh] = 150.0;
+            brake(*r, 1.0, 1.0);
+            one(*r, 110.0, -8.0, 0.3);
+            brake(*r, 0.3, 0.0, 0.3);
+            check(r->st.glitchSec > 0.0, "I-27: a reset (110 km/h gone in a sample at 8 g) is a reset");
+            check(r->L.impactModel().knocks(WheelFL) == 0, "I-27: ...and knocks nothing");
+        }
+        {
+            // Hard braking (2.5 g) with one junk surge sample: the missing
+            // value is no jump to 0 and back.
+            auto r = make(2.0);
+            r->v.val[NcxValues::SpeedKmh] = 200.0;
+            brake(*r, 1.0, 2.5);
+            one(*r, 0.7, 2000.0 / G, 0.3);   // 2000 m/s^2: junk
+            brake(*r, 0.5, 2.5);
+            check(r->L.impactModel().knocks(WheelFL) == 0, "I-27: one junk surge sample under hard braking knocks nothing");
+        }
+        {
+            auto r = make(2.0);
+            sample(*r, 0.0, 1.0);
+            check(sample(*r, -8.0, 1.0) == 0, "I-27: a car standing does not knock");
+            auto z = make(0.0);
+            sample(*z, 0.0, 120.0);
+            check(sample(*z, -8.0, 120.0) == 0, "I-27: hit g 0 = off");
+        }
+    }
+
+    // ---- I-26: the belt from g, cornering (accSway) and heave (accHeave) ----
+    // Each axis of the car folded by its own choice, sway and heave at their
+    // share, added up and mapped as braking alone is; heave counts as its
+    // change from its own running mean (gravity and a steady hill never
+    // tighten); a channel junk for a frame holds, unsent or gone it adds
+    // nothing while another g the belt takes still lives; every g gone is
+    // the standby stages; nothing selected sits at min, ONLINE.
+    {
+        const double G = 9.80665;
+        // A frame with all three g; each one changes by a hair every other
+        // cycle (a live sender never repeats a float exactly) unless its bit
+        // in still is set (then it is held exactly, as a sender that stopped).
+        int tick = 0;
+        auto f3 = [&](double surge, double sway, double heave, unsigned unsent = 0, unsigned still = 0) {
+            TelemetryData sd = frame(0.0, true, 65535.0);
+            const double e = (++tick & 1) ? 1e-4 : 0.0;
+            sd.ncyHave[NcxTok::AccSurge] = !(unsent & 1); sd.ncy[NcxTok::AccSurge] = surge + ((still & 1) ? 0.0 : e);
+            sd.ncyHave[NcxTok::AccSway]  = !(unsent & 2); sd.ncy[NcxTok::AccSway]  = sway  + ((still & 2) ? 0.0 : e);
+            sd.ncyHave[NcxTok::AccHeave] = !(unsent & 4); sd.ncy[NcxTok::AccHeave] = heave + ((still & 4) ? 0.0 : e);
+            return sd;
+        };
+        // Cycles of one g each; the torque on the last one.
+        auto hold = [&](MotionController& mc, double surgeG, double swayG, double heaveG, int cycles,
+                        unsigned unsent = 0, unsigned still = 0) {
+            double t = 0.0;
+            for (int c = 0; c < cycles; ++c) t = run(mc, f3(surgeG * G, swayG * G, heaveG * G, unsent, still), 1, 1).hi;
+            return t;
+        };
+        auto belt = [&](const char* surge, const char* sway, double swayMix, const char* heave, double heaveMix) {
+            AppConfig cfg = makeBeltConfig(0.0, 1.0);    // no haptics: the cue alone (torque 5..50)
+            DriveConfig& d = cfg.drives[0];
+            d.beltSource = "g"; d.beltGMode = surge;
+            d.beltGSway = sway; d.beltGSwayMix = swayMix; d.beltGHeave = heave; d.beltGHeaveMix = heaveMix;
+            d.beltGFromG = 0.1; d.beltGFullG = 1.1; d.beltGSmoothMs = 0.0;
+            auto mc = std::make_unique<MotionController>();
+            mc->configure(cfg); mc->setEmergencyStop(false);
+            tensionBelt(*mc);
+            hold(*mc, 0.0, 0.0, 1.0, 400);               // gravity on heave, the car still
+            return mc;
+        };
+        const auto near = [](double a, double b) { return std::fabs(a - b) < 1e-3; };
+        {
+            auto mc = belt("off", "left", 1.0, "off", 1.0);
+            check(mc->getAxisState(0) == AxisMotionState::ONLINE, "I-26 setup: a belt on cornering alone reaches ONLINE");
+            check(near(hold(*mc, 0.0, 0.6, 1.0, 100), 27.5), "I-26 sway left: 0.6 g one way is half way up (as braking is)");
+            check(near(hold(*mc, 0.0, -0.6, 1.0, 100), 5.0), "I-26 sway left: the other way leaves it at min");
+            check(near(hold(*mc, -1.1, 0.0, 1.0, 100), 5.0), "I-26 braking off: braking alone leaves it at min");
+            auto mr = belt("off", "right", 1.0, "off", 1.0);
+            check(near(hold(*mr, 0.0, -0.6, 1.0, 100), 27.5) && near(hold(*mr, 0.0, 0.6, 1.0, 100), 5.0),
+                  "I-26 sway right: the other side tightens it");
+            auto mb = belt("off", "both", 1.0, "off", 1.0);
+            check(near(hold(*mb, 0.0, -0.6, 1.0, 100), 27.5) && near(hold(*mb, 0.0, 0.6, 1.0, 100), 27.5),
+                  "I-26 sway both: either side tightens it alike");
+        }
+        {
+            // Braking and cornering add up, cornering at its share.
+            auto mc = belt("decel", "left", 0.5, "off", 1.0);
+            check(near(hold(*mc, -0.4, 0.4, 1.0, 100), 27.5), "I-26 braking 0.4 g + cornering 0.4 g at a share of 0.5 = 0.6 g");
+            auto mo = belt("decel", "off", 1.0, "off", 1.0);
+            check(near(hold(*mo, -0.6, 1.0, 1.0, 100), 27.5), "I-26 cornering off: the cornering g adds nothing");
+        }
+        {
+            // Heave: the change from its mean, not the g itself.
+            auto ml = belt("off", "off", 1.0, "lift", 1.0);
+            check(near(hold(*ml, 0.0, 0.0, 1.0, 1500), 5.0), "I-26 heave: gravity alone (1 g, 3 s) never tightens it");
+            const double lift = hold(*ml, 0.0, 0.0, 0.4, 1);
+            check(std::fabs(lift - 27.5) < 0.1, "I-26 heave lift: 0.6 g below the mean (a crest) is half way up");
+            const double settled = hold(*ml, 0.0, 0.0, 0.4, 10000);
+            check(near(settled, 5.0), "I-26 heave: a steady new g (a hill, a banking) fades back to min");
+            auto mp = belt("off", "off", 1.0, "press", 1.0);
+            check(near(hold(*mp, 0.0, 0.0, 0.4, 1), 5.0), "I-26 heave press: a crest leaves it at min");
+            auto mp2 = belt("off", "off", 1.0, "press", 2.0);
+            check(std::fabs(hold(*mp2, 0.0, 0.0, 1.3, 1) - 27.5) < 0.1, "I-26 heave press at a share of 2: 0.3 g into a compression = 0.6 g");
+        }
+        {
+            // One g the belt takes, unsent: the others still drive it.
+            auto mc = belt("decel", "left", 1.0, "off", 1.0);
+            const double t = hold(*mc, -0.6, 0.0, 1.0, 1250, 2);
+            check(near(t, 27.5) && mc->getAxisState(0) == AxisMotionState::ONLINE,
+                  "I-26 cornering unsent: braking still drives the belt (no standby)");
+            // ...and the only one it takes, unsent: the standby stages.
+            auto ms = belt("off", "left", 1.0, "off", 1.0);
+            hold(*ms, 0.0, 0.6, 1.0, 100);
+            const double gone = hold(*ms, 0.0, 0.6, 1.0, 1250, 2);
+            check(near(gone, 5.0) && ms->getAxisState(0) == AxisMotionState::ONLINE, "I-26 cornering alone, unsent: min past the hold");
+        }
+        {
+            // A junk cornering frame holds the cornering g; a run of them drops it.
+            auto mc = belt("decel", "left", 1.0, "off", 1.0);
+            check(near(hold(*mc, -0.6, 0.4, 1.0, 100), 45.5), "I-26 braking 0.6 g + cornering 0.4 g = 1.0 g");
+            check(near(hold(*mc, -0.6, 20.0, 1.0, 5), 45.5), "I-26 a junk cornering frame: the cornering g holds");
+            check(near(hold(*mc, -0.6, 20.0, 1.0, 200), 27.5), "I-26 junk on cornering past 0.1 s: braking alone");
+            // A cornering g held exactly (a sender that stopped sending it) is no g.
+            hold(*mc, -0.6, 0.4, 1.0, 100);
+            check(near(hold(*mc, -0.6, 0.4, 1.0, 400, 0, 2), 27.5), "I-26 cornering frozen over 0.5 s: no cornering g");
+        }
+        {
+            // Parked in the pits: heave exactly 1 g (gravity, as a sender
+            // that rounds it), the stream gone 0.3 s (a pause), then
+            // driving off at about 1 g: the belt stays at min (it was
+            // seeded at 0 g after the gap, a 1 g press).
+            auto mc = belt("off", "off", 1.0, "both", 1.0);
+            hold(*mc, 0.0, 0.0, 1.0, 1000, 0, 7);
+            TelemetryData gap = f3(0.0, 0.0, G, 0, 7); gap.ncxFresh = false;
+            run(*mc, gap, 150, 1);
+            double hi = 0.0;
+            for (int c = 0; c < 100; ++c) hi = std::max(hi, hold(*mc, 0.0, 0.0, 1.0, 1, 0, 7));
+            for (int c = 0; c < 300; ++c) hi = std::max(hi, hold(*mc, 0.0, 0.0, 1.0 + 0.01 * std::sin(c * 0.1), 1));
+            check(hi < 5.0 + 0.5, "I-26 parked with gravity, a pause, then driving off: no pull from gravity");
+        }
+        {
+            // A pause on the crest of a bump: heave's steady part is kept
+            // through it, so back at 1 g after the bump the belt is at min,
+            // not pulled for seconds by a mean started on the crest.
+            auto mc = belt("off", "off", 1.0, "both", 1.0);
+            hold(*mc, 0.0, 0.0, 1.0, 1000);
+            hold(*mc, 0.0, 0.0, 1.5, 3);
+            TelemetryData gap = f3(0.0, 0.0, 1.5 * G); gap.ncxFresh = false;
+            run(*mc, gap, 150, 1);
+            hold(*mc, 0.0, 0.0, 1.5, 1);
+            hold(*mc, 0.0, 0.0, 1.0, 50);
+            double hi = 0.0;
+            for (int c = 0; c < 150; ++c) hi = std::max(hi, hold(*mc, 0.0, 0.0, 1.0, 1));
+            check(hi < 5.0 + 0.5, "I-26 a pause on a bump's crest: heave's steady part kept, back at min after it");
+        }
+        {
+            // The smoothing works on cornering as on braking: 30 ms after a
+            // step to 0.6 g, about two thirds of the way.
+            AppConfig cfg = makeBeltConfig(0.0, 1.0);
+            DriveConfig& d = cfg.drives[0];
+            d.beltSource = "g"; d.beltGMode = "off"; d.beltGSway = "left";
+            d.beltGFromG = 0.1; d.beltGFullG = 1.1; d.beltGSmoothMs = 30.0;
+            MotionController mc; mc.configure(cfg); mc.setEmergencyStop(false); tensionBelt(mc);
+            hold(mc, 0.0, 0.0, 1.0, 400);
+            const double t = hold(mc, 0.0, 0.6, 1.0, 15);
+            check(t > 14.0 && t < 21.0, "I-26 smoothing 30 ms on cornering: 30 ms after a step, about two thirds of the way");
+        }
+        {
+            // Nothing selected: min, and ONLINE (not the standby stages).
+            auto mc = belt("off", "off", 1.0, "off", 1.0);
+            const double t = hold(*mc, -1.1, 1.0, 0.2, 3000);
+            check(near(t, 5.0) && mc->getAxisState(0) == AxisMotionState::ONLINE,
+                  "I-26 nothing selected: min, still ONLINE after 6 s");
+        }
+        {
+            // Tension-up starts the heave mean afresh: slacked at 1 g,
+            // tensioned again on a steady 1.5 g, the belt stays at min.
+            auto mc = belt("off", "off", 1.0, "both", 1.0);
+            hold(*mc, 0.0, 0.0, 1.0, 1000);
+            { MotionCommand c; c.type = MotionCommand::Type::SlackBelts; mc->enqueueCommand(c); }
+            hold(*mc, 0.0, 0.0, 1.0, 200);
+            tensionBelt(*mc);
+            double hi = 0.0;
+            for (int c = 0; c < 100; ++c) hi = std::max(hi, hold(*mc, 0.0, 0.0, 1.5, 1));
+            check(hi <= 5.0 + 1e-3, "I-26 tension-up starts the heave mean afresh (no pull from the g before the slack)");
+        }
+    }
+
     std::printf("TestHapticsIntegration: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

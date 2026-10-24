@@ -2241,6 +2241,143 @@ int main()
             for (int i = 0; i < 1600; ++i) { z.driveHeave(i < 800 ? 0.0 : 40.0); z.step(dt, ep, off); }
             CHECK(z.knocks(WheelFL) == 0, "impacts body: heave g 0 = off");
         }
+        // The body's g along and across the car (a wall, a contact): hit g
+        // 2, full at 6 g. feed() runs 0.8 s of a held feed at hz samples a
+        // second; surge, sway (and heave, if given) in g against time.
+        {
+            const double G = 9.80665;
+            ImpactParams h = q; h.hitG = 2.0;
+            auto feed = [&](ImpactModel& m, const ImpactParams& p, double hz,
+                            double (*surge)(double), double (*sway)(double), double (*heave)(double)) {
+                for (int i = 0; i < 1600; ++i)
+                {
+                    const double t = i * dt, held = std::floor(t * hz) / hz;
+                    m.driveHorizontal(surge(held) * G, sway(held) * G);
+                    if (heave) m.driveHeave(heave(held) * G);
+                    m.step(dt, ep, p);
+                }
+            };
+            auto zero = [](double) { return 0.0; };
+            // A hair of change on every 333 Hz sample (a live feed never
+            // repeats a float), so its rate is known before the edge.
+            static double (*const dither)(double) = [](double t) { return (static_cast<int>(t * 333.0) % 2) ? 1e-4 : 0.0; };
+            {
+                ImpactModel m;
+                feed(m, h, 60.0, [](double t) { return t < 0.4 ? 0.0 : -6.0; }, zero, nullptr);
+                CHECK(m.knocks(WheelFL) == 1 && m.knocks(WheelRR) == 1, "impacts hit: a 6 g jump along the car (a wall) knocks every corner once");
+                approx(m.lastSeverity(WheelRL), 1.0, 0.01, "impacts hit: 6 g at hit g 2 is a full knock");
+            }
+            {
+                ImpactModel m;
+                feed(m, h, 60.0, zero, [](double t) { return t < 0.4 ? 0.0 : 4.0; }, nullptr);
+                approx(m.lastSeverity(WheelFR), 0.5, 0.01, "impacts hit: 4 g across the car is a half knock");
+                ImpactModel c;
+                feed(c, h, 60.0, [](double t) { return t < 0.4 ? 0.0 : 3.0; }, [](double t) { return t < 0.4 ? 0.0 : 3.0; }, nullptr);
+                approx(c.lastSeverity(WheelFL), (std::sqrt(18.0) - 2.0) / 4.0, 0.01, "impacts hit: 3 g along and 3 g across together are one 4.24 g jump");
+            }
+            {
+                ImpactModel s;
+                feed(s, h, 60.0, [](double t) { return t < 0.4 ? 0.0 : 1.5; }, zero, nullptr);
+                CHECK(s.knocks(WheelFL) == 0, "impacts hit: a 1.5 g jump (a gear shift's kick) is no knock");
+                ImpactParams off = h; off.hitG = 0.0; ImpactModel z;
+                feed(z, off, 60.0, [](double t) { return t < 0.4 ? 0.0 : -9.0; }, zero, nullptr);
+                CHECK(z.knocks(WheelFL) == 0, "impacts hit: hit g 0 = off");
+            }
+            {
+                // A 333 Hz feed: the same 6 g wall spread over 9 ms (three
+                // physics steps) is one full knock (the jump over the
+                // window, not its 2 g steps, and not a knock restarted on
+                // every sample); a 6 g change over 200 ms is none.
+                ImpactModel m;
+                feed(m, h, 333.0, [](double t) { return t < 0.4 ? dither(t) : (t < 0.409 ? -6.0 * (t - 0.4) / 0.009 : -6.0); }, zero, nullptr);
+                CHECK(m.knocks(WheelFL) == 1, "impacts hit 333 Hz: a wall over 9 ms is one knock");
+                approx(m.lastSeverity(WheelFL), 1.0, 0.1, "impacts hit 333 Hz: ...a full one, as at 60 Hz");
+                ImpactModel r;
+                feed(r, h, 333.0, [](double t) { return t < 0.4 ? dither(t) : (t < 0.6 ? -6.0 * (t - 0.4) / 0.2 : -6.0); }, zero, nullptr);
+                CHECK(r.knocks(WheelFL) == 0, "impacts hit 333 Hz: 6 g over 200 ms (hard braking coming on) is no knock");
+                ImpactModel a;
+                feed(a, h, 333.0, zero, zero, [](double t) { return t < 0.4 ? 1.0 + dither(t) : (t < 0.409 ? 1.0 + 3.0 * (t - 0.4) / 0.009 : 4.0); });
+                CHECK(a.knocks(WheelFL) == 1, "impacts heave 333 Hz: a 3 g landing over 9 ms is one knock");
+                approx(a.lastSeverity(WheelFL), (3.0 - 1.5) / 3.0, 0.1, "impacts heave 333 Hz: ...the same as at 60 Hz");
+                // The same landing while the feed's rate is not yet known
+                // (nothing changed before it): sample to sample, as at 60
+                // Hz, so smaller (the 333 Hz window is for a feed known to
+                // be fast).
+                ImpactModel u;
+                feed(u, h, 333.0, zero, zero, [](double t) { return t < 0.4 ? 1.0 : (t < 0.409 ? 1.0 + 3.0 * (t - 0.4) / 0.009 : 4.0); });
+                CHECK(u.lastSeverity(WheelFL) < 0.2, "impacts heave: a feed of unknown rate is taken sample to sample");
+            }
+            {
+                // A 60 Hz feed whose samples arrive in pairs 6 ms apart (a
+                // late tick, then an on-time one): still sample to sample.
+                // Heave climbs 1 g a sample for six samples: no jump of 1.5 g
+                // (two samples' worth would knock).
+                ImpactModel m;
+                const auto sampleAt = [](int n) { return (n / 2) * (1.0 / 30.0) + ((n % 2) ? 0.006 : 0.0); };
+                int n = 0;
+                for (int i = 0; i < 1600; ++i)
+                {
+                    const double t = i * dt;
+                    while (sampleAt(n + 1) <= t) ++n;
+                    const int k = n - 24;   // the climb starts at the 24th sample (0.4 s)
+                    const double gH = (k < 0) ? 1.0 + 0.001 * (n % 2) : 1.0 + std::min(6, k + 1);
+                    m.driveHeave(gH * G);
+                    m.step(dt, ep, h);
+                }
+                CHECK(m.knocks(WheelFL) == 0, "impacts heave: a 60 Hz feed arriving in pairs 6 ms apart is still sample to sample");
+            }
+            {
+                // A corner's own knock in the same sample as the body's is
+                // left alone when a faster feed grows the body's knock: FL
+                // knocks at 0.3 over the body's 0.1, the body's grows to 0.5
+                // on the other corners only.
+                ImpactModel m;
+                for (int i = 0; i < 1600; ++i)
+                {
+                    const double t = i * dt, held = std::floor(t * 333.0) / 333.0;
+                    for (int w = 0; w < 4; ++w) m.driveVelocity(w, (w == WheelFL && held >= 0.405) ? 1100.0 : 0.0);
+                    m.driveHeave((held < 0.4 ? 1.0 + dither(held) : (held < 0.409 ? 1.0 + 3.0 * (held - 0.4) / 0.009 : 4.0)) * G);
+                    m.step(dt, ep, h);
+                }
+                approx(m.lastSeverity(WheelFR), 0.5, 0.05, "impacts: a faster feed grows the body's own knock");
+                approx(m.lastSeverity(WheelFL), 0.3, 0.01, "impacts: ...and leaves a corner's own knock as it was");
+                CHECK(m.knocks(WheelFL) == 1, "impacts: ...one knock on that corner");
+            }
+            {
+                // A hit and a landing in the same sample: one knock each
+                // corner, the stronger of the two.
+                ImpactModel m;
+                feed(m, h, 60.0, [](double t) { return t < 0.4 ? 0.0 : -6.0; }, zero,
+                     [](double t) { return t < 0.4 ? 1.0 : 4.0; });
+                CHECK(m.knocks(WheelFL) == 1, "impacts: a hit and a landing in one sample are one knock");
+                approx(m.lastSeverity(WheelFL), 1.0, 0.01, "impacts: ...the stronger (the hit's)");
+                // The body and a corner in the same sample: one knock, the
+                // stronger whichever came first.
+                ImpactModel c;
+                for (int i = 0; i < 1600; ++i)
+                {
+                    const double t = i * dt, held = std::floor(t * 60.0) / 60.0;
+                    for (int w = 0; w < 4; ++w) c.driveVelocity(w, (w == WheelFL && held >= 0.4) ? 2500.0 : 0.0);
+                    c.driveHeave((held < 0.4 ? 1.0 : 4.0) * G);
+                    c.step(dt, ep, h);
+                }
+                CHECK(c.knocks(WheelFL) == 1 && c.knocks(WheelFR) == 1, "impacts: the body and a corner in one sample are one knock");
+                approx(c.lastSeverity(WheelFL), 1.0, 0.01, "impacts: ...the corner's, the stronger");
+                approx(c.lastSeverity(WheelFR), 0.5, 0.01, "impacts: ...the body's on the others");
+            }
+            {
+                // Standing still: nothing knocks.
+                ImpactModel m;
+                for (int i = 0; i < 1600; ++i)
+                {
+                    const double t = i * dt, held = std::floor(t * 60.0) / 60.0;
+                    m.driveHorizontal(held < 0.4 ? 0.0 : -9.0 * G, 0.0);
+                    m.still();
+                    m.step(dt, ep, h);
+                }
+                CHECK(m.knocks(WheelFL) == 0, "impacts hit: nothing knocks with the car standing");
+            }
+        }
     }
 
     // ================= model trigger: detent capture =================

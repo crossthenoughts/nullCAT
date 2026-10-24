@@ -385,6 +385,12 @@ namespace laws_k {
     constexpr double kGlitchMaxDtSec   = 0.1;
     constexpr double kGlitchHoldSec    = 0.5;
     constexpr double kHeaveMaxMs2      = 300.0;
+    // The body's g along and across the car: a crash into a wall reads tens
+    // of g in a sim, so only past this is a sample junk.
+    constexpr double kHitMaxMs2        = 1000.0;
+    // A speed drop the car's own g along it confirms (at least this share
+    // of the drop's rate) is a crash, not a reset.
+    constexpr double kGlitchConfirmShare = 0.5;
     constexpr double kSlipAngleMaxDeg  = 90.0;
     constexpr double kCombinedMaxX     = 4.0;
     constexpr double kRatioMin         = -1.0, kRatioMax = 3.0;
@@ -480,6 +486,8 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         }
         if (v.have[NcxValues::AccHeave] && std::fabs(v.val[NcxValues::AccHeave]) > kHeaveMaxMs2)
             v.have[NcxValues::AccHeave] = false;
+        for (NcxValues::Token t : { NcxValues::AccSurge, NcxValues::AccSway })
+            if (v.have[t] && std::fabs(v.val[t]) > kHitMaxMs2) v.have[t] = false;
         if (v.have[NcxValues::Gear] && (v.val[NcxValues::Gear] < kGearMin - 0.5 || v.val[NcxValues::Gear] > kGearMax + 0.5))
         {
             v.have[NcxValues::Gear] = false;
@@ -527,8 +535,13 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 // A jump to a standstill between two live samples (fresh
                 // tyres on a reset).
                 if (st.lastSpeedKmh > kJumpFromKmh && s < kJumpToKmh) st.jumpAgo = 0.0;
-                if (std::fabs(s - st.lastSpeedKmh) / 3.6
-                    > kGlitchAccelMs2 * std::min(kGlitchMaxDtSec, std::max(kGlitchMinDtSec, st.speedAgeSec)))
+                // A speed jump no car can make, unless the car's own g along
+                // it says it did (a crash: the knock is the point).
+                const double jumpDt = std::min(kGlitchMaxDtSec, std::max(kGlitchMinDtSec, st.speedAgeSec));
+                const double dv = std::fabs(s - st.lastSpeedKmh) / 3.6;
+                const bool crash = v.have[NcxValues::AccSurge]
+                                && std::fabs(v.val[NcxValues::AccSurge]) >= kGlitchConfirmShare * dv / jumpDt;
+                if (dv > kGlitchAccelMs2 * jumpDt && !crash)
                     st.glitchSec = kGlitchHoldSec;
                 st.lastSpeedKmh = s; st.speedAgeSec = 0.0;
             }
@@ -544,12 +557,13 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             st.lastPitch = p; st.lastRoll = r; st.anglesSeen = true;
         }
         else st.anglesSeen = false;
-        // While untrusted: no speed, no body (heave, pitch, roll), and no
+        // While untrusted: no speed, no body (its accelerations, pitch, roll), and no
         // suspension or road under the tyres (a reset's travel jump played
         // a full-scale road pop and an impact knock).
         if (st.glitchSec > 0.0)
         {
-            for (NcxValues::Token t : { NcxValues::SpeedKmh, NcxValues::AccHeave, NcxValues::PitchDeg, NcxValues::RollDeg })
+            for (NcxValues::Token t : { NcxValues::SpeedKmh, NcxValues::AccHeave, NcxValues::AccSurge, NcxValues::AccSway,
+                                        NcxValues::PitchDeg, NcxValues::RollDeg })
                 v.have[t] = false;
             for (int w = 0; w < WHEEL_COUNT; ++w)
             {
@@ -1701,7 +1715,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
     }
 
     // Impacts: each corner's suspension velocity (or its travel, the
-    // velocity worked out per sample) and the body's vertical acceleration;
+    // velocity worked out per sample) and the body's accelerations;
     // the model finds the sudden jumps, never with the car standing (a reset
     // or a spawn drops it onto the ground: the speed as sent, which a reset
     // leaves untrusted for everything else). A Test preview knocks FL, FR,
@@ -1730,6 +1744,10 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             if (vel)         for (int w = 0; w < WHEEL_COUNT; ++w) L.driveImpactVelocity(w, v.val[NcxValues::SuspVelFL + w]);
             else if (travel) for (int w = 0; w < WHEEL_COUNT; ++w) L.driveImpactTravel(w, v.val[NcxValues::SuspTravelFL + w]);
             if (v.have[NcxValues::AccHeave]) L.driveImpactHeave(v.val[NcxValues::AccHeave]);
+            if (v.have[NcxValues::AccSurge] || v.have[NcxValues::AccSway])
+                L.driveImpactHorizontal(v.have[NcxValues::AccSurge] ? v.val[NcxValues::AccSurge] : 0.0,
+                                        v.have[NcxValues::AccSway]  ? v.val[NcxValues::AccSway]  : 0.0,
+                                        (v.have[NcxValues::AccSurge] ? 1 : 0) | (v.have[NcxValues::AccSway] ? 2 : 0));
             if (in.have[NcxValues::SpeedKmh] && std::isfinite(in.val[NcxValues::SpeedKmh]) && in.val[NcxValues::SpeedKmh] < kImpactStillKmh)
                 L.impactsStill();
         }
