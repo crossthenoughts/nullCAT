@@ -2663,6 +2663,99 @@ int main()
               "I-8c the Engine Test with the stream gone plays the canned idle, not the held 7000 rpm");
     }
 
+    // ---- I-8d: the Engine Test with no stream sweeps from the canned idle
+    // to the redline, and teaches the redline nothing (a truck tested
+    // before its max rpm arrived used to be left with the 7000 guess) ----
+    {
+        using haptics::FxType;
+        const double dt = 0.002;
+        const double perRev = 4.0;   // a V8 four-stroke: four firings per crank rev
+        double hzAt10 = 0.0; bool cutAt10 = true, cutAt18 = false;
+        auto sweep = [&](double maxRpm, double& hzAt01, double& hzAt18, haptics::Layer& L)
+        {
+            haptics::LawsState st;
+            haptics::EffectParams fx; fx.ampPct = 100.0; fx.routes[0] = { 0, 1.0 };
+            L.configureFx(FxType::RpmVibe, fx);
+            haptics::EngineParams ep; ep.cylinders = 8.0; ep.layout = 1.0; ep.maxRpm = maxRpm;
+            L.configureEngine(ep);
+            NcxValues v{}; v.fresh = false;   // no sim
+            haptics::startPreview(st, FxType::RpmVibe);
+            const int n = static_cast<int>(2.0 / dt);
+            for (int i = 0; i < n; ++i)
+            {
+                haptics::driveLaws(L, st, v, dt); L.step(dt);
+                if (i == static_cast<int>(0.1 / dt)) hzAt01 = L.engineFireHz();
+                if (i == static_cast<int>(1.0 / dt)) { hzAt10 = L.engineFireHz(); cutAt10 = L.engineLimiterOn(); }
+                if (i == static_cast<int>(1.8 / dt)) { hzAt18 = L.engineFireHz(); cutAt18 = L.engineLimiterOn(); }
+            }
+        };
+        {
+            haptics::Layer L; double a = 0.0, b = 0.0;
+            const double seed = L.learnedMaxRpm();
+            sweep(0.0, a, b, L);
+            std::printf("  I-8d engine Test sweep: %.1f Hz at 0.1 s, %.1f Hz at 1.8 s (redline guess %.0f rpm)\n", a, b, seed);
+            check(std::fabs(a - 1100.0 / 60.0 * perRev) < 0.01, "I-8d the Engine Test opens on the canned idle");
+            check(std::fabs(b - seed / 60.0 * perRev) < 0.01, "I-8d ...and ends at the redline it has (the guess before anything is seen)");
+            check(std::fabs(hzAt10 - (1100.0 + 0.5 * (seed - 1100.0)) / 60.0 * perRev) < 0.05,
+                  "I-8d ...climbing straight between them (half way at 1.0 s)");
+            check(!cutAt10 && cutAt18, "I-8d ...on the cut only at the top");
+            check(std::fabs(L.learnedMaxRpm() - seed) < 1e-9, "I-8d the sweep teaches the redline nothing");
+            L.seedMaxRpm(3700.0);
+            check(std::fabs(L.learnedMaxRpm() - 3700.0) < 1e-9,
+                  "I-8d a truck's max rpm arriving after the Test still seeds its own redline");
+        }
+        {
+            haptics::Layer L; double a = 0.0, b = 0.0;
+            sweep(5200.0, a, b, L);
+            check(std::fabs(b - 5200.0 / 60.0 * perRev) < 0.01, "I-8d the sweep ends at the tile's own redline when one is set");
+        }
+        {
+            // With live rpm the Test plays the live engine, as before.
+            haptics::Layer L; haptics::LawsState st;
+            haptics::EffectParams fx; fx.ampPct = 100.0; fx.routes[0] = { 0, 1.0 };
+            L.configureFx(FxType::RpmVibe, fx);
+            haptics::EngineParams ep; ep.cylinders = 8.0; ep.layout = 1.0; L.configureEngine(ep);
+            NcxValues v{}; v.fresh = true;
+            v.have[NcxValues::Rpm] = true; v.val[NcxValues::Rpm] = 3000.0;
+            for (int i = 0; i < 200; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
+            haptics::startPreview(st, FxType::RpmVibe);
+            for (int i = 0; i < static_cast<int>(1.8 / dt); ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
+            check(std::fabs(L.engineFireHz() - 3000.0 / 60.0 * perRev) < 0.01,
+                  "I-8d a Test with live rpm plays the live engine, not the sweep");
+        }
+        {
+            // A single cylinder crawling below 60 rpm with no Test (a kart
+            // starting or stalling): the canned idle stands in as it always
+            // has; it never gets the sweep's redline or cut.
+            haptics::Layer L; haptics::LawsState st;
+            haptics::EffectParams fx; fx.ampPct = 100.0; fx.routes[0] = { 0, 1.0 };
+            L.configureFx(FxType::RpmVibe, fx);
+            haptics::EngineParams ep; ep.cylinders = 1.0; ep.layout = 0.0; L.configureEngine(ep);
+            NcxValues v{}; v.fresh = true;
+            v.have[NcxValues::Rpm] = true; v.val[NcxValues::Rpm] = 45.0;
+            for (int i = 0; i < 100; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
+            check(std::fabs(L.engineFireHz() - 1100.0 / 60.0 * 0.5) < 1e-9 && !L.engineLimiterOn(),
+                  "I-8d a live single cylinder below 60 rpm keeps the canned idle (no sweep without a Test)");
+        }
+        {
+            // The sim comes back coasting in the middle of a Test (load high
+            // in the sweep, throttle shut now): the hand-off is no lift-off.
+            haptics::Layer L; haptics::LawsState st;
+            haptics::EffectParams fx; fx.ampPct = 100.0; fx.routes[0] = { 0, 1.0 };
+            L.configureFx(FxType::RpmVibe, fx);
+            haptics::EngineParams ep; ep.cylinders = 8.0; ep.layout = 1.0; L.configureEngine(ep);
+            NcxValues v{}; v.fresh = false;
+            haptics::startPreview(st, FxType::RpmVibe);
+            for (int i = 0; i < static_cast<int>(1.2 / dt); ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
+            const uint64_t before = L.engineLiftOffs();
+            v.fresh = true;
+            v.have[NcxValues::Rpm] = true;         v.val[NcxValues::Rpm] = 6000.0;
+            v.have[NcxValues::ThrottlePct] = true; v.val[NcxValues::ThrottlePct] = 0.0;
+            for (int i = 0; i < 200; ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
+            check(L.engineLiftOffs() == before, "I-8d the sim returning mid-Test fires no lift-off pop");
+        }
+    }
+
     // ---- I-12: the Impacts tile through the laws ----
     {
         using haptics::FxType; using haptics::Part;

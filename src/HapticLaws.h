@@ -173,6 +173,12 @@ namespace laws_k {
     constexpr double kOverrunThrottle  = 10.0;     // % throttle at or below which the throttle is shut
     constexpr double kOverrunMinKmh    = 10.0;     // in gear and rolling: the wheels drive the engine
     constexpr double kPreviewIdleRpm   = 1100.0;   // the canned idle a Test preview runs
+    // The Engine Test with no sim: the canned idle for kPreviewIdleSec, then
+    // the revs climb to the redline as the load goes from kPreviewLoadFrom to
+    // full, and the last kPreviewTopSec sit at the redline on the cut.
+    constexpr double kPreviewIdleSec   = 0.3;
+    constexpr double kPreviewTopSec    = 0.3;
+    constexpr double kPreviewLoadFrom  = 0.5;
     constexpr double kAbsMinBrakePct   = 10.0;     // ABS needs the brake actually applied
     // ABS from the wheels: a wheel dipping this far towards a lock arms; it
     // spinning back up past this (and this much from its lowest) is a dump,
@@ -565,8 +571,8 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
     const double tcOn = (tcFlag || st.tcHoldSec > 0.0) ? 1.0 : 0.0;
 
     // Engine: firing rate from rpm and the engine description; throttle is
-    // the load; the limiter flag drives the cut gate. A preview with no sim
-    // runs a canned idle.
+    // the load; the limiter flag drives the cut gate. A Test with no sim
+    // runs a sweep (below).
     {
         const EngineParams& e = L.engineParams();
         const double cyl = std::max(1.0, e.cylinders);
@@ -590,10 +596,32 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         // kicks; every pause used to, the SimHub plugin goes quiet then).
         else if (!live || !v.have[NcxValues::Rpm])
             fireHz = st.engineHoldHz;
+        const double previewLeft = st.previewSec[static_cast<int>(FxType::RpmVibe)];   // before previewOr counts it down
         const double lv = previewOr(FxType::RpmVibe, level);
-        // A Test with no live rpm runs the canned idle, not the rate held
-        // from the last stream (the sim quit at 7000 rpm previewed at 7000).
-        if (lv > 0.0 && (level <= 0.0 || fireHz < 0.5))
+        // A Test with no live rpm runs its own sweep, never the rate held
+        // from the last stream (the sim quit at 7000 rpm previewed at 7000):
+        // the canned idle (the idle rock), then the revs climbing to the
+        // redline under a rising load, ending on the cut. The cut comes in
+        // through the pit limiter's input (it cuts like the rev limiter but
+        // never snaps the redline), and the whole sweep is driven as a
+        // preview, so the engine learns nothing from it. With live rpm the
+        // Test plays the live engine, as before.
+        bool previewing = false, previewCut = false;
+        if (lv > 0.0 && level <= 0.0 && previewLeft > 0.0)
+        {
+            const double top  = std::max(kPreviewIdleRpm, (e.maxRpm > 0.0) ? e.maxRpm : L.learnedMaxRpm());
+            const double t    = kPreviewSec - previewLeft;
+            const double span = kPreviewSec - kPreviewIdleSec - kPreviewTopSec;
+            const double x    = (span > 0.0) ? std::max(0.0, std::min(1.0, (t - kPreviewIdleSec) / span)) : 1.0;
+            fireHz     = (kPreviewIdleRpm + (top - kPreviewIdleRpm) * x) / 60.0 * perRev;
+            load       = kPreviewLoadFrom + (1.0 - kPreviewLoadFrom) * x;
+            previewing = true;
+            previewCut = t >= kPreviewSec - kPreviewTopSec;
+        }
+        // Live rpm too low for a firing every two seconds (a single cylinder
+        // below 60 rpm, starting or stalling): the canned idle stands in, as
+        // it always has. Only a running Test with no live rpm sweeps.
+        else if (lv > 0.0 && fireHz < 0.5)
             fireHz = kPreviewIdleRpm / 60.0 * perRev;
         // Boost in bar when the sim sends it (vacuum reads as 0 boost);
         // negative = unknown, the model falls back to rpm for the lift.
@@ -612,7 +640,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         // Traction control cutting: the engine drops a share of its firings
         // (the TC tile adds the body surge on top).
         const bool tcCut = tcOn > 0.5;
-        L.driveEngine(lv, fireHz, load, lim, boost, pitLim, inGearOverrun, tcCut);
+        L.driveEngine(lv, fireHz, load, lim, boost, pitLim || previewCut, inGearOverrun, tcCut, previewing);
     }
 
     // Ground contact per tyre: the sim's own flag where it sends one

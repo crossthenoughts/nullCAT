@@ -6,6 +6,13 @@ middle number carries breaking changes and the last carries fixes.
 
 ## [Unreleased]
 
+### Changed
+- The Engine tile's Test with no game running now climbs from idle to the
+  redline and ends on the limiter's cut, instead of only idling, so it can
+  be judged next to the Limiter and Driveline tests. A Test never teaches
+  the car's learned redline: a car tested before the game sent its maximum
+  rpm still learns the game's figure, not the Test's.
+
 ### Fixed
 - Automobilista 2: the Super Trophy Truck now finds its car table entry.
   The game names it "Super Trophy Trucks" and the entry was singular, so

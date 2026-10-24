@@ -841,15 +841,18 @@ public:
     // tcCut: traction control is cutting: the engine drops a share of its
     // firings in bursts, like a shallower, irregular limiter.
     void driveEngine(double level, double fireHz, double load01, bool limiterOn, double boostBar = -1.0,
-                     bool pitLimiter = false, bool inGearOverrun = false, bool tcCut = false)
+                     bool pitLimiter = false, bool inGearOverrun = false, bool tcCut = false,
+                     bool preview = false)
     {
         Fx& f = m_fx[static_cast<int>(FxType::RpmVibe)];
         f.targetLevel = (level < 0.0) ? 0.0 : (level > 1.0 ? 1.0 : level);
-        m_engine.drive(fireHz, load01, limiterOn, boostBar, pitLimiter, inGearOverrun, tcCut);
+        m_engine.drive(fireHz, load01, limiterOn, boostBar, pitLimiter, inGearOverrun, tcCut, preview);
     }
     uint64_t engineTcDrops() const  { return m_engine.tcDropCount(); }
     bool     engineRunning() const  { return m_engine.running(); }
     uint64_t engineStalls() const   { return m_engine.stallCount(); }
+    uint64_t engineLiftOffs() const { return m_engine.liftOffCount(); }
+    bool     engineLimiterOn() const { return m_engine.limiterOn(); }
     double   engineFireHz() const   { return m_engine.fireHz(); }
 
     // Kill every active transient instantly (e-stop, park, loop stop).

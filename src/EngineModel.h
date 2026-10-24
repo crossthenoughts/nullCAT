@@ -202,9 +202,17 @@ public:
     // gear, rolling): heavier, rougher overrun than a neutral coast-down.
     // tcCut: traction control is cutting this cycle (a share of the firings
     // drops in irregular bursts, deeper with throttle).
+    // preview: a Test preview is driving the engine (no sim). It plays like
+    // any other rate but teaches the redline nothing (see learnRedline).
     void drive(double fireHz, double load01, bool limiterOn, double boostBar = -1.0,
-               bool pitLimiter = false, bool inGearOverrun = false, bool tcCut = false)
+               bool pitLimiter = false, bool inGearOverrun = false, bool tcCut = false,
+               bool preview = false)
     {
+        // A Test ending, or the sim coming back mid-Test, is no lift-off and
+        // no limiter return: the sweep's high load and its cut at the top
+        // must not fire either on the first real cycle.
+        if (m_preview && !preview) { m_hiLoadAgo = 1e9; m_wasCut = false; }
+        m_preview    = preview;
         m_fireHz     = (fireHz > 0.0) ? fireHz : 0.0;
         m_load       = std::max(0.0, std::min(1.0, load01));
         m_limiter    = limiterOn || pitLimiter;
@@ -260,6 +268,7 @@ public:
 
     // Lift-off events seen (tests, status).
     uint64_t liftOffCount() const { return m_liftOffs; }
+    bool     limiterOn() const    { return m_limiter; }    // the cut gate is engaged (rev or pit limiter)
     uint64_t tcDropCount() const  { return m_tcDrops; }    // firings traction control dropped
     bool     running() const      { return m_running; }   // combustion has taken hold
     uint64_t catchCount() const   { return m_catches; }
@@ -290,7 +299,11 @@ public:
     void learnRedline(const EngineParams& e)
     {
         using namespace engine_k;
-        if (m_fireHz < 0.5) return;
+        // A Test preview teaches nothing: its sweep runs up to the redline
+        // as it stands (the 7000 guess before anything is seen), which would
+        // lift the peak hold, and the sim's max rpm seeds as max(sim, peak),
+        // so a truck tested before its max rpm arrived would learn the guess.
+        if (m_preview || m_fireHz < 0.5) return;
         const double cyl    = std::max(1.0, e.cylinders);
         const int    layout = static_cast<int>(e.layout + 0.5);
         const double crankHz = (layout == 3 || layout == 4) ? m_fireHz / cyl : (layout == 5) ? m_fireHz : m_fireHz / (cyl / 2.0);
@@ -676,6 +689,7 @@ private:
     double   m_popWait = 0.0;
     uint64_t m_liftOffs = 0;
     bool     m_revLimiter = false, m_inGearOverrun = false;
+    bool     m_preview = false;   // a Test preview is driving (teaches the redline nothing)
     bool     m_running = false, m_sawCranking = false;
     double   m_catchFlare = 0.0;
     uint64_t m_catches = 0, m_stalls = 0;
