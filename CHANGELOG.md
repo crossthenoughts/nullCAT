@@ -14,9 +14,10 @@ middle number carries breaking changes and the last carries fixes.
   when you ask for help, with any web password blanked in the copy. See
   "If something goes wrong" in the setup guides.
 - Fresh tyres on their own: the Wheels tile wipes the flat spots and cools
-  the discs when the sim restarts the session, when you jump back to the
-  pits or the garage, and when a stop puts new tyres on (Automobilista 2,
-  which reports tyre wear). Driving into the pits keeps them, and so does
+  the discs when a restart takes the lap count back, when you jump back to
+  the pits or the garage, and when a stop puts new tyres on (Automobilista
+  2, which reports tyre wear). A restart before the first lap is done is
+  not seen: press **fresh tyres** for that one. Driving into the pits keeps them, and so does
   a stop without new tyres. On by default: untick **fresh tyres on
   pit/restart** on the Wheels tile to keep them until you press **fresh
   tyres**. Works best with the SimHub plugin 1.9 (protocol 1.9), which

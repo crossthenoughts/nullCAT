@@ -412,8 +412,9 @@ constexpr ParamHelp kHelp[] = {
       "The rub's pitch at 100 km/h, 10 to 200 Hz; it follows each wheel's speed. 50 to 80 on a belt or "
       "shaker; a seat actuator carries little of it." },
     { "wheels", "freshOnReset",
-      "Fresh tyres on their own: when the sim restarts the session, when you jump back to the pits or the "
-      "garage, and when a stop changes the tyres (where the sim reports tyre wear). Driving into the pits "
+      "Fresh tyres on their own: when a restart takes the lap count back (a restart before the first lap is "
+      "done is not seen), when you jump back to the pits or the garage, and when a stop changes the tyres "
+      "(where the sim reports tyre wear). Driving into the pits "
       "keeps them, and so does a stop without new tyres. Works best with the SimHub plugin 1.9, which sends "
       "the pit flag, the lap and (Automobilista 2) the tyre wear; with an older sender it goes by the car "
       "jumping from speed to a standstill and staying there. Off: only the fresh tyres button, a different car "

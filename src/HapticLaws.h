@@ -111,6 +111,7 @@ struct LawsState
     // has held; the guard between two refreshes.
     bool   pitSeen = false, pitWas = false;
     double onTrackSec = 0.0, pitRoseAgo = 1e9;
+    double pitFirstAgo = 1e9;   // since the flag was first sent set (a sender that sends it only once it has seen it set)
     double jumpAgo = 1e9, resumeAgo = 1e9;
     bool   wasLive = false;
     bool   jumpHolding = false;
@@ -412,14 +413,15 @@ namespace laws_k {
     // kFreshWearDrop below its highest in the last kFreshWearSec is new
     // tyres. A jump with no pit flag sent, a lap number and a fall in wear
     // count once they have held kFreshConfirmSec (one junk sample is not a
-    // reset). At most one refresh every kFreshGuardSec.
+    // reset; longer than the 500 ms a sender's last packet stays live). At
+    // most one refresh every kFreshGuardSec.
     constexpr double kJumpFromKmh      = 40.0;
     constexpr double kJumpToKmh        = 2.0;
     constexpr double kFreshOutSec      = 5.0;
     constexpr double kFreshPairSec     = 1.0;
     constexpr double kFreshWearDrop    = 0.2;
     constexpr double kFreshWearSec     = 1.0;
-    constexpr double kFreshConfirmSec  = 0.5;
+    constexpr double kFreshConfirmSec  = 0.75;
     constexpr double kFreshGuardSec    = 2.0;
     constexpr double kPreviewWheelSpread[WHEEL_COUNT] = { 0.0, 0.004, -0.003, 0.007 };   // a Test: each wheel a touch apart
     constexpr double kPreviewFlatMm    = 0.8;
@@ -1249,9 +1251,10 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             //  a. the pit flag rising after the car was out, within a second
             //     of the road speed jumping to a standstill or of the stream
             //     coming back after a gap (the pause menu, from speed or from
-            //     a standstill): put back in the pits or the garage. Driving
-            //     in keeps the tyres, and so does a stop that does not change
-            //     them;
+            //     a standstill): put back in the pits or the garage. Also the
+            //     flag sent for the first time, set, within a second of a
+            //     jump. Driving in keeps the tyres, and so does a stop that
+            //     does not change them;
             //  b. the lap number going back and holding: a restart (the first
             //     one sent only sets where it starts; 0 or less is no lap);
             //  c. a tyre's wear falling and holding: new tyres at a stop (the
@@ -1261,7 +1264,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             //     came back is not a jump).
             // Live samples only: one not sent is unknown, never 0.
             {
-                st.pitRoseAgo += dtSec; st.resumeAgo += dtSec;
+                st.pitRoseAgo += dtSec; st.resumeAgo += dtSec; st.pitFirstAgo += dtSec;
                 if (live && !st.wasLive) st.resumeAgo = 0.0;
                 st.wasLive = live;
                 st.freshGuardSec = std::max(0.0, st.freshGuardSec - dtSec);
@@ -1271,6 +1274,12 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 {
                     const bool inBox = v.val[NcxValues::InPit] > 0.5;
                     if (st.pitSeen && inBox && !st.pitWas && st.onTrackSec >= kFreshOutSec) st.pitRoseAgo = 0.0;
+                    // The flag sent for the first time, already set: a sender
+                    // that sends it only once it has seen it set (the return
+                    // itself, from a race started on the grid). Counted with
+                    // a jump only: a session starting in the garage is not a
+                    // return.
+                    if (!st.pitSeen && inBox) st.pitFirstAgo = 0.0;
                     st.onTrackSec = inBox ? 0.0 : st.onTrackSec + dtSec;
                     st.pitWas = inBox; st.pitSeen = true;
                 }
@@ -1278,6 +1287,11 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 {
                     reset = true;                                                // a
                     st.pitRoseAgo = st.jumpAgo = st.resumeAgo = 1e9;
+                }
+                if (st.pitFirstAgo <= kFreshPairSec && st.jumpAgo <= kFreshPairSec)
+                {
+                    reset = true;                                                // a, first flag
+                    st.pitFirstAgo = st.jumpAgo = 1e9;
                 }
                 if (live && v.have[NcxValues::Lap])
                 {
@@ -1297,9 +1311,13 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                         }
                     }
                 }
+                // The wear as a group (all four tyres or none, as the protocol
+                // has every per-wheel group).
+                bool wearSent = live;
+                for (int w = 0; w < WHEEL_COUNT; ++w) wearSent = wearSent && v.have[NcxValues::TyreWearFL + w];
                 for (int w = 0; w < WHEEL_COUNT; ++w)
                 {
-                    if (!live || !v.have[NcxValues::TyreWearFL + w]) continue;
+                    if (!wearSent) continue;
                     const double x = v.val[NcxValues::TyreWearFL + w];
                     if (!st.wearSeen[w]) { st.wearHi[w] = x; st.wearHiSec[w] = st.wearLowSec[w] = 0.0; st.wearSeen[w] = true; }
                     else if (st.wearHi[w] - x > kFreshWearDrop)

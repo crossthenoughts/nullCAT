@@ -3161,28 +3161,28 @@ int main()
             run(*r, 2.0);
             check(flat(*r) > 0.1, "I-24: the pit flag up at the pit lane entry keeps it too");
             // c. New tyres at the stop.
-            r->v.val[NcxValues::TyreWearFR] = 0.0; run(*r, 0.6);
+            r->v.val[NcxValues::TyreWearFR] = 0.0; run(*r, 0.9);
             check(flat(*r) == 0.0, "I-24 c: one tyre's wear falling to new brings fresh tyres");
             // ...and across a gap in the stream (the highest wear is kept).
             check(grind(*r), "I-24 setup: a new flat");
             r->v.fresh = false; run(*r, 2.0);
-            r->v.fresh = true; r->v.val[NcxValues::TyreWearRL] = 0.0; run(*r, 0.6);
+            r->v.fresh = true; r->v.val[NcxValues::TyreWearRL] = 0.0; run(*r, 0.9);
             check(flat(*r) == 0.0, "I-24 c: ...and across a gap in the stream");
         }
         // b. A restart: the lap number going back; going up is a lap.
         {
             auto r = make(true, true);
             check(grind(*r), "I-24 setup: a flat");
-            r->v.val[NcxValues::Lap] = 4.0; run(*r, 0.6);
+            r->v.val[NcxValues::Lap] = 4.0; run(*r, 0.9);
             check(flat(*r) > 0.1, "I-24 b: the next lap keeps it");
-            r->v.val[NcxValues::Lap] = 2.0; run(*r, 0.6);
+            r->v.val[NcxValues::Lap] = 2.0; run(*r, 0.9);
             check(flat(*r) == 0.0, "I-24 b: the lap number going back (a restart) brings fresh tyres");
             // At most one refresh every 2 s: a second restart a second later
             // leaves the new flat; new tyres after the guard wipe it.
             check(quickLock(*r), "I-24 setup: a new flat within the guard");
-            r->v.val[NcxValues::Lap] = 1.0; run(*r, 0.6);
+            r->v.val[NcxValues::Lap] = 1.0; run(*r, 0.9);
             check(flat(*r) > 0.02, "I-24 guard: a second restart within 2 s leaves the new flat");
-            run(*r, 1.5); r->v.val[NcxValues::TyreWearFL] = 0.0; run(*r, 0.6);
+            run(*r, 1.5); r->v.val[NcxValues::TyreWearFL] = 0.0; run(*r, 0.9);
             check(flat(*r) == 0.0, "I-24 guard: ...new tyres after it wipe it");
         }
         // One junk sample is not a reset: 0 km/h for one sample at speed
@@ -3202,6 +3202,45 @@ int main()
             check(flat(*p) > 0.1, "I-24 junk: a lap of 0, even held (a menu), is no lap");
             p->v.val[NcxValues::TyreWearFL] = 0.0; run(*p, 0.016); p->v.val[NcxValues::TyreWearFL] = 0.3; run(*p, 1.0);
             check(flat(*p) > 0.1, "I-24 junk: one wear sample at new keeps the flat");
+        }
+        // A sender that sends the pit flag only once it has seen it set: the
+        // first flag, set, with the jump back to the pits (or a few samples
+        // after it) is a return; a session starting in the garage is not.
+        {
+            auto r = make(true, false);
+            check(grind(*r), "I-24 setup: a flat");
+            speed(*r, 150.0); run(*r, 6.0);
+            speed(*r, 0.0); r->v.have[NcxValues::InPit] = true; r->v.val[NcxValues::InPit] = 1.0; run(*r, 0.1);
+            check(flat(*r) == 0.0, "I-24 a: the pit flag first sent set, with the jump back to the pits, is a return");
+            auto q = make(true, false);
+            check(grind(*q), "I-24 setup: a flat");
+            speed(*q, 150.0); run(*q, 6.0);
+            speed(*q, 0.0); run(*q, 0.05); q->v.have[NcxValues::InPit] = true; q->v.val[NcxValues::InPit] = 1.0; run(*q, 0.1);
+            check(flat(*q) == 0.0, "I-24 a: ...and a few samples after the jump");
+            auto g = make(true, false);
+            check(grind(*g), "I-24 setup: a flat");
+            speed(*g, 150.0); run(*g, 2.0);
+            g->v.fresh = false; run(*g, 3.0);
+            g->v.fresh = true; speed(*g, 0.0); g->v.have[NcxValues::InPit] = true; g->v.val[NcxValues::InPit] = 1.0; run(*g, 1.0);
+            check(flat(*g) > 0.1, "I-24: a session starting in the garage (the first flag, set, after a gap) is not a return");
+        }
+        // The last packet before the sender stops stays live for 500 ms: a
+        // junk lower lap on it is no restart. Wear is read as a group: three
+        // tyres at new with the fourth unsent is no tyre change; all four is.
+        {
+            auto p = make(true, true);
+            check(grind(*p), "I-24 setup: a flat");
+            p->v.val[NcxValues::Lap] = 5.0; run(*p, 1.0);
+            p->v.val[NcxValues::Lap] = 2.0; run(*p, 0.5);
+            p->v.fresh = false; run(*p, 1.0);
+            p->v.fresh = true; p->v.val[NcxValues::Lap] = 5.0; run(*p, 1.0);
+            check(flat(*p) > 0.1, "I-24 junk: a lower lap on the last packet before the stream stops is no restart");
+            p->v.have[NcxValues::TyreWearRR] = false;
+            for (int w = 0; w < 3; ++w) p->v.val[NcxValues::TyreWearFL + w] = 0.0;
+            run(*p, 1.0);
+            check(flat(*p) > 0.1, "I-24 c: three tyres at new with the fourth unsent is no tyre change");
+            p->v.have[NcxValues::TyreWearRR] = true; p->v.val[NcxValues::TyreWearRR] = 0.0; run(*p, 1.0);
+            check(flat(*p) == 0.0, "I-24 c: ...all four at new is");
         }
         // Car A to Car B: what was known of A's laps and wear starts over
         // (the change itself brings fresh tyres; nothing of A's may then
@@ -3227,7 +3266,7 @@ int main()
         {
             auto r = make(true, false);
             check(grind(*r), "I-24 setup: a flat");
-            speed(*r, 150.0); run(*r, 1.0); speed(*r, 0.0); run(*r, 0.6);
+            speed(*r, 150.0); run(*r, 1.0); speed(*r, 0.0); run(*r, 0.9);
             check(flat(*r) == 0.0, "I-24 d: with no pit flag, a jump to a standstill brings fresh tyres");
             check(grind(*r), "I-24 setup: a new flat");
             speed(*r, 150.0); run(*r, 3.0);
@@ -3244,13 +3283,13 @@ int main()
             auto r = make(false, true);
             check(grind(*r), "I-24 setup: a flat");
             speed(*r, 150.0); run(*r, 6.0);
-            speed(*r, 0.0); r->v.val[NcxValues::InPit] = 1.0; run(*r, 0.8);
-            r->v.val[NcxValues::Lap] = 1.0; run(*r, 0.8);
-            r->v.val[NcxValues::TyreWearFL] = 0.0; run(*r, 0.8);
+            speed(*r, 0.0); r->v.val[NcxValues::InPit] = 1.0; run(*r, 1.0);
+            r->v.val[NcxValues::Lap] = 1.0; run(*r, 1.0);
+            r->v.val[NcxValues::TyreWearFL] = 0.0; run(*r, 1.0);
             check(flat(*r) > 0.1, "I-24 off: no jump to the pits, restart or new tyres refreshes them");
             auto d = make(false, false);
             check(grind(*d), "I-24 setup: a flat");
-            speed(*d, 150.0); run(*d, 1.0); speed(*d, 0.0); run(*d, 0.8);
+            speed(*d, 150.0); run(*d, 1.0); speed(*d, 0.0); run(*d, 1.0);
             check(flat(*d) > 0.1, "I-24 off: ...nor a jump to a standstill with no pit flag");
         }
     }
