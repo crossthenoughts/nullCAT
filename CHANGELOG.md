@@ -4,6 +4,13 @@ Notable changes to nullCAT. Format follows [Keep a Changelog](https://keepachang
 versioning is [Semantic Versioning](https://semver.org/) - while on `0.x`, the
 middle number carries breaking changes and the last carries fixes.
 
+## [Unreleased]
+
+### Fixed
+- Automobilista 2: the Super Trophy Truck now finds its car table entry.
+  The game names it "Super Trophy Trucks" and the entry was singular, so
+  the truck ran on the defaults until you picked it from the list.
+
 ## [0.9.8] - 2026-10-23
 
 The haptics release, on the Raspberry Pi and Windows together: the

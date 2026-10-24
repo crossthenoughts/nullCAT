@@ -557,6 +557,21 @@ private slots:
             QCOMPARE(t.find("Automobilista2", "Porsche 911 GT3 Cup 4.0").key, std::string("ams2:Porsche 911 GT3 Cup 4.0"));
             QVERIFY(!t.find("Automobilista2", "Porsche 911 GT3 Cup 4.0").nearMatch);
         }
+        // The sim names the trophy truck in the plural (its class name). The
+        // entry was singular and never matched: the extra letter is not a
+        // whole word, so the near match could not catch it either.
+        {
+            const CarTable::Match tt = t.find("Automobilista2", "Super Trophy Trucks");
+            QCOMPARE(tt.key, std::string("ams2:Super Trophy Trucks"));
+            QVERIFY(!tt.nearMatch);
+            // The singular (SimHub's car list writes it so) still lands on it.
+            QCOMPARE(t.find("Automobilista2", "Super Trophy Truck").key, std::string("ams2:Super Trophy Trucks"));
+            // The sim's Formula V8 Gen2 name has a model suffix and lands on
+            // its base car as a near match (seen in the logs, 2026-10-23).
+            const CarTable::Match fv8 = t.find("Automobilista2", "Formula V8 Gen2 Model1");
+            QCOMPARE(fv8.key, std::string("ams2:Formula V8 Gen2"));
+            QVERIFY(fv8.nearMatch);
+        }
         // Every entry has the five sections, notes, and never routes; every
         // key in a section is one the car owns (carKeys for that tile);
         // the keys are unique per game once normalised (two entries that
