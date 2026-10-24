@@ -246,6 +246,14 @@ target_include_directories(TestCommandQueue PRIVATE ${SRC})
 target_link_libraries(TestCommandQueue PRIVATE nullcat_motion_core Threads::Threads)
 add_test(NAME TestCommandQueue COMMAND TestCommandQueue)
 
+# A software stop from another thread reaches the drives only through the
+# bus owner, once, across an owner handoff. CI also runs it under TSan.
+add_executable(TestBusRequest
+    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestBusRequest.cpp)
+target_include_directories(TestBusRequest PRIVATE ${SRC})
+target_link_libraries(TestBusRequest PRIVATE nullcat_motion_core Threads::Threads)
+add_test(NAME TestBusRequest COMMAND TestBusRequest)
+
 # Pins the telemetry UDP wire-format semantics: any parser rewrite (e.g. a
 # zero-allocation fast path) must pass it unchanged.
 # Run with: ctest -R TelemetryParse

@@ -91,6 +91,13 @@ middle number carries breaking changes and the last carries fixes.
   dashboard) could be lost, or make the rig carry out old commands again
   (park, unpark, homing, belt tension). They now take turns, so each one is
   carried out exactly once.
+- The software E-STOP and Reset Faults (dashboard, the Pi's buttons, the
+  Windows window) now reach the drives with the next frame nullCAT sends,
+  from the part that runs the EtherCAT bus. Before, they wrote to the
+  drives from the side, where the control loop could overwrite them for a
+  cycle. With the loop stopped, an E-STOP still disables drives held on
+  their stops within one frame (2 ms). The hardware E-STOP is unchanged and
+  remains the safety stop.
 - The dashboard's **Download logs** no longer puts your web password in
   the file: it is blanked, as the support bundle scripts do.
 - Automobilista 2: the Super Trophy Truck now finds its car table entry.

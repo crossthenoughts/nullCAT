@@ -151,6 +151,26 @@ private Q_SLOTS:
         QVERIFY(!master.hasPumpCrashed());
         QVERIFY(master.isInitialized());
     }
+
+    // PL-5: a stop asked from another thread (the web server, the GPIO
+    // panel) waits for the bus owner and goes out with its next frame:
+    // sendReceive(), the RT loop's one way to the bus, carries it out.
+    void test_PL5_stopRequestCarriedOutByTheOwner()
+    {
+        EtherCATMaster master;
+        master.setSimulationMode(true);
+        master.applyConfig(makeTwoDriveConfig());
+        QVERIFY(master.initializeAndEnterOp("sim"));
+        QVERIFY(!master.stopRequestPending());
+        std::thread asker([&] { master.requestStopAll(); });
+        asker.join();
+        QVERIFY2(master.stopRequestPending(), "the asking thread carried nothing out itself");
+        master.sendReceive();
+        QVERIFY2(!master.stopRequestPending(), "the owner's next frame carried it out");
+        master.requestStopAll();
+        master.shutdown();
+        QVERIFY2(!master.stopRequestPending(), "shutdown disables every drive itself: nothing left over");
+    }
 };
 
 QTEST_MAIN(TestPumpLifecycle)

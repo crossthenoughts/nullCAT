@@ -533,6 +533,9 @@ add_motion_test(TestHapticsIntegration tests/TestHapticsIntegration.cpp)
 # enqueueCommand from several threads at once (web pool, GPIO, Qt) against
 # one consumer: every accepted command exactly once, nothing else.
 add_motion_test(TestCommandQueue tests/TestCommandQueue.cpp)
+# A software stop from another thread reaches the drives only through the
+# bus owner, once, across an owner handoff.
+add_motion_test(TestBusRequest tests/TestBusRequest.cpp)
 # The shaker DSP chain: header-only, deterministic, no device.
 add_executable(TestShakerDsp tests/TestShakerDsp.cpp)
 target_include_directories(TestShakerDsp PRIVATE ${TEST_INCLUDE_DIRS})

@@ -1904,6 +1904,7 @@ void EtherCATMaster::runOPBridge(ecx_contextt* ctx, int64_t ticksPer2Ms)
     for (int i = 0; i < 10; ++i)
     {
         PlatformRT::advancePeriod(bNext, ticksPer2Ms);
+        serviceRequests();   // the bridge owns the bus for its frames
         uint32_t ex = 0;
         safeSendReceive(ctx, &ex);
         if (ex != 0) break;
@@ -2621,6 +2622,7 @@ void EtherCATMaster::startPumpBody()
             int64_t periodCounts = ticksPer2Ms;
             if (dcLock.enabled()) periodCounts = dcLock.update(pumpPhase);
             PlatformRT::advancePeriod(pNext, periodCounts);
+            serviceRequests();   // the pump owns the bus while the loop is stopped
             uint32_t ex = 0;
             safeSendReceive(ctx, &ex);
             if (ex != 0)
@@ -3234,6 +3236,10 @@ void EtherCATMaster::shutdown()
         LOG_WARNING("EtherCATMaster: Not initialized, nothing to shut down.");
         return;
     }
+    // What other threads asked of the drives is moot from here: shutdown
+    // disables every drive itself below (or, simulated, there are none).
+    m_stopRequest.clear();
+    m_faultResetRequest.clear();
 
     // Stop the SDO worker FIRST - join it so no worker transfer is
     // in flight (or can start) before any thread tears down / ecx_close frees m_ctx.
@@ -3288,6 +3294,7 @@ void EtherCATMaster::shutdown()
     // Disable drives before clearing PDO pointers -- disableOperation()
     // writes the controlword via the PDO pointer. Clearing first leaves a
     // null pointer that disableOperation() dereferences → crash on re-init.
+    // (Shutdown owns the bus now: the pump is joined, the loop stopped.)
     disableAllDrives();
 
     // Null PDO pointers before ecx_close() frees the iomap.
@@ -3332,6 +3339,8 @@ int EtherCATMaster::sendReceive()
 {
     m_lastRawWkc = -1;
     if (!m_initialized) return -1;
+    // The RT loop owns the bus: what another thread asked goes out in this frame.
+    serviceRequests();
     if (m_simulationMode) { m_lastRawWkc = m_expectedWKC; return m_expectedWKC; }
 
     ecx_contextt* ctx = ctxPtr(m_ctx);
@@ -3403,8 +3412,12 @@ A6Drive* EtherCATMaster::getDrive(int index)
     return m_drives[index].get();
 }
 
-void EtherCATMaster::enableAllDrives() { for (auto& d : m_drives) d->enableOperation(); }
 void EtherCATMaster::disableAllDrives() { for (auto& d : m_drives) d->disableOperation(); }
+void EtherCATMaster::serviceRequests()
+{
+    if (m_stopRequest.take())       disableAllDrives();
+    if (m_faultResetRequest.take()) resetAllFaults();
+}
 void EtherCATMaster::resetAllFaults() { for (auto& d : m_drives) d->startFaultReset(); }
 
 void EtherCATMaster::assignPDOPointers()

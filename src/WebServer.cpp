@@ -1482,7 +1482,10 @@ bool WebServer::start()
         {
             if (!m_motion || !m_master) { errResp(res, "Components not ready."); return; }
             m_motion->setEmergencyStop(true);
-            m_master->disableAllDrives();   // immediately halt drives via EtherCAT
+            // The bus owner disables every drive before its next frame (the
+            // RT loop, or the pump while the loop is stopped). The hardware
+            // e-stop stays the safety layer.
+            m_master->requestStopAll();
             okResp(res);
         });
 
@@ -2169,8 +2172,9 @@ bool WebServer::start()
         postCmd("/api/reset-fault", [this, okResp, errResp](const httplib::Request&, httplib::Response& res)
         {
             if (!m_master || !m_loop) { errResp(res, "Components not ready."); return; }
-            // Two-step: clear physical drive faults via EtherCAT, then clear software lockout
-            m_master->resetAllFaults();
+            // Two-step: clear physical drive faults via EtherCAT (the RT
+            // loop runs the reset sequence), then clear software lockout
+            m_master->requestFaultResetAll();
             m_loop->clearFaultLockout(-1);
             okResp(res);
         });

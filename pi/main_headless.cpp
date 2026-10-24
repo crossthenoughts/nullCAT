@@ -343,8 +343,11 @@ int main(int argc, char* argv[])
         };
         acts.estop = [&motion, &master]()
         {
+            // A software stop: the bus owner (the RT loop, or the pump
+            // while the loop is stopped) disables every drive before its
+            // next frame. The hardware e-stop stays the safety layer.
             motion.setEmergencyStop(true);
-            master.disableAllDrives();
+            master.requestStopAll();
         };
         acts.estopRelease = [&motion]() { motion.setEmergencyStop(false); };
 

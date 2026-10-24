@@ -76,6 +76,12 @@ jobs:
             tests/TestCommandQueue.cpp src/MotionController.cpp src/A6Drive.cpp 
             src/CommissioningMode.cpp src/Logging.cpp -o tsan_command_queue
           TSAN_OPTIONS=halt_on_error=1 ./tsan_command_queue 20000
+      - name: Drive stop requests under ThreadSanitizer
+        run: |
+          clang++ -std=c++17 -g -O1 -fsanitize=thread -pthread -Isrc 
+            tests/TestBusRequest.cpp src/MotionController.cpp src/A6Drive.cpp 
+            src/CommissioningMode.cpp src/Logging.cpp -o tsan_bus_request
+          TSAN_OPTIONS=halt_on_error=1 ./tsan_bus_request
 
   # The web UI has no build step, so nothing parses its JS before a browser
   # does; a single syntax error kills the whole dashboard (issue #1).

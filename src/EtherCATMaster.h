@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "A6Drive.h"
+#include "BusRequest.h"
 #include "Config.h"
 #include "Logging.h"
 #include <string>
@@ -108,9 +109,27 @@ public:
     int      getDriveCount() const { return static_cast<int>(m_drives.size()); }
     int      getSlaveCount() const { return m_slaveCount; }
 
-    void enableAllDrives();
-    void disableAllDrives();
-    void resetAllFaults();
+    // ---- What other threads may ask of the drives ----
+    // One thread at a time writes the drives' process data, the bus owner:
+    // the RT control loop while it runs (setRtLoopActive; every frame it
+    // sends goes through sendReceive()), the background pump and the OP
+    // bridge before it while it does not, shutdown at the end. The handoff
+    // leaves no moment with two owners (stopPump() joins the pump before
+    // the loop claims the bus; the loop gives it up before startPump()).
+    // Any other thread (the web server, the GPIO panel, the Qt window)
+    // asks here, and the owner carries it out before its next frame; a
+    // request made between two owners waits for the next (BusRequest.h).
+    // A software stop: every drive's operation disabled, within a cycle
+    // while the loop runs, within one 2 ms pump frame while it does not
+    // (when the drives can be held enabled on their stops). Keeping them
+    // disabled while the loop runs is the motion e-stop's job
+    // (MotionController::setEmergencyStop): an e-stop asks both.
+    void requestStopAll()       { m_stopRequest.request(); }
+    // A fault reset on every drive: the sequence itself runs on the RT
+    // loop's fault monitor, so with the loop stopped it waits for it.
+    void requestFaultResetAll() { m_faultResetRequest.request(); }
+    // Tests: a stop asked and not yet carried out.
+    bool stopRequestPending() const { return m_stopRequest.pending(); }
 
     ECState getMasterState()  const { return static_cast<ECState>(m_masterState.load(std::memory_order_acquire)); }
     bool    isOperational()   const { return static_cast<ECState>(m_masterState.load(std::memory_order_acquire)) == ECState::Op; }
@@ -250,6 +269,14 @@ public:
     void setSimulatedStageError(InitResult r) { m_simulatedStageError = std::move(r); }
 
 private:
+    // The bus owner only (sendReceive, the pump, the OP bridge, shutdown).
+    void disableAllDrives();
+    void resetAllFaults();
+    // ...before each frame it sends: a pending stop or fault reset carried out.
+    void serviceRequests();
+    BusRequest m_stopRequest;
+    BusRequest m_faultResetRequest;
+
     bool   m_initialized = false;
     bool   m_simulationMode = false;
     bool   m_ecxOpen = false;          // true after ecx_init(), false after ecx_close()

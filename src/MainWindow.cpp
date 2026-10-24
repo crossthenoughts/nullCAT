@@ -723,7 +723,7 @@ void MainWindow::onResetFaults()
 {
     if (!m_master) return;
     LOG_INFO("GUI: Reset Faults clicked.");
-    m_master->resetAllFaults();
+    m_master->requestFaultResetAll();   // the RT loop runs the reset sequence
     statusBar()->showMessage("Fault reset sequence initiated.");
 }
 
@@ -1083,7 +1083,7 @@ void MainWindow::onEmergencyStop()
     LOG_WARNING("GUI: EMERGENCY STOP button pressed!");
 
     if (m_motion) m_motion->setEmergencyStop(true);
-    if (m_master) m_master->disableAllDrives();
+    if (m_master) m_master->requestStopAll();   // the bus owner disables every drive before its next frame
 
     m_btnEmergency->setText("⚡ E-STOP ACTIVE - click to clear");
     m_btnEmergency->setStyleSheet(kEstopActiveStyle);
