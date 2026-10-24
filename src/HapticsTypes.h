@@ -225,6 +225,10 @@ struct WheelsParams
     double drag   = 0.3;
     double biteHz = 35.0;
     double dragHz = 60.0;
+    // Fresh tyres on their own when the sim restarts the session, puts the
+    // car back in the pits or changes its tyres (the rules in HapticLaws.h);
+    // 0 = only by hand, a different car or ten minutes without the sim.
+    double freshOnReset = 1.0;
 };
 
 // The Impacts tile (ImpactModel.h): the edge of a hit through the

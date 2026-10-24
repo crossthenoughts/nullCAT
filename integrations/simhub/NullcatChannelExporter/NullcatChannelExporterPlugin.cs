@@ -3,7 +3,7 @@
 //
 // nullCAT Channel Exporter - a deliberately dumb SimHub plugin.
 //
-// Sends up to three UDP lines per data tick (protocol 1.4, Docs/PROTOCOL.md):
+// Sends up to three UDP lines per data tick (protocol 1.9, Docs/PROTOCOL.md):
 //
 //   NULLCATX,<rpm>,<speedKmh>,<gear>,<clutchPct>,<throttlePct>,
 //            <brakePct>,<absActive>,<skid>,<lockup>,<roadNoise>,
@@ -117,6 +117,12 @@ namespace NullcatChannelExporter
             if (g == "automobilista2") return PresetAMS2;
             return null;
         }
+        // The Assetto Corsa family: AC and, riding on its shared memory
+        // layout until each has its own pass, Competizione, EVO and Rally.
+        private static bool IsAcFamily(string family)
+        {
+            return family == "assettocorsa" || family == "assettocorsacompetizione" || family == "assettocorsaevo" || family == "assettocorsarally";
+        }
         private static string Norm(string s)
         {
             if (string.IsNullOrEmpty(s)) return "";
@@ -125,6 +131,8 @@ namespace NullcatChannelExporter
             return sb.ToString();
         }
         private string _presetGame;   // the game the groups in force were resolved for
+        private string _pitGame;      // the game the pit flag was last judged for...
+        private bool   _pitWorks;     // ...and whether it has shown the flag set
 
         private DateTime _lastIdentity = DateTime.MinValue;
 
@@ -349,6 +357,39 @@ namespace NullcatChannelExporter
              .Append(",maxRpm=").Append(maxRpm.ToString("0", CultureInfo.InvariantCulture))
              .Append(",boost=").Append(boost.ToString("0.###", CultureInfo.InvariantCulture))
              .Append(",pitLimiter=").Append(pit.ToString("0", CultureInfo.InvariantCulture));
+            // Protocol 1.9: the pit flag and the lap, for nullCAT's fresh
+            // tyres on a return to the pits or a restart. The pit flag from
+            // the game's own field where the plugin knows it, from the start:
+            // Automobilista 2's pit mode (in the pit box or the garage;
+            // driving in or out is not) and the Assetto Corsa family's
+            // in-pit flag. For other games SimHub's, only once the game has
+            // shown it set: a game SimHub cannot read it for would send a
+            // steady 0, which reads as "on track" and turns nullCAT's
+            // fallback off.
+            var family = Norm(data.GameName);
+            if (family != _pitGame) { _pitGame = family; _pitWorks = false; }
+            double inPit = 0;
+            try { inPit = Convert.ToDouble(d.IsInPit, CultureInfo.InvariantCulture) > 0 ? 1 : 0; } catch { inPit = 0; }
+            var pitKnown = false;
+            double pitRaw;
+            if (family == "automobilista2" && ReadRaw(pluginManager, "DataCorePlugin.GameRawData.mPitMode", out pitRaw))
+            {
+                pitKnown = true;
+                inPit = (pitRaw == 2 || pitRaw == 4) ? 1 : 0;
+            }
+            else if (IsAcFamily(family) && ReadRaw(pluginManager, "DataCorePlugin.GameRawData.Graphics.IsInPit", out pitRaw))
+            {
+                pitKnown = true;
+                inPit = pitRaw > 0 ? 1 : 0;
+            }
+            if (inPit > 0) _pitWorks = true;
+            if (pitKnown || _pitWorks) y.Append(",inPit=").Append(inPit.ToString("0", CultureInfo.InvariantCulture));
+            try
+            {
+                var lap = Convert.ToDouble(d.CurrentLap, CultureInfo.InvariantCulture);
+                if (!double.IsNaN(lap) && !double.IsInfinity(lap)) y.Append(",lap=").Append(lap.ToString("0", CultureInfo.InvariantCulture));
+            }
+            catch { }
             if (!string.IsNullOrWhiteSpace(_skidProp))   y.Append(",skid=").Append(skid.ToString("0.#", CultureInfo.InvariantCulture));
             if (!string.IsNullOrWhiteSpace(_lockupProp)) y.Append(",lockup=").Append(lockup.ToString("0.#", CultureInfo.InvariantCulture));
             if (!string.IsNullOrWhiteSpace(_roadProp))   y.Append(",roadNoise=").Append(road.ToString("0.#", CultureInfo.InvariantCulture));
@@ -367,13 +408,13 @@ namespace NullcatChannelExporter
                      .Append((vals[w] * _groupScale[g]).ToString("0.####", CultureInfo.InvariantCulture));
             }
             AppendChassis(y, d);
-            var family = Norm(data.GameName);
-            if (family == "assettocorsa" || family == "assettocorsacompetizione" || family == "assettocorsaevo" || family == "assettocorsarally")
+            if (IsAcFamily(family))
                 AppendAcContact(y, d);
             else if (family == "automobilista2")
             {
                 AppendAms2Surface(y, pluginManager);
                 AppendAms2SlipSpeed(y, pluginManager);
+                AppendAms2TyreWear(y, pluginManager);
             }
             Send(y.ToString());
 
@@ -522,6 +563,18 @@ namespace NullcatChannelExporter
                 if (!ReadRaw(pm, "DataCorePlugin.GameRawData.mTyreSlipSpeed0" + (w + 1), out ss[w]) || double.IsNaN(ss[w]) || double.IsInfinity(ss[w])) return;
             for (var w = 0; w < 4; w++)
                 y.Append(",slipSpeed").Append(Wheels[w]).Append('=').Append(Math.Abs(ss[w]).ToString("0.###", CultureInfo.InvariantCulture));
+        }
+
+        // Automobilista 2 tyre wear (protocol 1.9): 0 new .. 1 worn out, as
+        // the game gives it. nullCAT reads a sudden fall as new tyres.
+        private static void AppendAms2TyreWear(StringBuilder y, PluginManager pm)
+        {
+            var wear = new double[4];
+            for (var w = 0; w < 4; w++)
+                if (!ReadRaw(pm, "DataCorePlugin.GameRawData.mTyreWear0" + (w + 1), out wear[w])) return;
+            for (var w = 0; w < 4; w++)
+                y.Append(",tyreWear").Append(Wheels[w]).Append('=')
+                 .Append(Math.Max(0.0, Math.Min(1.0, wear[w])).ToString("0.####", CultureInfo.InvariantCulture));
         }
 
         // Automobilista 2 tyre flags (protocol 1.7): bit 0 attached, bit 1

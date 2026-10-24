@@ -230,6 +230,7 @@ constexpr ParamSpec kWheelsParams[] = {         // wheels: out of round, flat sp
     { "drag",    "drag x",     0,   1,   0.05, nullptr },   // ...and rubbing while it stays on
     { "biteHz",  "bite hz",    10,  200, 1,    nullptr },   // the grab's grain at 100 km/h, following the wheel's speed
     { "dragHz",  "drag hz",    10,  200, 1,    nullptr },   // ...and the rub's
+    { "freshOnReset", "fresh tyres on pit/restart", 0, 1, 1, "off|on" },   // a restart, a jump to the pits, a tyre change
 };
 constexpr ParamSpec kImpactParams[] = {         // impacts: the edge of a hit through the suspension
     { "ampPct",  "amp %",      0,   100,  1,    nullptr },

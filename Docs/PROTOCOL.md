@@ -5,7 +5,7 @@ the nullCAT exporter plugin, or any tool that can emit a text line) and the
 nullCAT controller (the **receiver**). This document is the contract: the
 wire only ever changes here, version-bumped, and senders adapt to it.
 
-**Protocol version: 1.8** (nullCAT 0.9.8). History at the bottom.
+**Protocol version: 1.9** (nullCAT 0.9.9). History at the bottom.
 
 nullCAT does not depend on any particular sender. SimHub with the nullCAT
 plugin, FlyPT Mover, SimTools, a custom feeder reading the game's shared
@@ -112,7 +112,7 @@ NULLCATY,game=Automobilista 2,car=Formula Ultimate Gen2,carId=Formula Ultimate G
 NULLCATY,rpm=11480,speedKmh=212.4,gear=5,throttlePct=100,brakePct=0,slipRatioRL=0.08,slipRatioRR=0.31,slipAngleFL=2.1
 ```
 
-### Token registry (protocol 1.8)
+### Token registry (protocol 1.9)
 
 | Slot | Token | Unit / convention |
 |---|---|---|
@@ -150,6 +150,9 @@ NULLCATY,rpm=11480,speedKmh=212.4,gear=5,throttlePct=100,brakePct=0,slipRatioRL=
 | 63..66 | `onGroundFL` .. `onGroundRR` | **1** the tyre touches the ground, **0** it is in the air. Where it is not sent, nullCAT tells a tyre in the air from its `load*` (almost none of the usual corner load). A tyre in the air gets no road, surface, kerb or slip *(since 1.7)* |
 | 67..70 | `deflatedFL` .. `deflatedRR` | **1** the tyre is punctured, **0** inflated, as the sim says. Feeds the Wheels effect's puncture *(since 1.7)* |
 | 71..74 | `slipSpeedFL` .. `slipSpeedRR` | the speed the tyre's contact patch slides over the road, **m/s**, either sign (only the size is used). Where the sim has no slip angle, the lateral slip effect works an angle out of it: it takes out the part `slipRatio*` (or the wheel speeds) already explain along the road, sets what is left against the road speed, and learns on straights the small angle the car always shows there. Wins over `wheelSlip*` for the lateral effect *(since 1.8)* |
+| 75 | `inPit` | **1** the car is in its pit box or garage, **0** it is not. Rising within a second of a jump of the road speed to a standstill, or of the stream coming back after a gap (the pause menu), the Wheels effect takes it for a return to the pits: fresh tyres. Driving in does not count. Send it only where the sim really has it: a steady 0 reads as "on track" *(since 1.9)* |
+| 76 | `lap` | the current lap number. Going back, and staying back for half a second, is a restart: fresh tyres. 0 or less is no lap *(since 1.9)* |
+| 77..80 | `tyreWearFL` .. `tyreWearRR` | tread worn per tyre, **0..1** (0 new, 1 worn out), where the sim has it. One falling by more than 0.2 and staying there for half a second is new tyres at a stop: fresh tyres *(since 1.9)* |
 
 Per-wheel groups are always sent as all four or not at all: a group with
 a wheel missing is treated as absent. A sender that only has per-axle
@@ -203,6 +206,16 @@ and can come from the same tool.
 
 ## Version history
 
+- **1.9** (nullCAT 0.9.9): added `inPit`, `lap` and `tyreWearFL` ..
+  `tyreWearRR`, so the Wheels effect brings fresh tyres (no flat spots,
+  cold discs) on a restart, a return to the pits or the garage and new
+  tyres at a stop, and keeps them through a drive into the pits. A sender
+  without the pit flag gets a fallback instead: a jump of the road speed
+  to a standstill that holds. The reference SimHub plugin sends the lap for
+  every game; the pit flag from Automobilista 2 and the Assetto Corsa
+  family from the start, and from other games once SimHub has shown it
+  set; the tyre wear from Automobilista 2. No change to parsing; every 1.8
+  sender remains fully compatible.
 - **1.8** (nullCAT 0.9.8): added `slipSpeedFL` .. `slipSpeedRR`, the
   tyre's sliding speed, which the lateral slip effect turns into a slip
   angle where the sim has none. The reference SimHub plugin sends it from

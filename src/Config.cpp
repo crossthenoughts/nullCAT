@@ -276,6 +276,7 @@ constexpr FieldRow<WheelsParams> kWheelsFields[] = {
     { "balance", &WheelsParams::balance }, { "flat", &WheelsParams::flat }, { "judder", &WheelsParams::judder },
     { "puncture", &WheelsParams::puncture }, { "bite", &WheelsParams::bite }, { "drag", &WheelsParams::drag },
     { "biteHz", &WheelsParams::biteHz }, { "dragHz", &WheelsParams::dragHz },
+    { "freshOnReset", &WheelsParams::freshOnReset },
 };
 constexpr FieldRow<ImpactParams> kImpactFields[] = {
     { "fromMmS", &ImpactParams::fromMmS }, { "fullMmS", &ImpactParams::fullMmS }, { "heaveG", &ImpactParams::heaveG },

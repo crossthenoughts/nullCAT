@@ -2,7 +2,7 @@
 
 Sends raw sim telemetry to nullCAT for the force-device effects (shifter,
 active pedal) and the haptic effect layer. Up to three UDP lines per tick,
-nothing else (wire protocol 1.8, see `Docs/PROTOCOL.md` in the nullCAT
+nothing else (wire protocol 1.9, see `Docs/PROTOCOL.md` in the nullCAT
 repo):
 
     NULLCATX,<rpm>,<speedKmh>,<gear>,<clutchPct>,<throttlePct>,
@@ -23,8 +23,8 @@ sent at all, which leaves its effect silently inert on the rig.
 In SimHub's plugin list it appears as **nullCAT Channel Exporter**:
 "Sends raw telemetry to nullCAT over UDP: rpm, speed, gear, pedals,
 ABS/TC/limiter flags, and optional per-wheel slip, load and suspension
-channels for the haptic layer". Version 1.8 of the plugin (protocol 1.8) goes with
-nullCAT 0.9.8; it works with 0.9.6 and 0.9.7 too (the extra channels are simply
+channels for the haptic layer". Version 1.9 of the plugin (protocol 1.9) goes with
+nullCAT 0.9.9; it works with 0.9.6 to 0.9.8 too (the extra channels are simply
 ignored there).
 
 SimHub is one sender among others: FlyPT Mover, SimTools or your own
@@ -117,7 +117,13 @@ by itself.
 | Automobilista 2 | wheel speeds, suspension velocities, tyre slip speed (nullCAT turns it into a slip angle), the surface under each tyre (snow and ice included), the rain, which tyres are on the ground and which are punctured | Longitudinal slip, Lateral slip, Road, Kerb, Surface, Wheels; a tyre in the air goes quiet |
 
 Every game also sends the body's vertical acceleration, pitch and roll
-from SimHub's own motion data, for the Road tile's chassis model.
+from SimHub's own motion data, for the Road tile's chassis model, and the
+lap number and the pit flag, so the Wheels tile can bring fresh tyres on a
+restart or a jump back to the pits. Automobilista 2 and the Assetto Corsa
+family send the game's own pit flag from the start; other games send
+SimHub's once the game has shown it set (a game SimHub cannot read it for
+is left to nullCAT's fallback). Automobilista 2 also sends its tyre wear,
+so new tyres at a stop are fresh tyres too.
 
 Plain Assetto Corsa has no slip angle field, so the plugin works one out
 for each tyre: the angle between where the tyre points and where its

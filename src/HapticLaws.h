@@ -101,6 +101,26 @@ struct LawsState
     // How long the stream has been quiet (fresh tyres for the Wheels tile
     // once it has been quiet a while).
     double quietSec = 0.0;
+    // Fresh tyres on a reset (the Wheels tile's freshOnReset): the pit flag
+    // last sent and how long the car has been out since it was last up;
+    // how long since it rose after a run out, since the road speed jumped
+    // to a standstill between two live samples, and since the stream came
+    // back after a gap; a jump waiting to hold (no pit flag sent); the lap
+    // in force and a different one waiting to hold; each tyre's wear
+    // against its highest in the last second and how long a fall from it
+    // has held; the guard between two refreshes.
+    bool   pitSeen = false, pitWas = false;
+    double onTrackSec = 0.0, pitRoseAgo = 1e9;
+    double jumpAgo = 1e9, resumeAgo = 1e9;
+    bool   wasLive = false;
+    bool   jumpHolding = false;
+    double jumpHoldSec = 0.0;
+    bool   lapSeen = false;
+    long   lastLap = 0, lapCand = 0;
+    double lapCandSec = 0.0;
+    bool   wearSeen[WHEEL_COUNT] = {};
+    double wearHi[WHEEL_COUNT] = {}, wearHiSec[WHEEL_COUNT] = {}, wearLowSec[WHEEL_COUNT] = {};
+    double freshGuardSec = 0.0;
     // Ground contact: the usual corner load (learned) and which tyres are
     // in the air (with hysteresis).
     double loadRef = 0.0;
@@ -383,6 +403,24 @@ namespace laws_k {
     constexpr double kAngleJumpDeg     = 8.0;      // pitch or roll jumping this far between two samples: a glitch
     // Wheels laws
     constexpr double kFreshTyresSec    = 600.0;    // a different car brings fresh tyres; failing that, the stream quiet this long (a pause in the pits is not a new session)
+    // Fresh tyres on a reset (freshOnReset): the road speed jumping from
+    // above kJumpFromKmh to below kJumpToKmh from one sample to the next is
+    // the car put somewhere, not driven (no car stops like that); the pit
+    // flag rising within kFreshPairSec of such a jump, or of the stream
+    // coming back after a gap (the pause menu), after the car was out
+    // kFreshOutSec, is a return to the pits; a tyre's wear falling
+    // kFreshWearDrop below its highest in the last kFreshWearSec is new
+    // tyres. A jump with no pit flag sent, a lap number and a fall in wear
+    // count once they have held kFreshConfirmSec (one junk sample is not a
+    // reset). At most one refresh every kFreshGuardSec.
+    constexpr double kJumpFromKmh      = 40.0;
+    constexpr double kJumpToKmh        = 2.0;
+    constexpr double kFreshOutSec      = 5.0;
+    constexpr double kFreshPairSec     = 1.0;
+    constexpr double kFreshWearDrop    = 0.2;
+    constexpr double kFreshWearSec     = 1.0;
+    constexpr double kFreshConfirmSec  = 0.5;
+    constexpr double kFreshGuardSec    = 2.0;
     constexpr double kPreviewWheelSpread[WHEEL_COUNT] = { 0.0, 0.004, -0.003, 0.007 };   // a Test: each wheel a touch apart
     constexpr double kPreviewFlatMm    = 0.8;
     constexpr double kPreviewBrake     = 0.6;
@@ -476,6 +514,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         // unsent) for the hold, so nothing reads a jump to the pits as four
         // wheels locked at speed.
         st.glitchSec = std::max(0.0, st.glitchSec - dtSec);
+        st.jumpAgo += dtSec;
         if (live && v.have[NcxValues::SpeedKmh])
         {
             const double s = v.val[NcxValues::SpeedKmh];
@@ -483,6 +522,9 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             if (!st.speedSeen) { st.lastSpeedKmh = s; st.speedAgeSec = 0.0; st.speedSeen = true; }
             else if (s != st.lastSpeedKmh)
             {
+                // A jump to a standstill between two live samples (fresh
+                // tyres on a reset).
+                if (st.lastSpeedKmh > kJumpFromKmh && s < kJumpToKmh) st.jumpAgo = 0.0;
                 if (std::fabs(s - st.lastSpeedKmh) / 3.6
                     > kGlitchAccelMs2 * std::min(kGlitchMaxDtSec, std::max(kGlitchMinDtSec, st.speedAgeSec)))
                     st.glitchSec = kGlitchHoldSec;
@@ -1202,6 +1244,99 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             double& previewLeft = st.previewSec[static_cast<int>(FxType::Wheels)];
             if (live) st.quietSec = 0.0;
             else if (st.quietSec < kFreshTyresSec && (st.quietSec += dtSec) >= kFreshTyresSec) L.wheelsFreshTyres();
+            // Fresh tyres on a reset (the tile's freshOnReset), from the
+            // sim's own signs where it sends them (protocol 1.9):
+            //  a. the pit flag rising after the car was out, within a second
+            //     of the road speed jumping to a standstill or of the stream
+            //     coming back after a gap (the pause menu, from speed or from
+            //     a standstill): put back in the pits or the garage. Driving
+            //     in keeps the tyres, and so does a stop that does not change
+            //     them;
+            //  b. the lap number going back and holding: a restart (the first
+            //     one sent only sets where it starts; 0 or less is no lap);
+            //  c. a tyre's wear falling and holding: new tyres at a stop (the
+            //     highest is kept across a gap: wear only grows in a stint);
+            //  d. no pit flag sent: the jump to a standstill between two live
+            //     samples, the car then standing (a stream that went away and
+            //     came back is not a jump).
+            // Live samples only: one not sent is unknown, never 0.
+            {
+                st.pitRoseAgo += dtSec; st.resumeAgo += dtSec;
+                if (live && !st.wasLive) st.resumeAgo = 0.0;
+                st.wasLive = live;
+                st.freshGuardSec = std::max(0.0, st.freshGuardSec - dtSec);
+                bool reset = false;
+                const bool pitSent = live && v.have[NcxValues::InPit];
+                if (pitSent)
+                {
+                    const bool inBox = v.val[NcxValues::InPit] > 0.5;
+                    if (st.pitSeen && inBox && !st.pitWas && st.onTrackSec >= kFreshOutSec) st.pitRoseAgo = 0.0;
+                    st.onTrackSec = inBox ? 0.0 : st.onTrackSec + dtSec;
+                    st.pitWas = inBox; st.pitSeen = true;
+                }
+                if (st.pitRoseAgo <= kFreshPairSec && std::min(st.jumpAgo, st.resumeAgo) <= kFreshPairSec)
+                {
+                    reset = true;                                                // a
+                    st.pitRoseAgo = st.jumpAgo = st.resumeAgo = 1e9;
+                }
+                if (live && v.have[NcxValues::Lap])
+                {
+                    const long lap = std::lround(v.val[NcxValues::Lap]);
+                    if (lap > 0)
+                    {
+                        if (!st.lapSeen) { st.lastLap = lap; st.lapSeen = true; }
+                        else if (lap == st.lastLap) st.lapCandSec = 0.0;
+                        else
+                        {
+                            if (lap != st.lapCand) { st.lapCand = lap; st.lapCandSec = 0.0; }
+                            if ((st.lapCandSec += dtSec) >= kFreshConfirmSec)
+                            {
+                                if (lap < st.lastLap) reset = true;              // b
+                                st.lastLap = lap; st.lapCandSec = 0.0;
+                            }
+                        }
+                    }
+                }
+                for (int w = 0; w < WHEEL_COUNT; ++w)
+                {
+                    if (!live || !v.have[NcxValues::TyreWearFL + w]) continue;
+                    const double x = v.val[NcxValues::TyreWearFL + w];
+                    if (!st.wearSeen[w]) { st.wearHi[w] = x; st.wearHiSec[w] = st.wearLowSec[w] = 0.0; st.wearSeen[w] = true; }
+                    else if (st.wearHi[w] - x > kFreshWearDrop)
+                    {
+                        if ((st.wearLowSec[w] += dtSec) >= kFreshConfirmSec)
+                        {
+                            reset = true;                                        // c
+                            st.wearHi[w] = x; st.wearHiSec[w] = st.wearLowSec[w] = 0.0;
+                        }
+                    }
+                    else
+                    {
+                        st.wearLowSec[w] = 0.0;
+                        if (x >= st.wearHi[w] || st.wearHiSec[w] >= kFreshWearSec) { st.wearHi[w] = x; st.wearHiSec[w] = 0.0; }
+                        else st.wearHiSec[w] += dtSec;
+                    }
+                }
+                if (live && !pitSent && st.jumpAgo == 0.0) { st.jumpHolding = true; st.jumpHoldSec = 0.0; }
+                else if (st.jumpHolding)
+                {
+                    // The raw speed: the jump itself leaves it untrusted in v
+                    // for the glitch hold.
+                    const bool standing = live && !pitSent && in.have[NcxValues::SpeedKmh]
+                                          && std::isfinite(in.val[NcxValues::SpeedKmh]) && in.val[NcxValues::SpeedKmh] < kJumpToKmh;
+                    if (!standing) st.jumpHolding = false;
+                    else if ((st.jumpHoldSec += dtSec) >= kFreshConfirmSec)
+                    {
+                        reset = true;                                            // d
+                        st.jumpHolding = false;
+                    }
+                }
+                if (reset && st.freshGuardSec <= 0.0 && L.wheelsParams().freshOnReset >= 0.5)
+                {
+                    L.wheelsFreshTyres();
+                    st.freshGuardSec = kFreshGuardSec;
+                }
+            }
             if (previewLeft > 0.0)
             {
                 const double t = kPreviewSec - previewLeft;

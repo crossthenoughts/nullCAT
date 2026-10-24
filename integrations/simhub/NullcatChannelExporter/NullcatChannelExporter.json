@@ -5,7 +5,7 @@
   "host": "127.0.0.1",
   "port": 4444,
 
-  "_help_channels": "Twelve channels need no setup and are always sent: rpm, speed, gear, clutch, throttle, brake, ABS active, rev limiter (computed from rpm vs the car max), TC active, the car max rpm, turbo boost and the pit limiter. They drive the Engine, Gear shift, ABS, Limiter and TC effects in nullCAT. The game and car names are sent once a second.",
+  "_help_channels": "Thirteen channels need no setup and are always sent: rpm, speed, gear, clutch, throttle, brake, ABS active, rev limiter (computed from rpm vs the car max), TC active, the car max rpm, turbo boost, the pit limiter and the lap number. They drive the Engine, Gear shift, ABS, Limiter and TC effects in nullCAT. The pit flag goes too: from the start for Automobilista 2 and the Assetto Corsa family, for other games once the game has shown it set. With the lap number it lets the Wheels tile bring fresh tyres on a restart or a return to the pits. The game and car names are sent once a second.",
 
   "_help_presets": "Assetto Corsa, Competizione, EVO, Rally and Automobilista 2 need NOTHING below: the plugin knows which per-wheel fields each of them exposes (wheel speeds, loads, combined slip, suspension travel or velocity, a real slip ratio where the game has one) and sends them by itself. Fill a group in only to override that, or for a game the plugin does not know.",
 

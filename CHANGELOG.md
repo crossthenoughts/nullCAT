@@ -13,6 +13,15 @@ middle number carries breaking changes and the last carries fixes.
   also the service's and the updater's journals) into one file to attach
   when you ask for help, with any web password blanked in the copy. See
   "If something goes wrong" in the setup guides.
+- Fresh tyres on their own: the Wheels tile wipes the flat spots and cools
+  the discs when the sim restarts the session, when you jump back to the
+  pits or the garage, and when a stop puts new tyres on (Automobilista 2,
+  which reports tyre wear). Driving into the pits keeps them, and so does
+  a stop without new tyres. On by default: untick **fresh tyres on
+  pit/restart** on the Wheels tile to keep them until you press **fresh
+  tyres**. Works best with the SimHub plugin 1.9 (protocol 1.9), which
+  sends the pit flag and the lap number; with an older sender, the car
+  jumping from speed to a standstill and staying there counts instead.
 - The log names the nullCAT version on its first line, on Windows and the
   Pi, even when the log is set to warnings only, and the support bundle
   reports it.

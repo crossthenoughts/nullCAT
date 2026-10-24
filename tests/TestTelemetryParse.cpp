@@ -271,6 +271,26 @@ int main()
         check(ok && std::strlen(d.car) == NCY_STR_LEN - 1, "an over-long name is truncated to the store, never overrun");
     }
 
+    // ---- protocol 1.9: the pit flag, the lap and the tyre wear, by name,
+    // at slots 75..80 (appended: nothing before them moved); a line
+    // without them leaves them absent ----
+    {
+        check(NcxTok::SlipSpeedRR == 74 && NcxTok::InPit == 75 && NcxTok::Lap == 76 && NcxTok::TyreWearFL == 77
+              && NcxTok::TyreWearRR == 80 && NcxTok::TokenCount == 81,
+              "protocol 1.9: inPit, lap and tyreWearFL..RR take slots 75..80, after slipSpeedRR");
+        check(std::string(ncxTokenName(NcxTok::InPit)) == "inPit" && std::string(ncxTokenName(NcxTok::Lap)) == "lap"
+              && std::string(ncxTokenName(NcxTok::TyreWearFL)) == "tyreWearFL" && std::string(ncxTokenName(NcxTok::TyreWearRR)) == "tyreWearRR",
+              "protocol 1.9: the names are the wire's");
+        bool ok; TelemetryData d = parse("NULLCATY,inPit=1,lap=12,tyreWearFL=0.25,tyreWearFR=0.3,tyreWearRL=0.35,tyreWearRR=0.4", &ok);
+        check(ok && d.ncyHave[NcxTok::InPit] && d.ncy[NcxTok::InPit] == 1.0 && d.ncyHave[NcxTok::Lap] && d.ncy[NcxTok::Lap] == 12.0,
+              "protocol 1.9: inPit and lap land by name");
+        check(d.ncyHave[NcxTok::TyreWearFL] && d.ncyHave[NcxTok::TyreWearRR] && std::fabs(d.ncy[NcxTok::TyreWearRR] - 0.4) < 1e-12,
+              "protocol 1.9: the tyre wear lands per wheel by name");
+        d = parse("NULLCATY,rpm=5000,speedKmh=100", &ok);
+        check(ok && !d.ncyHave[NcxTok::InPit] && !d.ncyHave[NcxTok::Lap] && !d.ncyHave[NcxTok::TyreWearFL],
+              "protocol 1.9: a 1.8 line leaves them absent (unknown, never 0)");
+    }
+
     // ---- non-finite values never land (A5) ----
     // strtod happily reads "nan", "inf", "infinity" and overflows to inf;
     // a sender that prints a NaN property (SimHub does, as "NaN") would

@@ -354,6 +354,8 @@ private slots:
         c.hapticsSurface = { 0.4, 0.8, 1.0, 0.3, 110.0, 0.5 };
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Surface)].routes[0].part = haptics::Part::RL;
         c.hapticsWheels  = { 2.5, 0.5, 0.8, 1.5 };
+        QCOMPARE(c.hapticsWheels.freshOnReset, 1.0);   // the default: on
+        c.hapticsWheels.freshOnReset = 0.0;
         c.hapticsImpacts = { 700.0, 3000.0, 2.0 };
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Wheels)].routes[1].part = haptics::Part::Rear;
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Abs)].routes[0].part = haptics::Part::FR;
@@ -447,6 +449,7 @@ private slots:
         QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Surface)].routes[0].part == haptics::Part::RL);
         QCOMPARE(r.hapticsImpacts.fromMmS, 700.0); QCOMPARE(r.hapticsImpacts.fullMmS, 3000.0); QCOMPARE(r.hapticsImpacts.heaveG, 2.0);
         QCOMPARE(r.hapticsWheels.balance, 2.5); QCOMPARE(r.hapticsWheels.flat, 0.5); QCOMPARE(r.hapticsWheels.judder, 0.8); QCOMPARE(r.hapticsWheels.puncture, 1.5);
+        QCOMPARE(r.hapticsWheels.freshOnReset, 0.0);   // saved off, read back off (the default is on)
         QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Wheels)].routes[1].part == haptics::Part::Rear);
         QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Road)].routes[0].part == haptics::Part::RR);
         QCOMPARE(r.hapticsDriveline.clutch, 0.8); QCOMPARE(r.hapticsDriveline.clutchHz, 9.0);

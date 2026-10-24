@@ -47,6 +47,10 @@ struct NcxTok
         DeflatedFL, DeflatedFR, DeflatedRL, DeflatedRR,         // 1 the tyre is punctured (flat), 0 inflated
         // protocol 1.8
         SlipSpeedFL, SlipSpeedFR, SlipSpeedRL, SlipSpeedRR,     // the contact patch slipping over the road, m/s (sideways and along together)
+        // protocol 1.9
+        InPit,                                                  // 1 the car is in its pit box or garage, 0 it is not
+        Lap,                                                    // the current lap number (a restart takes it back)
+        TyreWearFL, TyreWearFR, TyreWearRL, TyreWearRR,         // tread worn, 0..1 (0 new, 1 worn out), where the sim has it
         TokenCount
     };
 };
@@ -83,6 +87,8 @@ inline const char* ncxTokenName(int t)
         "onGroundFL", "onGroundFR", "onGroundRL", "onGroundRR",
         "deflatedFL", "deflatedFR", "deflatedRL", "deflatedRR",
         "slipSpeedFL", "slipSpeedFR", "slipSpeedRL", "slipSpeedRR",
+        "inPit", "lap",
+        "tyreWearFL", "tyreWearFR", "tyreWearRL", "tyreWearRR",
     };
     return (t >= 0 && t < NcxTok::TokenCount) ? kNames[t] : "";
 }

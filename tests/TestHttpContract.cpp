@@ -451,6 +451,28 @@ int main()
               "GET /api/haptics/schema marks the settings that follow the car, per tile, the buzz order not among them");
     }
     {
+        // The Wheels tile's fresh tyres on pit/restart: a switch with its
+        // hover text, on by default, and the rig's (not the car's).
+        const QJsonArray fx = QJsonDocument::fromJson(QByteArray::fromStdString(get("/api/haptics/schema")))
+                                  .object().value("effects").toArray();
+        bool sw = false, on = false, rig = false;
+        for (const QJsonValue& v : fx)
+        {
+            const QJsonObject e = v.toObject();
+            if (e.value("key").toString() != "wheels") continue;
+            for (const QJsonValue& p : e.value("params").toArray())
+            {
+                const QJsonObject o = p.toObject();
+                if (o.value("key").toString() == "freshOnReset")
+                    sw = o.value("opts").toArray().size() == 2 && !o.value("help").toString().isEmpty();
+            }
+            on  = e.value("defaults").toObject().value("freshOnReset").toDouble() == 1.0;
+            rig = e.contains("carKeys") && !e.value("carKeys").toArray().contains(QJsonValue("freshOnReset"));
+        }
+        check(sw && on && rig,
+              "GET /api/haptics/schema: the Wheels tile's fresh tyres on pit/restart is a switch, on by default, the rig's");
+    }
+    {
         // ...and the ones a type of car (a starting point) sets, from the
         // shipped presets.json: the Lateral tile's slide size, nothing on
         // the Engine tile (the car's), never a car-owned key.
