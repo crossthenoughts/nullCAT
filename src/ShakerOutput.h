@@ -12,8 +12,10 @@
 // notification callback, which only flips atomics. open()/close()/
 // reopen() are main/web thread, serialised by m_mx; the RT side never
 // waits for them: close() drops the open flag first (pushes then skip
-// the rings), open() raises it last. checkHealth() is the status thread's
-// (through ShakerBank::info()).
+// the rings), then waits for a push already past it to finish (a push's
+// length) before the device or the DSP is touched; open() raises the
+// flag last. checkHealth() is the status thread's (through
+// ShakerBank::info()).
 //
 // Failure is contained: a device that cannot be opened, or that goes
 // away, leaves the sink offline (status says so, routes to shakers are
@@ -66,12 +68,22 @@ public:
     void push(const double* samples, int n)
     {
         if (!m_open.load(std::memory_order_acquire)) return;
-        const int own = m_channelsActual.load(std::memory_order_relaxed);
-        m_dsp.push(samples, own > 0 ? std::min(n, own) : n);
-        m_pushes.fetch_add(1, std::memory_order_relaxed);
+        // Counted in flight BEFORE the gate is looked at again: a closer
+        // that shuts the gate and then waits for the count to reach 0
+        // (closeLocked) cannot miss a push that got past it, so it never
+        // reconfigures the DSP under one (the count and the second look
+        // seq_cst, as the closer's store and wait). Never waits itself.
+        m_pushesInFlight.fetch_add(1, std::memory_order_seq_cst);
+        if (m_open.load(std::memory_order_seq_cst))
+        {
+            if (auto hook = m_pushHookForTest.load(std::memory_order_relaxed)) hook(m_pushHookArg);
+            const int own = m_channelsActual.load(std::memory_order_relaxed);
+            m_dsp.push(samples, own > 0 ? std::min(n, own) : n);
+            m_pushes.fetch_add(1, std::memory_order_relaxed);
+        }
+        m_pushesInFlight.fetch_sub(1, std::memory_order_release);
     }
     void setGain(int channel, double g) { m_dsp.setGain(channel, g); }
-    void setControlHz(double hz);
 
     // The card gone quiet: no audio callback for this long while open
     // means it is no longer pulling data (unplugged, or the backend's
@@ -110,6 +122,13 @@ public:
     // card gone quiet), and start them again. Held, the device's own stop
     // notification is ignored, as for our own close.
     void holdCallbacksForTest(bool hold);
+    // Tests only: called inside push(), past the gate and before the DSP
+    // (a push held there while the card is reopened). nullptr = none.
+    void setPushHookForTest(void (*hook)(void*), void* arg)
+    {
+        m_pushHookArg = arg;
+        m_pushHookForTest.store(hook, std::memory_order_release);
+    }
 
 private:
     struct Impl;
@@ -120,6 +139,9 @@ private:
     std::atomic<int>  m_channelsActual{0};
     std::atomic<int>  m_lost{0};                  // 0 fine, else a kLost* reason
     std::atomic<uint64_t> m_callbacks{0}, m_pushes{0};
+    std::atomic<int>  m_pushesInFlight{0};        // pushes past the gate and not yet out of the DSP
+    std::atomic<void (*)(void*)> m_pushHookForTest{nullptr};
+    void* m_pushHookArg = nullptr;
     mutable std::mutex m_mx;
     std::string m_deviceName, m_error;
     int    m_sampleRate = 48000;

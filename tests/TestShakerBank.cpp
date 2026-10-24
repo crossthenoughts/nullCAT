@@ -17,6 +17,9 @@
 //        the web thread brings it back and the tone plays again.
 //   SB-4 the shutdown's bounded close (runWithin): a call back in time is
 //        waited for; one that hangs is left at the limit.
+//   SB-5 a push already past the gate when the card is reopened (a card
+//        lost, Reopen on the dashboard): the reopen waits for it before it
+//        resets the DSP, so the ring is never reset under a push.
 //
 //   ctest -R ShakerBank
 // ============================================================
@@ -259,6 +262,47 @@ int main()
         check(!done && waitedMs < 400.0, "SB-4 runWithin: a call that hangs is left at the limit (false, not waited for)");
         std::this_thread::sleep_for(std::chrono::milliseconds(800));
         check(finished->load(), "SB-4 ...and the abandoned call still runs to its end on its own");
+    }
+
+    // ---- SB-5 a reopen waits for a push already past the gate ----
+    // The RT side pushes every half millisecond; one push is held inside
+    // (past the gate, before the DSP) for 150 ms while another thread
+    // reopens the card. The reopen must not reset the DSP until that push
+    // is out (it used to: the gate only stops pushes that have not begun).
+    {
+        struct Hold { std::atomic<int> state{0}; };   // 0 off, 1 armed, 2 held inside, 3 out
+        Hold hold;
+        haptics::ShakerOutput out;
+        check(out.open("null", 2, 2000.0), "SB-5 a null card opens");
+        out.setPushHookForTest([](void* a)
+        {
+            auto* h = static_cast<Hold*>(a);
+            int armed = 1;
+            if (h->state.compare_exchange_strong(armed, 2))
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(150));
+                h->state.store(3);
+            }
+        }, &hold);
+        std::atomic<bool> run{true};
+        std::thread rt([&]
+        {
+            const double z[2] = { 0.0, 0.0 };
+            while (run.load()) { out.push(z, 2); std::this_thread::sleep_for(std::chrono::microseconds(500)); }
+        });
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        hold.state.store(1);
+        while (hold.state.load() != 2) std::this_thread::yield();   // a push is held inside now
+        const bool reopened = out.reopen();
+        const bool outFirst = hold.state.load() == 3;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        run.store(false);
+        rt.join();
+        out.setPushHookForTest(nullptr, nullptr);
+        check(reopened, "SB-5 the card reopens with a push held inside");
+        check(outFirst, "SB-5 ...and the reopen waited for that push before it reset the DSP");
+        check(out.fill() >= 0 && out.fill() <= haptics::SHAKER_RING, "SB-5 ...so the ring is whole after");
+        out.close();
     }
 
     std::printf("\nTestShakerBank: %d passed, %d failed\n", g_pass, g_fail);

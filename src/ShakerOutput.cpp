@@ -44,6 +44,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <thread>
 #if defined(_WIN32)
 #undef CLSCTX_ALL   // miniaudio's own (23), the same value combaseapi.h defines
 #include <mmdeviceapi.h>
@@ -428,7 +429,12 @@ void ShakerOutput::close()
 
 void ShakerOutput::closeLocked()
 {
-    m_open.store(false, std::memory_order_release);   // the RT side's pushes skip the rings from here
+    m_open.store(false, std::memory_order_seq_cst);   // the RT side's pushes skip the rings from here...
+    // ...and one already past the gate finishes before anything below (or
+    // open() after it) touches the device or the DSP: a push's length,
+    // microseconds. The RT side never waits for this.
+    while (m_pushesInFlight.load(std::memory_order_seq_cst) != 0)
+        std::this_thread::yield();
     if (m_impl->deviceOk)
     {
         m_closing.store(true, std::memory_order_release);   // the stop we ask for is not a loss
@@ -464,12 +470,6 @@ bool ShakerOutput::reopen()
     }
     if (!asked) return false;   // never opened: nothing to open again
     return open(dev, ch, hz, rate);
-}
-
-void ShakerOutput::setControlHz(double hz)
-{
-    if (!isOpen()) return;
-    m_dsp.configure(hz, m_sampleRate, m_dsp.channels());
 }
 
 } // namespace haptics

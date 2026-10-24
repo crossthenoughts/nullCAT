@@ -98,6 +98,10 @@ middle number carries breaking changes and the last carries fixes.
   cycle. With the loop stopped, an E-STOP still disables drives held on
   their stops within one frame (2 ms). The hardware E-STOP is unchanged and
   remains the safety stop.
+- Shakers: reopening a sound card while the rig runs (after it went away,
+  or with Reopen on the dashboard) now waits for the control loop to finish
+  the sample it is handing over, so the card never restarts with its buffer
+  half reset.
 - The dashboard's **Download logs** no longer puts your web password in
   the file: it is blanked, as the support bundle scripts do.
 - Automobilista 2: the Super Trophy Truck now finds its car table entry.
