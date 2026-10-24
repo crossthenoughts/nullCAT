@@ -118,8 +118,10 @@ by itself.
 | Le Mans Ultimate | wheel speeds, tyre loads, suspension travel, the tyre's slide over the road (nullCAT turns it into a slip angle), the surface under each tyre, punctures, tyre wear, the rain and how wet the track is | Longitudinal slip, Lateral slip, Road, Kerb, Surface, Wheels |
 | Automobilista 2 | wheel speeds, suspension velocities, tyre slip speed (nullCAT turns it into a slip angle), the surface under each tyre (snow and ice included), the rain, which tyres are on the ground and which are punctured | Longitudinal slip, Lateral slip, Road, Kerb, Surface, Wheels; a tyre in the air goes quiet |
 
-Every game also sends the body's vertical acceleration, pitch and roll
-from SimHub's own motion data, for the Road tile's chassis model, and the
+Every game also sends the body's motion from SimHub's own motion data
+(its accelerations up, along and across, its pitch and roll, and the rates
+it turns at), for the Road tile's chassis model and nullCAT's belt and
+haptic effects, and the
 lap number and the pit flag, so the Wheels tile can bring fresh tyres on a
 restart or a jump back to the pits. Automobilista 2, Le Mans Ultimate and
 the Assetto Corsa family send the game's own pit flag from the start

@@ -271,21 +271,30 @@ int main()
         check(ok && std::strlen(d.car) == NCY_STR_LEN - 1, "an over-long name is truncated to the store, never overrun");
     }
 
-    // ---- protocol 1.9: the pit flag, the lap and the tyre wear, by name,
-    // at slots 75..80 (appended: nothing before them moved); a line
-    // without them leaves them absent ----
+    // ---- protocol 1.9: the pit flag, the lap, the tyre wear and the
+    // body's motion, by name, at slots 75..85 (appended: nothing before
+    // them moved); a line without them leaves them absent ----
     {
         check(NcxTok::SlipSpeedRR == 74 && NcxTok::InPit == 75 && NcxTok::Lap == 76 && NcxTok::TyreWearFL == 77
-              && NcxTok::TyreWearRR == 80 && NcxTok::TokenCount == 81,
-              "protocol 1.9: inPit, lap and tyreWearFL..RR take slots 75..80, after slipSpeedRR");
+              && NcxTok::TyreWearRR == 80 && NcxTok::AccSurge == 81 && NcxTok::AccSway == 82 && NcxTok::YawRate == 83
+              && NcxTok::PitchRate == 84 && NcxTok::RollRate == 85 && NcxTok::TokenCount == 86,
+              "protocol 1.9: inPit, lap, tyreWearFL..RR, accSurge, accSway and the three rates take slots 75..85, after slipSpeedRR");
         check(std::string(ncxTokenName(NcxTok::InPit)) == "inPit" && std::string(ncxTokenName(NcxTok::Lap)) == "lap"
-              && std::string(ncxTokenName(NcxTok::TyreWearFL)) == "tyreWearFL" && std::string(ncxTokenName(NcxTok::TyreWearRR)) == "tyreWearRR",
+              && std::string(ncxTokenName(NcxTok::TyreWearFL)) == "tyreWearFL" && std::string(ncxTokenName(NcxTok::TyreWearRR)) == "tyreWearRR"
+              && std::string(ncxTokenName(NcxTok::AccSurge)) == "accSurge" && std::string(ncxTokenName(NcxTok::AccSway)) == "accSway"
+              && std::string(ncxTokenName(NcxTok::YawRate)) == "yawRate" && std::string(ncxTokenName(NcxTok::PitchRate)) == "pitchRate"
+              && std::string(ncxTokenName(NcxTok::RollRate)) == "rollRate",
               "protocol 1.9: the names are the wire's");
         bool ok; TelemetryData d = parse("NULLCATY,inPit=1,lap=12,tyreWearFL=0.25,tyreWearFR=0.3,tyreWearRL=0.35,tyreWearRR=0.4", &ok);
         check(ok && d.ncyHave[NcxTok::InPit] && d.ncy[NcxTok::InPit] == 1.0 && d.ncyHave[NcxTok::Lap] && d.ncy[NcxTok::Lap] == 12.0,
               "protocol 1.9: inPit and lap land by name");
         check(d.ncyHave[NcxTok::TyreWearFL] && d.ncyHave[NcxTok::TyreWearRR] && std::fabs(d.ncy[NcxTok::TyreWearRR] - 0.4) < 1e-12,
               "protocol 1.9: the tyre wear lands per wheel by name");
+        d = parse("NULLCATY,accSurge=-9.5,accSway=4.25,yawRate=12.5,pitchRate=-1.5,rollRate=2", &ok);
+        check(ok && d.ncyHave[NcxTok::AccSurge] && d.ncy[NcxTok::AccSurge] == -9.5 && d.ncyHave[NcxTok::AccSway] && d.ncy[NcxTok::AccSway] == 4.25
+              && d.ncyHave[NcxTok::YawRate] && d.ncy[NcxTok::YawRate] == 12.5 && d.ncyHave[NcxTok::PitchRate] && d.ncy[NcxTok::PitchRate] == -1.5
+              && d.ncyHave[NcxTok::RollRate] && d.ncy[NcxTok::RollRate] == 2.0,
+              "protocol 1.9: the body's accelerations and rates land by name, signs kept");
         d = parse("NULLCATY,rpm=5000,speedKmh=100", &ok);
         check(ok && !d.ncyHave[NcxTok::InPit] && !d.ncyHave[NcxTok::Lap] && !d.ncyHave[NcxTok::TyreWearFL],
               "protocol 1.9: a 1.8 line leaves them absent (unknown, never 0)");

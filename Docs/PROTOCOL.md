@@ -153,6 +153,8 @@ NULLCATY,rpm=11480,speedKmh=212.4,gear=5,throttlePct=100,brakePct=0,slipRatioRL=
 | 75 | `inPit` | **1** the car is in its pit box or garage, **0** it is not. Rising after 5 s out, within a second of a jump of the road speed to a standstill or of the stream coming back after a gap (the pause menu), the Wheels effect takes it for a return to the pits: fresh tyres. Driving in does not count. Send it only where the sim really has it: a steady 0 reads as "on track" *(since 1.9)* |
 | 76 | `lap` | the current lap number. Going back, and staying back for three quarters of a second, is a restart: fresh tyres. 0 or less is no lap *(since 1.9)* |
 | 77..80 | `tyreWearFL` .. `tyreWearRR` | tread worn per tyre, **0..1** (0 new, 1 worn out), where the sim has it. One falling by more than 0.2 and staying there for three quarters of a second is new tyres at a stop: fresh tyres *(since 1.9)* |
+| 81, 82 | `accSurge`, `accSway` | the body's acceleration along and across the car, **m/s²**, as the sim's own physics gives it (the same as `accHeave`). For the belt and haptic effects; the motion cue stays the motion software's *(since 1.9)* |
+| 83..85 | `yawRate`, `pitchRate`, `rollRate` | the rates the body turns at, **deg/s**, as the sim gives them *(since 1.9)* |
 
 Per-wheel groups are always sent as all four or not at all: a group with
 a wheel missing is treated as absent. A sender that only has per-axle
@@ -214,8 +216,11 @@ and can come from the same tool.
   to a standstill that holds. The reference SimHub plugin sends the lap for
   every game; the pit flag from Automobilista 2 and the Assetto Corsa
   family from the start, and from other games once SimHub has shown it
-  set; the tyre wear from Automobilista 2. No change to parsing; every 1.8
-  sender remains fully compatible.
+  set; the tyre wear from Automobilista 2 and Le Mans Ultimate. Also
+  added `accSurge`, `accSway`, `yawRate`, `pitchRate` and `rollRate`, the
+  rest of the body's motion as the sim gives it, which the reference plugin
+  sends from SimHub's motion data for every game that has it. No change to
+  parsing; every 1.8 sender remains fully compatible.
 - **1.8** (nullCAT 0.9.8): added `slipSpeedFL` .. `slipSpeedRR`, the
   tyre's sliding speed, which the lateral slip effect turns into a slip
   angle where the sim has none. The reference SimHub plugin sends it from

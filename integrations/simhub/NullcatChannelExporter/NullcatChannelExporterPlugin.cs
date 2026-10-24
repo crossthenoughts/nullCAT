@@ -449,6 +449,7 @@ namespace NullcatChannelExporter
                      .Append((vals[w] * _groupScale[g]).ToString("0.####", CultureInfo.InvariantCulture));
             }
             AppendChassis(y, d);
+            AppendBodyMotion(y, d);
             if (IsAcFamily(family))
             {
                 AppendAcContact(y, d);
@@ -494,6 +495,27 @@ namespace NullcatChannelExporter
         // they mean the same thing in every game). Heave is already in m/s^2
         // there (read as G, a parked car shook at 0.7 g and a lap averaged
         // 2.6 g; as m/s^2, 0.07 and 0.27 g): sent as it is.
+        // Protocol 1.9: the rest of the body's motion as SimHub gives it, each
+        // only where the game has it (SimHub leaves them empty otherwise):
+        // the accelerations along and across the car (the same unit as
+        // accHeave) and the rates the car turns at in yaw, pitch and roll.
+        // For nullCAT's belt and haptics; the motion cue stays SimHub's.
+        private static void AppendBodyMotion(StringBuilder y, StatusDataBase d)
+        {
+            AppendIfKnown(y, "accSurge",  () => d.AccelerationSurge);
+            AppendIfKnown(y, "accSway",   () => d.AccelerationSway);
+            AppendIfKnown(y, "yawRate",   () => d.YawChangeVelocity);
+            AppendIfKnown(y, "pitchRate", () => d.PitchChangeVelocity);
+            AppendIfKnown(y, "rollRate",  () => d.RollChangeVelocity);
+        }
+        private static void AppendIfKnown(StringBuilder y, string token, Func<double?> read)
+        {
+            double? v;
+            try { v = read(); } catch { return; }
+            if (!v.HasValue || double.IsNaN(v.Value) || double.IsInfinity(v.Value)) return;
+            y.Append(',').Append(token).Append('=').Append(v.Value.ToString("0.####", CultureInfo.InvariantCulture));
+        }
+
         private static void AppendChassis(StringBuilder y, StatusDataBase d)
         {
             double? heave = null;

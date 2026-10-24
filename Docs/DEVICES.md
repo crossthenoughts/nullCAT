@@ -71,7 +71,7 @@ same port as motion telemetry:
 
 - **SimHub:** install the nullCAT Channel Exporter plugin from
   `integrations/simhub/` in the repository. It sends the channels it can
-  read from the running game, out of the protocol's 81 (protocol 1.9;
+  read from the running game, out of the protocol's 86 (protocol 1.9;
   the list grows as titles are added, see `Docs/PROTOCOL.md`). The
   per-wheel ones are built in for Assetto Corsa, Competizione, EVO, Rally,
   Automobilista 2 and Le Mans Ultimate; other games need a property bound

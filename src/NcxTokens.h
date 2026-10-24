@@ -51,6 +51,8 @@ struct NcxTok
         InPit,                                                  // 1 the car is in its pit box or garage, 0 it is not
         Lap,                                                    // the current lap number (a restart takes it back)
         TyreWearFL, TyreWearFR, TyreWearRL, TyreWearRR,         // tread worn, 0..1 (0 new, 1 worn out), where the sim has it
+        AccSurge, AccSway,                                      // body acceleration along and across the car, m/s^2, as the sim gives it
+        YawRate, PitchRate, RollRate,                           // body rotation rates, deg/s, as the sim gives them
         TokenCount
     };
 };
@@ -89,6 +91,8 @@ inline const char* ncxTokenName(int t)
         "slipSpeedFL", "slipSpeedFR", "slipSpeedRL", "slipSpeedRR",
         "inPit", "lap",
         "tyreWearFL", "tyreWearFR", "tyreWearRL", "tyreWearRR",
+        "accSurge", "accSway",
+        "yawRate", "pitchRate", "rollRate",
     };
     return (t >= 0 && t < NcxTok::TokenCount) ? kNames[t] : "";
 }
