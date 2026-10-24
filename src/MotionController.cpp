@@ -349,7 +349,12 @@ bool MotionController::enqueueCommand(MotionCommand cmd)
     default:
         break;
     }
-    if (!m_cmdQueue.push(cmd))
+    bool pushed;
+    {
+        std::lock_guard<std::mutex> lk(m_cmdPushMx);   // one producer at a time (SpscQueue's contract)
+        pushed = m_cmdQueue.push(cmd);
+    }
+    if (!pushed)
     {
         LOG_WARNING(strf("MotionController: Command queue full -- command type %d dropped.",
             static_cast<int>(cmd.type)));

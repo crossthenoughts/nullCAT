@@ -335,8 +335,13 @@ public:
     // The UI thread MUST use enqueueCommand() instead of calling startHoming()
     // or startPark() directly. Commands are executed by the RT thread at the
     // top of process(), eliminating data races on m_axisState[]/m_runtime[].
-    // Returns false (and logs a warning) if the queue is full.
+    // Returns false (and logs a warning) if the queue is full. Any number of
+    // threads may call it at once (the web server's pool, the GPIO panel,
+    // the Qt window): they take turns on m_cmdPushMx. Never the RT thread.
     bool enqueueCommand(MotionCommand cmd);
+    // Test seam: the RT drain's own pop, for the multi-producer stress test
+    // (TestCommandQueue), which plays the RT thread's part.
+    bool popCommandForTest(MotionCommand& out) { return m_cmdQueue.pop(out); }
 
     // ---- Commissioning test mode (UI thread entry; RT services it) ----
     // The plan is copied under a lock and picked up at the top of the next
@@ -620,9 +625,13 @@ private:
     bool             m_homingUnparkDone = false;
     bool             m_prevEstopState = false;  // estop edge detection in process()
 
-    // Commands from UI thread, drained at top of process() on RT thread.
-    // 32 slots is more than sufficient -- typical burst is 1 command per user action.
+    // Commands from the UI threads, drained at top of process() on RT thread.
+    // 32 slots (31 usable) is more than sufficient -- typical burst is 1
+    // command per user action. The queue takes ONE producer: the threads
+    // that enqueue (web pool, GPIO panel, Qt) serialise on m_cmdPushMx, so
+    // to the queue they are one; the RT thread's pop() never takes it.
     SpscQueue<MotionCommand, 32> m_cmdQueue;
+    std::mutex                   m_cmdPushMx;
 
     // ---- Commissioning test mode state ----
     // Plan handoff: UI writes m_pendingTestPlan under the lock and sets the

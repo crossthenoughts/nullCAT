@@ -237,6 +237,15 @@ target_include_directories(TestHapticsIntegration PRIVATE ${SRC})
 target_link_libraries(TestHapticsIntegration PRIVATE nullcat_motion_core Threads::Threads)
 add_test(NAME TestHapticsIntegration COMMAND TestHapticsIntegration)
 
+# enqueueCommand from several threads at once (the web server's pool, the
+# GPIO panel) against one consumer: every accepted command exactly once,
+# nothing else. CI also runs it under ThreadSanitizer.
+add_executable(TestCommandQueue
+    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestCommandQueue.cpp)
+target_include_directories(TestCommandQueue PRIVATE ${SRC})
+target_link_libraries(TestCommandQueue PRIVATE nullcat_motion_core Threads::Threads)
+add_test(NAME TestCommandQueue COMMAND TestCommandQueue)
+
 # Pins the telemetry UDP wire-format semantics: any parser rewrite (e.g. a
 # zero-allocation fast path) must pass it unchanged.
 # Run with: ctest -R TelemetryParse

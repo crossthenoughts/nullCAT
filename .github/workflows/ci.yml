@@ -62,6 +62,21 @@ jobs:
             -o fuzz_telemetry
           ./fuzz_telemetry -max_total_time=60 -max_len=2048 -print_final_stats=1 tests/fuzz/corpus
 
+  # Commands reach the RT thread's queue from several threads at once (the
+  # web server's pool, the GPIO panel, the Qt window); ThreadSanitizer
+  # watches the handoff.
+  tsan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Command queue under ThreadSanitizer
+        run: |
+          clang++ -std=c++17 -g -O1 -fsanitize=thread -pthread -Isrc 
+            tests/TestCommandQueue.cpp src/MotionController.cpp src/A6Drive.cpp 
+            src/CommissioningMode.cpp src/Logging.cpp -o tsan_command_queue
+          TSAN_OPTIONS=halt_on_error=1 ./tsan_command_queue 20000
+
   # The web UI has no build step, so nothing parses its JS before a browser
   # does; a single syntax error kills the whole dashboard (issue #1).
   web:

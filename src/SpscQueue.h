@@ -9,7 +9,11 @@
 // RT control loop thread (consumer) without mutexes.
 //
 // Constraints:
-//   - Exactly ONE producer thread, ONE consumer thread.
+//   - Exactly ONE producer thread, ONE consumer thread. Several threads
+//     that push must take turns under a lock of their own (as
+//     MotionController::enqueueCommand does): two pushes at once can
+//     write one slot twice, or store a stale write index that makes the
+//     consumer replay old slots.
 //   - T must be trivially copyable.
 //   - N must be a power of 2 (compile-time asserted).
 //   - push() returns false if full (command dropped + caller logs).

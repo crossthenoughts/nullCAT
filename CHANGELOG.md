@@ -86,6 +86,11 @@ middle number carries breaking changes and the last carries fixes.
   **Slew cap** to 20000 on the belt in Setup to change it.
 
 ### Fixed
+- Commands given at the same moment from more than one place (two browser
+  tabs, the dashboard and the Pi's buttons, the Windows window and the
+  dashboard) could be lost, or make the rig carry out old commands again
+  (park, unpark, homing, belt tension). They now take turns, so each one is
+  carried out exactly once.
 - The dashboard's **Download logs** no longer puts your web password in
   the file: it is blanked, as the support bundle scripts do.
 - Automobilista 2: the Super Trophy Truck now finds its car table entry.

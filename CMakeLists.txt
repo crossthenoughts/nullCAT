@@ -530,6 +530,9 @@ add_motion_test(TestTorqueEnableBytes tests/TestTorqueEnableBytes.cpp)
 # overlay gating (ONLINE only) + clamp, live-apply, stale stream, mute,
 # e-stop, and the channel laws with a hand-built NcxValues.
 add_motion_test(TestHapticsIntegration tests/TestHapticsIntegration.cpp)
+# enqueueCommand from several threads at once (web pool, GPIO, Qt) against
+# one consumer: every accepted command exactly once, nothing else.
+add_motion_test(TestCommandQueue tests/TestCommandQueue.cpp)
 # The shaker DSP chain: header-only, deterministic, no device.
 add_executable(TestShakerDsp tests/TestShakerDsp.cpp)
 target_include_directories(TestShakerDsp PRIVATE ${TEST_INCLUDE_DIRS})
