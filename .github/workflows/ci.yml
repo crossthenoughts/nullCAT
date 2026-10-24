@@ -122,8 +122,9 @@ jobs:
       - name: Configure
         run: cmake -S pi -B build -DNULLCAT_FULL_TESTS=ON -DCMAKE_PREFIX_PATH=$HOME/libgpiod2
 
-      # -j capped at core count: bare -j is unlimited, and ~30 test targets
-      # each recompiling the heavy sources OOM-killed the 16GB runner twice.
+      # -j capped at core count: bare -j is unlimited, and when ~30 test
+      # targets each recompiled the heavy sources (before the shared test
+      # cores) it OOM-killed the 16GB runner twice.
       - name: Build
         run: cmake --build build -j$(nproc)
 

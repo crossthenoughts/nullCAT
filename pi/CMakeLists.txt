@@ -179,6 +179,20 @@ add_custom_command(TARGET provision POST_BUILD
     COMMENT "Staging drive_profiles/ next to provision"
 )
 
+# The motion core for the small tests below, compiled ONCE as a static
+# library (each compiled its own copy of up to four of these files).
+# Static, so a test takes only the objects it uses. No SOEM, no Qt: built
+# WITHOUT SOEM_AVAILABLE like the tests themselves. nullcat-pi, provision
+# and TestHttpContract keep their own objects: they build with
+# SOEM_AVAILABLE, and the two shipped binaries are left exactly as they were.
+add_library(nullcat_motion_core STATIC
+    ${SRC}/A6Drive.cpp
+    ${SRC}/MotionController.cpp
+    ${SRC}/CommissioningMode.cpp
+    ${SRC}/Logging.cpp)
+target_include_directories(nullcat_motion_core PUBLIC ${SRC})
+target_link_libraries(nullcat_motion_core PUBLIC Threads::Threads)
+
 # Regression test: the deinit "seat" mode of HomingSequence must be purely ADDITIVE to
 # normal homing (byte-identical search, diverging only at the hardstop) and must establish
 # NO home reference. Driven through MockA6Drive -- no SOEM, no NIC, no Qt -- so it builds
@@ -186,11 +200,9 @@ add_custom_command(TARGET provision POST_BUILD
 # Run with: ctest -R HomingSeat   (or run the binary directly).
 enable_testing()
 add_executable(TestHomingSeat
-    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestHomingSeat.cpp
-    ${SRC}/A6Drive.cpp
-    ${SRC}/Logging.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestHomingSeat.cpp)
 target_include_directories(TestHomingSeat PRIVATE ${SRC})
-target_link_libraries(TestHomingSeat PRIVATE Threads::Threads)
+target_link_libraries(TestHomingSeat PRIVATE nullcat_motion_core Threads::Threads)
 add_test(NAME TestHomingSeat COMMAND TestHomingSeat)
 
 # Shared status model unit test: proves the canonical
@@ -212,25 +224,17 @@ add_test(NAME TestStatusModel COMMAND TestStatusModel)
 # the belt-blend refactor and any future edit cannot silently regress them.
 # Run with: ctest -R TorquePath
 add_executable(TestTorquePath
-    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestTorquePath.cpp
-    ${SRC}/MotionController.cpp
-    ${SRC}/CommissioningMode.cpp
-    ${SRC}/A6Drive.cpp
-    ${SRC}/Logging.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestTorquePath.cpp)
 target_include_directories(TestTorquePath PRIVATE ${SRC})
-target_link_libraries(TestTorquePath PRIVATE Threads::Threads)
+target_link_libraries(TestTorquePath PRIVATE nullcat_motion_core Threads::Threads)
 add_test(NAME TestTorquePath COMMAND TestTorquePath)
 
 # The ring around the haptics layer (overlay gating + clamp, live-apply,
 # stale stream, mute, e-stop, laws). Same shape as TestTorquePath.
 add_executable(TestHapticsIntegration
-    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestHapticsIntegration.cpp
-    ${SRC}/MotionController.cpp
-    ${SRC}/CommissioningMode.cpp
-    ${SRC}/A6Drive.cpp
-    ${SRC}/Logging.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestHapticsIntegration.cpp)
 target_include_directories(TestHapticsIntegration PRIVATE ${SRC})
-target_link_libraries(TestHapticsIntegration PRIVATE Threads::Threads)
+target_link_libraries(TestHapticsIntegration PRIVATE nullcat_motion_core Threads::Threads)
 add_test(NAME TestHapticsIntegration COMMAND TestHapticsIntegration)
 
 # Pins the telemetry UDP wire-format semantics: any parser rewrite (e.g. a
@@ -238,10 +242,9 @@ add_test(NAME TestHapticsIntegration COMMAND TestHapticsIntegration)
 # Run with: ctest -R TelemetryParse
 add_executable(TestTelemetryParse
     ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestTelemetryParse.cpp
-    ${SRC}/TelemetryInput.cpp
-    ${SRC}/Logging.cpp)
+    ${SRC}/TelemetryInput.cpp)
 target_include_directories(TestTelemetryParse PRIVATE ${SRC})
-target_link_libraries(TestTelemetryParse PRIVATE Threads::Threads)
+target_link_libraries(TestTelemetryParse PRIVATE nullcat_motion_core Threads::Threads)
 add_test(NAME TestTelemetryParse COMMAND TestTelemetryParse)
 
 # The shaker DSP chain (control rate -> 48 kHz, servo, filters, clip),
@@ -267,10 +270,9 @@ set_tests_properties(TestShakerBank PROPERTIES TIMEOUT 120)
 # lifetime. Logger only.
 # Run with: ctest -R LogRouting
 add_executable(TestLogRouting
-    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestLogRouting.cpp
-    ${SRC}/Logging.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestLogRouting.cpp)
 target_include_directories(TestLogRouting PRIVATE ${SRC})
-target_link_libraries(TestLogRouting PRIVATE Threads::Threads)
+target_link_libraries(TestLogRouting PRIVATE nullcat_motion_core Threads::Threads)
 add_test(NAME TestLogRouting COMMAND TestLogRouting)
 
 # Pins the WKC monitor semantics the recovery stack depends on:
@@ -280,10 +282,9 @@ add_test(NAME TestLogRouting COMMAND TestLogRouting)
 # needs Logging.cpp for the RT_LOG ring, nothing else.
 # Run with: ctest -R WkcMonitor
 add_executable(TestWkcMonitor
-    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestWkcMonitor.cpp
-    ${SRC}/Logging.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestWkcMonitor.cpp)
 target_include_directories(TestWkcMonitor PRIVATE ${SRC})
-target_link_libraries(TestWkcMonitor PRIVATE Threads::Threads)
+target_link_libraries(TestWkcMonitor PRIVATE nullcat_motion_core Threads::Threads)
 add_test(NAME TestWkcMonitor COMMAND TestWkcMonitor)
 
 # Pins Docs/COMMAND_CONTRACT.md at the engine layer: every enqueued
@@ -292,13 +293,9 @@ add_test(NAME TestWkcMonitor COMMAND TestWkcMonitor)
 # enqueueCommand() exactly as the WebServer does -- never handler calls.
 # Run with: ctest -R CommandContract
 add_executable(TestCommandContract
-    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestCommandContract.cpp
-    ${SRC}/MotionController.cpp
-    ${SRC}/CommissioningMode.cpp
-    ${SRC}/A6Drive.cpp
-    ${SRC}/Logging.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestCommandContract.cpp)
 target_include_directories(TestCommandContract PRIVATE ${SRC})
-target_link_libraries(TestCommandContract PRIVATE Threads::Threads)
+target_link_libraries(TestCommandContract PRIVATE nullcat_motion_core Threads::Threads)
 add_test(NAME TestCommandContract COMMAND TestCommandContract)
 
 # Pins Docs/COMMAND_CONTRACT.md at the HTTP layer: real POSTs against the real
@@ -365,21 +362,30 @@ if(NULLCAT_FULL_TESTS)
         ${SRC}/ShakerOutput.cpp
         ${SRC}/Logging.cpp
         ${SRC}/DriveFaultMonitor.cpp)
+    # FULLTEST_CORE compiled ONCE as a static library every logic test links
+    # (each compiled its own copy: about 23 copies of the same 12 files).
+    # Static, so a test takes only the objects it uses. Same includes and Qt
+    # usage as the tests themselves; SOEM_AVAILABLE deliberately omitted --
+    # these run without hardware (mirrors the PC build's TEST_COMPILE_DEFS).
+    # Its own objects, not those of nullcat_motion_core: these compile with
+    # Qt's usage requirements, as the logic tests always have; those
+    # without, as the small tests always have.
+    add_library(nullcat_logic_core STATIC ${FULLTEST_CORE})
+    target_include_directories(nullcat_logic_core PUBLIC ${SRC})
+    set_target_properties(nullcat_logic_core PROPERTIES AUTOMOC ON)
+    target_link_libraries(nullcat_logic_core PUBLIC Qt6::Core Threads::Threads ${NULLCAT_AUDIO_LIBS})
     macro(add_logic_test NAME)
         add_executable(${NAME}
-            ${CMAKE_CURRENT_SOURCE_DIR}/../tests/${NAME}.cpp
-            ${FULLTEST_CORE})
+            ${CMAKE_CURRENT_SOURCE_DIR}/../tests/${NAME}.cpp)
         target_include_directories(${NAME} PRIVATE ${SRC})
-        # SOEM_AVAILABLE deliberately omitted -- these run without hardware
-        # (mirrors the PC build's TEST_COMPILE_DEFS).
         set_target_properties(${NAME} PROPERTIES AUTOMOC ON)
-        target_link_libraries(${NAME} PRIVATE Qt6::Core Qt6::Test Threads::Threads ${NULLCAT_AUDIO_LIBS})
+        target_link_libraries(${NAME} PRIVATE nullcat_logic_core Qt6::Core Qt6::Test Threads::Threads ${NULLCAT_AUDIO_LIBS})
         add_test(NAME ${NAME} COMMAND ${NAME})
         set_tests_properties(${NAME} PROPERTIES TIMEOUT 120)
     endmacro()
     foreach(T TestHomingSequence TestMotionController TestFaultRecovery
               TestDriveFaultMonitor TestTrajectory TestConfigValidation
-              TestConfigTwoFile TestRTLogging TestLogControls TestTrackingFilter
+              TestConfigTwoFile TestRTLogging TestLogControls
               TestAxisKind TestFaultCodes TestCommissioning
               TestCommissioningFlow TestB222O TestDeviceForce
               TestTorqueHoming TestDeviceState TestGearRatio TestHaptics
@@ -394,8 +400,14 @@ if(NULLCAT_FULL_TESTS)
     # TestTrackingFilter's Regression() case requires bit-identical FP: with
     # fused multiply-add the exact-ZOH comparison drifts and the zero-tolerance
     # check flakes (see the REQUIRED note at the top of the test). GCC/Clang
-    # flag; this tree never sees MSVC.
+    # flag; this tree never sees MSVC. It tests the header-only command
+    # conditioner and needs none of the core, so it links none: nothing in
+    # it is compiled without the flag (the shared core is).
+    add_executable(TestTrackingFilter ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestTrackingFilter.cpp)
+    target_include_directories(TestTrackingFilter PRIVATE ${SRC})
     target_compile_options(TestTrackingFilter PRIVATE -ffp-contract=off)
+    add_test(NAME TestTrackingFilter COMMAND TestTrackingFilter)
+    set_tests_properties(TestTrackingFilter PROPERTIES TIMEOUT 120)
 endif()
 
 # Test programs never take the RT loop's priority or its core (PlatformRT,

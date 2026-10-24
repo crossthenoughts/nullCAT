@@ -417,6 +417,24 @@ if(WIN32)
     endif()
 endif()
 
+# The test core, compiled ONCE as a static library every Qt test program
+# links except the nine bus tests (those link nullcat_bus_test_core, below).
+# Each test used to compile its own copy of TEST_CORE_SOURCES (about
+# 25 copies of the same 12 files, most of a clean build). Static, so a test
+# takes only the objects it uses. Same includes, definitions and options as
+# the tests themselves: a test that needs a different definition or option
+# for one of these files must compile its own copy instead (none does today).
+# Not shared with the nullCAT executable: it builds with SOEM_AVAILABLE
+# (A6Drive.cpp then carries the real SDO calls), HAS_QT_CONFIG and
+# NULLCAT_VERSION, so it keeps its own objects. The plain C++ tests below
+# (TestTelemetryParse, TestShakerBank, TestLogRouting) keep their own one or
+# two files too, so they stay free of Qt.
+add_library(nullcat_test_core STATIC ${TEST_CORE_SOURCES})
+target_include_directories(nullcat_test_core PUBLIC ${TEST_INCLUDE_DIRS})
+target_compile_definitions(nullcat_test_core PUBLIC ${TEST_COMPILE_DEFS})
+target_compile_options(nullcat_test_core PRIVATE /W3 /MP /Zc:__cplusplus)
+target_link_libraries(nullcat_test_core PUBLIC Qt${QT_VERSION_MAJOR}::Core ws2_32 winmm)
+
 # Helper macro to add a test executable
 macro(add_motion_test TARGET_NAME SOURCE_FILE)
     if(QT_VERSION_MAJOR EQUAL 6)
@@ -425,11 +443,11 @@ macro(add_motion_test TARGET_NAME SOURCE_FILE)
         find_package(Qt5 COMPONENTS Test QUIET)
     endif()
 
-    add_executable(${TARGET_NAME} ${SOURCE_FILE} ${TEST_CORE_SOURCES})
+    add_executable(${TARGET_NAME} ${SOURCE_FILE})
     target_include_directories(${TARGET_NAME} PRIVATE ${TEST_INCLUDE_DIRS})
     target_compile_definitions(${TARGET_NAME} PRIVATE ${TEST_COMPILE_DEFS})
     target_compile_options(${TARGET_NAME} PRIVATE /W3 /MP /Zc:__cplusplus)
-    target_link_libraries(${TARGET_NAME} PRIVATE ${TEST_QT_LIBS} ws2_32 winmm)
+    target_link_libraries(${TARGET_NAME} PRIVATE nullcat_test_core ${TEST_QT_LIBS} ws2_32 winmm)
     # The haptics tests keep many Layer instances as locals of one main():
     # give the test binaries a 16 MB stack so that never becomes the limit.
     target_link_options(${TARGET_NAME} PRIVATE /STACK:16777216)
@@ -559,13 +577,51 @@ if(WIN32 AND SOEM_LIBRARY)
         find_package(Qt5 COMPONENTS Test QUIET)
     endif()
 
-    set(INIT_TEST_SOURCES
-        tests/TestInitSequence.cpp
+    # The bus test core, compiled ONCE for the nine bus tests below (each
+    # compiled its own copy of up to ten of these). Built WITH SOEM_AVAILABLE,
+    # unlike nullcat_test_core, so A6Drive.cpp, SdoWorker.cpp and
+    # ControlLoop.cpp carry their SOEM paths: the two libraries never share
+    # objects. Static, so a test takes only the objects it uses.
+    add_library(nullcat_bus_test_core STATIC
         src/EtherCATMaster.cpp
         src/SdoWorker.cpp
         src/A6Drive.cpp
         src/Config.cpp
         src/Logging.cpp
+        src/MotionController.cpp
+        src/CommissioningMode.cpp
+        src/DriveFaultMonitor.cpp
+        src/ControlLoop.cpp
+        src/TelemetryInput.cpp
+    )
+    target_include_directories(nullcat_bus_test_core PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${SOEM_INCLUDE_DIR}
+        ${SOEM_INCLUDE_DIR}/soem
+        ${SOEM_INCLUDE_DIR}/osal
+        ${SOEM_INCLUDE_DIR}/oshw
+    )
+    target_compile_definitions(nullcat_bus_test_core PUBLIC
+        _CRT_SECURE_NO_WARNINGS
+        _WINSOCK_DEPRECATED_NO_WARNINGS
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+        SOEM_AVAILABLE
+    )
+    target_compile_options(nullcat_bus_test_core PRIVATE /W3 /MP /Zc:__cplusplus)
+    target_link_libraries(nullcat_bus_test_core PUBLIC
+        Qt${QT_VERSION_MAJOR}::Core
+        ${SOEM_LIBRARY}
+        ws2_32
+        winmm
+        avrt
+        Iphlpapi
+        "${NPCAP_SDK}/Lib/x64/wpcap.lib"
+        "${NPCAP_SDK}/Lib/x64/Packet.lib"
+    )
+
+    set(INIT_TEST_SOURCES
+        tests/TestInitSequence.cpp
     )
 
     add_executable(TestInitSequence ${INIT_TEST_SOURCES})
@@ -585,6 +641,7 @@ if(WIN32 AND SOEM_LIBRARY)
     )
     target_compile_options(TestInitSequence PRIVATE /W3 /MP /Zc:__cplusplus)
     target_link_libraries(TestInitSequence PRIVATE
+        nullcat_bus_test_core
         ${TEST_QT_LIBS}
         ${SOEM_LIBRARY}
         ws2_32
@@ -606,11 +663,6 @@ if(WIN32 AND SOEM_LIBRARY)
     # ---- B222 Phase 3: TestPumpLifecycle - dispatch thread lifecycle (sim mode) ----
     set(PUMP_TEST_SOURCES
         tests/TestPumpLifecycle.cpp
-        src/EtherCATMaster.cpp
-        src/SdoWorker.cpp
-        src/A6Drive.cpp
-        src/Config.cpp
-        src/Logging.cpp
     )
 
     add_executable(TestPumpLifecycle ${PUMP_TEST_SOURCES})
@@ -630,6 +682,7 @@ if(WIN32 AND SOEM_LIBRARY)
     )
     target_compile_options(TestPumpLifecycle PRIVATE /W3 /MP /Zc:__cplusplus)
     target_link_libraries(TestPumpLifecycle PRIVATE
+        nullcat_bus_test_core
         ${TEST_QT_LIBS}
         ${SOEM_LIBRARY}
         ws2_32
@@ -651,11 +704,6 @@ if(WIN32 AND SOEM_LIBRARY)
     # ---- B222E: TestB222E - threading audit fixes C1/C3 (sim mode) ----
     set(B222E_TEST_SOURCES
         tests/TestB222E.cpp
-        src/EtherCATMaster.cpp
-        src/SdoWorker.cpp
-        src/A6Drive.cpp
-        src/Config.cpp
-        src/Logging.cpp
     )
 
     add_executable(TestB222E ${B222E_TEST_SOURCES})
@@ -675,6 +723,7 @@ if(WIN32 AND SOEM_LIBRARY)
     )
     target_compile_options(TestB222E PRIVATE /W3 /MP /Zc:__cplusplus)
     target_link_libraries(TestB222E PRIVATE
+        nullcat_bus_test_core
         ${TEST_QT_LIBS}
         ${SOEM_LIBRARY}
         ws2_32
@@ -696,14 +745,6 @@ if(WIN32 AND SOEM_LIBRARY)
     # ---- B222F: TestB222F - command sync, WKC math, limits, diag logs (sim mode) ----
     set(B222F_TEST_SOURCES
         tests/TestB222F.cpp
-        src/EtherCATMaster.cpp
-        src/SdoWorker.cpp
-        src/A6Drive.cpp
-        src/Config.cpp
-        src/Logging.cpp
-        src/MotionController.cpp
-        src/CommissioningMode.cpp
-        src/DriveFaultMonitor.cpp
     )
 
     add_executable(TestB222F ${B222F_TEST_SOURCES})
@@ -723,6 +764,7 @@ if(WIN32 AND SOEM_LIBRARY)
     )
     target_compile_options(TestB222F PRIVATE /W3 /MP /Zc:__cplusplus)
     target_link_libraries(TestB222F PRIVATE
+        nullcat_bus_test_core
         ${TEST_QT_LIBS}
         ${SOEM_LIBRARY}
         ws2_32
@@ -744,14 +786,6 @@ if(WIN32 AND SOEM_LIBRARY)
     # ---- B222G: TestB222G - Npcap drain regression, Logger flush, drainElist cap ----
     set(B222G_TEST_SOURCES
         tests/TestB222G.cpp
-        src/EtherCATMaster.cpp
-        src/SdoWorker.cpp
-        src/A6Drive.cpp
-        src/Config.cpp
-        src/Logging.cpp
-        src/MotionController.cpp
-        src/CommissioningMode.cpp
-        src/DriveFaultMonitor.cpp
     )
 
     add_executable(TestB222G ${B222G_TEST_SOURCES})
@@ -771,6 +805,7 @@ if(WIN32 AND SOEM_LIBRARY)
     )
     target_compile_options(TestB222G PRIVATE /W3 /MP /Zc:__cplusplus)
     target_link_libraries(TestB222G PRIVATE
+        nullcat_bus_test_core
         ${TEST_QT_LIBS}
         ${SOEM_LIBRARY}
         ws2_32
@@ -792,16 +827,6 @@ if(WIN32 AND SOEM_LIBRARY)
     # ---- B222H: TestB222H - ALStatusCode pre-check, mbx_rl DIAG, ecx_err2string, RTT tracking ----
     set(B222H_TEST_SOURCES
         tests/TestB222H.cpp
-        src/EtherCATMaster.cpp
-        src/SdoWorker.cpp
-        src/A6Drive.cpp
-        src/Config.cpp
-        src/Logging.cpp
-        src/MotionController.cpp
-        src/CommissioningMode.cpp
-        src/DriveFaultMonitor.cpp
-        src/ControlLoop.cpp
-        src/TelemetryInput.cpp
     )
 
     add_executable(TestB222H ${B222H_TEST_SOURCES})
@@ -821,6 +846,7 @@ if(WIN32 AND SOEM_LIBRARY)
     )
     target_compile_options(TestB222H PRIVATE /W3 /MP /Zc:__cplusplus)
     target_link_libraries(TestB222H PRIVATE
+        nullcat_bus_test_core
         ${TEST_QT_LIBS}
         ${SOEM_LIBRARY}
         ws2_32
@@ -843,16 +869,6 @@ if(WIN32 AND SOEM_LIBRARY)
     #              A4 cyclic mailbox, A5 recovery thread ----
     set(B222I_TEST_SOURCES
         tests/TestB222I.cpp
-        src/EtherCATMaster.cpp
-        src/SdoWorker.cpp
-        src/A6Drive.cpp
-        src/Config.cpp
-        src/Logging.cpp
-        src/MotionController.cpp
-        src/CommissioningMode.cpp
-        src/DriveFaultMonitor.cpp
-        src/ControlLoop.cpp
-        src/TelemetryInput.cpp
     )
 
     add_executable(TestB222I ${B222I_TEST_SOURCES})
@@ -872,6 +888,7 @@ if(WIN32 AND SOEM_LIBRARY)
     )
     target_compile_options(TestB222I PRIVATE /W3 /MP /Zc:__cplusplus)
     target_link_libraries(TestB222I PRIVATE
+        nullcat_bus_test_core
         ${TEST_QT_LIBS}
         ${SOEM_LIBRARY}
         ws2_32
@@ -895,16 +912,6 @@ if(WIN32 AND SOEM_LIBRARY)
     #              wkc=0 SDO warnings in hardware logs) ----
     set(B222J_TEST_SOURCES
         tests/TestB222J.cpp
-        src/EtherCATMaster.cpp
-        src/SdoWorker.cpp
-        src/A6Drive.cpp
-        src/Config.cpp
-        src/Logging.cpp
-        src/MotionController.cpp
-        src/CommissioningMode.cpp
-        src/DriveFaultMonitor.cpp
-        src/ControlLoop.cpp
-        src/TelemetryInput.cpp
     )
 
     add_executable(TestB222J ${B222J_TEST_SOURCES})
@@ -924,6 +931,7 @@ if(WIN32 AND SOEM_LIBRARY)
     )
     target_compile_options(TestB222J PRIVATE /W3 /MP /Zc:__cplusplus)
     target_link_libraries(TestB222J PRIVATE
+        nullcat_bus_test_core
         ${TEST_QT_LIBS}
         ${SOEM_LIBRARY}
         ws2_32
@@ -946,16 +954,6 @@ if(WIN32 AND SOEM_LIBRARY)
     #              re-init mailbox handler reset, fault-history state gating ----
     set(B222K_TEST_SOURCES
         tests/TestB222K.cpp
-        src/EtherCATMaster.cpp
-        src/SdoWorker.cpp
-        src/A6Drive.cpp
-        src/Config.cpp
-        src/Logging.cpp
-        src/MotionController.cpp
-        src/CommissioningMode.cpp
-        src/DriveFaultMonitor.cpp
-        src/ControlLoop.cpp
-        src/TelemetryInput.cpp
     )
 
     add_executable(TestB222K ${B222K_TEST_SOURCES})
@@ -975,6 +973,7 @@ if(WIN32 AND SOEM_LIBRARY)
     )
     target_compile_options(TestB222K PRIVATE /W3 /MP /Zc:__cplusplus)
     target_link_libraries(TestB222K PRIVATE
+        nullcat_bus_test_core
         ${TEST_QT_LIBS}
         ${SOEM_LIBRARY}
         ws2_32
@@ -1010,15 +1009,14 @@ endif()
 add_executable(TestB222M
     tests/TestB222M.cpp
     src/ForegroundKeeper.cpp
-    src/Logging.cpp
 )
 target_include_directories(TestB222M PRIVATE ${TEST_INCLUDE_DIRS})
 target_compile_definitions(TestB222M PRIVATE ${TEST_COMPILE_DEFS})
 target_compile_options(TestB222M PRIVATE /W3 /MP /Zc:__cplusplus)
 if(QT_VERSION_MAJOR EQUAL 6)
-    target_link_libraries(TestB222M PRIVATE Qt6::Core Qt6::Widgets Qt6::Test ws2_32 winmm)
+    target_link_libraries(TestB222M PRIVATE nullcat_test_core Qt6::Core Qt6::Widgets Qt6::Test ws2_32 winmm)
 else()
-    target_link_libraries(TestB222M PRIVATE Qt5::Core Qt5::Widgets Qt5::Test ws2_32 winmm)
+    target_link_libraries(TestB222M PRIVATE nullcat_test_core Qt5::Core Qt5::Widgets Qt5::Test ws2_32 winmm)
 endif()
 add_test(NAME TestB222M COMMAND TestB222M -v2)
 if(WIN32 AND TEST_PATH_ENV)
@@ -1033,21 +1031,17 @@ endif()
 #  tests/TestConfigTwoFile.cpp - the two-file config contract's single home - #  and its legacy-migration case died with the migration path.)
 
 # ---- B222O: TestB222O -- canonical save/load round-trip + scaling collapse.
-#              Pulls Config + A6Drive + Logging. Qt::Core only.
+#              Pulls Config + A6Drive + Logging (nullcat_test_core). Qt::Core only.
 add_executable(TestB222O
     tests/TestB222O.cpp
-    src/Config.cpp
-    src/CarCache.cpp
-    src/A6Drive.cpp
-    src/Logging.cpp
 )
 target_include_directories(TestB222O PRIVATE ${TEST_INCLUDE_DIRS})
 target_compile_definitions(TestB222O PRIVATE ${TEST_COMPILE_DEFS})
 target_compile_options(TestB222O PRIVATE /W3 /MP /Zc:__cplusplus)
 if(QT_VERSION_MAJOR EQUAL 6)
-    target_link_libraries(TestB222O PRIVATE Qt6::Core Qt6::Test ws2_32 winmm)
+    target_link_libraries(TestB222O PRIVATE nullcat_test_core Qt6::Core Qt6::Test ws2_32 winmm)
 else()
-    target_link_libraries(TestB222O PRIVATE Qt5::Core Qt5::Test ws2_32 winmm)
+    target_link_libraries(TestB222O PRIVATE nullcat_test_core Qt5::Core Qt5::Test ws2_32 winmm)
 endif()
 add_test(NAME TestB222O COMMAND TestB222O -v2)
 if(WIN32 AND TEST_PATH_ENV)
