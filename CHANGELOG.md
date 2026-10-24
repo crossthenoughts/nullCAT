@@ -13,6 +13,9 @@ middle number carries breaking changes and the last carries fixes.
   also the service's and the updater's journals) into one file to attach
   when you ask for help, with any web password blanked in the copy. See
   "If something goes wrong" in the setup guides.
+- The log names the nullCAT version on its first line, on Windows and the
+  Pi, even when the log is set to warnings only, and the support bundle
+  reports it.
 
 ### Changed
 - The Engine tile's Test with no game running now climbs from idle to the

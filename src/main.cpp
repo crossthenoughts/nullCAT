@@ -129,6 +129,9 @@ int main(int argc, char* argv[])
     // LOG_*/RT_LOG_*; diagEnabled gates logDiag() entirely. Both default to
     // their permissive setting (debug, true), so a config-less startup logs
     // everything.
+    // The version goes in before the configured log level applies, so even a
+    // log set to warnings only says which build wrote it.
+    LOG_INFO("nullCAT " NULLCAT_VERSION " starting...");
     Logger::instance().setMinLevel(Logger::parseLevel(cfg.logMinLevel));
     Logger::instance().setDiagEnabled(cfg.diagEnabled);
     // What the config load clamped or found out of range (the files are
@@ -136,7 +139,6 @@ int main(int argc, char* argv[])
     for (const std::string& w : config.loadWarnings()) LOG_WARNING("Config: " + w);
 
     LOG_INFO("==========================================================");
-    LOG_INFO("nullCAT starting...");
     LOG_INFO(strf("Config: host.json + rig.json in %s",
                   exeDir.toStdString().c_str()));
     LOG_INFO(strf("NIC: %s", cfg.nicName.empty() ? "(not set)" : cfg.nicName.c_str()));

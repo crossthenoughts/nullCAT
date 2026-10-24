@@ -137,6 +137,9 @@ int main(int argc, char* argv[])
             : logPath + "_soem.log";
         Logger::instance().initDiag(diagPath);
     }
+    // The version goes in before the configured log level applies, so even a
+    // log set to warnings only says which build wrote it.
+    LOG_INFO("NullCAT-Pi headless controller " NULLCAT_VERSION " starting...");
     Logger::instance().setMinLevel(Logger::parseLevel(cfg.logMinLevel));
     Logger::instance().setDiagEnabled(cfg.diagEnabled);
     // What the config load clamped or found out of range (the files are
@@ -144,7 +147,6 @@ int main(int argc, char* argv[])
     for (const std::string& w : config.loadWarnings()) LOG_WARNING("Config: " + w);
 
     LOG_INFO("==========================================================");
-    LOG_INFO("NullCAT-Pi headless controller starting...");
     LOG_INFO(strf("Config: %s", cfgPath.c_str()));
     LOG_INFO(strf("NIC: %s", cfg.nicName.empty() ? "(not set)" : cfg.nicName.c_str()));
     if (cfg.simulationMode)
