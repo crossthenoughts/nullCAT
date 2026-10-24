@@ -91,13 +91,11 @@ middle number carries breaking changes and the last carries fixes.
   dashboard) could be lost, or make the rig carry out old commands again
   (park, unpark, homing, belt tension). They now take turns, so each one is
   carried out exactly once.
-- The software E-STOP and Reset Faults (dashboard, the Pi's buttons, the
-  Windows window) now reach the drives with the next frame nullCAT sends,
-  from the part that runs the EtherCAT bus. Before, they wrote to the
-  drives from the side, where the control loop could overwrite them for a
-  cycle. With the loop stopped, an E-STOP still disables drives held on
-  their stops within one frame (2 ms). The hardware E-STOP is unchanged and
-  remains the safety stop.
+- The software E-STOP (dashboard, the Pi's buttons, the Windows window)
+  now always reaches the drives on the next frame; before, the control
+  loop could undo it for one cycle. With the loop stopped, it still
+  disables drives held on their stops within 2 ms. The hardware E-STOP is
+  unchanged and remains the safety stop.
 - Shakers: reopening a sound card while the rig runs (after it went away,
   or with Reopen on the dashboard) now waits for the control loop to finish
   the sample it is handing over, so the card never restarts with its buffer

@@ -122,14 +122,19 @@ public:
     // A software stop: every drive's operation disabled, within a cycle
     // while the loop runs, within one 2 ms pump frame while it does not
     // (when the drives can be held enabled on their stops). Keeping them
-    // disabled while the loop runs is the motion e-stop's job
-    // (MotionController::setEmergencyStop): an e-stop asks both.
+    // disabled in the loop's main cycle is the motion e-stop's job
+    // (MotionController::setEmergencyStop), so an e-stop asks both, the
+    // motion e-stop first (that cycle's process() then disables too). The
+    // deinit seat and park sub-loops do not read the motion e-stop: there
+    // the stop is one frame.
     void requestStopAll()       { m_stopRequest.request(); }
-    // A fault reset on every drive: the sequence itself runs on the RT
-    // loop's fault monitor, so with the loop stopped it waits for it.
+    // A fault reset on every drive: started on the RT loop's next frame
+    // (its fault monitor runs the sequence); with the loop stopped it
+    // waits for the loop.
     void requestFaultResetAll() { m_faultResetRequest.request(); }
-    // Tests: a stop asked and not yet carried out.
-    bool stopRequestPending() const { return m_stopRequest.pending(); }
+    // Tests: a stop / fault reset asked and not yet carried out.
+    bool stopRequestPending() const       { return m_stopRequest.pending(); }
+    bool faultResetRequestPending() const { return m_faultResetRequest.pending(); }
 
     ECState getMasterState()  const { return static_cast<ECState>(m_masterState.load(std::memory_order_acquire)); }
     bool    isOperational()   const { return static_cast<ECState>(m_masterState.load(std::memory_order_acquire)) == ECState::Op; }
@@ -272,8 +277,13 @@ private:
     // The bus owner only (sendReceive, the pump, the OP bridge, shutdown).
     void disableAllDrives();
     void resetAllFaults();
-    // ...before each frame it sends: a pending stop or fault reset carried out.
+    // ...before each frame it sends: a pending stop carried out (the pump,
+    // the OP bridge), and on the RT loop's frames (sendReceive) a pending
+    // fault reset too: its sequence runs on the loop's fault monitor, and
+    // starting it from the pump would only log off the RT path between two
+    // 2 ms frames.
     void serviceRequests();
+    void serviceStopRequest();
     BusRequest m_stopRequest;
     BusRequest m_faultResetRequest;
 

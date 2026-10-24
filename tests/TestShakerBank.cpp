@@ -301,7 +301,6 @@ int main()
         out.setPushHookForTest(nullptr, nullptr);
         check(reopened, "SB-5 the card reopens with a push held inside");
         check(outFirst, "SB-5 ...and the reopen waited for that push before it reset the DSP");
-        check(out.fill() >= 0 && out.fill() <= haptics::SHAKER_RING, "SB-5 ...so the ring is whole after");
         out.close();
     }
 

@@ -157,19 +157,38 @@ private Q_SLOTS:
     // sendReceive(), the RT loop's one way to the bus, carries it out.
     void test_PL5_stopRequestCarriedOutByTheOwner()
     {
+        // A fake process image for each drive (sim drives have none), so
+        // what the owner writes can be read back; declared first, so it
+        // outlives the master that points into it.
+        struct Slot { uint16_t cw = 0x000F; int8_t mode = 8; int32_t target = 0; uint16_t sw = 0x0237; int8_t shown = 8; int32_t actual = 0; };
+        Slot image[2];
         EtherCATMaster master;
         master.setSimulationMode(true);
         master.applyConfig(makeTwoDriveConfig());
         QVERIFY(master.initializeAndEnterOp("sim"));
+        QCOMPARE(master.getDriveCount(), 2);
+        for (int i = 0; i < 2; ++i)
+            master.getDrive(i)->setPDOPointers(&image[i].cw, &image[i].mode, &image[i].target,
+                                               &image[i].sw, &image[i].shown, &image[i].actual);
         QVERIFY(!master.stopRequestPending());
-        std::thread asker([&] { master.requestStopAll(); });
+        std::thread asker([&] { master.requestStopAll(); master.requestFaultResetAll(); });
         asker.join();
-        QVERIFY2(master.stopRequestPending(), "the asking thread carried nothing out itself");
+        QVERIFY2(master.stopRequestPending() && master.faultResetRequestPending(), "the asking thread carried nothing out itself");
+        QVERIFY2(image[0].cw == 0x000F && image[1].cw == 0x000F, "...and wrote no controlword");
+        QVERIFY2(!master.getDrive(0)->isFaultResetPending(), "...nor started a fault reset");
         master.sendReceive();
-        QVERIFY2(!master.stopRequestPending(), "the owner's next frame carried it out");
+        QVERIFY2(!master.stopRequestPending() && !master.faultResetRequestPending(), "the owner's next frame took both");
+        QVERIFY2(image[0].cw == 0x0003 && image[1].cw == 0x0003, "...disabled every drive (A6Drive::disableOperation)");
+        QVERIFY2(master.getDrive(0)->isFaultResetPending() && master.getDrive(1)->isFaultResetPending(),
+                 "...and started the fault reset on every drive");
+        image[0].cw = image[1].cw = 0x000F;
+        master.sendReceive();
+        QVERIFY2(image[0].cw == 0x000F && image[1].cw == 0x000F, "a stop is carried out once");
         master.requestStopAll();
         master.shutdown();
         QVERIFY2(!master.stopRequestPending(), "shutdown disables every drive itself: nothing left over");
+        for (int i = 0; i < 2; ++i)
+            if (A6Drive* d = master.getDrive(i)) d->setPDOPointers(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
     }
 };
 

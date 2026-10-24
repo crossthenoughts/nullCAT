@@ -345,7 +345,9 @@ int main(int argc, char* argv[])
         {
             // A software stop: the bus owner (the RT loop, or the pump
             // while the loop is stopped) disables every drive before its
-            // next frame. The hardware e-stop stays the safety layer.
+            // next frame. The motion e-stop first, so the cycle that
+            // carries it out disables in process() too. The hardware
+            // e-stop stays the safety layer.
             motion.setEmergencyStop(true);
             master.requestStopAll();
         };

@@ -1082,8 +1082,11 @@ void MainWindow::onEmergencyStop()
 {
     LOG_WARNING("GUI: EMERGENCY STOP button pressed!");
 
+    // The motion e-stop first (the cycle that carries out the stop then
+    // disables in process() too); the bus owner disables every drive before
+    // its next frame.
     if (m_motion) m_motion->setEmergencyStop(true);
-    if (m_master) m_master->requestStopAll();   // the bus owner disables every drive before its next frame
+    if (m_master) m_master->requestStopAll();
 
     m_btnEmergency->setText("⚡ E-STOP ACTIVE - click to clear");
     m_btnEmergency->setStyleSheet(kEstopActiveStyle);

@@ -671,6 +671,12 @@ InitResult EtherCATMaster::initialize(const std::string& nicName)
         shutdown();
     }
 
+    // A new session starts with nothing asked of the drives (the drives
+    // are not enabled before the loop runs; a request asked during the
+    // init is still carried out by the bridge after it).
+    m_stopRequest.clear();
+    m_faultResetRequest.clear();
+
     // Restart dispatch thread if shutdown() stopped it
     if (!m_pumpDispatchThread.joinable())
     {
@@ -1904,7 +1910,7 @@ void EtherCATMaster::runOPBridge(ecx_contextt* ctx, int64_t ticksPer2Ms)
     for (int i = 0; i < 10; ++i)
     {
         PlatformRT::advancePeriod(bNext, ticksPer2Ms);
-        serviceRequests();   // the bridge owns the bus for its frames
+        serviceStopRequest();   // the bridge owns the bus for its frames (a fault reset waits for the loop)
         uint32_t ex = 0;
         safeSendReceive(ctx, &ex);
         if (ex != 0) break;
@@ -2622,7 +2628,7 @@ void EtherCATMaster::startPumpBody()
             int64_t periodCounts = ticksPer2Ms;
             if (dcLock.enabled()) periodCounts = dcLock.update(pumpPhase);
             PlatformRT::advancePeriod(pNext, periodCounts);
-            serviceRequests();   // the pump owns the bus while the loop is stopped
+            serviceStopRequest();   // the pump owns the bus while the loop is stopped (a fault reset waits for the loop)
             uint32_t ex = 0;
             safeSendReceive(ctx, &ex);
             if (ex != 0)
@@ -3236,11 +3242,6 @@ void EtherCATMaster::shutdown()
         LOG_WARNING("EtherCATMaster: Not initialized, nothing to shut down.");
         return;
     }
-    // What other threads asked of the drives is moot from here: shutdown
-    // disables every drive itself below (or, simulated, there are none).
-    m_stopRequest.clear();
-    m_faultResetRequest.clear();
-
     // Stop the SDO worker FIRST - join it so no worker transfer is
     // in flight (or can start) before any thread tears down / ecx_close frees m_ctx.
     // Mirrors the recovery-thread-first ordering below; prevents use-after-free.
@@ -3265,6 +3266,14 @@ void EtherCATMaster::shutdown()
         m_pumpDispatchThread.join();
 
     stopPump();  // catch any pump thread launched by dispatch just before join
+
+    // Shutdown owns the bus from here (the pump joined for good, the loop
+    // stopped): it disables every drive itself below (or, simulated, there
+    // are none), so what other threads asked is moot. Not before: until
+    // the pump stopped, an E-STOP asked meanwhile was the pump's to carry
+    // out (the drives can be held enabled on their stops then).
+    m_stopRequest.clear();
+    m_faultResetRequest.clear();
 
     // Reset init-time flags that must NOT survive shutdown. Without this,
     // a re-init (Init → Shutdown → Init again) sees stale state and skips
@@ -3415,8 +3424,12 @@ A6Drive* EtherCATMaster::getDrive(int index)
 void EtherCATMaster::disableAllDrives() { for (auto& d : m_drives) d->disableOperation(); }
 void EtherCATMaster::serviceRequests()
 {
-    if (m_stopRequest.take())       disableAllDrives();
+    serviceStopRequest();
     if (m_faultResetRequest.take()) resetAllFaults();
+}
+void EtherCATMaster::serviceStopRequest()
+{
+    if (m_stopRequest.take()) disableAllDrives();
 }
 void EtherCATMaster::resetAllFaults() { for (auto& d : m_drives) d->startFaultReset(); }
 

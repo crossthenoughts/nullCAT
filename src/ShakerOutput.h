@@ -76,7 +76,7 @@ public:
         m_pushesInFlight.fetch_add(1, std::memory_order_seq_cst);
         if (m_open.load(std::memory_order_seq_cst))
         {
-            if (auto hook = m_pushHookForTest.load(std::memory_order_relaxed)) hook(m_pushHookArg);
+            if (auto hook = m_pushHookForTest.load(std::memory_order_acquire)) hook(m_pushHookArg);
             const int own = m_channelsActual.load(std::memory_order_relaxed);
             m_dsp.push(samples, own > 0 ? std::min(n, own) : n);
             m_pushes.fetch_add(1, std::memory_order_relaxed);

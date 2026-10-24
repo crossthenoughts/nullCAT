@@ -1481,10 +1481,12 @@ bool WebServer::start()
         postCmd("/api/estop", [this, okResp, errResp](const httplib::Request&, httplib::Response& res)
         {
             if (!m_motion || !m_master) { errResp(res, "Components not ready."); return; }
+            // The motion e-stop first: the cycle that carries out the stop
+            // below then disables in process() too. The bus owner disables
+            // every drive before its next frame (the RT loop, or the pump
+            // while the loop is stopped). The hardware e-stop stays the
+            // safety layer.
             m_motion->setEmergencyStop(true);
-            // The bus owner disables every drive before its next frame (the
-            // RT loop, or the pump while the loop is stopped). The hardware
-            // e-stop stays the safety layer.
             m_master->requestStopAll();
             okResp(res);
         });
