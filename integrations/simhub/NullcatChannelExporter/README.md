@@ -138,6 +138,29 @@ rolling (nothing below 5 km/h). The combined slip magnitude still goes
 along (scaled so that about 6 on the game's own scale, a clear slide, is
 100) and is what Lateral slip uses for a sim without slip angles.
 
+## Optional: Assetto Corsa accelerations at the physics rate
+
+The Assetto Corsa family (AC, Competizione, EVO and Rally) runs its
+physics at about 333 steps a second, while SimHub passes its values on
+about 60 times a second. Set `"kunosDirect": "on"` in the settings file
+and the plugin reads the car's accelerations (along, across and up)
+straight from the game's own shared memory on every physics step and
+sends them on a short line of their own, for nullCAT's belt and Impacts.
+
+It reads the same telemetry page SimHub reads, for reading only: nothing
+is written and no other program is touched.
+
+Before it sends anything, the plugin matches the game's values against
+SimHub's while you drive (about 10 s above 20 km/h), so they arrive in
+the same units and directions as SimHub's and nothing on the rig needs
+changing. Until they match, and whenever they stop matching, SimHub's
+values go as before.
+
+To compare the two while driving, bind the SimHub action
+**ToggleKunosDirect** to a button under **Controls and events**. The
+property `NullcatChannelExporter.KunosDirect` shows what it is doing:
+off, matching, or live with the rate and the match it found.
+
 ## Optional: binding per-wheel channels yourself
 
 For a game the plugin does not know, or to override a built-in group,

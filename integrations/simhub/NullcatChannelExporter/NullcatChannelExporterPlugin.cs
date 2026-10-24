@@ -16,6 +16,11 @@
 //
 //   NULLCATY,game=..,car=..,carId=..               (once a second)
 //
+//   NULLCATY,accSurge=..,accSway=..,accHeave=..    (optional, the Assetto
+//            Corsa family: the accelerations from the game's shared memory
+//            on every physics step, see KunosDirect.cs; the line above then
+//            leaves them out)
+//
 // That is the whole job. No shaping, no state: nullCAT owns the tyre
 // model and maps channels onto effects. The only game knowledge here is
 // WHICH raw fields each sim exposes per wheel (the built-in presets), so
@@ -64,6 +69,9 @@ namespace NullcatChannelExporter
 
         private UdpClient _udp;
         private IPEndPoint _target;
+        private readonly object _sendLock = new object();   // the fast line sends from its own thread
+        private KunosDirect _kunos;
+        private string _kunosGame;    // the game the Kunos direct match was made for
         private string _skidProp, _lockupProp, _roadProp, _curbsProp;
 
         // Per-wheel groups, wheel order FL FR RL RR (the protocol's).
@@ -202,6 +210,7 @@ namespace NullcatChannelExporter
             var host = "127.0.0.1";
             var port = 4444;
             var settingsNote = "no NullcatChannelExporter.json found, defaults";
+            var kunosOn = false;
             for (var g = 0; g < Groups.Length; g++) { _fileProps[g] = new string[4]; _groupProps[g] = new string[4]; }
             try
             {
@@ -229,6 +238,8 @@ namespace NullcatChannelExporter
                     _lockupProp = ExtractString(text, "lockupProp");
                     _roadProp   = ExtractString(text, "roadProp");
                     _curbsProp  = ExtractString(text, "curbsProp");
+                    var kd = ExtractString(text, "kunosDirect");
+                    kunosOn = kd != null && (kd.Trim().Equals("on", StringComparison.OrdinalIgnoreCase) || kd.Trim().Equals("true", StringComparison.OrdinalIgnoreCase));
                     for (var g = 0; g < Groups.Length; g++)
                     {
                         for (var w = 0; w < 4; w++)
@@ -257,6 +268,19 @@ namespace NullcatChannelExporter
             try { SimHub.Logging.Current.Info("nullCAT Channel Exporter: sending to " + _targetText + " (" + settingsNote + ")"); } catch { }
             try { pluginManager.AddProperty("Target", GetType(), _targetText); } catch { }
             try { pluginManager.AddProperty("Game", GetType(), ""); } catch { }
+
+            // The Assetto Corsa family's accelerations from the game's shared
+            // memory (KunosDirect.cs): from the settings file, and flipped
+            // while driving by the ToggleKunosDirect action (bind it to a
+            // button under Controls and events) to compare it with SimHub's.
+            _kunos = new KunosDirect(kunosOn, Send, msg => { try { SimHub.Logging.Current.Info(msg); } catch { } });
+            try { pluginManager.AddProperty("KunosDirect", GetType(), _kunos.Status()); } catch { }
+            try
+            {
+                pluginManager.AddAction("ToggleKunosDirect", GetType(),
+                    (pm, a) => { var k = _kunos; if (k != null) k.Enabled = !k.Enabled; }, (pm, a) => { });
+            }
+            catch { }
         }
         private string _targetText = "";
 
@@ -397,6 +421,15 @@ namespace NullcatChannelExporter
             // fallback off.
             var family = Norm(data.GameName);
             if (family != _pitGame) { _pitGame = family; _pitWorks = false; }
+            var kunos = _kunos;   // End may clear the field meanwhile
+            if (kunos != null)
+            {
+                kunos.SetGame(IsAcFamily(family), family != _kunosGame);
+                _kunosGame = family;
+                double? surge = null, sway = null, heaveAcc = null;
+                try { surge = d.AccelerationSurge; sway = d.AccelerationSway; heaveAcc = d.AccelerationHeave; } catch { }
+                kunos.Observe(surge, sway, heaveAcc, d.SpeedKmh);
+            }
             double inPit = 0;
             try { inPit = Convert.ToDouble(d.IsInPit, CultureInfo.InvariantCulture) > 0 ? 1 : 0; } catch { inPit = 0; }
             var pitKnown = false;
@@ -448,8 +481,13 @@ namespace NullcatChannelExporter
                     y.Append(',').Append(Groups[g]).Append(Wheels[w]).Append('=')
                      .Append((vals[w] * _groupScale[g]).ToString("0.####", CultureInfo.InvariantCulture));
             }
-            AppendChassis(y, d);
-            AppendBodyMotion(y, d);
+            // What the fast line carries is left out here (one source per
+            // channel: two would alternate on the rig).
+            var fastSurge = kunos != null && kunos.Carries(0);
+            var fastSway  = kunos != null && kunos.Carries(1);
+            var fastHeave = kunos != null && kunos.Carries(2);
+            AppendChassis(y, d, !fastHeave);
+            AppendBodyMotion(y, d, !fastSurge, !fastSway);
             if (IsAcFamily(family))
             {
                 AppendAcContact(y, d);
@@ -464,6 +502,7 @@ namespace NullcatChannelExporter
             else if (family == "lmu")
                 AppendLmu(y, pluginManager);
             Send(y.ToString());
+            if (kunos != null) kunos.MainLineSent();
 
             // Identity once a second: which game and car the channels
             // describe (free text; commas and '=' would break the line).
@@ -479,13 +518,24 @@ namespace NullcatChannelExporter
                 var carId = Clean(d.CarId);
                 if (game.Length > 0 || car.Length > 0)
                     Send("NULLCATY,game=" + game + ",car=" + car + ",carId=" + carId);
+                if (kunos != null)
+                {
+                    kunos.Tick();
+                    try { pluginManager.SetPropertyValue("KunosDirect", GetType(), kunos.Status()); } catch { }
+                }
             }
         }
 
         public void End(PluginManager pluginManager)
         {
-            _udp?.Close();
-            _udp = null;
+            var kunos = _kunos;
+            _kunos = null;
+            kunos?.Dispose();
+            lock (_sendLock)
+            {
+                _udp?.Close();
+                _udp = null;
+            }
         }
 
         // ---- protocol 1.5: the body and the ground --------------------------
@@ -500,10 +550,10 @@ namespace NullcatChannelExporter
         // the accelerations along and across the car (the same unit as
         // accHeave) and the rates the car turns at in yaw, pitch and roll.
         // For nullCAT's belt and haptics; the motion cue stays SimHub's.
-        private static void AppendBodyMotion(StringBuilder y, StatusDataBase d)
+        private static void AppendBodyMotion(StringBuilder y, StatusDataBase d, bool surge, bool sway)
         {
-            AppendIfKnown(y, "accSurge",  () => d.AccelerationSurge);
-            AppendIfKnown(y, "accSway",   () => d.AccelerationSway);
+            if (surge) AppendIfKnown(y, "accSurge",  () => d.AccelerationSurge);
+            if (sway)  AppendIfKnown(y, "accSway",   () => d.AccelerationSway);
             AppendIfKnown(y, "yawRate",   () => d.YawChangeVelocity);
             AppendIfKnown(y, "pitchRate", () => d.PitchChangeVelocity);
             AppendIfKnown(y, "rollRate",  () => d.RollChangeVelocity);
@@ -516,7 +566,7 @@ namespace NullcatChannelExporter
             y.Append(',').Append(token).Append('=').Append(v.Value.ToString("0.####", CultureInfo.InvariantCulture));
         }
 
-        private static void AppendChassis(StringBuilder y, StatusDataBase d)
+        private static void AppendChassis(StringBuilder y, StatusDataBase d, bool sendHeave)
         {
             double? heave = null;
             try { heave = d.AccelerationHeave; } catch { heave = null; }
@@ -524,8 +574,8 @@ namespace NullcatChannelExporter
             double pitch, roll;
             try { pitch = d.OrientationPitch; roll = d.OrientationRoll; } catch { return; }
             if (double.IsNaN(pitch) || double.IsNaN(roll)) return;
-            y.Append(",accHeave=").Append(heave.Value.ToString("0.###", CultureInfo.InvariantCulture))
-             .Append(",pitchDeg=").Append(pitch.ToString("0.####", CultureInfo.InvariantCulture))
+            if (sendHeave) y.Append(",accHeave=").Append(heave.Value.ToString("0.###", CultureInfo.InvariantCulture));
+            y.Append(",pitchDeg=").Append(pitch.ToString("0.####", CultureInfo.InvariantCulture))
              .Append(",rollDeg=").Append(roll.ToString("0.####", CultureInfo.InvariantCulture));
         }
 
@@ -806,7 +856,7 @@ namespace NullcatChannelExporter
             try
             {
                 var bytes = Encoding.ASCII.GetBytes(line);
-                _udp.Send(bytes, bytes.Length, _target);
+                lock (_sendLock) { if (_udp != null) _udp.Send(bytes, bytes.Length, _target); }
             }
             catch { /* transient socket errors are not worth a log storm */ }
         }

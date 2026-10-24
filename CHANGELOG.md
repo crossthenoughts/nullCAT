@@ -12,9 +12,23 @@ middle number carries breaking changes and the last carries fixes.
   acceleration or both (**Tightens on**) onto the belt's torque range, a
   straight line from **g from** to **g at max**, with a curve and
   smoothing to taste. If it tightens the wrong way round, pick the other
-  direction. It needs the SimHub plugin 1.9, which now sends the car's
-  accelerations and rotation rates. The motion software's belt cue stays
-  the default.
+  direction. **Cornering** adds the sideways g in left-hand corners,
+  right-hand corners or both (a belt on each shoulder can take its own
+  side), and **Crests and dips** the vertical g over crests, into
+  compressions or both (only its change: gravity and long hills never
+  tighten the belt), each at its own share. It needs the SimHub plugin
+  1.9, which now sends the car's accelerations and rotation rates. The
+  motion software's belt cue stays the default.
+- Impacts feels walls and other cars: a sudden jump in the car's g along
+  and across it knocks every corner, from **hit g** (2 g by default, full
+  at three times that; 0 turns it off). With the SimHub plugin 1.9.
+- The SimHub plugin can send the Assetto Corsa family's accelerations
+  straight from the game's shared memory at its physics rate (about 333 a
+  second, against SimHub's 60), for the belt and Impacts. Off by default:
+  set `"kunosDirect": "on"` in its settings file, and bind the SimHub
+  action **ToggleKunosDirect** to a button to flip between the two while
+  driving. The plugin first matches the game's values against SimHub's,
+  so the units and directions stay the same.
 - Le Mans Ultimate: the SimHub plugin 1.9 sends its per-wheel channels
   with nothing to set up (wheel speeds, tyre loads, suspension travel, each
   tyre's slide, the surface under it, punctures, tyre wear, the rain and
@@ -47,6 +61,8 @@ middle number carries breaking changes and the last carries fixes.
   reports it.
 
 ### Changed
+- Impacts: a hit that knocks through both the body and a corner in the
+  same moment is one knock (the stronger), not two on top of each other.
 - Assetto Corsa Competizione: the rain and how wet the track is now reach
   the Surface and Road tiles (SimHub plugin 1.9). The plugin no longer
   sends Competizione's tyre loads, which the game leaves at zero, so the
