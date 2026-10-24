@@ -298,6 +298,11 @@ drives the rig.
 - **Belts (torque axes).** If your rig has belt tensioners, Slack /
   Tension belt controls appear automatically. Slack to get in and out of
   the seat; Tension to pull snug before driving.
+  By default a belt pulls with the tension your motion software sends
+  it; set **Belt cue from** to **g** in the belt's Setup and nullCAT pulls
+  it straight from the car's braking, acceleration or both instead
+  (**Tightens on**, scaled by **g from** and **g at max**; needs the SimHub
+  plugin 1.9).
 - **USB button box.** Plug it into the Pi and bind physical buttons to
   actions (park, belt toggle, e-stop) on the web UI's bindings page. Press the button
   when prompted and it's captured.

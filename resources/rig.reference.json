@@ -44,7 +44,13 @@
             "beltMaxTravelRevs": 3.0,
             "beltMaxRpm": 800.0,
             "beltRelaxerSec": 0.0,
-            "beltRelaxerPct": 80.0
+            "beltRelaxerPct": 80.0,
+            "beltSource": "motion",
+            "beltGMode": "decel",
+            "beltGFromG": 0.05,
+            "beltGFullG": 1.5,
+            "beltGCurve": 1.0,
+            "beltGSmoothMs": 30.0
         }
     ]
 }

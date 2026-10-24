@@ -310,6 +310,27 @@ private slots:
         QCOMPARE(host.value("webBindAddr").toString(), QString("0.0.0.0"));
     }
 
+    // The belt cue's source and its g settings survive save -> load; a
+    // rig.json without them reads the defaults (the cue stays the motion
+    // line's, as before).
+    void beltFromG_roundTrip()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        Config a; QVERIFY(a.load(anchor(dir).toStdString()));
+        QVERIFY(!a.get().drives.empty());
+        QCOMPARE(QString::fromStdString(a.get().drives[0].beltSource), QString("motion"));
+        DriveConfig& d = a.get().drives[0];
+        d.beltSource = "g"; d.beltGMode = "accel"; d.beltGFromG = 0.2; d.beltGFullG = 2.5;
+        d.beltGCurve = 1.5; d.beltGSmoothMs = 45.0;
+        QVERIFY(a.save(anchor(dir).toStdString()));
+        Config b; QVERIFY(b.load(anchor(dir).toStdString()));
+        const DriveConfig& r = b.get().drives[0];
+        QCOMPARE(QString::fromStdString(r.beltSource), QString("g"));
+        QCOMPARE(QString::fromStdString(r.beltGMode), QString("accel"));
+        QCOMPARE(r.beltGFromG, 0.2); QCOMPARE(r.beltGFullG, 2.5);
+        QCOMPARE(r.beltGCurve, 1.5); QCOMPARE(r.beltGSmoothMs, 45.0);
+    }
+
     // Reload from the freshly-written pair round-trips to a usable config.
     void coldStart_reloadRoundtrips()
     {

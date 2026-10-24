@@ -247,6 +247,10 @@ private:
     // ~3600rpm drive fault threshold. Deliberately applied AFTER the slew cap
     // (a safety fold must not be rate-limited downward).
     double beltVelocityFold(int i, double tension) const;
+    // The belt's live tension demand from its source (the motion line or
+    // the car's g); false when there is none this cycle.
+    bool   beltDemand(int i, const TelemetryData& td, double& tension);
+    double beltGTension(int i, double accMs2);
 
     // ---- Per-family step functions (Stage D decomposition) ----------------
     // process()'s per-axis switch keeps the family-agnostic frame (e-stop
@@ -424,6 +428,13 @@ private:
         double  beltMaxRpm        = 800.0;    // master-side velocity fold-back knee (0 = off)
         double  beltRelaxerSec    = 0.0;      // sustained near-max dwell (0 = off)
         double  beltRelaxerPct    = 80.0;     // % of torqueMaxPct that counts as dwell
+        // Belt cue from the car's longitudinal g (Config.h beltSource "g").
+        bool    beltFromG         = false;
+        int     beltGMode         = 2;        // 0 both, 1 accel (accSurge > 0) tightens, 2 decel (< 0)
+        double  beltGFromG        = 0.05;
+        double  beltGFullG        = 1.5;
+        double  beltGCurve        = 1.0;
+        double  beltGSmoothMs     = 30.0;
         double  beltUnitsPerRev   = 10.0;     // encoderCountsPerRev / countsPerMm (rpm math)
         double  hapticsMaxMm      = 3.0;      // position axes: largest haptic offset (0 = none)
         double  blendMaxVelocityMmS = 20.0; // velocity cap during post-homing blend
@@ -491,6 +502,11 @@ private:
         double  beltOverspeedSec  = 0.0;  // time continuously above the overspeed threshold
         double  beltDwellSec      = 0.0;  // time continuously at/above the relaxer band
         bool    beltRelaxed       = false;// relaxer engaged (tension clamped to min)
+        double  beltG             = 0.0;  // belt from g: the longitudinal g, low-passed
+        bool    beltGLive         = false;// ...seeded by a live sample (seeded afresh after a gap or tension-up)
+        double  beltGBadSec       = 0.0;  // ...how long the g has been unusable (a gap past kBeltGReseedSec re-seeds)
+        double  beltGLastRaw      = 0.0;  // ...the last accSurge sent, and how long it has stayed exactly so
+        double  beltGSameSec      = 0.0;
         uint8_t beltLastTripWhy   = 0;    // 1=OVERSPEED 2=TRAVEL; sticky until next tension-up (card display)
         // Deinit seat phase-2 (ease-off-to-rest) per-axis state -- see startSeatRelief().
         double  seatReliefStartRaw = 0.0; // raw position where the ease-off began (cap reference)

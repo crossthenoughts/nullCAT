@@ -265,6 +265,25 @@ private slots:
         QVERIFY2(found, "belt axes keep the belt guard ranges unchanged");
     }
 
+    // The belt cue from the car's g: its source and mode are one of the
+    // named choices, g at max sits above g from, the curve and smoothing in
+    // range; a belt from g with the defaults is valid.
+    void beltFromG_ranges()
+    {
+        AppConfig cfg = validConfig();
+        cfg.drives[0].axisType = "belt"; cfg.drives[0].mode = "torque";
+        cfg.drives[0].beltSource = "g"; cfg.drives[0].beltGMode = "both";
+        QVERIFY2(cfg.validate().empty(), "a belt from g with the defaults is valid");
+        const auto names = [](const AppConfig& c, const char* key)
+        { for (const auto& e : c.validate()) if (e.find(key) != std::string::npos) return true; return false; };
+        AppConfig a = cfg; a.drives[0].beltSource = "telemetry"; QVERIFY(names(a, "beltSource"));
+        AppConfig b = cfg; b.drives[0].beltGMode = "sideways";   QVERIFY(names(b, "beltGMode"));
+        AppConfig c = cfg; c.drives[0].beltGFromG = 1.0; c.drives[0].beltGFullG = 1.02; QVERIFY(names(c, "beltGFullG"));
+        AppConfig e = cfg; e.drives[0].beltGCurve = 5.0;          QVERIFY(names(e, "beltGCurve"));
+        AppConfig f = cfg; f.drives[0].beltGSmoothMs = 500.0;     QVERIFY(names(f, "beltGSmoothMs"));
+        AppConfig g = cfg; g.drives[0].beltGFromG = -0.1;         QVERIFY(names(g, "beltGFromG"));
+    }
+
     // homingTorquePct = 0 (must be >= 1)
     void homingTorquePct_zero_error()
     {

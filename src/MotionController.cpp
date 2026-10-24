@@ -157,6 +157,14 @@ void MotionController::configure(const AppConfig& config)
         ac.hapticsMaxMm      = dc.hapticsMaxMm;
         ac.beltRelaxerSec    = dc.beltRelaxerSec;
         ac.beltRelaxerPct    = dc.beltRelaxerPct;
+        ac.beltFromG         = (dc.beltSource == "g");
+        ac.beltGMode         = (dc.beltGMode == "both") ? 0 : (dc.beltGMode == "accel") ? 1 : 2;
+        // Clamped into their ranges here as well: validation only warns on
+        // load, and a curve at or below 0 would ask for more than torque max.
+        ac.beltGFromG        = std::max(0.0, std::min(2.0, dc.beltGFromG));
+        ac.beltGFullG        = std::max(ac.beltGFromG + 0.05, std::min(6.0, std::max(0.2, dc.beltGFullG)));
+        ac.beltGCurve        = std::isfinite(dc.beltGCurve) ? std::max(0.3, std::min(3.0, dc.beltGCurve)) : 1.0;
+        ac.beltGSmoothMs     = std::isfinite(dc.beltGSmoothMs) ? std::max(0.0, std::min(250.0, dc.beltGSmoothMs)) : 30.0;
         // Shaft-rpm math for the overspeed guard: getActualPositionRaw() returns
         // counts/countsPerMm "units", so one motor rev = encoderCountsPerRev/countsPerMm.
         ac.beltUnitsPerRev = (dc.countsPerMm > 0.0)
@@ -194,6 +202,11 @@ void MotionController::configure(const AppConfig& config)
                           ac.beltRelaxerSec > 0.0 ? strf("%.0fs@%.0f%%", ac.beltRelaxerSec, ac.beltRelaxerPct).c_str() : "off",
                           ac.torqueMinPct, ac.torqueMaxPct, dc.reductionRatio.c_str(),
                           ac.torqueMaxPct * rf));
+            if (ac.beltFromG)
+                LOG_INFO(strf("MotionController: Axis %d belt from the car's g: tightens on %s, %.2f..%.2f g, "
+                              "curve %.2f, smoothed %.0f ms", i + 1,
+                              ac.beltGMode == 0 ? "both" : ac.beltGMode == 1 ? "acceleration" : "braking",
+                              ac.beltGFromG, ac.beltGFullG, ac.beltGCurve, ac.beltGSmoothMs));
         }
 
         if (isBelt)
@@ -1034,6 +1047,7 @@ void MotionController::tensionBelts()
             rt.beltDwellSec     = 0.0;
             rt.beltRelaxed      = false;
             rt.beltLastTripWhy  = 0;            // card guard flag clears on tension-up
+            rt.beltGLive        = false;        // the g filter starts afresh (not from the last session's braking)
             RT_LOG_INFO("MotionController: Axis %d (belt) tensioning -- blending in.", i + 1);
         }
     }
@@ -1529,6 +1543,72 @@ double MotionController::decodeTargetMm(int i, double raw)
     return std::max(ac.minPos, std::min(ac.maxPos, targetMm));
 }
 
+// A car pulls well under 8 g along the road outside a crash; a value past
+// it is a junk frame (a reset, a glitch), not a cue.
+static constexpr double kBeltGJunkMs2 = 8.0 * 9.80665;
+// One junk frame does not restart the g smoothing; a gap this long does.
+static constexpr double kBeltGReseedSec = 0.1;
+// A sender that stops sending accSurge leaves the parser holding its
+// last value while the rest of the stream lives on: an accSurge that
+// has not changed in this long reads as no g (the belt eases to minimum,
+// ONLINE; never the stale stages, which would park a belt slack while
+// the car sits in the pits).
+static constexpr double kBeltGFrozenSec = 0.5;
+
+// The belt's live tension demand this cycle from its source (Config.h
+// beltSource): the motion line's slot for this axis, or the car's
+// longitudinal g. False when there is none (no usable frame; the channel
+// stream stale, silent on accSurge or junk): the caller stages the
+// standby exactly as for a lost motion line. RT thread only.
+bool MotionController::beltDemand(int i, const TelemetryData& td, double& tension)
+{
+    const AxisConfig& ac = m_axisConfig[i];
+    if (!ac.beltFromG)
+    {
+        if (!axisFrameUsable(i, td)) return false;
+        tension = beltTension(td.positions[i], ac.torqueMinPct, ac.torqueMaxPct);
+        return true;
+    }
+    AxisRuntime& rt = m_runtime[i];
+    const NcxValues v = m_ncxMap.extract(td);
+    const double a = v.val[NcxValues::AccSurge];
+    if (!v.fresh || !v.have[NcxValues::AccSurge] || !std::isfinite(a) || std::fabs(a) > kBeltGJunkMs2)
+    {
+        if ((rt.beltGBadSec += m_cycleTimeSec) > kBeltGReseedSec) rt.beltGLive = false;
+        return false;
+    }
+    rt.beltGBadSec = 0.0;
+    if (a != rt.beltGLastRaw) { rt.beltGLastRaw = a; rt.beltGSameSec = 0.0; }
+    else if ((rt.beltGSameSec += m_cycleTimeSec) > kBeltGFrozenSec)
+    {
+        tension = beltGTension(i, 0.0);   // no g, through the smoothing (no step either way)
+        return true;
+    }
+    tension = beltGTension(i, a);
+    return true;
+}
+
+// Belt from g: the car's longitudinal g, low-passed over beltGSmoothMs,
+// folded by the mode (what tightens), then mapped from beltGFromG to
+// beltGFullG onto torqueMinPct..torqueMaxPct (a straight line at curve 1).
+double MotionController::beltGTension(int i, double accMs2)
+{
+    const AxisConfig& ac = m_axisConfig[i];
+    AxisRuntime& rt = m_runtime[i];
+    const double g = accMs2 / 9.80665;
+    if (!rt.beltGLive || ac.beltGSmoothMs <= 0.0) rt.beltG = g;
+    else rt.beltG += (g - rt.beltG) * (m_cycleTimeSec / (ac.beltGSmoothMs / 1000.0 + m_cycleTimeSec));
+    rt.beltGLive = true;
+    const double x = (ac.beltGMode == 1) ? std::max(0.0, rt.beltG)
+                   : (ac.beltGMode == 2) ? std::max(0.0, -rt.beltG)
+                   : std::fabs(rt.beltG);
+    double u = std::max(0.0, std::min(1.0, (x - ac.beltGFromG) / std::max(1e-6, ac.beltGFullG - ac.beltGFromG)));
+    if (ac.beltGCurve != 1.0) u = std::pow(u, ac.beltGCurve);
+    const double t = ac.torqueMinPct + (ac.torqueMaxPct - ac.torqueMinPct) * u;
+    // Never outside the belt's own range, whatever the settings say.
+    return std::isfinite(t) ? std::max(ac.torqueMinPct, std::min(ac.torqueMaxPct, t)) : ac.torqueMinPct;
+}
+
 double MotionController::stepBeltBlending(int i, AxisMotionState& state,
     const TelemetryData& telemetryData, MotionOutput& output,
     A6Drive** drives, int numHwDrives)
@@ -1546,10 +1626,9 @@ double MotionController::stepBeltBlending(int i, AxisMotionState& state,
     // across blendDuration, so the belt never snaps taut on enable.
     rt.blendElapsed += m_cycleTimeSec;
     double bf = std::max(0.0, std::min(1.0, rt.blendElapsed / rt.blendDuration));
-    bool haveData = axisFrameUsable(i, telemetryData);
-    double tension = haveData
-        ? beltTension(telemetryData.positions[i], ac.torqueMinPct, ac.torqueMaxPct)
-        : ac.torqueMinPct;
+    double tension = ac.torqueMinPct;
+    const bool haveData = beltDemand(i, telemetryData, tension);
+    if (!haveData) tension = ac.torqueMinPct;
     if (haveData) rt.onlineHadData = true;
     // Store the RAMPED value so the ONLINE slew cap starts from what was
     // actually commanded at the blend seam (no step at handoff). Velocity
@@ -1634,13 +1713,14 @@ double MotionController::stepBeltOnline(int i, AxisMotionState& state,
     //   phase 1 (<HOLD)  -> hold last tension (ride out a stutter)
     //   phase 2 (..to)   -> ease to torqueMin (neutral taut standby)
     //   phase 3 (>=to)   -> PARKING (ramp tension to 0 = slack)
-    double tension;
-    bool haveData = axisFrameUsable(i, telemetryData);
+    double tension = ac.torqueMinPct;
+    double demand = 0.0;
+    const bool haveData = beltDemand(i, telemetryData, demand);
     if (haveData)
     {
         rt.onlineStaleSec = 0.0;
         rt.onlineHadData  = true;
-        tension = beltTension(telemetryData.positions[i], ac.torqueMinPct, ac.torqueMaxPct);
+        tension = demand;
     }
     else if (rt.onlineHadData)
     {
@@ -2343,6 +2423,7 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
                 rt.beltDwellSec     = 0.0;
                 rt.beltRelaxed      = false;
                 rt.beltLastTripWhy  = 0;
+                rt.beltGLive        = false;
 
                 state = AxisMotionState::BLENDING;
                 RT_LOG_INFO("MotionController: Axis %d BLENDING into live telemetry.", i + 1);

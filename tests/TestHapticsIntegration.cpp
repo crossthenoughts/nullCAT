@@ -3294,6 +3294,149 @@ int main()
         }
     }
 
+    // ---- I-25: the belt from the car's g (beltSource "g") ----
+    // The tension follows the longitudinal g (accSurge) in a straight line
+    // from g from to g at max onto torque min..max, on braking, on
+    // acceleration or on either; the motion line's value for the axis is
+    // unused; a value past 8 g is a junk frame; the channel stream gone (or
+    // silent on accSurge) stages the standby as a lost motion line does;
+    // e-stop is 0; a belt left on "motion" ignores the g.
+    {
+        const double G = 9.80665;
+        auto gFrame = [](double accMs2, bool fresh, bool sent = true, double raw0 = 65535.0) {
+            TelemetryData sd = frame(0.0, fresh, raw0);
+            sd.ncyHave[NcxTok::AccSurge] = sent; sd.ncy[NcxTok::AccSurge] = accMs2;
+            return sd;
+        };
+        auto belt = [&](const char* mode, double smoothMs, const char* source = "g") {
+            AppConfig cfg = makeBeltConfig(0.0, 1.0);    // no haptics: the cue alone (torque 5..50)
+            cfg.drives[0].beltSource = source; cfg.drives[0].beltGMode = mode;
+            cfg.drives[0].beltGFromG = 0.1; cfg.drives[0].beltGFullG = 1.1;
+            cfg.drives[0].beltGSmoothMs = smoothMs;
+            auto mc = std::make_unique<MotionController>();
+            mc->configure(cfg); mc->setEmergencyStop(false);
+            tensionBelt(*mc);
+            run(*mc, gFrame(0.0, true), 400, 1);
+            return mc;
+        };
+        auto at = [&](MotionController& mc, double accG) { return run(mc, gFrame(accG * G, true), 200, 1).hi; };
+        {
+            auto mc = belt("decel", 0.0);
+            check(mc->getAxisState(0) == AxisMotionState::ONLINE, "I-25 setup: a belt from g reaches ONLINE");
+            check(std::fabs(at(*mc, 0.0) - 5.0) < 1e-6, "I-25 decel: no g, torque min (the motion line at full scale is unused)");
+            check(std::fabs(at(*mc, -0.6) - 27.5) < 1e-6, "I-25 decel: half way from g from to g at max is half way up the range (a straight line)");
+            check(std::fabs(at(*mc, -1.1) - 50.0) < 1e-6, "I-25 decel: g at max, torque max");
+            check(std::fabs(at(*mc, -3.0) - 50.0) < 1e-6, "I-25 decel: past g at max, held at torque max");
+            check(std::fabs(at(*mc, 1.0) - 5.0) < 1e-6, "I-25 decel: acceleration leaves it at min");
+            check(std::fabs(at(*mc, -0.05) - 5.0) < 1e-6, "I-25 decel: inside the dead band, min");
+        }
+        {
+            auto mc = belt("accel", 0.0);
+            check(std::fabs(at(*mc, 0.6) - 27.5) < 1e-6 && std::fabs(at(*mc, -1.0) - 5.0) < 1e-6,
+                  "I-25 accel: acceleration tightens, braking does not");
+            auto mb = belt("both", 0.0);
+            check(std::fabs(at(*mb, 0.6) - 27.5) < 1e-6 && std::fabs(at(*mb, -0.6) - 27.5) < 1e-6,
+                  "I-25 both: either way tightens alike");
+        }
+        {
+            // A curve of 2: at half the g share, a quarter of the range.
+            AppConfig cfg = makeBeltConfig(0.0, 1.0);
+            cfg.drives[0].beltSource = "g"; cfg.drives[0].beltGMode = "decel";
+            cfg.drives[0].beltGFromG = 0.1; cfg.drives[0].beltGFullG = 1.1; cfg.drives[0].beltGSmoothMs = 0.0;
+            cfg.drives[0].beltGCurve = 2.0;
+            MotionController mc; mc.configure(cfg); mc.setEmergencyStop(false); tensionBelt(mc);
+            run(mc, gFrame(0.0, true), 400, 1);
+            check(std::fabs(at(mc, -0.6) - (5.0 + 45.0 * 0.25)) < 1e-6, "I-25 curve 2: half the g share gives a quarter of the range");
+        }
+        {
+            auto mc = belt("decel", 30.0);
+            const double s1 = run(*mc, gFrame(-1.1 * G, true), 15, 1).hi;   // 30 ms at 2 ms a cycle
+            check(s1 > 5.0 + 0.5 * 45.0 && s1 < 5.0 + 0.75 * 45.0, "I-25 smoothing 30 ms: 30 ms after a step, about two thirds of the way");
+            check(std::fabs(run(*mc, gFrame(-1.1 * G, true), 200, 1).hi - 50.0) < 0.05, "I-25 smoothing: then it settles at torque max");
+        }
+        {
+            // One junk frame does not restart the smoothing: the next g is
+            // eased into, not jumped to.
+            auto mc = belt("decel", 30.0);
+            run(*mc, gFrame(-0.6 * G, true), 200, 1);
+            run(*mc, gFrame(-20.0 * G, true), 8, 1);                      // one 16 ms junk frame
+            const double next = run(*mc, gFrame(-1.1 * G, true), 1, 1).hi;
+            check(next > 27.0 && next < 31.0, "I-25 smoothing: one junk frame does not restart it (the next g is eased into)");
+            // A real gap does: back from 3 s of silence at no g, the belt
+            // starts at min, not from the braking before the gap.
+            run(*mc, gFrame(-1.1 * G, true), 200, 1);
+            run(*mc, gFrame(-1.1 * G, false), 1500, 1);
+            const double back = run(*mc, gFrame(0.0, true), 1, 1).hi;
+            check(std::fabs(back - 5.0) < 1e-6, "I-25 smoothing: after a gap it starts afresh (min at no g, not the braking before)");
+        }
+        {
+            // Tension-up starts the smoothing afresh: slacked while braking
+            // hard, tensioned again with the car still, the blend never
+            // climbs from the old braking.
+            auto mc = belt("decel", 250.0);
+            run(*mc, gFrame(-2.0 * G, true), 150, 1);
+            { MotionCommand c; c.type = MotionCommand::Type::SlackBelts; mc->enqueueCommand(c); }
+            run(*mc, gFrame(-2.0 * G, true), 200, 1);
+            tensionBelt(*mc);
+            const Span up = run(*mc, gFrame(0.0, true), 100, 100);
+            check(up.hi <= 5.0 + 1e-6, "I-25 tension-up starts the g smoothing afresh (no pull from the braking before the slack)");
+        }
+        {
+            // The blend (tension-up) follows the g too: at no g it rises to
+            // min only, whatever the motion line says for the axis.
+            AppConfig cfg = makeBeltConfig(0.0, 1.0);
+            cfg.drives[0].beltSource = "g"; cfg.drives[0].beltGSmoothMs = 0.0;
+            MotionController mc; mc.configure(cfg); mc.setEmergencyStop(false); tensionBelt(mc);
+            const Span blend = run(mc, gFrame(0.0, true, true, 65535.0), 60, 60);
+            check(blend.hi <= 5.0 + 1e-6, "I-25 the tension-up blend follows the g (the motion line at full scale is unused)");
+        }
+        {
+            // An accSurge frozen while the rest of the stream lives on (a
+            // sender that stopped sending it) reads as no g: min, ONLINE.
+            auto mc = belt("decel", 0.0);
+            const double frozen = run(*mc, gFrame(-1.1 * G, true), 400, 1).hi;   // 0.8 s unchanged
+            check(std::fabs(frozen - 5.0) < 1e-6 && mc->getAxisState(0) == AxisMotionState::ONLINE,
+                  "I-25 an accSurge unchanged for over 0.5 s reads as no g: min, still ONLINE");
+            check(std::fabs(at(*mc, -0.6) - 27.5) < 1e-6, "I-25 ...and a changing g takes over again");
+        }
+        {
+            // Settings out of range (validation only warns on load): a
+            // curve below 0 never asks for more than torque max.
+            AppConfig cfg = makeBeltConfig(0.0, 1.0);
+            cfg.drives[0].beltSource = "g"; cfg.drives[0].beltGSmoothMs = 0.0; cfg.drives[0].beltGCurve = -1.0;
+            MotionController mc; mc.configure(cfg); mc.setEmergencyStop(false); tensionBelt(mc);
+            const Span still = run(mc, gFrame(0.0, true), 400, 300);
+            const Span hard  = run(mc, gFrame(-0.8 * G, true), 200, 200);
+            check(still.hi <= 5.0 + 1e-6 && hard.hi <= 50.0 + 1e-6, "I-25 a curve below 0 never asks for more than torque max");
+        }
+        {
+            auto mc = belt("decel", 0.0);
+            const double held = run(*mc, gFrame(-0.6 * G, true), 100, 1).hi;
+            const double junk = run(*mc, gFrame(-20.0 * G, true), 5, 1).hi;
+            check(std::fabs(junk - held) < 1e-6, "I-25 a value past 8 g is a junk frame: the tension holds");
+            run(*mc, gFrame(-0.6 * G, true), 50, 1);
+            const double stale = run(*mc, gFrame(-0.6 * G, false), 1250, 1).hi;   // 2.5 s: past the 2 s hold
+            check(std::fabs(stale - 5.0) < 1e-6 && mc->getAxisState(0) == AxisMotionState::ONLINE,
+                  "I-25 the channel stream gone: past the hold, torque min (never the last g)");
+            auto mu = belt("decel", 0.0);
+            run(*mu, gFrame(-0.6 * G, true), 100, 1);
+            const double unsent = run(*mu, gFrame(-0.6 * G, true, false), 1250, 1).hi;
+            check(std::fabs(unsent - 5.0) < 1e-6, "I-25 a live stream without accSurge is no g: torque min past the hold");
+        }
+        {
+            auto mc = belt("decel", 0.0);
+            run(*mc, gFrame(-1.1 * G, true), 100, 1);
+            mc->setEmergencyStop(true);
+            const Span e = run(*mc, gFrame(-1.1 * G, true), 50, 10);
+            check(e.hi <= 1e-9 && e.lo >= -1e-9, "I-25 e-stop: torque 0 whatever the g");
+        }
+        {
+            auto mc = belt("decel", 0.0, "motion");
+            const double t = run(*mc, gFrame(-1.1 * G, true, true, 0.0), 200, 1).hi;
+            check(std::fabs(t - 5.0) < 1e-6, "I-25 a belt left on motion follows the motion line (0 = min), whatever the g");
+        }
+    }
+
     std::printf("TestHapticsIntegration: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

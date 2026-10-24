@@ -7,6 +7,14 @@ middle number carries breaking changes and the last carries fixes.
 ## [Unreleased]
 
 ### Added
+- Belts can pull straight from the car's g: set **Belt cue from** to
+  **g** in the belt's Setup and nullCAT maps the car's braking,
+  acceleration or both (**Tightens on**) onto the belt's torque range, a
+  straight line from **g from** to **g at max**, with a curve and
+  smoothing to taste. If it tightens the wrong way round, pick the other
+  direction. It needs the SimHub plugin 1.9, which now sends the car's
+  accelerations and rotation rates. The motion software's belt cue stays
+  the default.
 - Le Mans Ultimate: the SimHub plugin 1.9 sends its per-wheel channels
   with nothing to set up (wheel speeds, tyre loads, suspension travel, each
   tyre's slide, the surface under it, punctures, tyre wear, the rain and

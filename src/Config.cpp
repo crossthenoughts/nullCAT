@@ -549,6 +549,12 @@ static void writeDriveConfig(const DriveConfig& d, QJsonObject& obj)
     obj["hapticsMaxMm"]              = d.hapticsMaxMm;
     obj["beltRelaxerSec"]            = d.beltRelaxerSec;
     obj["beltRelaxerPct"]            = d.beltRelaxerPct;
+    obj["beltSource"]                = QString::fromStdString(d.beltSource);
+    obj["beltGMode"]                 = QString::fromStdString(d.beltGMode);
+    obj["beltGFromG"]                = d.beltGFromG;
+    obj["beltGFullG"]                = d.beltGFullG;
+    obj["beltGCurve"]                = d.beltGCurve;
+    obj["beltGSmoothMs"]             = d.beltGSmoothMs;
     // Nested device object: written for the control-loading families only,
     // so ordinary axes never carry an unused block.
     if (axisCaps(d.axisType, d.mode).isDevice())
@@ -667,6 +673,12 @@ static void readDriveConfig(const QJsonObject& obj, int idx, DriveConfig& d)
     rdDbl (obj, "hapticsMaxMm",           d.hapticsMaxMm);
     rdDbl (obj, "beltRelaxerSec",         d.beltRelaxerSec);
     rdDbl (obj, "beltRelaxerPct",         d.beltRelaxerPct);
+    rdStr (obj, "beltSource",             d.beltSource, true);
+    rdStr (obj, "beltGMode",              d.beltGMode, true);
+    rdDbl (obj, "beltGFromG",             d.beltGFromG);
+    rdDbl (obj, "beltGFullG",             d.beltGFullG);
+    rdDbl (obj, "beltGCurve",             d.beltGCurve);
+    rdDbl (obj, "beltGSmoothMs",          d.beltGSmoothMs);
     if (obj.contains("device") && obj.value("device").isObject())
         readDeviceParams(obj.value("device").toObject(), d.device);
 
@@ -1387,6 +1399,18 @@ std::vector<std::string> AppConfig::validate() const
                 errors.push_back(pfx + "beltRelaxerSec must be 0 (off) or in [2, 120]");
             if (d.beltRelaxerPct < 20.0 || d.beltRelaxerPct > 100.0)
                 errors.push_back(pfx + "beltRelaxerPct out of range [20, 100]");
+            if (d.beltSource != "motion" && d.beltSource != "g")
+                errors.push_back(pfx + "beltSource must be \"motion\" or \"g\"");
+            if (d.beltGMode != "both" && d.beltGMode != "accel" && d.beltGMode != "decel")
+                errors.push_back(pfx + "beltGMode must be \"both\", \"accel\" or \"decel\"");
+            if (d.beltGFromG < 0.0 || d.beltGFromG > 2.0)
+                errors.push_back(pfx + "beltGFromG out of range [0, 2]");
+            if (d.beltGFullG < 0.2 || d.beltGFullG > 6.0 || d.beltGFullG < d.beltGFromG + 0.05)
+                errors.push_back(pfx + "beltGFullG must be in [0.2, 6] and at least 0.05 above beltGFromG");
+            if (d.beltGCurve < 0.3 || d.beltGCurve > 3.0)
+                errors.push_back(pfx + "beltGCurve out of range [0.3, 3]");
+            if (d.beltGSmoothMs < 0.0 || d.beltGSmoothMs > 250.0)
+                errors.push_back(pfx + "beltGSmoothMs out of range [0, 250]");
             // Ratio safety: the strap sees motor torque x reduction, so a
             // torqueMaxPct tuned at 1:1 must be re-derived when the ratio changes.
             // Cap the STRAP-side ceiling at 300%-of-rated-at-1:1 equivalent.

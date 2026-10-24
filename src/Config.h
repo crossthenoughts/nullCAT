@@ -233,6 +233,27 @@ struct DriveConfig
     double hapticsMaxMm      = 3.0;
     double beltRelaxerSec    = 0.0;     // 0 = disabled
     double beltRelaxerPct    = 80.0;
+    // Belt cue: where the tension comes from.
+    //  "motion": the motion software's tension on this axis's slot of the
+    //            motion line (as ever).
+    //  "g":      nullCAT maps the car's longitudinal g (the channel
+    //            accSurge, protocol 1.9) straight onto
+    //            torqueMinPct..torqueMaxPct.
+    // With "g": beltGMode picks what tightens ("decel" braking, "accel"
+    // accelerating, "both" either; a sender whose sign runs the other way
+    // is answered by picking the other one). Tension leaves torqueMinPct
+    // at beltGFromG and reaches torqueMaxPct at beltGFullG (beltGCurve 1 =
+    // a straight line; above 1 softer at small g, below 1 sharper), the g
+    // low-passed over beltGSmoothMs (the channel arrives about 60 times a
+    // second). The stale-stream stages, relaxer, slew cap and speed fold
+    // apply as for "motion"; a channel stream that stops is a stream that
+    // stops (hold, ease to min, park slack).
+    std::string beltSource    = "motion";
+    std::string beltGMode     = "decel";
+    double      beltGFromG    = 0.05;
+    double      beltGFullG    = 1.5;
+    double      beltGCurve    = 1.0;
+    double      beltGSmoothMs = 30.0;
 
     // NOTE: drive-side safety limits (max torque 0x6072, position 0x607D,
     // following-error 0x6065) are intentionally NOT app-managed. They are set
