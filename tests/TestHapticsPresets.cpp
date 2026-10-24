@@ -277,7 +277,7 @@ private slots:
         QCOMPARE(h.value("road").toObject().value("rough").toDouble(), 3.0);
         QCOMPARE(h.value("driveline").toObject().keys(), QStringList({ "whinePitch" }));   // driven and lug hz are the car's
         QCOMPARE(h.value("abs").toObject().keys(), QStringList({ "sharp" }));          // ABS amp is the car's
-        QVERIFY(!h.contains("rpmVibe"));   // every engine setting is the car's
+        QVERIFY(!h.contains("rpmVibe"));   // both engine settings it named are the car's
 
         // Applied, the routes on the road tile are the rig's own still.
         AppConfig c;

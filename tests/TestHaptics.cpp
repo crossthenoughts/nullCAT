@@ -15,7 +15,10 @@
 
 #include "../src/HapticsLayer.h"
 #include "../src/DeviceForceModel.h"
+#include "../src/HapticsRegistry.h"
+#include "../src/HapticsHelp.h"
 #include <cstdio>
+#include <cstring>
 #include <cmath>
 #include <tuple>
 #include <utility>
@@ -2517,6 +2520,35 @@ int main()
             approx(hard, 200.0 * 0.85, 40.0, "tc: full throttle drops most of the firings inside a burst");
             CHECK(light > 20.0 && light < hard * 0.6, "tc: light throttle cuts shallower");
         }
+    }
+
+    // ---- The hover help covers the registry: every setting a tile shows has
+    // its text (its own or the shared one), and every text names a setting
+    // that exists (a misspelt key would never show, silently). ----
+    {
+        int missing = 0, orphans = 0;
+        for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+        {
+            const haptics::EffectInfo& info = haptics::effectInfo(i);
+            for (int p = 0; p < info.paramCount; ++p)
+                if (!haptics::paramHelp(info.key, info.params[p].key))
+                { ++missing; std::printf("  no help text: %s.%s\n", info.key, info.params[p].key); }
+        }
+        for (const haptics::ParamHelp& h : haptics::help_detail::kHelp)
+        {
+            const bool shared = h.effect[0] == '*' && h.effect[1] == '\0';
+            bool found = false;
+            for (int i = 0; i < haptics::EFFECT_COUNT && !found; ++i)
+            {
+                const haptics::EffectInfo& info = haptics::effectInfo(i);
+                if (!shared && std::strcmp(h.effect, info.key) != 0) continue;
+                for (int p = 0; p < info.paramCount && !found; ++p)
+                    found = std::strcmp(h.key, info.params[p].key) == 0;
+            }
+            if (!found) { ++orphans; std::printf("  help text for no setting: %s.%s\n", h.effect, h.key); }
+        }
+        CHECK(missing == 0, "help: every setting in the registry has its hover text");
+        CHECK(orphans == 0, "help: every hover text names a setting that exists");
     }
 
     std::printf("\nTestHaptics: %d passed, %d failed\n", g_pass, g_fail);

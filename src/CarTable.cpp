@@ -365,7 +365,6 @@ QJsonObject CarTable::toHapticsObject(const QJsonObject& entry)
     {
         QJsonObject o = h.value(engineKey()).toObject();
         if (!o.contains("maxRpm")) o["maxRpm"] = 0.0;
-        if (!o.contains("order"))  o["order"]  = 0.0;
         h[engineKey()] = o;
     }
     section("limiter",   "limiter");
@@ -373,7 +372,8 @@ QJsonObject CarTable::toHapticsObject(const QJsonObject& entry)
     // What diff the car has and which wheels it drives are the car's: an
     // entry that does not say is a rear-driven limited slip (no other car's
     // spool or front drive carried over). How strongly the diff plays (diff
-    // x, diff hz) is the rig's, and stays.
+    // x, diff hz) is the car's too, but an entry that does not say leaves it
+    // as it was.
     if (h.contains("driveline"))
     {
         QJsonObject o = h.value("driveline").toObject();
@@ -386,50 +386,44 @@ QJsonObject CarTable::toHapticsObject(const QJsonObject& entry)
     return h;
 }
 
-// The car-owned settings of each tile the table touches (the rest of a
-// tile, and every other tile, is the rig's).
-namespace {
-const char* const kCarEngine[]    = { "ampPct", "freqHz", "jitter", "cylinders", "litres", "layout",
-                                      "maxRpm", "order", "rock", "thump", "buzz", "limHit", "limHz",
-                                      "limJit", "inertia", "turbo", "liftoff", "pops", "tcCut", nullptr };
-const char* const kCarLimiter[]   = { "ampPct", "freqHz", "jitter", nullptr };
-const char* const kCarDriveline[] = { "ampPct", "jitter", "clutch", "clutchHz", "lug", "lugHz",
-                                      "gearbox", "whine", "shunt", "shuntHz", "diff", "diffType", "diffHz", "driven", nullptr };
-const char* const kCarPulse[]     = { "ampPct", "freqHz", nullptr };
-}
-
+// The car-owned settings of a tile: the registry rows flagged kParamCar
+// (the rest of a tile, and every other tile, is the rig's).
 std::vector<std::string> CarTable::carKeys(const std::string& tileKey)
 {
-    const char* const* keys = (tileKey == engineKey()) ? kCarEngine
-                            : (tileKey == "limiter")   ? kCarLimiter
-                            : (tileKey == "driveline") ? kCarDriveline
-                            : (tileKey == "abs" || tileKey == "tc") ? kCarPulse : nullptr;
     std::vector<std::string> out;
-    for (const char* const* k = keys; k && *k; ++k) out.push_back(*k);
+    for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+    {
+        const haptics::EffectInfo& info = haptics::effectInfo(i);
+        if (tileKey != info.key) continue;
+        for (int p = 0; p < info.paramCount; ++p)
+            if (info.params[p].flags & haptics::kParamCar) out.push_back(info.params[p].key);
+    }
     return out;
 }
 
 QJsonObject CarTable::fromHapticsObject(const QJsonObject& haptics,
                                         const std::string& name, const std::string& notes)
 {
-    const auto pick = [&](const char* from, const char* const* keys)
+    const auto pick = [&](const char* from)
     {
         QJsonObject o;
         const QJsonObject src = haptics.value(from).toObject();
-        for (const char* const* k = keys; *k; ++k)
-            if (src.contains(*k)) o[*k] = src.value(*k);
+        for (const std::string& k : carKeys(from))
+        {
+            const QString key = QString::fromStdString(k);
+            if (src.contains(key)) o[key] = src.value(key);
+        }
         // Learned values are not part of a car's description.
         if (o.value("maxRpm").toDouble(0.0) <= 0.0) o.remove("maxRpm");
-        if (o.value("order").toDouble(0.0)  <= 0.0) o.remove("order");
         return o;
     };
     QJsonObject e;
     e["name"]      = QString::fromStdString(name);
-    e["engine"]    = pick(engineKey(), kCarEngine);
-    e["limiter"]   = pick("limiter",   kCarLimiter);
-    e["driveline"] = pick("driveline", kCarDriveline);
-    e["abs"]       = pick("abs",       kCarPulse);
-    e["tc"]        = pick("tc",        kCarPulse);
+    e["engine"]    = pick(engineKey());
+    e["limiter"]   = pick("limiter");
+    e["driveline"] = pick("driveline");
+    e["abs"]       = pick("abs");
+    e["tc"]        = pick("tc");
     e["notes"]     = QString::fromStdString(notes);
     return e;
 }

@@ -39,13 +39,22 @@ inline bool kindHasParts(Kind k)
 
 // One tunable the UI shows for an effect: config key, label, range, step,
 // and for a choice an options list ("a|b|c", value = index) instead.
+// flags: what else the setting is (kParam* below).
 struct ParamSpec
 {
     const char* key;
     const char* label;
     double      min, max, step;
-    const char* opts;   // nullptr for a number
+    const char* opts;        // nullptr for a number
+    unsigned    flags = 0;
 };
+
+// The setting belongs to the car, not the rig: a car table entry sets it
+// (follow car, pull), "save for this car" keeps it, a starting point leaves
+// it alone, and the tile tints it. (A profile is the whole set: it carries
+// these too.) CarTable::carKeys() reads these flags; nothing else keeps a
+// list of them.
+constexpr unsigned kParamCar = 1u << 0;
 
 // Channel entries name the NcxValues tokens a law needs. Syntax, read by
 // the web for its tick/cross chips: "a|b" = any of these satisfies it;
@@ -81,8 +90,8 @@ constexpr ParamSpec kTransientParams[] = {
     { "durMs",  "length ms", 5,   100, 1,    nullptr },
 };
 constexpr ParamSpec kAbsParams[] = {            // ABS: the corners' valves, the pump
-    { "ampPct", "amp %",     0,   100, 1,    nullptr },
-    { "freqHz", "freq hz",   4,   60,  1,    nullptr },   // the cycle rate at speed
+    { "ampPct", "amp %",     0,   100, 1,    nullptr, kParamCar },
+    { "freqHz", "freq hz",   4,   60,  1,    nullptr, kParamCar },   // the cycle rate at speed
     { "sharp",  "sharp",     0,   1,   0.05, nullptr },   // the dump's edge: 0 round, 1 a knock
     { "spread", "spread",    0,   1,   0.05, nullptr },   // each corner its own rate, each cycle a little different
     { "slow",   "slow x",    0,   1,   0.05, nullptr },   // the cycle slowing towards a stop
@@ -97,8 +106,8 @@ constexpr ParamSpec kAbsParams[] = {            // ABS: the corners' valves, the
     { "scrubLink", "scrub x",   0, 1,  0.05, nullptr },   // ...the lateral slip easing after each dump
 };
 constexpr ParamSpec kTcParams[] = {             // TC: the cuts' surge
-    { "ampPct", "amp %",     0,   100, 1,    nullptr },
-    { "freqHz", "freq hz",   4,   60,  1,    nullptr },
+    { "ampPct", "amp %",     0,   100, 1,    nullptr, kParamCar },
+    { "freqHz", "freq hz",   4,   60,  1,    nullptr, kParamCar },
     { "sharp",  "sharp",     0,   1,   0.05, nullptr },   // the cut's edge: 0 round, 1 a knock
     { "spread", "spread",    0,   1,   0.05, nullptr },   // each cut a little different in timing and depth
     { "holdMs", "hold ms",   0,   500, 10,   nullptr },   // the sim's flag held over gaps this long (0 off)
@@ -170,27 +179,27 @@ constexpr ParamSpec kRoadParams[] = {           // road: the model, its settings
     { "peakPct",    "peak %",      1,   100, 1,    nullptr },   // roadNoise texture fallback only
 };
 constexpr ParamSpec kDrivelineParams[] = {      // driveline: clutch judder + lugging wind-up
-    { "ampPct",   "amp %",      0,   100, 1,    nullptr },
-    { "clutch",   "clutch x",   0,   1,   0.1,  nullptr },
-    { "clutchHz", "clutch hz",  4,   20,  0.5,  nullptr },
-    { "lug",      "lug x",      0,   1,   0.1,  nullptr },
-    { "lugHz",    "lug hz",     3,   15,  0.5,  nullptr },
-    { "gearbox",  "gearbox",    0,   1,   1,    "synchro|dog" },
+    { "ampPct",   "amp %",      0,   100, 1,    nullptr, kParamCar },
+    { "clutch",   "clutch x",   0,   1,   0.1,  nullptr, kParamCar },
+    { "clutchHz", "clutch hz",  4,   20,  0.5,  nullptr, kParamCar },
+    { "lug",      "lug x",      0,   1,   0.1,  nullptr, kParamCar },
+    { "lugHz",    "lug hz",     3,   15,  0.5,  nullptr, kParamCar },
+    { "gearbox",  "gearbox",    0,   1,   1,    "synchro|dog", kParamCar },
     { "ignoreN",  "ignore neutral", 0, 1, 1,   "off|on" },   // the Gear shift knock: N passed through is no shift
-    { "diff",     "diff x",     0,   1,   0.05, nullptr },   // the differential's clunk (0 = off: an open diff)
-    { "diffType", "diff",       0,   1,   1,    "limited slip|spool" },
-    { "diffHz",   "diff hz",    2,   30,  1,    nullptr },   // the clunks' rate when the wheels turn apart briskly
-    { "driven",   "driven",     0,   2,   1,    "rear|front|all" },
-    { "whine",    "whine x",    0,   1,   0.1,  nullptr },
+    { "diff",     "diff x",     0,   1,   0.05, nullptr, kParamCar },   // the differential's clunk (0 = off: an open diff)
+    { "diffType", "diff",       0,   1,   1,    "limited slip|spool", kParamCar },
+    { "diffHz",   "diff hz",    2,   30,  1,    nullptr, kParamCar },   // the clunks' rate when the wheels turn apart briskly
+    { "driven",   "driven",     0,   2,   1,    "rear|front|all", kParamCar },
+    { "whine",    "whine x",    0,   1,   0.1,  nullptr, kParamCar },
     { "whinePitch", "whine pitch", 0, 3,  1,    "with the buzz|below the buzz|octave down|above the buzz" },
-    { "shunt",    "shunt x",    0,   1,   0.1,  nullptr },
-    { "shuntHz",  "shunt hz",   20,  80,  1,    nullptr },
-    { "jitter",   "jitter",     0,   1,   0.05, nullptr },
+    { "shunt",    "shunt x",    0,   1,   0.1,  nullptr, kParamCar },
+    { "shuntHz",  "shunt hz",   20,  80,  1,    nullptr, kParamCar },
+    { "jitter",   "jitter",     0,   1,   0.05, nullptr, kParamCar },
 };
 constexpr ParamSpec kTextureParams[] = {        // limiter (flag-driven: nothing to trim)
-    { "ampPct", "amp %",     0,   100, 1,    nullptr },
-    { "freqHz", "freq hz",   5,   120, 1,    nullptr },   // from 5: a truck's or a kart's slow limiter hammer
-    { "jitter", "jitter",    0,   1,   0.05, nullptr },
+    { "ampPct", "amp %",     0,   100, 1,    nullptr, kParamCar },
+    { "freqHz", "freq hz",   5,   120, 1,    nullptr, kParamCar },   // from 5: a truck's or a kart's slow limiter hammer
+    { "jitter", "jitter",    0,   1,   0.05, nullptr, kParamCar },
 };
 constexpr ParamSpec kKerbParams[] = {           // kerb: the rumble strip under the tyre
     { "ampPct",   "amp %",     0,   100, 1,    nullptr },
@@ -230,26 +239,26 @@ constexpr ParamSpec kImpactParams[] = {         // impacts: the edge of a hit th
     { "fullMmS", "full mm/s",  300, 8000, 100,  nullptr },   // ...and a full one
     { "heaveG",  "heave g",    0,   5,    0.1,  nullptr },   // a vertical g jump that knocks the whole car (0 off)
 };
-constexpr ParamSpec kEngineParams[] = {    { "ampPct",    "amp %",                 0,   100,   1,    nullptr },
-    { "cylinders", "cyl / rotors",          1,   16,    1,    nullptr },
-    { "litres",    "litres",                0.1, 30,    0.1,  nullptr },
-    { "layout",    "layout",                0,   5,     1,    "inline|V|flat / boxer|wankel|two-stroke|electric" },
-    { "maxRpm",    "max rpm (0=learn)",     0,   30000, 100,  nullptr },
-    { "rock",      "rock x",                0,   1,     0.1,  nullptr },
-    { "thump",     "thump x",               0,   1,     0.1,  nullptr },
-    { "buzz",      "buzz x",                0,   1,     0.1,  nullptr },
-    { "order",     "buzz order (0=auto)",   0,   8,     0.25, nullptr },
-    { "limHit",    "limiter x",             0,   2,     0.1,  nullptr },
-    { "limHz",     "limiter hz",            4,   30,    1,    nullptr },
-    { "limJit",    "limiter jit",           0,   1,     0.05, nullptr },
-    { "inertia",   "inertia x",             0,   1,     0.1,  nullptr },
-    { "turbo",     "turbo",                 0,   1,     1,    "no|yes" },
-    { "liftoff",   "lift-off x",            0,   2,     0.1,  nullptr },
-    { "pops",      "pops x",                0,   1,     0.1,  nullptr },
-    { "tcCut",     "TC cut x",              0,   1,     0.1,  nullptr },   // traction control dropping firings (0 = ignore TC)
+constexpr ParamSpec kEngineParams[] = {    { "ampPct",    "amp %",                 0,   100,   1,    nullptr, kParamCar },
+    { "cylinders", "cyl / rotors",          1,   16,    1,    nullptr, kParamCar },
+    { "litres",    "litres",                0.1, 30,    0.1,  nullptr, kParamCar },
+    { "layout",    "layout",                0,   5,     1,    "inline|V|flat / boxer|wankel|two-stroke|electric", kParamCar },
+    { "maxRpm",    "max rpm (0=learn)",     0,   30000, 100,  nullptr, kParamCar },
+    { "rock",      "rock x",                0,   1,     0.1,  nullptr, kParamCar },
+    { "thump",     "thump x",               0,   1,     0.1,  nullptr, kParamCar },
+    { "buzz",      "buzz x",                0,   1,     0.1,  nullptr, kParamCar },
+    { "order",     "buzz order (0=auto)",   0,   8,     0.25, nullptr },   // the rig's, not the car's: a PC wants about 0.75, the Pi 0
+    { "limHit",    "limiter x",             0,   2,     0.1,  nullptr, kParamCar },
+    { "limHz",     "limiter hz",            4,   30,    1,    nullptr, kParamCar },
+    { "limJit",    "limiter jit",           0,   1,     0.05, nullptr, kParamCar },
+    { "inertia",   "inertia x",             0,   1,     0.1,  nullptr, kParamCar },
+    { "turbo",     "turbo",                 0,   1,     1,    "no|yes", kParamCar },
+    { "liftoff",   "lift-off x",            0,   2,     0.1,  nullptr, kParamCar },
+    { "pops",      "pops x",                0,   1,     0.1,  nullptr, kParamCar },
+    { "tcCut",     "TC cut x",              0,   1,     0.1,  nullptr, kParamCar },   // traction control dropping firings (0 = ignore TC)
     { "foldback",  "foldback",              0,   2,     1,    "wrap (as now)|stop|keep rising" },   // firings faster than the loop can play
-    { "freqHz",    "thump hz",              10,  80,    1,    nullptr },
-    { "jitter",    "lope",                  0,   1,     0.05, nullptr },
+    { "freqHz",    "thump hz",              10,  80,    1,    nullptr, kParamCar },
+    { "jitter",    "lope",                  0,   1,     0.05, nullptr, kParamCar },
 };
 
 // EffectParams{ampPct, freqHz, durMs, jitter}; routes default empty.

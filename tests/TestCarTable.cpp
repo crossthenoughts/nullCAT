@@ -25,6 +25,7 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <algorithm>
+#include <map>
 #include <set>
 #include <QFile>
 #include <QJsonArray>
@@ -84,6 +85,55 @@ class TestCarTable : public QObject
     }
 
 private slots:
+    // The car-owned settings per tile, pinned: what a car entry may set,
+    // what "save for this car" keeps, what a starting point leaves alone.
+    // CarTable::carKeys() reads them off the registry (the car flag on each
+    // setting); this is the hand-kept table that flag replaced, so a lost
+    // or stray flag shows up here.
+    void carKeys_matchTheCarOwnedSettings()
+    {
+        const std::map<std::string, std::set<std::string>> golden = {
+            { haptics::effectInfo(haptics::Effect::Engine).key,
+              { "ampPct", "freqHz", "jitter", "cylinders", "litres", "layout", "maxRpm", "rock",
+                "thump", "buzz", "limHit", "limHz", "limJit", "inertia", "turbo", "liftoff", "pops", "tcCut" } },
+            { "limiter",   { "ampPct", "freqHz", "jitter" } },
+            { "driveline", { "ampPct", "jitter", "clutch", "clutchHz", "lug", "lugHz", "gearbox", "whine",
+                             "shunt", "shuntHz", "diff", "diffType", "diffHz", "driven" } },
+            { "abs",       { "ampPct", "freqHz" } },
+            { "tc",        { "ampPct", "freqHz" } },
+        };
+        for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+        {
+            const std::string tile = haptics::effectInfo(i).key;
+            const std::vector<std::string> got = CarTable::carKeys(tile);
+            const std::set<std::string> gotSet(got.begin(), got.end());
+            QCOMPARE(gotSet.size(), got.size());   // no key twice
+            const auto it = golden.find(tile);
+            const std::set<std::string> want = (it != golden.end()) ? it->second : std::set<std::string>{};
+            QVERIFY2(gotSet == want, qPrintable(QString("the car-owned settings of %1").arg(QString::fromStdString(tile))));
+        }
+    }
+
+    // The buzz order is the rig's (2026-10-24: a PC wants about 0.75, the
+    // Pi 0, whatever the car). A car entry (even one that carries an order),
+    // the car defaults and "save for this car" all leave it out, so a car
+    // change keeps it as set: applying an entry moves only the keys it has.
+    void buzzOrder_isTheRigsNotTheCars()
+    {
+        const QString eng = QString::fromStdString(haptics::effectInfo(haptics::Effect::Engine).key);
+        QJsonObject e; e["cylinders"] = 6; e["order"] = 2.0;
+        QJsonObject entry; entry["engine"] = e;
+        const QJsonObject applied = CarTable::toHapticsObject(entry).value(eng).toObject();
+        QVERIFY(applied.contains("cylinders"));
+        QVERIFY2(!applied.contains("order"), "a car entry must not move the buzz order");
+        QVERIFY2(!CarTable::defaultHapticsObject().value(eng).toObject().contains("order"),
+                 "the car defaults must not move the buzz order");
+        QJsonObject he; he["order"] = 0.75; he["cylinders"] = 4;
+        QJsonObject h; h[eng] = he;
+        QVERIFY2(!CarTable::fromHapticsObject(h, "x", "").value("engine").toObject().contains("order"),
+                 "save for this car must not file the buzz order");
+    }
+
     void lookup_normalisesGameAndCar()
     {
         QTemporaryDir dir; QVERIFY(dir.isValid());
@@ -372,9 +422,11 @@ private slots:
         QCOMPARE(c.hapticsDriveline.whine, 0.6);
         QCOMPARE(fx(haptics::Effect::Abs).ampPct, 0.0);
         QCOMPARE(fx(haptics::Effect::Tc).freqHz, 15.0);
-        // ...with the learned values back to "learn" (they belong to the car too)...
+        // ...with the learned redline back to "learn" (it belongs to the car too)...
         QCOMPARE(c.hapticsEngine.maxRpm, 0.0);
-        QCOMPARE(c.hapticsEngine.order, 0.0);
+        // ...the buzz order as the rig had it (the rig's, not the car's, since
+        // 2026-10-24: a car change used to put it back to automatic)...
+        QCOMPARE(c.hapticsEngine.order, 3.0);
         // ...and every route, the other tiles, master gain and the switch untouched.
         QCOMPARE(fx(haptics::Effect::Engine).routes[0].axis, 0);
         QCOMPARE(fx(haptics::Effect::Engine).routes[0].gain, 0.7);
@@ -439,7 +491,7 @@ private slots:
         QCOMPARE(eng.value("ampPct").toDouble(), 20.0);
         QCOMPARE(eng.value("cylinders").toDouble(), 8.0);
         QCOMPARE(eng.value("maxRpm").toDouble(), 7200.0);   // set by hand: kept
-        QCOMPARE(eng.value("order").toDouble(), 3.0);
+        QVERIFY2(!eng.contains("order"), "the buzz order is the rig's: never filed with a car");
         QVERIFY(!eng.contains("routes"));
         QVERIFY(!eng.contains("durMs"));
         QVERIFY(!eng.contains("peakPct"));
@@ -449,11 +501,10 @@ private slots:
         for (const char* k : { "engine", "limiter", "driveline", "abs", "tc" })
             QVERIFY2(e.value(k).isObject(), k);
 
-        // Learned values at "learn" are not written.
-        c.hapticsEngine.maxRpm = 0; c.hapticsEngine.order = 0;
+        // A redline at "learn" is not written.
+        c.hapticsEngine.maxRpm = 0;
         const QJsonObject e2 = CarTable::fromHapticsObject(Config::writeHapticsObject(c), "Mine", "");
         QVERIFY(!e2.value("engine").toObject().contains("maxRpm"));
-        QVERIFY(!e2.value("engine").toObject().contains("order"));
 
         // Applied to a fresh rig, the entry reproduces the car-owned values.
         AppConfig d;

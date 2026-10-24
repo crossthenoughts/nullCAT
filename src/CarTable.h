@@ -88,9 +88,9 @@ public:
     // An entry as the partial haptics object Config::readHapticsObject
     // merges: the engine under its registry key, limiter, driveline, abs,
     // tc, each cut down to the keys the car owns (carKeys): never routes,
-    // never a rig-owned setting however the entry was written. maxRpm and
-    // buzz order fall back to "learn" unless the entry sets them (they
-    // belong to the car too).
+    // never a rig-owned setting however the entry was written. maxRpm
+    // falls back to "learn" unless the entry sets it (it belongs to the car
+    // too). The buzz order is the rig's and never crosses.
     static QJsonObject toHapticsObject(const QJsonObject& entry);
     // The reverse: the car-owned fields of a haptics object as an entry.
     static QJsonObject fromHapticsObject(const QJsonObject& haptics,

@@ -425,9 +425,31 @@ int main()
           && has(post("/api/haptics/mute", "{\"on\":\"yes\"}"), "\"ok\":false")
           && has(post("/api/haptics/mute", "{\"effect\":\"driveline\"}"), "\"ok\":false"),
           "POST /api/haptics/mute refuses a body without a boolean or numeric on");
-    check(has(get("/api/haptics/schema"), "\"carKeys\":[\"ampPct\",\"jitter\",\"clutch\"")
-          && has(get("/api/haptics/schema"), "\"carKeys\":[]") && has(get("/api/haptics/schema"), "\"id\":0"),
-          "GET /api/haptics/schema marks the settings that follow the car, per tile");
+    {
+        // The settings that follow the car, per tile, from the registry's
+        // car flag (in registry order, so read as a set): the Driveline
+        // tile's include its amplitude, jitter and clutch, the Engine
+        // tile's its cylinders but never the buzz order (the rig's: a PC
+        // wants about 0.75, the Pi 0, whatever the car), and a tile the car
+        // table never touches has none.
+        const QJsonArray fx = QJsonDocument::fromJson(QByteArray::fromStdString(get("/api/haptics/schema")))
+                                  .object().value("effects").toArray();
+        bool drive = false, engine = false, none = false;
+        for (const QJsonValue& v : fx)
+        {
+            const QJsonObject e = v.toObject();
+            const QJsonArray ck = e.value("carKeys").toArray();
+            const QString key = e.value("key").toString();
+            if (key == "driveline")
+                drive = ck.contains(QJsonValue("ampPct")) && ck.contains(QJsonValue("jitter"))
+                        && ck.contains(QJsonValue("clutch"));
+            if (key == "rpmVibe")
+                engine = ck.contains(QJsonValue("cylinders")) && !ck.contains(QJsonValue("order"));
+            if (e.contains("carKeys") && ck.isEmpty()) none = true;
+        }
+        check(drive && engine && none && has(get("/api/haptics/schema"), "\"id\":0"),
+              "GET /api/haptics/schema marks the settings that follow the car, per tile, the buzz order not among them");
+    }
     {
         // ...and the ones a type of car (a starting point) sets, from the
         // shipped presets.json: the Lateral tile's slide size, nothing on

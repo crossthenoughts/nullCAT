@@ -72,8 +72,10 @@ constexpr ParamHelp kHelp[] = {
       "The high buzz above idle, rising with revs, 0 to 1. Road car: 0.3 to 0.5. GT3: 0.6 to 0.8. "
       "Single-seater: 0.7 to 1 (a screaming engine)." },
     { "rpmVibe", "order",
-      "The buzz's pitch per engine revolution, 0 to 8 (0 = automatic, which suits most). Lower it (0.25 to "
-      "0.5) for a high-revving engine so the top of the range still fits what the actuator can carry." },
+      "The buzz's pitch per engine revolution, 0 to 8 (0 = automatic). On the Pi, automatic suits most rigs; "
+      "on a PC (500 Hz loop), about 0.75 usually does. Lower it (0.25 to 0.5) for a high-revving engine so "
+      "the top of the range still fits what the actuator can carry. A setting of the rig, not the car: it "
+      "stays as you set it when the car changes." },
     { "rpmVibe", "limHit",
       "How hard the rev limiter bounces, 0 to 2. Road car: 0.6 to 1 (a soft cut). GT3: 1 to 1.5. "
       "Single-seater: 1.2 to 2 (a hard cut)." },

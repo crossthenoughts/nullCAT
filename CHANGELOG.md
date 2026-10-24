@@ -18,6 +18,9 @@ middle number carries breaking changes and the last carries fixes.
   reports it.
 
 ### Changed
+- The Engine tile's buzz order is a setting of the rig, no longer of the
+  car: it stays as you set it when the car changes (a PC usually wants
+  about 0.75, the Pi 0) instead of going back to automatic with every car.
 - The Engine tile's Test with no game running now climbs from idle to the
   redline and ends on the limiter's cut, instead of only idling, so it can
   be judged next to the Limiter and Driveline tests. A Test never teaches
