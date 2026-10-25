@@ -10,6 +10,7 @@
 #include <QSaveFile>
 #include <algorithm>
 #include <cctype>
+#include <set>
 
 namespace {
 QString userPath(const std::string& anchorPath)
@@ -226,7 +227,52 @@ CarTable::Match CarTable::find(const std::string& game, const std::string& car, 
     const size_t dash = car.rfind(" - ");
     if (dash != std::string::npos && dash > 0)
         if (Match m = find(game, car.substr(0, dash), false); !m.source.empty()) return m;
-    return nearOk ? findNear(game, car) : Match{};
+    if (!nearOk) return Match{};
+    // A long name cut short first: the one entry that begins with all of
+    // it is more specific than a shorter entry it begins with
+    // ("Giulietta QV Launch Edition 201" is the Launch Edition, not the
+    // "Giulietta QV").
+    if (Match m = findCut(game, car); !m.source.empty()) return m;
+    return findNear(game, car);
+}
+
+// A name the sim cut short: AC EVO hands its car names over in a field of
+// 31 characters ("BMW M3 E30 Sport Evo (Evolution" for "BMW M3 E30 Sport
+// Evo (Evolution III)"). The one entry of the same game whose name starts
+// with it is the car. Only for a long name (kCutMinChars letters and
+// digits, so a short name never lands on a longer car's entry), and only
+// when exactly one entry fits; your own layer first, as everywhere.
+CarTable::Match CarTable::findCut(const std::string& game, const std::string& car) const
+{
+    const std::string n = normalise(car);
+    if (n.size() < kCutMinChars) return Match{};
+    std::lock_guard<std::mutex> lk(m_mx);
+    std::string id = normalise(game);
+    if (const auto it = m_games.find(id); it != m_games.end()) id = it->second;
+    const std::string prefix = id + ":" + n;
+    const auto begins = [&prefix](const std::string& s) { return s.compare(0, prefix.size(), prefix) == 0; };
+    // The rows whose name begins with it: by the name index, and by the key
+    // for the games keyed by name (AMS2, AC Rally), where the index leaves
+    // the name out.
+    const auto fits = [&](const Layer& layer) -> std::set<std::string>
+    {
+        std::set<std::string> keys;
+        for (auto it = layer.byName.lower_bound(prefix); it != layer.byName.end() && begins(it->first); ++it)
+            keys.insert(it->second);
+        for (auto it = layer.rows.lower_bound(prefix); it != layer.rows.end() && begins(it->first); ++it)
+            keys.insert(it->first);
+        return keys;
+    };
+    const Layer* layer = &m_user;
+    const char* source = "user";
+    std::set<std::string> keys = fits(m_user);
+    if (keys.empty()) { layer = &m_stock; source = "stock"; keys = fits(m_stock); }
+    if (keys.size() != 1) return Match{};
+    const auto r = layer->rows.find(*keys.begin());
+    if (r == layer->rows.end()) return Match{};
+    Match m = toMatch(r->second, source);
+    m.nearMatch = true;
+    return m;
 }
 
 // A near match: a car the sim names with something after a name the table

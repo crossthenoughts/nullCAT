@@ -6,6 +6,9 @@
 //   - lookup is by game + car as the stream names them, normalised: the
 //     game resolves through the file's alias map, case and punctuation
 //     in the car string never miss an entry
+//   - a long name the sim cut short (AC EVO: 31 characters) lands on the
+//     one entry of the same game it begins; never two, never a short name;
+//     every long name in the shipped table, cut so, finds its own entry
 //   - a name with no entry of its own lands on a near match: the longest
 //     entry of the same game it starts with, in whole words, two or more;
 //     an exact entry always wins, a one-word prefix or another game never
@@ -576,6 +579,92 @@ private slots:
     // theirs, apart from AC's (EVO shares some content ids with AC). A car of
     // each is found by its id and by the name the game shows. An entry saved
     // for a Competizione car before its prefix existed is still found.
+    void cutName_theOneEntryOfTheGame()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        writeText(dir.path() + "/cars.json", R"JSON({
+  "games": { "acevo": ["AssettoCorsaEVO", "AC EVO"], "ams2": ["Automobilista2", "AMS2"], "ac": "AssettoCorsa" },
+  "cars": {
+    "acevo:ks_bmw_m3_e30_evo_iii": { "name": "BMW M3 E30 Sport Evo (Evolution III)", "notes": "e30" },
+    "acevo:ks_cup_sprint":         { "name": "Porsche 911 GT3 Cup (992) Edition Sprint", "notes": "sprint" },
+    "acevo:ks_cup_endurance":      { "name": "Porsche 911 GT3 Cup (992) Edition Endurance", "notes": "endurance" },
+    "acevo:ks_bmw_m4_csl":         { "name": "BMW M4 CSL", "notes": "m4" },
+    "ams2:Toyota Corolla GT-S AE86 Trueno Group A": { "notes": "keyed by its name" },
+    "ac:bmw_m3_e30_evo":           { "name": "BMW M3 E30 Sport Evo (Evolution) AC", "notes": "ac" }
+  }
+})JSON");
+        CarTable t;
+        QVERIFY(t.loadStock((dir.path() + "/cars.json").toStdString()));
+
+        // AC EVO's 31-character cut lands on its car, as a near match.
+        CarTable::Match m = t.find("AssettoCorsaEVO", "BMW M3 E30 Sport Evo (Evolution");
+        QCOMPARE(m.key, std::string("acevo:ks_bmw_m3_e30_evo_iii"));
+        QCOMPARE(m.notes, std::string("e30"));
+        QVERIFY(m.nearMatch);
+        // A game keyed by the name itself lands the same way.
+        m = t.find("Automobilista2", "Toyota Corolla GT-S AE86 Trueno");
+        QCOMPARE(m.key, std::string("ams2:Toyota Corolla GT-S AE86 Trueno Group A"));
+        QVERIFY(m.nearMatch);
+        // Two cars it could be: neither.
+        QVERIFY(t.find("AssettoCorsaEVO", "Porsche 911 GT3 Cup (992) Edition").source.empty());
+        // A short name never lands on a longer car's entry.
+        QVERIFY(t.find("AssettoCorsaEVO", "BMW M4").source.empty());
+        // Only the same game's entries.
+        m = t.find("AssettoCorsa", "BMW M3 E30 Sport Evo (Evolution");
+        QCOMPARE(m.key, std::string("ac:bmw_m3_e30_evo"));
+        QVERIFY(t.find("Automobilista2", "BMW M3 E30 Sport Evo (Evolution").source.empty());
+        // Exact only, when asked.
+        QVERIFY(t.find("AssettoCorsaEVO", "BMW M3 E30 Sport Evo (Evolution", false).source.empty());
+        // Your own entry that fits wins over stock.
+        QJsonObject mine; mine["name"] = "BMW M3 E30 Sport Evo (Evolution III) mine"; mine["notes"] = "mine";
+        t.putUser("acevo:my_e30", mine);
+        m = t.find("AssettoCorsaEVO", "BMW M3 E30 Sport Evo (Evolution");
+        QCOMPARE(m.source, std::string("user"));
+        QCOMPARE(m.notes, std::string("mine"));
+    }
+
+    void shippedTable_longNamesCutShortFindTheirCar()
+    {
+        const QString path = QString(NULLCAT_SOURCE_DIR) + "/resources/cars.json";
+        CarTable t;
+        QVERIFY(t.loadStock(path.toStdString()));
+        const auto norm = [](const std::string& s)
+        {
+            std::string out;
+            for (unsigned char c : s) if (std::isalnum(c)) out.push_back(static_cast<char>(std::tolower(c)));
+            return out;
+        };
+        const std::vector<CarTable::Item> items = t.list();
+        int unique = 0, shared = 0;
+        for (const CarTable::Item& it : items)
+        {
+            if (it.name.size() <= 31) continue;
+            const std::string sent = it.name.substr(0, 31);
+            // The cars of the game this cut could be.
+            std::set<std::string> fits;
+            for (const CarTable::Item& o : items)
+                if (o.game == it.game && norm(o.name).compare(0, norm(sent).size(), norm(sent)) == 0)
+                    fits.insert(o.key);
+            const CarTable::Match m = t.find(it.game, sent);
+            const std::string what = it.key + " cut to '" + sent + "' found '" + m.key + "'";
+            if (fits.size() == 1)
+            {
+                ++unique;
+                QVERIFY2(m.key == it.key, qPrintable(QString::fromStdString(what)));
+            }
+            else
+            {
+                // Two or more cars begin so: the cut picks none of them.
+                ++shared;
+                QVERIFY2(!fits.count(m.key), qPrintable(QString::fromStdString(what)));
+            }
+        }
+        QVERIFY2(unique >= 10, "the shipped table has long names to cut");
+        qInfo("long names cut to 31: %d find their car, %d share the cut with another car", unique, shared);
+        QCOMPARE(t.find("AssettoCorsaEVO", "BMW M3 E30 Sport Evo (Evolution").key,
+                 std::string("acevo:ks_bmw_m3_e30_evo_iii"));
+    }
+
     void shippedTable_eachTitleItsOwnPrefix()
     {
         const QString path = QString(NULLCAT_SOURCE_DIR) + "/resources/cars.json";

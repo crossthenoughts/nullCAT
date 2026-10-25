@@ -27,7 +27,10 @@
 // The user layer wins over stock whichever way it matched. A name with no
 // entry of its own can still land on a near match: the longest entry of
 // the same game that the name starts with, in whole words, at least two
-// ("MINI Cooper S 1965 B" is the "MINI Cooper S 1965").
+// ("MINI Cooper S 1965 B" is the "MINI Cooper S 1965"). A long name the
+// sim cut short lands on the one entry of the same game that begins with
+// it (AC EVO's "BMW M3 E30 Sport Evo (Evolution" is the "... (Evolution
+// III)").
 //
 // Thread-safe: its own mutex guards the table (the web thread and the
 // status thread, following the car, both use it).
@@ -66,8 +69,10 @@ public:
 
     // The entry for what the sender names, by its key (stable id) or its
     // display name: the user layer first, then stock; then the base car of
-    // a " - " variant; then, with nearOk, a near match (the longest entry
-    // of the same game the name starts with, whole words, at least two).
+    // a " - " variant; then, with nearOk, a long name the sim cut short
+    // (the one entry of the same game whose name starts with it), then a
+    // near match (the longest entry of the same game the name starts
+    // with, whole words, at least two).
     Match find(const std::string& game, const std::string& car, bool nearOk = true) const;
     // An entry by its key only (either layer, user first), e.g. one picked
     // from the list to use as a starting point for another car.
@@ -126,6 +131,9 @@ private:
     void   rebuildNames(Layer& layer) const;
     const Row* lookup(const Layer& layer, const std::string& nk) const;   // key, then name
     Match findNear(const std::string& game, const std::string& car) const;
+    // A long name the sim cut short: the one entry of the game it begins.
+    Match findCut(const std::string& game, const std::string& car) const;
+    static constexpr size_t kCutMinChars = 20;
     static Match toMatch(const Row& row, const char* source);
     static bool readRows(const QJsonObject& root, std::map<std::string, Row>& into,
                          std::map<std::string, std::string>* games);
