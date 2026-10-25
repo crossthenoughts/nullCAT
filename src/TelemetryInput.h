@@ -67,6 +67,9 @@ struct TelemetryData
     char            game[NCY_STR_LEN]           = {};
     char            car[NCY_STR_LEN]            = {};    // the car as the sim shows it (SimHub CarModel)
     char            carId[NCY_STR_LEN]          = {};    // its stable id (SimHub CarId: the content folder for AC); "" from an older plugin
+    // The sender's direct source, from its identity line (protocol 1.9):
+    // 'y' on, 'n' off, '-' none for this game, 0 never said.
+    char            direct                      = 0;
 };
 static_assert(std::is_trivially_copyable<TelemetryData>::value, "TelemetryData is copied with memcpy by the snapshot reader");
 
@@ -159,6 +162,16 @@ public:
     }
     void shutdown();
 
+    // Direct telemetry (protocol 1.9). What the channel sender last said
+    // about its direct source ('y', 'n', '-', or 0 when it never said; it
+    // is cleared when the stream comes back after a gap, so read it with
+    // hasRecentNcx()), and a line back to it: NULLCATC,... sent from
+    // this socket (the telemetry port, its answer path through a firewall)
+    // to the address its NULLCATY lines come from. Any thread but the RT
+    // loop; false when no sender is known or the socket is closed.
+    char channelSenderDirect() const { return m_senderDirect.load(std::memory_order_acquire); }
+    bool sendToChannelSender(const char* line) const;
+
     // UDP telemetry-rate diagnostic. Measured on the receive path, ACTIVE ONLY
     // WHEN DIAGNOSTICS ARE ENABLED (zero cost otherwise). Returns -1 when off or
     // before the first 1 s window completes. arrival = packets/s pulled from the
@@ -233,6 +246,7 @@ private:
         char    game[NCY_STR_LEN]  = {};
         char    car[NCY_STR_LEN]   = {};
         char    carId[NCY_STR_LEN] = {};
+        char    direct = 0;
     };
     static_assert(std::is_trivially_copyable<Store>::value, "the snapshot reader copies the store with memcpy");
     Store m_store;
@@ -255,6 +269,10 @@ private:
     std::atomic<int64_t> m_lastMotionPacketMs{0};
 
     std::atomic<int64_t> m_lastNcxPacketMs{0};
+    // The channel sender: bit 48 set when known, its IPv4 address (network
+    // order) above its port (network order). Written by the receive path.
+    std::atomic<uint64_t> m_ncySender{0};
+    std::atomic<char>     m_senderDirect{0};
     std::atomic<int64_t> m_lastNcxChangeMs{0};   // last packet whose numbers differed
     std::atomic<int64_t> m_frozenMs{0};          // guard window, 0 = off
     mutable std::atomic<int> m_ncxStreamState{0}; // 0 stopped, 1 live, 2 frozen (getLatestData, any thread)

@@ -9,12 +9,12 @@ middle number carries breaking changes and the last carries fixes.
 ### Added
 - Belts can pull straight from the car's g: set **Belt cue from** to
   **g** in the belt's Setup and nullCAT maps the car's braking,
-  acceleration or both (**Tightens on**) onto the belt's torque range, a
+  acceleration or both (**Surge**) onto the belt's torque range, a
   straight line from **g from** to **g at max**, with a curve and
   smoothing to taste. If it tightens the wrong way round, pick the other
-  direction. **Cornering** adds the sideways g in left-hand corners,
+  direction. **Sway** adds the sideways g in left-hand corners,
   right-hand corners or both (a belt on each shoulder can take its own
-  side), and **Crests and dips** the vertical g over crests, into
+  side), and **Heave** the vertical g over crests, into
   compressions or both (only its change: gravity and long hills never
   tighten the belt), each at its own share. It needs the SimHub plugin
   1.9, which now sends the car's accelerations and rotation rates. The
@@ -22,6 +22,13 @@ middle number carries breaking changes and the last carries fixes.
   to another window leaves the belt taut at its minimum; it slackens by
   itself only with the posts, when your motion software's stream stops
   too.
+- **Direct telemetry** switch on the Haptics strip's Master tile: asks the
+  sim's sender for a faster feed straight from the game where it has one
+  (the SimHub plugin's Assetto Corsa read, about 333 a second instead of
+  about 60). It takes effect at once, is remembered, and shows what the
+  sender is doing (on, off, none in this game, or a sender that does not
+  offer it). Once you have used it, it wins over the plugin's own
+  setting. Needs the SimHub plugin from this release.
 - Impacts feels walls and other cars: a sudden jump in the car's g along
   and across it knocks every corner, from **hit g** (2 g by default, full
   at three times that; 0 turns it off). With the SimHub plugin 1.9.
@@ -103,6 +110,9 @@ middle number carries breaking changes and the last carries fixes.
   itself. The input now has to read open for two readings in a row (20 ms)
   to trip, and closed for half a second to count as released. A flicker is
   written to the log with the pin's number, so a wiring fault shows.
+- The car search on the Haptics strip lists every match with its game in
+  a column of its own, and takes several words ("e30 evo", "bmw m3
+  acevo"); the browser's own list cut long names off, game and all.
 - AC EVO: cars with long names (the BMW M3 E30 Sport Evo, the Lancia
   Delta HF integrale Evoluzione II, the Toyota Sprinter Trueno AE86 and
   others) now find their car table entry. The game passes car names on

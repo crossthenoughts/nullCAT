@@ -19,6 +19,9 @@ motion software owns the game; nullCAT owns the rig.
 - No timestamp on the wire; no handshake; no acknowledgements. Senders may
   simply stop - the receiver has staleness fail-safes at every layer and
   parks or idles gracefully.
+- One optional line goes the other way (line type 4): the receiver asks a
+  sender that says it has a direct source to turn it on or off. A sender
+  that never says so never receives it.
 - Three line types share the port. Each runs without the others, at its
   own rate.
 
@@ -91,6 +94,7 @@ string keys ride on the same line type:
 | `game` | the running sim's name, free text (up to 47 characters) |
 | `car` | the current car as the sim shows it, free text (up to 47 characters) |
 | `carId` | optional: the car's stable id in that sim (Assetto Corsa: the content folder, e.g. `ks_mazda_787b`), up to 47 characters. nullCAT's car table is keyed by it where a sim has one; without it the table matches on `car` |
+| `direct` | optional: whether the sender is sending from a direct source of its own for this game (a faster feed straight from the sim, as the SimHub plugin's Assetto Corsa read): `on`, `off`, or `none` (it has none for this game). Send it with the identity. A sender that sends it can be asked to switch (line type 4) *(since 1.9)* |
 
 Unknown keys, keys without `=`, and non-numeric values for a numeric
 token (`NaN` and `inf` included) are skipped; the rest of the line still
@@ -206,9 +210,29 @@ km/h for road speed, 0..100 for the pedals. Wheel speeds and loads can be
 in whatever the tool has. The motion line (`NULLCAT,...`) is unchanged
 and can come from the same tool.
 
+## Line type 4: receiver to sender
+
+```
+NULLCATC,direct=on\n
+NULLCATC,direct=off\n
+```
+
+The receiver's **direct telemetry** switch. nullCAT sends it from its
+telemetry port to the address and port the sender's `NULLCATY` lines
+come from (so a firewall passes it as a reply): when the switch changes,
+and then at most once a second while the sender's `direct` key says `on`
+or `off` and differs from the switch. Nothing is sent to a sender that
+never sends `direct`, or says `none`. A sender should accept it only
+from the receiver (the address it sends to, or that address's telemetry
+port: a receiver with several addresses may answer from another), switch
+its direct source, and report the result in its next identity line.
+Unknown keys on the line are ignored *(since 1.9)*.
+
 ## Version history
 
-- **1.9** (nullCAT 0.9.9): added `inPit`, `lap` and `tyreWearFL` ..
+- **1.9** (nullCAT 0.9.9): added the `direct` identity key and line
+  type 4 (`NULLCATC,direct=on|off`, receiver to sender), nullCAT's
+  direct telemetry switch. Added `inPit`, `lap` and `tyreWearFL` ..
   `tyreWearRR`, so the Wheels effect brings fresh tyres (no flat spots,
   cold discs) on a restart, a return to the pits or the garage and new
   tyres at a stop, and keeps them through a drive into the pits. A sender

@@ -991,6 +991,19 @@ int main()
           "home with junk body: falls back to home-all (accepted)");
 
 
+    // ---- direct telemetry: the rig's choice reads back; junk is refused ----
+    check(has(post("/api/telemetry/direct", "not json"), "\"ok\":false")
+          && has(post("/api/telemetry/direct", "{\"on\":\"yes\"}"), "\"ok\":false"),
+          "direct telemetry: a body without a boolean \"on\" is refused");
+    check(has(get("/api/status"), "\"directWant\":\"\""), "direct telemetry: the refusals changed nothing (left to the sender)");
+    check(has(post("/api/telemetry/direct", "{\"on\":true}"), "\"direct\":\"on\"")
+          && has(get("/api/status"), "\"directWant\":\"on\""),
+          "direct telemetry on: reads back");
+    check(has(post("/api/telemetry/direct", "{\"on\":false}"), "\"direct\":\"off\"")
+          && has(get("/api/status"), "\"directWant\":\"off\""),
+          "direct telemetry off: reads back");
+    check(has(get("/api/status"), "\"directSender\":\""), "status carries what the sender says");
+
     // ---- e-stop; tension ACCEPTED but silently refused (contract fact #1/#2) ----
     check(has(post("/api/estop"), "\"ok\":true"), "POST /api/estop accepted");
     check(waitStatus("\"estop\":true", 3000), "status: estop:true");
@@ -1195,6 +1208,62 @@ int main()
                   "...the hand-set amp stays and the row reads as remembered (not applied)");
             check(nameCar(telemetry, "AssettoCorsa", "Ferrari F40", "\"hapCarApplied\":true", 10000) && genNow() == gen2 + 1,
                   "a different car after the restart is applied as ever");
+
+            // ---- direct telemetry across the restart, and end to end ----
+            // The choice (off, set before the restart) is remembered; the
+            // sender is asked, from the telemetry port to the port its
+            // identity came from, while it reports otherwise, at most about
+            // once a second, and never while it agrees or has none.
+            check(has(get("/api/status"), "\"directWant\":\"off\""),
+                  "direct telemetry: the choice made before the restart is remembered (senderstate.json)");
+            {
+                const int c = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+                timeval tmo{0, 300000};
+                setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tmo, sizeof(tmo));
+                sockaddr_in me{};
+                me.sin_family = AF_INET;
+                me.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+                bind(c, reinterpret_cast<sockaddr*>(&me), sizeof(me));
+                sockaddr_in to{};
+                to.sin_family = AF_INET;
+                to.sin_port = htons(static_cast<uint16_t>(cfg.telemetryPort));
+                to.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+                // The loop is stopped here: the test drains the socket.
+                const auto say = [&](const char* direct)
+                {
+                    const std::string l = std::string("NULLCATY,game=AssettoCorsa,car=Ferrari F40,direct=") + direct;
+                    sendto(c, l.data(), l.size(), 0, reinterpret_cast<sockaddr*>(&to), sizeof(to));
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                    while (telemetry.receive()) {}
+                };
+                // Asks heard over a window, the sender saying `direct` throughout.
+                const auto asksOver = [&](const char* direct, int ms, std::string& last)
+                {
+                    int asks = 0;
+                    for (int t = 0; t < ms; t += 320)
+                    {
+                        say(direct);
+                        char b[128];
+                        const ssize_t n = recv(c, b, sizeof(b) - 1, 0);
+                        if (n > 0) { ++asks; last.assign(b, static_cast<size_t>(n)); }
+                    }
+                    return asks;
+                };
+                std::string last;
+                say("off");
+                check(has(post("/api/telemetry/direct", "{\"on\":true}"), "\"direct\":\"on\""), "direct telemetry on (end to end)");
+                const int asked = asksOver("off", 3000, last);
+                check(asked >= 2 && asked <= 5 && last == "NULLCATC,direct=on\n",
+                      "the sender reporting off is asked for on, about once a second");
+                check(has(get("/api/status"), "\"directSender\":\"off\""), "status: what the sender says");
+                asksOver("on", 700, last);   // it switched: any ask still in flight lands here
+                check(asksOver("on", 2000, last) == 0, "the sender reporting on (as asked): never asked");
+                check(asksOver("none", 2000, last) == 0, "a sender with no direct source for the game: never asked");
+                check(has(post("/api/telemetry/direct", "{\"on\":false}"), "\"direct\":\"off\""), "direct telemetry off (end to end)");
+                check(asksOver("on", 2000, last) >= 1 && last == "NULLCATC,direct=off\n",
+                      "the sender reporting on is asked for off");
+                close(c);
+            }
             web2.stop();
         }
     }

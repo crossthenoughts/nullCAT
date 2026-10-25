@@ -305,9 +305,9 @@ drives the rig.
   By default a belt pulls with the tension your motion software sends
   it; set **Belt cue from** to **g** in the belt's Setup and nullCAT pulls
   it straight from the car's braking, acceleration or both instead
-  (**Tightens on**, scaled by **g from** and **g at max**; needs the SimHub
-  plugin 1.9). **Cornering** and **Crests and dips** add the car's sideways
-  and vertical g to the pull.
+  (**Surge**, scaled by **g from** and **g at max**; needs the SimHub
+  plugin 1.9). **Sway** and **Heave** add the car's sideways and vertical g
+  to the pull.
 - **USB button box.** Plug it into the Pi and bind physical buttons to
   actions (park, belt toggle, e-stop) on the web UI's bindings page. Press the button
   when prompted and it's captured.

@@ -255,6 +255,17 @@ int main()
         check(ok && std::string(d.car) == "Mazda 787B" && std::string(d.carId) == "ks_mazda_787b",
               "carId= lands beside car= (SimHub CarId: the content folder for AC)");
 
+        // direct= (the sender's direct source): on, off, none; anything
+        // else is not said, and a line of nothing else lands nothing.
+        d = parse("NULLCATY,game=AssettoCorsa,car=Mazda 787B,carId=ks_mazda_787b,direct=on", &ok);
+        check(ok && d.direct == 'y' && std::string(d.carId) == "ks_mazda_787b", "direct=on beside the identity: 'y'");
+        check(parse("NULLCATY,game=AMS2,direct=off").direct == 'n', "direct=off: 'n'");
+        check(parse("NULLCATY,game=AMS2,direct=none").direct == '-', "direct=none: '-'");
+        check(parse("NULLCATY,game=AMS2,direct=maybe").direct == 0, "direct=<anything else>: not said");
+        check(parse("NULLCATY,game=AMS2").direct == 0, "no direct= on the line: not said (an older sender)");
+        parse("NULLCATY,direct=maybe", &ok);
+        check(!ok, "a line of only an unknown direct= lands nothing: rejected");
+
         d = parse("NULLCATY,boostBar=1.2,RPM=100,rpm,=5,rpm=abc,gear=3", &ok);
         check(ok && d.ncyHave[NcxTok::Gear] && !d.ncyHave[NcxTok::Rpm],
               "unknown keys, wrong case, missing '=', empty key and non-numeric values are skipped; valid pairs still land");
@@ -611,6 +622,55 @@ int main()
         check(overlaps.load() == 0, "B14 two threads draining the socket never run the receive path at once");
         check(torn.load() == 0, "B14 ...and no frame is torn");
         check(delivered.load() >= sent * 95 / 100, "B14 ...and the datagrams arrive (the second caller backs off, it does not lose them)");
+        ti.shutdown();
+    }
+
+    // ---- Direct telemetry: what the sender says, and the line back ----
+    // The receiver keeps what the channel sender's identity says about its
+    // direct source, and answers to the address and port its NULLCATY
+    // lines come from (a reply from the telemetry port: what a firewall
+    // lets back in). A motion line from another socket never moves it.
+    {
+        TelemetryInput ti;
+        check(ti.initialize(0, "127.0.0.1"), "D1 a loopback receiver");
+        const int port = ti.port();
+        check(!ti.sendToChannelSender("NULLCATC,direct=on\n"), "D1 no sender heard yet: nothing to answer");
+        check(ti.channelSenderDirect() == 0, "D1 no sender heard yet: nothing said");
+#ifdef _WIN32
+        SOCKET c = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        DWORD tmo = 1000;
+        setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&tmo), sizeof(tmo));
+#else
+        int c = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        timeval tmo{1, 0};
+        setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tmo, sizeof(tmo));
+#endif
+        sockaddr_in me{};
+        me.sin_family = AF_INET;
+        me.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        me.sin_port = 0;
+        bind(c, reinterpret_cast<sockaddr*>(&me), sizeof(me));
+        sockaddr_in to{};
+        to.sin_family = AF_INET;
+        to.sin_port = htons(static_cast<uint16_t>(port));
+        to.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        const char* ident = "NULLCATY,game=AssettoCorsa,car=Mazda 787B,carId=ks_mazda_787b,direct=off";
+        sendto(c, ident, static_cast<int>(std::strlen(ident)), 0, reinterpret_cast<sockaddr*>(&to), sizeof(to));
+        sendUdp(port, "NULLCAT,1,2,3,4,5,6");   // the motion software, from a socket of its own
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        while (ti.receive()) {}
+        check(ti.channelSenderDirect() == 'n', "D2 the sender said direct=off: 'n'");
+        check(ti.getLatestData().direct == 'n', "D2 ...and the snapshot carries it");
+        check(ti.sendToChannelSender("NULLCATC,direct=on\n"), "D3 the answer goes out");
+        char buf[128] = {};
+        const int got = static_cast<int>(recv(c, buf, sizeof(buf) - 1, 0));
+        check(got > 0 && std::string(buf, got > 0 ? got : 0) == "NULLCATC,direct=on\n",
+              "D3 ...to the port the identity line came from (not the motion line's)");
+#ifdef _WIN32
+        closesocket(c);
+#else
+        close(c);
+#endif
         ti.shutdown();
     }
 

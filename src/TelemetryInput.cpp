@@ -103,6 +103,14 @@ bool TelemetryInput::initialize(int port, const std::string& bindAddr)
 #ifdef _WIN32
     u_long nonblocking = 1;
     ioctlsocket(sock, FIONBIO, &nonblocking);
+    // Windows reports an ICMP "port unreachable" for an earlier send (a
+    // direct telemetry answer to a sender that has just closed) as an
+    // error on the next recvfrom: off, so the receive path never sees it.
+    {
+        BOOL reset = FALSE;
+        DWORD got = 0;
+        WSAIoctl(sock, _WSAIOW(IOC_VENDOR, 12), &reset, sizeof(reset), nullptr, 0, &got, nullptr, nullptr);
+    }
 
     DWORD timeout = 10;  // ms
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO,
@@ -295,7 +303,26 @@ bool TelemetryInput::receive()
         return false;
     }
     m_parseFailCount = 0;
+    // Where the channel sender is: a reply (direct telemetry) goes there.
+    if (parsed.packetType == TelemetryPacketType::Ncy && senderAddr.sin_family == AF_INET)
+        m_ncySender.store((uint64_t(1) << 48)
+                          | (uint64_t(static_cast<uint32_t>(senderAddr.sin_addr.s_addr)) << 16)
+                          | uint64_t(senderAddr.sin_port), std::memory_order_release);
     return ingest(parsed);
+}
+
+bool TelemetryInput::sendToChannelSender(const char* line) const
+{
+    if (m_socket == INVALID_SOCKET_VALUE || !line) return false;
+    const uint64_t s = m_ncySender.load(std::memory_order_acquire);
+    if (!(s >> 48)) return false;
+    sockaddr_in to{};
+    to.sin_family      = AF_INET;
+    to.sin_addr.s_addr = static_cast<uint32_t>((s >> 16) & 0xFFFFFFFFu);
+    to.sin_port        = static_cast<uint16_t>(s & 0xFFFFu);
+    const int len = static_cast<int>(std::strlen(line));
+    return sendto(static_cast<SOCKET>(m_socket), line, len, 0,
+                  reinterpret_cast<const sockaddr*>(&to), sizeof(to)) == len;
 }
 
 // Everything after the parse: store the packet by stream. Public so a
@@ -323,6 +350,8 @@ bool TelemetryInput::ingest(const TelemetryData& parsed)
             {
                 for (bool& h : st.ncyHave) h = false;
                 st.game[0] = st.car[0] = st.carId[0] = '\0';
+                st.direct = 0;
+                m_senderDirect.store(0, std::memory_order_release);
             }
             // Frozen-stream guard: a packet whose numeric payload is
             // bit-identical to the stored values is a repeat (a paused sim,
@@ -368,6 +397,11 @@ bool TelemetryInput::ingest(const TelemetryData& parsed)
                 // The id travels with the name: a line naming the car
                 // without an id (an older plugin) clears the stale id.
                 if (parsed.car[0])  std::memcpy(st.carId, parsed.carId, NCY_STR_LEN);
+                if (parsed.direct)
+                {
+                    st.direct = parsed.direct;
+                    m_senderDirect.store(parsed.direct, std::memory_order_release);
+                }
             }
             if (changed || last == 0 || (nowMs - last) >= 500) m_lastNcxChangeMs.store(static_cast<int64_t>(nowMs));
             else if (!numeric && m_lastNcxChangeMs.load() == 0) m_lastNcxChangeMs.store(static_cast<int64_t>(nowMs));
@@ -558,6 +592,7 @@ TelemetryData TelemetryInput::getLatestData(bool wait) const
     std::memcpy(d.game,  st.game,  NCY_STR_LEN);
     std::memcpy(d.car,   st.car,   NCY_STR_LEN);
     std::memcpy(d.carId, st.carId, NCY_STR_LEN);
+    d.direct = st.direct;
     const bool arriving = (lastNcx != 0) && (nowMs - lastNcx) < 500;
     const int64_t frozenMs = m_frozenMs.load();
     const bool frozen   = frozenMs > 0 && arriving && lastChange != 0 && (nowMs - lastChange) >= frozenMs;
@@ -688,6 +723,7 @@ bool TelemetryInput::parsePacket(const char* buf, int len, TelemetryData& out)
         out.packetType = TelemetryPacketType::Ncy;
         for (bool& h : out.ncyHave) h = false;
         out.game[0] = out.car[0] = out.carId[0] = '\0';
+        out.direct = 0;
         int landed = 0;
         const char* f = comma + 1;
         while (f <= end)
@@ -707,7 +743,16 @@ bool TelemetryInput::parsePacket(const char* buf, int len, TelemetryData& out)
                 const int klen = static_cast<int>(ke - a), vlen = static_cast<int>(b - va);
                 const auto keyIs = [&](const char* ref)
                 { return static_cast<int>(std::strlen(ref)) == klen && std::memcmp(ref, a, static_cast<size_t>(klen)) == 0; };
-                if (keyIs("game") || keyIs("car") || keyIs("carId"))
+                if (keyIs("direct"))
+                {
+                    // The sender's direct source (protocol 1.9): on, off,
+                    // or none for this game; anything else is not said.
+                    const auto valIs = [&](const char* ref)
+                    { return static_cast<int>(std::strlen(ref)) == vlen && std::memcmp(ref, va, static_cast<size_t>(vlen)) == 0; };
+                    out.direct = valIs("on") ? 'y' : valIs("off") ? 'n' : valIs("none") ? '-' : 0;
+                    if (out.direct) ++landed;
+                }
+                else if (keyIs("game") || keyIs("car") || keyIs("carId"))
                 {
                     char* dstS = keyIs("game") ? out.game : keyIs("car") ? out.car : out.carId;
                     const int n = std::min(vlen, NCY_STR_LEN - 1);

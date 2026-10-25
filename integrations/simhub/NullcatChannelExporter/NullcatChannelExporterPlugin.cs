@@ -14,12 +14,18 @@
 //            pit limiter, the magnitudes when bound, the per-wheel groups
 //            in force, each only when all four wheels read)
 //
-//   NULLCATY,game=..,car=..,carId=..               (once a second)
+//   NULLCATY,game=..,car=..,carId=..,direct=..     (once a second; direct =
+//            on, off, or none: whether the Kunos direct read below runs)
 //
 //   NULLCATY,accSurge=..,accSway=..,accHeave=..    (optional, the Assetto
 //            Corsa family: the accelerations from the game's shared memory
 //            on every physics step, see KunosDirect.cs; the line above then
 //            leaves them out)
+//
+// And it hears one line back (protocol 1.9), only from nullCAT (the
+// address it sends to, or nullCAT's telemetry port): NULLCATC,direct=on|off,
+// nullCAT's Direct telemetry switch,
+// which turns the Kunos direct read on or off.
 //
 // That is the whole job. No shaping, no state: nullCAT owns the tyre
 // model and maps channels onto effects. The only game knowledge here is
@@ -259,7 +265,14 @@ namespace NullcatChannelExporter
                 host = "127.0.0.1";
                 _target = new IPEndPoint(IPAddress.Loopback, port);
             }
-            _udp = new UdpClient();
+            // Bound at once (an ephemeral port) so the listener below can
+            // hear nullCAT's answer on the socket the lines leave from: the
+            // firewall lets a reply to them through.
+            _udp = new UdpClient(new IPEndPoint(IPAddress.Any, 0));
+            // Windows reports a send to a port nobody listened on (nullCAT
+            // not running yet) as an error on the NEXT receive: off.
+            try { const int SIO_UDP_CONNRESET = -1744830452; _udp.Client.IOControl(SIO_UDP_CONNRESET, new byte[] { 0 }, null); } catch { }
+            new System.Threading.Thread(Listen) { IsBackground = true, Name = "nullCAT answers" }.Start();
 
             // Say where the stream goes, in SimHub's log and as a property
             // anyone can read in the property list: when nothing arrives at
@@ -516,8 +529,12 @@ namespace NullcatChannelExporter
                 var game  = Clean(data.GameName);
                 var car   = Clean(d.CarModel);
                 var carId = Clean(d.CarId);
+                // direct: whether the Kunos direct read runs for this game
+                // (none: the game has no direct read), for nullCAT's Direct
+                // telemetry switch.
+                var direct = kunos == null || !kunos.GameOk ? "none" : kunos.Enabled ? "on" : "off";
                 if (game.Length > 0 || car.Length > 0)
-                    Send("NULLCATY,game=" + game + ",car=" + car + ",carId=" + carId);
+                    Send("NULLCATY,game=" + game + ",car=" + car + ",carId=" + carId + ",direct=" + direct);
                 if (kunos != null)
                 {
                     kunos.Tick();
@@ -849,6 +866,53 @@ namespace NullcatChannelExporter
             }
             catch { return false; }
             return !(double.IsNaN(x) || double.IsNaN(y) || double.IsNaN(z) || double.IsInfinity(x) || double.IsInfinity(y) || double.IsInfinity(z));
+        }
+
+        // nullCAT's answers (protocol 1.9), on the sending socket, only from
+        // the address the lines go to: NULLCATC,direct=on|off turns the Kunos
+        // direct read on or off (nullCAT's Direct telemetry switch). Runs
+        // until End closes the socket.
+        private void Listen()
+        {
+            while (true)
+            {
+                UdpClient udp;
+                lock (_sendLock) udp = _udp;
+                if (udp == null) return;
+                try
+                {
+                    var from = new IPEndPoint(IPAddress.Any, 0);
+                    var bytes = udp.Receive(ref from);
+                    // From nullCAT only: the address the lines go to, or its
+                    // telemetry port (a Pi with several addresses may answer
+                    // from another one).
+                    var target = _target;
+                    if (target == null || (!from.Address.Equals(target.Address) && from.Port != target.Port)) continue;
+                    var text = Encoding.ASCII.GetString(bytes).Trim();
+                    if (!text.StartsWith("NULLCATC,", StringComparison.Ordinal)) continue;
+                    foreach (var field in text.Substring(9).Split(','))
+                    {
+                        var kv = field.Split('=');
+                        if (kv.Length != 2 || kv[0].Trim() != "direct") continue;
+                        var v = kv[1].Trim();
+                        var k = _kunos;
+                        if (k == null || (v != "on" && v != "off")) continue;
+                        var on = v == "on";
+                        if (k.Enabled != on)
+                        {
+                            k.Enabled = on;
+                            try { SimHub.Logging.Current.Info("nullCAT Channel Exporter: direct telemetry " + v + " (asked by nullCAT)"); } catch { }
+                        }
+                    }
+                }
+                catch (ObjectDisposedException) { return; }
+                catch (SocketException)
+                {
+                    lock (_sendLock) { if (_udp == null) return; }
+                    System.Threading.Thread.Sleep(200);
+                }
+                catch { System.Threading.Thread.Sleep(200); }
+            }
         }
 
         private void Send(string line)

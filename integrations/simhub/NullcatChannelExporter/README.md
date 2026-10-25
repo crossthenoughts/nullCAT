@@ -156,10 +156,16 @@ the same units and directions as SimHub's and nothing on the rig needs
 changing. Until they match, and whenever they stop matching, SimHub's
 values go as before.
 
-To compare the two while driving, bind the SimHub action
-**ToggleKunosDirect** to a button under **Controls and events**. The
-property `NullcatChannelExporter.KunosDirect` shows what it is doing:
-off, matching, or live with the rate and the match it found.
+nullCAT's **direct telemetry** switch (the Haptics strip's Master tile)
+turns it on or off from the rig: the plugin tells nullCAT once a second
+whether it is on, off or not available for the game, and nullCAT asks it
+to change whenever that differs from the switch. Once you have used the
+switch, it wins over the settings file. To compare the two while
+driving, bind the SimHub action **ToggleKunosDirect** to a button under
+**Controls and events** (with the switch set, nullCAT turns it back
+within about two seconds). The property `NullcatChannelExporter.KunosDirect`
+shows what it is doing: off, matching, or live with the rate and the
+match it found.
 
 ## Optional: binding per-wheel channels yourself
 

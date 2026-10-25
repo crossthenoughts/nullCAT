@@ -133,6 +133,10 @@ namespace NullcatChannelExporter
             }
         }
 
+        // Whether the running game is one of the family (the direct read
+        // exists for it).
+        public bool GameOk { get { return _gameOk; } }
+
         // Called on SimHub's tick: whether the game is one of the family (a
         // different game starts the match over).
         public void SetGame(bool acFamily, bool changed)

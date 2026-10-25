@@ -812,16 +812,16 @@ const AXIS_SPEC=[
   {k:'beltMaxRpm',label:'Speed fold (0=off)',type:'num',min:0,max:3000,step:50,unit:'rpm',torque:true,tip:'THE enforced speed limit on these drives (their own CST speed objects do not restrain): tension folds to zero above this, capping the slack take-up lunge.'},
   {k:'beltRelaxerSec',label:'Relaxer (0=off)',type:'num',min:0,max:120,step:1,unit:'s',torque:true,tip:'Sustained near-max tension for this long eases to min (at the Slew cap rate) until demand drops - pre-empts the drive thermal fault that would park the whole rig.'},
   {k:'beltRelaxerPct',label:'Relaxer band',type:'num',min:20,max:100,step:1,unit:'%',torque:true,tip:'Fraction of Torque max that counts as near-max for the relaxer dwell.'},
-  {k:'beltSource',label:'Belt cue from',type:'select',opts:['motion','g'],torque:true,tip:'motion: the tension your motion software sends on this axis (as before). g: nullCAT pulls the belt straight from the car\'s g (braking and acceleration, cornering, crests and compressions; SimHub plugin 1.9), shaped by the settings below; the motion software\'s value for this axis is then unused.'},
-  {k:'beltGMode',label:'Tightens on',type:'select',opts:['decel','accel','both','off'],torque:true,tip:'With the cue from g: decel tightens under braking, accel under acceleration, both under either, off leaves braking and acceleration out (a belt on cornering or heave alone). If it tightens the wrong way round, pick the other one (senders differ on the sign).'},
-  {k:'beltGSway',label:'Cornering',type:'select',opts:['off','left','right','both'],torque:true,tip:'With the cue from g: the cornering g adds to the pull, in left-hand corners, right-hand corners or both. With a belt on each shoulder, give each its own side. If a belt tightens in the wrong corners, pick the other side.'},
-  {k:'beltGSwayMix',label:'Cornering share',type:'num',min:0,max:3,step:0.05,torque:true,tip:'With cornering on: how much a g of cornering pulls against a g of braking (1 = the same).'},
-  {k:'beltGHeave',label:'Crests and dips',type:'select',opts:['off','lift','press','both'],torque:true,tip:'With the cue from g: the vertical g adds to the pull, over crests (lift: the car goes light), into compressions (press) or both. Only the change counts: gravity and long hills never tighten the belt. If it is the wrong way round, pick the other one.'},
-  {k:'beltGHeaveMix',label:'Crests share',type:'num',min:0,max:3,step:0.05,torque:true,tip:'With crests and dips on: how much a g of vertical change pulls against a g of braking (1 = the same).'},
+  {k:'beltSource',label:'Belt cue from',type:'select',opts:['motion','g'],torque:true,tip:'motion: the tension your motion software sends on this axis (as before). g: nullCAT pulls the belt straight from the car\'s g (surge: braking and acceleration; sway: cornering; heave: crests and compressions; needs a protocol 1.9 sender such as the SimHub plugin 1.9), shaped by the settings below; the motion software\'s value for this axis is then unused.'},
+  {k:'beltGMode',label:'Surge',type:'select',opts:['decel','accel','both','off'],torque:true,tip:'With the cue from g, the g along the car: decel tightens under braking, accel under acceleration, both under either, off leaves surge out (a belt on sway or heave alone). If it tightens the wrong way round, pick the other one (senders differ on the sign).'},
+  {k:'beltGSway',label:'Sway',type:'select',opts:['off','left','right','both'],torque:true,tip:'With the cue from g, the g across the car: it adds to the pull in left-hand corners, right-hand corners or both. With a belt on each shoulder, give each its own side. If a belt tightens in the wrong corners, pick the other side.'},
+  {k:'beltGSwayMix',label:'Sway share',type:'num',min:0,max:3,step:0.05,torque:true,tip:'With sway on: how much a g of sway pulls against a g of surge (1 = the same).'},
+  {k:'beltGHeave',label:'Heave',type:'select',opts:['off','lift','press','both'],torque:true,tip:'With the cue from g, the vertical g: it adds to the pull over crests (lift: the car goes light), into compressions (press) or both. Only the change counts: gravity and long hills never tighten the belt. If it is the wrong way round, pick the other one.'},
+  {k:'beltGHeaveMix',label:'Heave share',type:'num',min:0,max:3,step:0.05,torque:true,tip:'With heave on: how much a g of heave pulls against a g of surge (1 = the same).'},
   {k:'beltGFromG',label:'g from',type:'num',min:0,max:2,step:0.01,unit:'g',torque:true,tip:'With the cue from g: below this the belt stays at Torque min (a dead band for the small g of cruising).'},
   {k:'beltGFullG',label:'g at max',type:'num',min:0.2,max:6,step:0.05,unit:'g',torque:true,tip:'With the cue from g: the g that pulls the belt to Torque max. Lower makes it stronger; road cars brake at about 1 g, race cars 2 to 4 g.'},
   {k:'beltGCurve',label:'g curve',type:'num',min:0.3,max:3,step:0.05,torque:true,tip:'With the cue from g: 1 is a straight line from g from to g at max. Above 1 is softer at small g and steeper near the top; below 1 the reverse.'},
-  {k:'beltGSmoothMs',label:'g smoothing',type:'num',min:0,max:250,step:5,unit:'ms',torque:true,tip:'With the cue from g: how much the g is smoothed (it arrives about 60 times a second through SimHub, about 333 with the plugin\'s direct Assetto Corsa feed). 20 to 40 ms takes the steps out at 60; more is softer but later.'},
+  {k:'beltGSmoothMs',label:'g smoothing',type:'num',min:0,max:250,step:5,unit:'ms',torque:true,tip:'With the cue from g: how much the g is smoothed (it arrives about 60 times a second from most senders, about 333 with direct telemetry). 20 to 40 ms takes the steps out at 60; more is softer but later.'},
 ];
 function condMode(){ return (cfgObj&&cfgObj.conditioningMode)||'bypass'; }
 const isRot=d=>d&&d.axisType==='rotary_lever';
@@ -1597,22 +1597,59 @@ function hapCarRow(c){
 async function hapCarRefresh(){
   try{ const r=await fetch(API+'/api/cars'); if(!r.ok) return; hapCarRow(await r.json()); }catch(_){}
 }
-// The search box's list: "name · game" (plus "· yours" for your own
-// entries), mapped back to the key on apply.
+// The search box's text for a picked entry: "name · game" (plus "· yours"
+// for your own entries), mapped back to the key on apply.
 function hapCarLabel(it){ return it.name+' · '+it.game+(it.source==='user'?' · yours':''); }
 async function hapCarListLoad(){
   try{
     const r=await fetch(API+'/api/cars/list'); if(!r.ok) return;
     hapCarItems=(await r.json()).cars||[];
-    const dl=$('hapCarList'); if(!dl) return;
-    dl.innerHTML=hapCarItems.map(it=>'<option value="'+hapCarLabel(it).replace(/"/g,'&quot;')+'"></option>').join('');
   }catch(_){}
+}
+// The search box's own suggestion list (the browser's list cut long names
+// off, game and all): every word typed must appear in the car's name or
+// its game, the game in a column of its own, at most HAP_SUG_MAX rows.
+const HAP_SUG_MAX=60;
+function hapCarMatches(text){
+  // (a picked "name · game" searches as its words: the dot is not one)
+  const terms=(text||'').toLowerCase().split(/\s+/).filter(t=>t&&t!=='·');
+  if(!terms.length) return [];
+  return hapCarItems.filter(i=>{ const h=(i.name+' '+i.game+(i.source==='user'?' yours':'')).toLowerCase();
+    return terms.every(t=>h.includes(t)); });
+}
+function hapCarSuggest(input, box){
+  const e=(s)=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  let list=[], sel=-1;
+  const close=()=>{ box.hidden=true; sel=-1; };
+  const render=()=>{
+    if(!list.length){ close(); return; }
+    box.innerHTML=list.slice(0,HAP_SUG_MAX).map((it,k)=>'<div class="car-sug-i'+(k===sel?' on':'')+'" data-k="'+k+'"><span class="car-sug-n">'+e(it.name)+'</span><span class="car-sug-g">'+e(it.game)+(it.source==='user'?' · yours':'')+'</span></div>').join('')
+      +(list.length>HAP_SUG_MAX?'<div class="car-sug-more">'+(list.length-HAP_SUG_MAX)+' more: type more of the name</div>':'');
+    box.hidden=false;
+    const on=box.querySelector('.car-sug-i.on'); if(on) on.scrollIntoView({block:'nearest'});
+  };
+  const take=(k)=>{ const it=list[k]; if(!it) return; input.value=hapCarLabel(it); close(); };
+  input.addEventListener('input',()=>{ list=hapCarMatches(input.value); sel=-1; render(); });
+  input.addEventListener('focus',()=>{ if(input.value.trim()){ list=hapCarMatches(input.value); render(); } });
+  input.addEventListener('keydown',(ev)=>{
+    if(box.hidden) return;
+    const n=Math.min(list.length,HAP_SUG_MAX);
+    if(ev.key==='ArrowDown'){ sel=(sel+1)%n; render(); ev.preventDefault(); }
+    else if(ev.key==='ArrowUp'){ sel=(sel<=0?n:sel)-1; render(); ev.preventDefault(); }
+    else if(ev.key==='Enter'){ if(sel>=0) take(sel); else if(list.length===1) take(0); ev.preventDefault(); }
+    else if(ev.key==='Escape'){ close(); }
+  });
+  // mousedown, not click: it lands before the input's blur closes the list;
+  // anywhere in the box (its scrollbar too) keeps the input's focus
+  box.addEventListener('mousedown',(ev)=>{ ev.preventDefault(); const row=ev.target.closest('.car-sug-i'); if(row) take(+row.dataset.k); });
+  input.addEventListener('blur',()=>setTimeout(close,150));
 }
 function hapCarPicked(text){
   const q=(text||'').trim().toLowerCase(); if(!q) return null;
   let it=hapCarItems.find(i=>hapCarLabel(i).toLowerCase()===q);
   if(!it) it=hapCarItems.find(i=>i.name.toLowerCase()===q||i.key.toLowerCase()===q);
   if(!it) it=hapCarItems.find(i=>hapCarLabel(i).toLowerCase().includes(q));
+  if(!it){ const m=hapCarMatches(text); if(m.length===1) it=m[0]; }   // the words typed name one car
   return it||null;
 }
 async function hapGameShow(game){
@@ -1648,6 +1685,16 @@ function hapLive(s){
   shakerStatus(s);
   hapRecRender(s);
   const panel=$('hapPanel'); if(!panel||panel.hidden) return;
+  // Direct telemetry: the rig's choice, else what the sender does; the
+  // note says what the sender reports (or that it is being asked).
+  { const cb=$('hapDirect'), st=$('hapDirectState'); if(cb&&st){
+      const said=s.directSender||'', want=s.directWant||'';
+      if(document.activeElement!==cb) cb.checked = want ? want==='on' : said==='on';
+      st.textContent = !s.ncxRx ? '(no sender)'
+        : said==='' ? '(the sender does not offer it)'
+        : said==='none' ? '(none in this game)'
+        : (want && (want==='on')!==(said==='on')) ? '(asking the sender)'
+        : (said==='on' ? '(on)' : '(off)'); } }
   hapMutedNow=!!s.hapMuted;
   const mb=$('hapMuteBtn'), mst=$('hapMuteState');
   if(mb) mb.textContent=hapMutedNow?'UNMUTE':'MUTE';
@@ -1909,8 +1956,10 @@ function hapInit(){
       +'<span class="hk" id="hapCarMsg"></span></div>'
       +'<div class="hr hap-game" title="Take the engine, limiter, driveline, ABS and TC settings from the car table whenever the sim names a car it knows. Routes, master gain and the other tiles never move. Off: the table only acts on pull car preset.">'
       +'<label class="hk"><input type="checkbox" id="hapFollowCar"'+(cfgObj.haptics.followCar!==false?' checked':'')+'> follow car</label></div>'
+      +'<div class="hr hap-game" title="Ask the sim\'s sender for its direct telemetry where it has one: a faster feed straight from the game (Assetto Corsa\'s physics at about 333 a second instead of about 60). Takes effect at once, is remembered on the controller, and the sender is asked again whenever it reports otherwise. A sender that does not offer it is never asked.">'
+      +'<label class="hk"><input type="checkbox" id="hapDirect"> direct telemetry</label><span class="hk" id="hapDirectState"></span></div>'
       +'<div class="hr hap-game" title="Any entry in the table as a starting point: the nearest car when yours has none. Apply it, tune to taste, then save for this car."><span class="hk">preset</span>'
-      +'<input type="text" id="hapCarPick" list="hapCarList" placeholder="search cars" autocomplete="off"><datalist id="hapCarList"></datalist>'
+      +'<span class="car-pick"><input type="text" id="hapCarPick" placeholder="search cars" autocomplete="off"><div id="hapCarSug" class="car-sug" hidden></div></span>'
       +'<button class="btn btn-sm" type="button" id="hapCarApply" title="Apply the picked entry to the engine, limiter, driveline, ABS and TC tiles">apply</button></div>'
       +'<div class="hsec" title="The coloured dot on each tile: grey = that game has never sent the channels, amber = channels arrive but the effect has never played, green = has played. Only a display; nothing here is saved or changes a setting.">sim dots</div>'
       +'<div class="hr hap-game" title="Which game\'s record the tile dots show: the one running now, or a remembered one. Forget clears the record for the game shown."><span class="hk">game</span>'
@@ -1991,6 +2040,7 @@ function hapInit(){
       try{ const j=await post('/api/cars/pull',key?{key}:{}); csay('applied '+(j.name||j.key||'')); await loadConfig(); await hapCarRefresh(); }
       catch(e){ csay(String(e.message||e)); }
     };
+    hapCarSuggest(mc.querySelector('#hapCarPick'), mc.querySelector('#hapCarSug'));
     mc.querySelector('#hapCarPull').onclick=()=>applyEntry('');
     mc.querySelector('#hapCarApply').onclick=()=>{
       const it=hapCarPicked(mc.querySelector('#hapCarPick').value);
@@ -2006,6 +2056,11 @@ function hapInit(){
       if(!confirm('Drop your own entry for this car?')) return;
       try{ await post('/api/cars/forget',{}); csay('forgotten'); await hapCarListLoad(); await hapCarRefresh(); }
       catch(e){ csay(String(e.message||e)); }
+    };
+    const dc=mc.querySelector('#hapDirect');
+    if(dc) dc.onchange=async()=>{
+      try{ const j=await post('/api/telemetry/direct',{on:!!dc.checked}); if(j&&j.warning) csay(j.warning); }
+      catch(e){ dc.checked=!dc.checked; csay(String(e.message||e)); }
     };
     const fc=mc.querySelector('#hapFollowCar');
     fc.onchange=()=>{ cfgObj.haptics.followCar=!!fc.checked; refreshDirtyUI(); };

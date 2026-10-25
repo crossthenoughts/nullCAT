@@ -466,6 +466,15 @@ std::string WebServer::buildStatusJson() const
     // many gear ratios the learner currently considers usable.
     s += "\"ncxRx\":"              + jsonBool(m_telemetry && m_telemetry->hasRecentNcx()) + ",";
     {
+        // Direct telemetry: what the channel sender says it does ("" when
+        // it never said, "none" when it has no direct source for the game)
+        // and what the rig asks of it ("" when it leaves it to the sender).
+        const char said = (m_telemetry && m_telemetry->hasRecentNcx()) ? m_telemetry->channelSenderDirect() : 0;
+        const int  want = m_directWant.load();
+        s += std::string("\"directSender\":\"") + (said == 'y' ? "on" : said == 'n' ? "off" : said == '-' ? "none" : "") + "\",";
+        s += std::string("\"directWant\":\"")   + (want == 1 ? "on" : want == 0 ? "off" : "") + "\",";
+    }
+    {
         // Haptics surface: fired counter, mute, live fx levels, and which
         // NCX tokens the wire is delivering (per-tile channel-health chips;
         // array order = NcxValues::Token order = the protocol registry).
@@ -951,6 +960,7 @@ bool WebServer::start()
     {
         m_cars.loadUser(m_configPath);
         loadCarMemory();
+        loadSenderState();
     }
     if (m_cars.stockCount() || m_cars.userCount())
         LOG_INFO(strf("Haptics: car table loaded, %d cars shipped, %d of yours.",
@@ -973,6 +983,7 @@ bool WebServer::start()
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(250));
             sampleEffectStatus();
+            serviceDirectTelemetry(false);
             if (++ticks % 40 == 0 && !m_configPath.empty() && m_effectStatus.dirty())   // every 10 s
                 m_effectStatus.save(m_configPath);
         }
@@ -2187,6 +2198,28 @@ bool WebServer::start()
             okResp(res);
         });
 
+        // Direct telemetry (protocol 1.9): the rig's choice for the channel
+        // sender's direct source (a faster feed it may have for the game).
+        // Remembered in senderstate.json; the sender is asked whenever it
+        // reports otherwise.
+        postCmd("/api/telemetry/direct", [this, errResp](const httplib::Request& req, httplib::Response& res)
+        {
+            const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(req.body));
+            const QJsonObject o = doc.isObject() ? doc.object() : QJsonObject();
+            const QJsonValue ov = o.value("on");
+            if (!ov.isBool() && !ov.isDouble())
+            { errResp(res, "Body needs \"on\": true or false (nothing changed)."); return; }
+            const bool on = ov.isBool() ? ov.toBool() : (ov.toDouble() != 0.0);
+            m_directWant.store(on ? 1 : 0);
+            const bool saved = saveSenderState();
+            LOG_INFO(strf("Telemetry: direct telemetry %s (the sender is asked whenever it reports otherwise).",
+                          on ? "on" : "off"));
+            serviceDirectTelemetry(true);
+            res.set_content(std::string("{\"ok\":true,\"direct\":\"") + (on ? "on" : "off") + "\""
+                + (saved ? "" : ",\"warning\":\"not remembered across a restart: senderstate.json could not be written\"")
+                + "}", "application/json");
+        });
+
         // GPIO panel LED self-test (no-op if the panel/mode has no LEDs).
         postCmd("/api/gpio/ledtest", [this, okResp, errResp](const httplib::Request&, httplib::Response& res)
         {
@@ -3026,6 +3059,54 @@ void WebServer::loadCarMemory()
     if (mem.ident.empty()) { mem.applied = false; mem.defaults = false; }
     std::lock_guard<std::mutex> lk(m_carMx);
     m_carMem = mem;
+}
+
+// senderstate.json beside the rig config: {"direct": "on" | "off"}.
+// Absent = left to the sender.
+void WebServer::loadSenderState()
+{
+    std::string text;
+    if (!readWholeFile(siblingFile(m_configPath, "senderstate.json"), text)) return;
+    const QJsonObject o = QJsonDocument::fromJson(QByteArray::fromStdString(text)).object();
+    const QString d = o.value("direct").toString();
+    if (!d.isEmpty() && d != "on" && d != "off")
+        LOG_WARNING("Telemetry: senderstate.json has a direct value that is neither on nor off; left to the sender.");
+    m_directWant.store(d == "on" ? 1 : d == "off" ? 0 : -1);
+}
+
+bool WebServer::saveSenderState()
+{
+    if (m_configPath.empty()) return false;
+    static std::mutex saveMx;   // request threads: one writer at a time
+    std::lock_guard<std::mutex> sl(saveMx);
+    const int want = m_directWant.load();
+    QJsonObject o;
+    if (want >= 0) o["direct"] = want == 1 ? "on" : "off";
+    o["_help"] = "nullCAT: whether the rig asks the sim's sender for its direct telemetry (a faster feed it may have "
+                 "for the game), set from the Haptics strip. Machine state, not configuration: safe to delete (the "
+                 "sender then decides), never edited by hand.";
+    if (writeFileAtomic(siblingFile(m_configPath, "senderstate.json"), QJsonDocument(o).toJson(QJsonDocument::Indented)))
+        return true;
+    LOG_WARNING("Telemetry: could not remember the direct telemetry choice (senderstate.json).");
+    return false;
+}
+
+// Ask the channel sender for what the rig wants, when it reports otherwise:
+// at most once a second (now: at once, a fresh choice). Only a sender that
+// says what it does is asked (an older one never hears a line it does not
+// know), and one with no direct source for the game is left alone.
+void WebServer::serviceDirectTelemetry(bool now)
+{
+    const int want = m_directWant.load();
+    if (want < 0 || !m_telemetry || !m_telemetry->hasRecentNcx()) return;
+    const char said = m_telemetry->channelSenderDirect();
+    if (said != 'y' && said != 'n') return;
+    if ((said == 'y') == (want == 1)) return;
+    const int64_t t = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (!now && t - m_directAskedMs.load() < 1000) return;
+    m_directAskedMs.store(t);
+    m_telemetry->sendToChannelSender(want == 1 ? "NULLCATC,direct=on\n" : "NULLCATC,direct=off\n");
 }
 
 void WebServer::saveCarMemory(const CarMemory&)

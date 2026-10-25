@@ -278,6 +278,16 @@ private:
     struct CarMemory { std::string ident; bool applied = false; bool defaults = false; };
     CarMemory         m_carMem;
     void loadCarMemory();                       // start(): carstate.json, else the older cardefaults.txt
+    // Direct telemetry (protocol 1.9): the rig's choice for the channel
+    // sender's direct source, -1 = left to the sender, 0 off, 1 on. Kept
+    // in senderstate.json beside the rig config (machine state, so a page
+    // save never touches it). The status thread asks the sender, at most
+    // once a second, whenever it reports otherwise.
+    std::atomic<int>     m_directWant{-1};
+    std::atomic<int64_t> m_directAskedMs{0};
+    void loadSenderState();
+    bool saveSenderState();
+    void serviceDirectTelemetry(bool now);
     void saveCarMemory(const CarMemory& mem);
     // The car row's flags; remembered too when the car is the one the
     // table acted on, so a restart reads the row the same.
