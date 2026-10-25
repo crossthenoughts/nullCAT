@@ -1123,7 +1123,7 @@ endif()
 # ============================================================
 if(MSVC)
     set(_npcap_delayload_tests
-        TestInitSequence TestPumpLifecycle
+        TestInitSequence TestPumpLifecycle TestBusSeam
         TestB222E TestB222F TestB222G TestB222H TestB222I TestB222J TestB222K)
     foreach(_t IN LISTS _npcap_delayload_tests)
         if(TARGET ${_t})

@@ -131,7 +131,18 @@ try {
                   && !!document.getElementById('hapFollowCar') && !!document.getElementById('hapCarApply'),
     carNow:       (document.getElementById('hapCarNow') || {}).textContent || '',
     carFollow:    !!(document.getElementById('hapFollowCar') || {}).checked,
-    carOpts:      (document.getElementById('hapCarList') || { options: [] }).options.length,
+    // The preset search: nullCAT's own list over the whole table (app.js
+    // hapCarSuggest); typing a make shows matching rows with their game.
+    carOpts:      (typeof hapCarItems !== 'undefined') ? hapCarItems.length : -1,
+    carSug:       (() => {
+      const i = document.getElementById('hapCarPick'), b = document.getElementById('hapCarSug');
+      if (!i || !b) return { rows: -1, shown: false, game: '' };
+      i.value = 'bmw m3'; i.dispatchEvent(new Event('input'));
+      const r = { rows: b.querySelectorAll('.car-sug-i').length, shown: !b.hidden,
+                  game: (b.querySelector('.car-sug-g') || {}).textContent || '' };
+      i.value = ''; i.dispatchEvent(new Event('input'));
+      return r;
+    })(),
     // Starting points: the type selector with the shipped types (plus its
     // prompt) and its apply button.
     presetRow:    !!document.getElementById('hapPresetSel') && !!document.getElementById('hapPresetApply'),
@@ -279,7 +290,9 @@ try {
   if (st.carNow !== '(none)')   fails.push(`car line reads "${st.carNow}" with no sim, expected (none)`);
   if (!st.carFollow)            fails.push('follow car is not ticked by default');
   if (nCars < 450)              fails.push(`/api/cars/list carries ${nCars} entries, expected the shipped table (450+)`);
-  if (st.carOpts !== nCars)     fails.push(`preset search lists ${st.carOpts} cars, expected ${nCars} from /api/cars/list`);
+  if (st.carOpts !== nCars)     fails.push(`preset search holds ${st.carOpts} cars, expected ${nCars} from /api/cars/list`);
+  if (!(st.carSug.rows > 0 && st.carSug.shown && st.carSug.game))
+    fails.push(`preset search: typing "bmw m3" shows ${st.carSug.rows} rows (shown ${st.carSug.shown}, game "${st.carSug.game}"), expected matching cars with their game`);
   if (!st.presetRow)            fails.push('no starting point row (type selector and apply) on the Master tile');
   if (st.presetOpts !== 9)      fails.push(`starting point selector has ${st.presetOpts} options, expected the 8 shipped starting points and the prompt`);
   if (!st.carNotes)             fails.push('no car notes block on the Engine tile');
