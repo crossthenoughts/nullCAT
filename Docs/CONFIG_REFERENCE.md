@@ -119,7 +119,7 @@ the drives (see SAFETY.md).
 | `gpioMode` | string | `"off"` | `off`, `estop` (mushroom only), `estop_led` (mushroom + LEDs), `full` (buttons + LEDs). |
 | `gpioChip` | string | `"gpiochip0"` | |
 | `gpioEstopPin` | int | `17` | Level-sampled; mushroom should be a latching NC type. |
-| `gpioEngagePin` | int | `27` | The RUN button: offline = Initialize (start auto-chains), stopped = Start, running = Stop. `0` = not fitted. |
+| `gpioEngagePin` | int | `27` | The RUN button: offline = Initialize (start auto-chains), stopped = Start, running = Stop. After an e-stop (once released) it re-initializes the drives (stops the loop, Stop EtherCAT, Initialize) and does not start; press it again to start. `0` = not fitted. |
 | `gpioParkPin` | int | `22` | Park/unpark toggle. `0` = not fitted. |
 | `gpioBeltPin` | int | `4` | Belt slack/tension toggle (header pin 7, directly above the estop/run/park run at 11/13/15). `0` = not fitted. |
 | `gpioDevicePin` | int | `18` | Device home/engage/release toggle (header pin 12). `0` = not fitted. Any subset of buttons may be wired - compact panels just zero the rest. |

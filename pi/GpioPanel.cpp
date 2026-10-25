@@ -137,6 +137,11 @@ void GpioPanel::run()
     bool engageStable = false, parkStable = false;
     bool beltStable = false, deviceStable = false;
     bool engageAutoStart = false;   // cold RUN press chains init -> start
+    // RUN while the e-stop is tripped re-initializes the drives: 1 = waiting
+    // for the loop to stop, 2 = for Stop EtherCAT to finish, 3 = for the
+    // Initialize. Never starts the loop.
+    int  reinitStage = 0;
+    int  reinitTicks = 0;
     bool prevInitBusy    = false;
     int  engageCnt = 0, parkCnt = 0, beltCnt = 0, deviceCnt = 0;
     auto edge = [](bool raw, bool& stable, int& cnt) -> bool
@@ -237,6 +242,40 @@ void GpioPanel::run()
                 // Latch only persists while the mushroom is open; release it to clear.
                 LOG_INFO("GpioPanel: RUN ignored - release the E-STOP mushroom first.");
             }
+            else if (st.estopInput)
+            {
+                LOG_INFO("GpioPanel: RUN ignored - the E-STOP is held on the dashboard; release it there first.");
+            }
+            else if (st.estop)
+            {
+                // Tripped: RUN is the panel's way back, a re-initialize of
+                // the drives (stop the loop if it runs, Stop EtherCAT, then
+                // Initialize). It never starts the loop: starting homes the
+                // rig, so that waits for a RUN press once the panel shows
+                // ready.
+                engageAutoStart = false;
+                reinitTicks = 0;
+                if (st.initBusy)
+                    LOG_INFO("GpioPanel: RUN ignored - an init/de-init is already running.");
+                else if (st.loopRunning)
+                {
+                    if (m_actions.stop) m_actions.stop();
+                    reinitStage = 1;
+                }
+                else if (st.masterOp)
+                {
+                    if (m_actions.deinit) m_actions.deinit();
+                    reinitStage = 2;
+                }
+                else
+                {
+                    if (m_actions.init) m_actions.init();
+                    reinitStage = 3;
+                }
+                if (reinitStage != 0)
+                    LOG_INFO("GpioPanel: RUN while E-STOP tripped → re-initializing the drives "
+                             "(RUN again to start once ready).");
+            }
             else if (st.loopRunning)
             {
                 // Two-way button: from running, ENGAGE stops the loop -- and
@@ -278,6 +317,43 @@ void GpioPanel::run()
             {
                 engageAutoStart = false;
                 LOG_INFO("GpioPanel: RUN chain cancelled - init did not reach OP.");
+            }
+        }
+        // Re-initialize chain (RUN while tripped): each step once the one
+        // before it is done; dropped if the mushroom opens again, a step
+        // fails, or nothing has happened for a minute.
+        if (reinitStage != 0)
+        {
+            ++reinitTicks;
+            if (estopLatched)
+            {
+                reinitStage = 0;
+                LOG_INFO("GpioPanel: RUN re-initialize cancelled - E-STOP.");
+            }
+            else if (reinitTicks > 60 * 1000 / POLL_MS)
+            {
+                reinitStage = 0;
+                LOG_WARNING("GpioPanel: RUN re-initialize gave up after a minute - see the log above.");
+            }
+            else if (reinitStage == 1 && !st.loopRunning && !st.initBusy)
+            {
+                if (st.masterOp) { if (m_actions.deinit) m_actions.deinit(); reinitStage = 2; }
+                else             { if (m_actions.init)   m_actions.init();   reinitStage = 3; }
+            }
+            else if (reinitStage == 2 && !st.masterOp && !st.initBusy)
+            {
+                if (m_actions.init) m_actions.init();
+                reinitStage = 3;
+            }
+            else if (reinitStage == 3 && !st.initBusy && (prevInitBusy || st.masterOp))
+            {
+                reinitStage = 0;
+                if (st.masterOp && !st.estop)
+                    LOG_INFO("GpioPanel: RUN re-initialize done - E-STOP trip cleared. Press RUN to start.");
+                else if (st.masterOp)
+                    LOG_WARNING("GpioPanel: RUN re-initialize done, but the E-STOP is held: release it, then RUN again.");
+                else
+                    LOG_WARNING("GpioPanel: RUN re-initialize failed - Initialize did not reach OP.");
             }
         }
         prevInitBusy = st.initBusy;

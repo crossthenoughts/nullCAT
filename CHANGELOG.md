@@ -70,7 +70,9 @@ middle number carries breaking changes and the last carries fixes.
   and **Initialize EtherCAT** again. Before, releasing it homed the rig
   and unparked it by itself. A red banner on the dashboard says what
   tripped it (the dashboard, the Pi's e-stop input, the Windows window, a
-  drive's own quick stop or the EtherCAT link) and how long ago.
+  drive's own quick stop or the EtherCAT link) and how long ago. On the
+  Pi's panel, RUN does the re-initialize once the e-stop is released (it
+  does not start the rig; press RUN again for that).
 - Impacts: a hit that knocks through both the body and a corner in the
   same moment is one knock (the stronger), not two on top of each other.
 - Assetto Corsa Competizione: the rain and how wet the track is now reach
@@ -101,6 +103,11 @@ middle number carries breaking changes and the last carries fixes.
   itself. The input now has to read open for two readings in a row (20 ms)
   to trip, and closed for half a second to count as released. A flicker is
   written to the log with the pin's number, so a wiring fault shows.
+- AC EVO: cars with long names (the BMW M3 E30 Sport Evo, the Lancia
+  Delta HF integrale Evoluzione II, the Toyota Sprinter Trueno AE86 and
+  others) now find their car table entry. The game passes car names on
+  cut to 31 characters, so the table now takes the one car of the game
+  whose name begins with what was sent.
 - Commands given at the same moment from more than one place (two browser
   tabs, the dashboard and the Pi's buttons, the Windows window and the
   dashboard) could be lost, or make the rig carry out old commands again

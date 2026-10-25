@@ -52,6 +52,7 @@ struct PanelActions
     std::function<void()> init;          // RUN when offline
     std::function<void()> start;         // RUN when ready (OP, stopped)
     std::function<void()> stop;          // RUN when running (stop loop; never de-inits)
+    std::function<void()> deinit;        // RUN while e-stop tripped: Stop EtherCAT, then init (a re-initialize)
     std::function<void()> park;          // PARK when running (not parked)
     std::function<void()> unpark;        // PARK when already parked (toggle)
     std::function<void()> beltSlack;     // BELT when tensioned

@@ -284,9 +284,10 @@ center and holds. Watch the first one from a safe distance.
    position so there is nothing left to fall. With the rig parked,
    press **E-STOP** and learn the way back: after any e-stop (the
    dashboard's or the mushroom) the rig stays stopped until you release
-   the e-stop, then **Stop EtherCAT** and **Initialize EtherCAT** again.
-   The dashboard's red banner says what tripped it. You want the first
-   press to not be an emergency.
+   the e-stop, then **Stop EtherCAT** and **Initialize EtherCAT** again
+   (on the panel: RUN does both; RUN again starts). The dashboard's red
+   banner says what tripped it. You want the first press to not be an
+   emergency.
 
 **STOP LOOP** parks the axes (gently to their rest position) and stops.
 With the loop stopped, the Initialize button relabels itself **Stop

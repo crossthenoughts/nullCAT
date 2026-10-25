@@ -299,6 +299,7 @@ int main(int argc, char* argv[])
         // Buttons fire the same actions as the web endpoints.
         PanelActions acts;
         acts.init  = [&webServer]() { webServer.requestInit(); };
+        acts.deinit = [&webServer]() { webServer.requestDeinit(); };
         acts.start = [&loop, &master, &motion]()
         {
             if (master.isOperational() && !loop.isRunning())
