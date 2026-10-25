@@ -329,9 +329,10 @@ void MotionController::setEmergencyStop(bool active, EstopSource source)
     // thread, so m_axisState[] is never written off it.
     if (active)
     {
-        // The input first, then the trip (latched with its first source and
-        // time): a clearEmergencyTrip racing this sees the input held when
-        // it re-checks, and keeps the trip.
+        // The count, then the input, then the trip (latched with its first
+        // source and time): a clearEmergencyTrip racing this sees the count
+        // moved or the input held when it re-checks, and keeps the trip.
+        m_estopEvents.fetch_add(1, std::memory_order_acq_rel);
         m_emergencyStop.store(true, std::memory_order_release);
         if (!m_estopTripped.exchange(true, std::memory_order_acq_rel))
         {
@@ -352,17 +353,23 @@ void MotionController::setEmergencyStop(bool active, EstopSource source)
     }
 }
 
-bool MotionController::clearEmergencyTrip()
+bool MotionController::clearEmergencyTrip(uint32_t eventsAtInitStart)
 {
     if (m_emergencyStop.load(std::memory_order_acquire))
     {
         LOG_WARNING("MotionController: E-stop still held -- the trip stays until it is released and the drives are re-initialized.");
         return false;
     }
+    if (m_estopEvents.load(std::memory_order_acquire) != eventsAtInitStart)
+    {
+        LOG_WARNING("MotionController: E-stop during the initialize -- the trip stays; initialize again to clear it.");
+        return false;
+    }
     if (m_estopTripped.exchange(false, std::memory_order_acq_rel))
     {
         // An e-stop that landed during the clear keeps the trip.
-        if (m_emergencyStop.load(std::memory_order_acquire))
+        if (m_emergencyStop.load(std::memory_order_acquire)
+            || m_estopEvents.load(std::memory_order_acquire) != eventsAtInitStart)
         {
             m_estopTripped.store(true, std::memory_order_release);
             LOG_WARNING("MotionController: E-stop pressed during the initialize -- the trip stays.");

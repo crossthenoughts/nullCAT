@@ -615,6 +615,8 @@ void MainWindow::onInitializeEtherCAT()
     }
 
     const AppConfig& cfg = m_config->get();
+    // An e-stop from here on needs an initialize of its own.
+    const uint32_t estopEvents = m_motion ? m_motion->estopEventCount() : 0;
 
     // Validate the config before touching the NIC.
     auto errors = cfg.validate();
@@ -687,10 +689,10 @@ void MainWindow::onInitializeEtherCAT()
 
     // The drives are re-initialized: an e-stop trip no longer holds the rig
     // (refused while the e-stop is still held).
-    const bool estopHeld = m_motion && !m_motion->clearEmergencyTrip();
+    const bool estopHeld = m_motion && !m_motion->clearEmergencyTrip(estopEvents);
     m_labelSlaveCount->setText(QString::number(m_master->getSlaveCount()));
     statusBar()->showMessage(estopHeld
-        ? "EtherCAT initialized, but the E-STOP is still held: release it, then Stop EtherCAT and Initialize again."
+        ? "EtherCAT initialized, but the E-STOP is held or was pressed meanwhile: release it, then Stop EtherCAT and Initialize again."
         : "EtherCAT initialized and operational.");
     updateButtonStates();   // label flips to "Stop EtherCAT" once OP + loop stopped
 }

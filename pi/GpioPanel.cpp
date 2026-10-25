@@ -141,7 +141,8 @@ void GpioPanel::run()
     // for the loop to stop, 2 = for Stop EtherCAT to finish, 3 = for the
     // Initialize. Never starts the loop.
     int  reinitStage = 0;
-    int  reinitTicks = 0;
+    int  reinitTicks = 0;           // since the last step (a minute without one gives up)
+    bool reinitSawBusy = false;     // stage 3 saw its Initialize running
     bool prevInitBusy    = false;
     int  engageCnt = 0, parkCnt = 0, beltCnt = 0, deviceCnt = 0;
     auto edge = [](bool raw, bool& stable, int& cnt) -> bool
@@ -255,6 +256,7 @@ void GpioPanel::run()
                 // ready.
                 engageAutoStart = false;
                 reinitTicks = 0;
+                reinitSawBusy = false;
                 if (st.initBusy)
                     LOG_INFO("GpioPanel: RUN ignored - an init/de-init is already running.");
                 else if (st.loopRunning)
@@ -272,7 +274,7 @@ void GpioPanel::run()
                     if (m_actions.init) m_actions.init();
                     reinitStage = 3;
                 }
-                if (reinitStage != 0)
+                if (!st.initBusy && reinitStage != 0)
                     LOG_INFO("GpioPanel: RUN while E-STOP tripped → re-initializing the drives "
                              "(RUN again to start once ready).");
             }
@@ -305,7 +307,7 @@ void GpioPanel::run()
         // init (initBusy cleared without OP), or ENGAGE-stop above.
         if (engageAutoStart)
         {
-            if (estopLatched || st.fault)
+            if (estopLatched || st.fault || st.estop)
                 engageAutoStart = false;
             else if (st.masterOp && !st.loopRunning && !st.initBusy)
             {
@@ -325,6 +327,7 @@ void GpioPanel::run()
         if (reinitStage != 0)
         {
             ++reinitTicks;
+            if (reinitStage == 3 && st.initBusy) reinitSawBusy = true;
             if (estopLatched)
             {
                 reinitStage = 0;
@@ -339,19 +342,23 @@ void GpioPanel::run()
             {
                 if (st.masterOp) { if (m_actions.deinit) m_actions.deinit(); reinitStage = 2; }
                 else             { if (m_actions.init)   m_actions.init();   reinitStage = 3; }
+                reinitTicks = 0;
+                reinitSawBusy = false;
             }
             else if (reinitStage == 2 && !st.masterOp && !st.initBusy)
             {
                 if (m_actions.init) m_actions.init();
                 reinitStage = 3;
+                reinitTicks = 0;
+                reinitSawBusy = false;
             }
-            else if (reinitStage == 3 && !st.initBusy && (prevInitBusy || st.masterOp))
+            else if (reinitStage == 3 && !st.initBusy && (reinitSawBusy || st.masterOp))
             {
                 reinitStage = 0;
                 if (st.masterOp && !st.estop)
                     LOG_INFO("GpioPanel: RUN re-initialize done - E-STOP trip cleared. Press RUN to start.");
                 else if (st.masterOp)
-                    LOG_WARNING("GpioPanel: RUN re-initialize done, but the E-STOP is held: release it, then RUN again.");
+                    LOG_WARNING("GpioPanel: RUN re-initialize done, but the E-STOP trip stays (held, or pressed during it): release it, then RUN again.");
                 else
                     LOG_WARNING("GpioPanel: RUN re-initialize failed - Initialize did not reach OP.");
             }

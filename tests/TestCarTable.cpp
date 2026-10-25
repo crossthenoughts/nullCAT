@@ -607,20 +607,26 @@ private slots:
         QVERIFY(m.nearMatch);
         // Two cars it could be: neither.
         QVERIFY(t.find("AssettoCorsaEVO", "Porsche 911 GT3 Cup (992) Edition").source.empty());
-        // A short name never lands on a longer car's entry.
+        // A short name never lands on a longer car's entry, nor does a full
+        // name shorter than a cut one.
         QVERIFY(t.find("AssettoCorsaEVO", "BMW M4").source.empty());
+        QVERIFY(t.find("AssettoCorsaEVO", "BMW M3 E30 Sport Evo (Evolu").source.empty());
         // Only the same game's entries.
         m = t.find("AssettoCorsa", "BMW M3 E30 Sport Evo (Evolution");
         QCOMPARE(m.key, std::string("ac:bmw_m3_e30_evo"));
         QVERIFY(t.find("Automobilista2", "BMW M3 E30 Sport Evo (Evolution").source.empty());
         // Exact only, when asked.
         QVERIFY(t.find("AssettoCorsaEVO", "BMW M3 E30 Sport Evo (Evolution", false).source.empty());
-        // Your own entry that fits wins over stock.
-        QJsonObject mine; mine["name"] = "BMW M3 E30 Sport Evo (Evolution III) mine"; mine["notes"] = "mine";
-        t.putUser("acevo:my_e30", mine);
+        // Your copy of the stock car (the same key) is the one it lands on.
+        QJsonObject mine; mine["name"] = "BMW M3 E30 Sport Evo (Evolution III)"; mine["notes"] = "mine";
+        t.putUser("acevo:ks_bmw_m3_e30_evo_iii", mine);
         m = t.find("AssettoCorsaEVO", "BMW M3 E30 Sport Evo (Evolution");
         QCOMPARE(m.source, std::string("user"));
         QCOMPARE(m.notes, std::string("mine"));
+        // A second car of yours that also fits: two cars, neither.
+        QJsonObject other; other["name"] = "BMW M3 E30 Sport Evo (Evolution II)"; other["notes"] = "evo ii";
+        t.putUser("acevo:my_evo_ii", other);
+        QVERIFY(t.find("AssettoCorsaEVO", "BMW M3 E30 Sport Evo (Evolution").source.empty());
     }
 
     void shippedTable_longNamesCutShortFindTheirCar()

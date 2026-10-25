@@ -121,8 +121,9 @@ rig is honoured: Home (including the loop start's auto-home and a fault
 recovery's rehome), Unpark, Tension belts, Engage device and Start loop are
 refused. Releasing the e-stop releases its input only; nothing moves. The
 one way back is a successful Initialize (Stop EtherCAT, then Initialize),
-which is refused while the e-stop is still held. Stop EtherCAT skips its
-seat pass after a trip (the drives stay de-energized), and Initialize
+which is refused while the e-stop is still held; an e-stop pressed while
+the Initialize runs keeps its trip (it needs an Initialize of its own).
+Stop EtherCAT skips its seat pass after a trip (the drives stay de-energized), and Initialize
 discards any command queued before it, so nothing pressed while tripped
 runs later. After it, the rig is unhomed and parked: the next move is the
 loop start's auto-home, or a Home press. `/api/status` carries `estopTripped`, `estopSource` (what tripped it)

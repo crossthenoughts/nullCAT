@@ -408,6 +408,14 @@ private slots:
         mc.setEmergencyStop(false, MotionController::EstopSource::Web);
         QVERIFY(mc.isEstopTripped());
 
+        // An e-stop pressed and released while an initialize runs needs an
+        // initialize of its own: that one does not clear it.
+        const uint32_t atInitStart = mc.estopEventCount();
+        mc.setEmergencyStop(true, MotionController::EstopSource::Gpio);
+        mc.setEmergencyStop(false, MotionController::EstopSource::Gpio);
+        QVERIFY(!mc.clearEmergencyTrip(atInitStart));
+        QVERIFY(mc.isEstopTripped());
+
         QVERIFY(mc.clearEmergencyTrip());
         QVERIFY(!mc.isEstopTripped());
         QCOMPARE(mc.estopTripSource(), MotionController::EstopSource::None);

@@ -886,6 +886,8 @@ bool WebServer::start()
             }
             else if (doInit)
             {
+                // An e-stop from here on needs an initialize of its own.
+                const uint32_t estopEvents = m_motion ? m_motion->estopEventCount() : 0;
                 // Mirror the Qt Initialize button: reload the config from DISK
                 // (headless has no file watcher - without this a Pi re-init
                 // silently applied the boot-time config, so web saves looked
@@ -924,7 +926,7 @@ bool WebServer::start()
                 bool ok = m_master && m_master->initializeAndEnterOp(nicName);
                 // The drives are re-initialized: an e-stop trip no longer
                 // holds the rig (refused while the e-stop is still held).
-                if (ok && m_motion && !(m_loop && m_loop->isRunning())) m_motion->clearEmergencyTrip();
+                if (ok && m_motion && !(m_loop && m_loop->isRunning())) m_motion->clearEmergencyTrip(estopEvents);
                 if (!ok)
                 {
                     std::lock_guard<std::mutex> elk(m_initMutex);

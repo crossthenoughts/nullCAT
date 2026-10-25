@@ -238,22 +238,23 @@ CarTable::Match CarTable::find(const std::string& game, const std::string& car, 
 
 // A name the sim cut short: AC EVO hands its car names over in a field of
 // 31 characters ("BMW M3 E30 Sport Evo (Evolution" for "BMW M3 E30 Sport
-// Evo (Evolution III)"). The one entry of the same game whose name starts
-// with it is the car. Only for a long name (kCutMinChars letters and
-// digits, so a short name never lands on a longer car's entry), and only
-// when exactly one entry fits; your own layer first, as everywhere.
+// Evo (Evolution III)"). The one car of the same game whose name starts
+// with it is the car. Only for a name as long as a cut one (kCutMinChars
+// characters: a full name that merely begins a longer car's, "... GT3
+// Evo" before "... GT3 Evo2", is left to the near match), and only when
+// exactly one car fits; your own row for it before stock's.
 CarTable::Match CarTable::findCut(const std::string& game, const std::string& car) const
 {
+    if (car.size() < kCutMinChars) return Match{};
     const std::string n = normalise(car);
-    if (n.size() < kCutMinChars) return Match{};
     std::lock_guard<std::mutex> lk(m_mx);
     std::string id = normalise(game);
     if (const auto it = m_games.find(id); it != m_games.end()) id = it->second;
     const std::string prefix = id + ":" + n;
     const auto begins = [&prefix](const std::string& s) { return s.compare(0, prefix.size(), prefix) == 0; };
     // The rows whose name begins with it: by the name index, and by the key
-    // for the games keyed by name (AMS2, AC Rally), where the index leaves
-    // the name out.
+    // (the index leaves out a name that is its own key, as AMS2's and AC
+    // Rally's are; a content id never begins with a car's name).
     const auto fits = [&](const Layer& layer) -> std::set<std::string>
     {
         std::set<std::string> keys;
@@ -263,14 +264,17 @@ CarTable::Match CarTable::findCut(const std::string& game, const std::string& ca
             keys.insert(it->first);
         return keys;
     };
-    const Layer* layer = &m_user;
-    const char* source = "user";
+    // One car across both layers (your copy of a stock car is the same
+    // key), then your row for it before stock's.
     std::set<std::string> keys = fits(m_user);
-    if (keys.empty()) { layer = &m_stock; source = "stock"; keys = fits(m_stock); }
+    for (const std::string& k : fits(m_stock)) keys.insert(k);
     if (keys.size() != 1) return Match{};
-    const auto r = layer->rows.find(*keys.begin());
-    if (r == layer->rows.end()) return Match{};
-    Match m = toMatch(r->second, source);
+    const Row* row = nullptr;
+    const char* source = "user";
+    if (const auto u = m_user.rows.find(*keys.begin()); u != m_user.rows.end()) row = &u->second;
+    else if (const auto s = m_stock.rows.find(*keys.begin()); s != m_stock.rows.end()) { row = &s->second; source = "stock"; }
+    if (!row) return Match{};
+    Match m = toMatch(*row, source);
     m.nearMatch = true;
     return m;
 }

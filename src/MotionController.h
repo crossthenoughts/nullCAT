@@ -189,8 +189,13 @@ public:
     // steady_clock ms of the trip (0 = none).
     int64_t estopTripMs() const   { return m_estopTripMs.load(); }
     // After a successful initialize of the drives only. Refused (false) while
-    // the e-stop input is still held: release it first.
-    bool clearEmergencyTrip();
+    // the e-stop input is still held (release it first), and when an e-stop
+    // came after the initialize began (eventsAtInitStart = estopEventCount()
+    // read as it started): that e-stop needs an initialize of its own.
+    bool clearEmergencyTrip(uint32_t eventsAtInitStart);
+    bool clearEmergencyTrip() { return clearEmergencyTrip(estopEventCount()); }
+    // Every e-stop, any source, counted.
+    uint32_t estopEventCount() const { return m_estopEvents.load(std::memory_order_acquire); }
     static const char* estopSourceName(EstopSource s);
     void resetFilters();
 
@@ -648,6 +653,7 @@ private:
     std::atomic<bool> m_estopTripped{false};    // latched by any e-stop, cleared only by clearEmergencyTrip
     std::atomic<int>  m_estopTripSource{0};
     std::atomic<int64_t> m_estopTripMs{0};
+    std::atomic<uint32_t> m_estopEvents{0};
     bool             estopHolds() const { return m_emergencyStop.load(std::memory_order_acquire) || m_estopTripped.load(std::memory_order_acquire); }
     double           m_estopElapsed = 0.0;
     bool             m_homingUnparkDone = false;

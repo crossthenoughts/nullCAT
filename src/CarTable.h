@@ -133,7 +133,7 @@ private:
     Match findNear(const std::string& game, const std::string& car) const;
     // A long name the sim cut short: the one entry of the game it begins.
     Match findCut(const std::string& game, const std::string& car) const;
-    static constexpr size_t kCutMinChars = 20;
+    static constexpr size_t kCutMinChars = 30;   // the shortest cut seen: AC EVO's 31 (30 if it ends on a space)
     static Match toMatch(const Row& row, const char* source);
     static bool readRows(const QJsonObject& root, std::map<std::string, Row>& into,
                          std::map<std::string, std::string>* games);
