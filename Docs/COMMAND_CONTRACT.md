@@ -33,28 +33,28 @@ in the same commit.
 | Toggle | Resolves to | From | Guards |
 |---|---|---|---|
 | `init-toggle`  | `deinit` if OP else `init` | `masterOp` | cooldown; init/deinit busy-refusal inherited |
-| `run-toggle`   | `stop` if running else `start` | `loopRunning` | cooldown; start still requires OP |
-| `park-toggle`  | `unpark` if all parked else `park` | axis states | cooldown; NO-OP while any axis PARKING/UNPARKING/HOMING/ESTOPPING |
-| `belts-toggle` | `belts/tension` if slack else `belts/slack` | belt axis states | cooldown; NO-OP while belt transitioning; tension-under-e-stop refused VISIBLY here (`ok:false`) |
+| `run-toggle`   | `stop` if running else `start` | `loopRunning` | cooldown; start still requires OP; start refused VISIBLY while an e-stop trip holds |
+| `park-toggle`  | `unpark` if all parked else `park` | axis states | cooldown; NO-OP while any axis PARKING/UNPARKING/HOMING/ESTOPPING; unpark refused VISIBLY while an e-stop trip holds |
+| `belts-toggle` | `belts/tension` if slack else `belts/slack` | belt axis states | cooldown; NO-OP while belt transitioning; tension refused VISIBLY here (`ok:false`) while an e-stop trip holds |
 
 ## Command table
 
 | Command | Endpoint | HTTP-layer guard (errResp) | Engine-layer guard (silent; visible via status/log) | Outcome signal in /api/status | Bindable |
 |---|---|---|---|---|---|
-| Initialize | `/api/init` | refused if already operational / init busy / not ready | - (async bring-up; failure surfaces in status + log) | `masterOp:true`, `slavesFound` | yes |
-| De-initialize | `/api/deinit` | refused if not initialized / busy | seat pass runs bus-health guard (may SKIP seat, still de-inits) | `masterOp:false` | yes |
-| Start loop | `/api/start` | needs master operational; ok if already running | - | `loopRunning:true` | yes |
+| Initialize | `/api/init` | refused if already operational / init busy / not ready | - (async bring-up; failure surfaces in status + log); discards any command queued before it; a successful one clears an e-stop trip unless the e-stop is still held | `masterOp:true`, `slavesFound`, `estopTripped:false` | yes |
+| De-initialize | `/api/deinit` | refused if not initialized / busy | seat pass runs bus-health guard (may SKIP seat, still de-inits); no seat while an e-stop trip holds (the drives stay de-energized) | `masterOp:false` | yes |
+| Start loop | `/api/start` | needs master operational; ok if already running; refused while an e-stop trip holds | - | `loopRunning:true` | yes |
 | Stop loop | `/api/stop` | none (no-op when stopped) | parks axes as part of stop | `loopRunning:false`, `parked:true` | yes |
-| Home | `/api/home` (optional body `{"axis":N}`) | needs motion controller; out-of-range `axis` refused | ignored per-axis unless axis eligible (belt axes never home) | `homing:true` → `needsRehome:false` | yes |
+| Home | `/api/home` (optional body `{"axis":N}`) | needs motion controller; out-of-range `axis` refused | ignored per-axis unless axis eligible (belt axes never home); **REFUSED while an e-stop trip holds** | `homing:true` → `needsRehome:false` | yes |
 | Park | `/api/park` | needs motion controller | per-axis state machine | `parked:true` | yes |
-| Unpark | `/api/unpark` | needs motion controller | **position axes only**: belts NEVER tension via unpark, auto or explicit; requires homed axes | `parked:false` | yes |
+| Unpark | `/api/unpark` | needs motion controller | **position axes only**: belts NEVER tension via unpark, auto or explicit; requires homed axes; **REFUSED while an e-stop trip holds** | `parked:false` | yes |
 | Slack belts | `/api/belts/slack` | needs motion controller | belt axes only; allowed in any non-fault state | `beltsSlack:true` | yes |
-| Tension belts | `/api/belts/tension` | needs motion controller | **REFUSED under e-stop** (logged, silent on wire); belt axes only; from PARKED/PARKING | `beltsSlack:false` | yes |
-| Engage device | `/api/device/engage` (optional body `{"axis":N}`) | needs motion controller; out-of-range `axis` refused | **REFUSED under e-stop** (logged, silent on wire); device axes (shifter/pedal) only; an UNHOMED device starts its torque homing instead (the deliberate press is the authorization) and ends LIMP; a homed limp device engages | per-axis state (HOMING then PARKED, or BLENDING then ONLINE) | no |
+| Tension belts | `/api/belts/tension` | needs motion controller | **REFUSED while an e-stop trip holds** (logged, silent on wire); belt axes only; from PARKED/PARKING | `beltsSlack:false` | yes |
+| Engage device | `/api/device/engage` (optional body `{"axis":N}`) | needs motion controller; out-of-range `axis` refused | **REFUSED while an e-stop trip holds** (logged, silent on wire); device axes (shifter/pedal) only; an UNHOMED device starts its torque homing instead (the deliberate press is the authorization) and ends LIMP; a homed limp device engages | per-axis state (HOMING then PARKED, or BLENDING then ONLINE) | no |
 | Release device | `/api/device/release` (optional body `{"axis":N}`) | needs motion controller; out-of-range `axis` refused | device axes only; from ONLINE/BLENDING | per-axis state (PARKING then PARKED = limp) | no |
 | Device toggle | `/api/device-toggle` | needs motion controller; no devices / transitional / engage-under-e-stop all refused VISIBLY (`ok:false`); cooldown | resolves via the shared DeviceAggregates: any engaged -> release; else engage (which homes any unhomed device first) | `hasDevices` / `devEngaged` / `devAllHomed` | yes |
-| Software e-stop | `/api/estop` | needs components | - (always honored) | `estop:true` | yes |
-| E-stop release | `/api/estop/release` | none | - | `estop:false` | **desktop-only** (re-arm needs eyes on the rig) |
+| Software e-stop | `/api/estop` | needs components | - (always honored); trips (see the e-stop trip rule) | `estop:true`, `estopInput:true`, `estopTripped:true`, `estopSource`, `estopTripAgoSec` | yes |
+| E-stop release | `/api/estop/release` | none | releases the input only: the trip holds, nothing moves | `estopInput:false` (`estop` stays true until Initialize) | **desktop-only** (re-arm needs eyes on the rig) |
 | Reset fault (+lockout) | `/api/reset-fault` | needs components | drive may refuse reset until thermal decay (Er40/41); retried by fault monitor | drive state via per-drive status; lockout cleared | yes |
 | Reset stats | `/api/resetstats` | needs loop | - | tuning metrics re-baseline | no (tuning, not operation) |
 | Haptics mute | `/api/haptics/mute` (body `{"on":true\|false}`, 1/0 as well: every tile; with `"effect":"<key>"`: that tile) | needs motion controller; a body without a boolean or numeric `on` refused with nothing changed; an unknown effect refused | taken by the next haptics step (loop or idle clock); runtime only, a restart unmutes | `hapMuted` (the master), `hapMute[]` (each tile, registry order) | no (tuning, not operation) |
@@ -112,22 +112,46 @@ These run in the web server before any command logic:
 
 Pinned by TestHttpContract.
 
+## E-stop trip rule
+
+Any e-stop trips the rig: the dashboard or Windows window button, the Pi's
+GPIO e-stop input, a drive's own quick stop, or the EtherCAT transport
+failing. While tripped the drives stay disabled and nothing that moves the
+rig is honoured: Home (including the loop start's auto-home and a fault
+recovery's rehome), Unpark, Tension belts, Engage device and Start loop are
+refused. Releasing the e-stop releases its input only; nothing moves. The
+one way back is a successful Initialize (Stop EtherCAT, then Initialize),
+which is refused while the e-stop is still held. Stop EtherCAT skips its
+seat pass after a trip (the drives stay de-energized), and Initialize
+discards any command queued before it, so nothing pressed while tripped
+runs later. After it, the rig is unhomed and parked: the next move is the
+loop start's auto-home, or a Home press. `/api/status` carries `estopTripped`, `estopSource` (what tripped it)
+and `estopTripAgoSec`, and the dashboard shows them in a banner.
+
+The Pi's GPIO e-stop input is filtered before it trips: it must read open
+on two consecutive 10 ms polls, and closed for 0.5 s before it counts as
+released. A single open read is logged as a blip (naming the pin) and
+ignored. The mushroom's hard-wired stop chain to the drives is not
+filtered and remains the safety device.
+
+Pinned by TestFaultRecovery (the blip and trip rows), TestCommandContract,
+TestHttpContract and TestEstopFilter.
+
 ## Belt-tension rule
 
 Belt tension has exactly ONE trigger: TensionBelts (`/api/belts/tension`,
 or `belts-toggle` resolving to it). The post-homing auto-unpark excludes
-torque axes, so neither e-stop release nor `/api/home` can tension a belt
-as a side effect, and unpark cannot bypass the overspeed guard's latched
-slack. Vertical axes keep full auto-recovery (release, re-home, unpark).
-TensionBelts is also the only latch-clearing re-tension; it remains refused
-under e-stop. Pinned by TestCommandContract and the TestTorquePath
-guard-latch tests.
+torque axes, so neither clearing an e-stop trip nor `/api/home` can
+tension a belt as a side effect, and unpark cannot bypass the overspeed
+guard's latched slack. TensionBelts is also the only latch-clearing
+re-tension; it remains refused while an e-stop trip holds. Pinned by
+TestCommandContract and the TestTorquePath guard-latch tests.
 
 ## Device engage rule
 
 The device families (shifter, pedal - torque-mode, but NEVER belts) are
-lifecycle-independent of the rig, like belts: **home-all, the loop-start
-auto-home, and the e-stop-release rehome all skip device axes** - a
+lifecycle-independent of the rig, like belts: **home-all and the
+loop-start auto-home both skip device axes** - a
 homing push must never surprise a hand on the lever. A device homes ONLY
 from a deliberate device action: the engage command on an unhomed device
 starts its torque stall-search and lands it PARKED = limp (never
@@ -136,7 +160,7 @@ out. A TARGETED `/api/home {"axis":N}` at a device is also deliberate
 and allowed; home-all is not. The post-homing auto-unpark skips device
 axes exactly as it skips belts; the belt commands filter on belt type so
 they can never grab a device, and vice versa. StartPark (whole-rig park)
-releases engaged devices. Engage is refused under e-stop. Device
+releases engaged devices. Engage is refused while an e-stop trip holds. Device
 settings saved via `/api/rig` LIVE-APPLY per axis the moment that device
 is limp (staged if engaged, landing on release) - the one exception to
 restart-to-apply, scoped to the `device` object only. Pinned by

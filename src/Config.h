@@ -241,7 +241,8 @@ struct DriveConfig
     //            torqueMinPct..torqueMaxPct.
     // With "g", what tightens it, per axis of the car (a sender whose sign
     // runs the other way is answered by picking the other one):
-    //   beltGMode  surge: "decel" braking, "accel" accelerating, "both", "off"
+    //   beltGMode  surge: "decel" braking (accSurge above 0, as SimHub
+    //              gives it), "accel" accelerating, "both", "off"
     //   beltGSway  sway:  "left", "right" (corners one way or the other),
     //              "both", "off" (the default)
     //   beltGHeave heave, its change from its own running mean (gravity

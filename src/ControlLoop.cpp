@@ -611,7 +611,7 @@ void ControlLoopWorker::run()
             RT_LOG_ERROR("ControlLoop: EtherCAT pump thread crashed -- triggering emergency stop.");
             if (m_onError)
                 m_onError("EtherCAT transport failed: pump thread crashed. Restart required.");
-            if (m_motion) m_motion->setEmergencyStop(true);
+            if (m_motion) m_motion->setEmergencyStop(true, MotionController::EstopSource::Transport);
         }
 
         // ---- 1. Receive telemetry ----
@@ -904,8 +904,9 @@ void ControlLoopWorker::run()
                         // QuickStopActive first appeared.  If yes, our own disableOperation()
                         // caused the QuickStop -- the user must release it manually.
                         // If no, it was a physical hardware button -- auto-clear on release.
-                        hwEstopWasSoftware = motionOut.emergencyStop;
-                        if (m_motion) m_motion->setEmergencyStop(true);
+                        hwEstopWasSoftware = m_motion ? m_motion->isEstopInputHeld()
+                                                      : motionOut.emergencyStop;
+                        if (m_motion) m_motion->setEmergencyStop(true, MotionController::EstopSource::Drive);
                         RT_LOG_WARNING("ControlLoop: Hardware e-stop detected (QuickStopActive) -- "
                                     "triggering emergency stop. (sw-initiated=%s)",
                                     hwEstopWasSoftware ? "yes" : "no");
@@ -915,9 +916,11 @@ void ControlLoopWorker::run()
                         hwEstopActive = false;
                         if (!hwEstopWasSoftware)
                         {
-                            // Physical hardware button was released -- safe to auto-clear.
-                            if (m_motion) m_motion->setEmergencyStop(false);
-                            RT_LOG_INFO("ControlLoop: Hardware e-stop released -- drives exited QuickStopActive.");
+                            // Physical hardware button was released: its input
+                            // clears; the trip stays until the drives are
+                            // re-initialized (nothing moves by itself).
+                            if (m_motion) m_motion->setEmergencyStop(false, MotionController::EstopSource::Drive);
+                            RT_LOG_INFO("ControlLoop: Hardware e-stop released -- drives exited QuickStopActive; re-initialize to resume.");
                         }
                         else
                         {
@@ -1336,6 +1339,14 @@ void ControlLoop::seatThenStop()
     // bottom stop, de-energizes ON the stop, and exits without restarting the pump.
     // Synchronous: returns once seated + de-energized so the caller can shutdown().
     if (m_running.load()) { LOG_WARNING("ControlLoop::seatThenStop(): loop running -- skipping seat."); return; }
+    // After an e-stop the drives are already de-energized: there is nothing
+    // left to set down, and a seat would enable them again (a post that sank
+    // while disabled faults on enable). Nothing moves until a re-initialize.
+    if (m_motion && m_motion->isEmergencyStop())
+    {
+        LOG_WARNING("ControlLoop::seatThenStop(): e-stop tripped -- no seat, the drives stay de-energized.");
+        return;
+    }
     if (!m_master || !m_motion) return;
     if (!m_master->isOperational() || m_master->isSimulation()) return;
 

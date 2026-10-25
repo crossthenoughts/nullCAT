@@ -173,8 +173,25 @@ class MotionController
 public:
     MotionController();
     void configure(const AppConfig& config);
-    void setEmergencyStop(bool active);
-    bool isEmergencyStop() const { return m_emergencyStop.load(); }
+    // E-stop. Any e-stop (the web or Qt button, the GPIO input, a drive's
+    // own quick stop, the transport failing) TRIPS the controller: the
+    // drives stay disabled and nothing that moves the rig (homing, unpark,
+    // belt tension, device engage) is honoured until the drives are
+    // re-initialized (clearEmergencyTrip, from a successful initialize).
+    // Releasing the e-stop only releases its input; it never moves anything.
+    enum class EstopSource : int { None = 0, Web = 1, Gpio = 2, App = 3, Drive = 4, Transport = 5 };
+    void setEmergencyStop(bool active, EstopSource source = EstopSource::App);
+    // Stopped by an e-stop: its input held, or tripped since the last initialize.
+    bool isEmergencyStop() const { return m_emergencyStop.load() || m_estopTripped.load(); }
+    bool isEstopInputHeld() const { return m_emergencyStop.load(); }
+    bool isEstopTripped() const   { return m_estopTripped.load(); }
+    EstopSource estopTripSource() const { return static_cast<EstopSource>(m_estopTripSource.load()); }
+    // steady_clock ms of the trip (0 = none).
+    int64_t estopTripMs() const   { return m_estopTripMs.load(); }
+    // After a successful initialize of the drives only. Refused (false) while
+    // the e-stop input is still held: release it first.
+    bool clearEmergencyTrip();
+    static const char* estopSourceName(EstopSource s);
     void resetFilters();
 
     void process(const TelemetryData& telemetryData, MotionOutput& output,
@@ -269,6 +286,7 @@ private:
     double stepPositionBlending(int i, AxisMotionState& state, const TelemetryData& td);
     double stepBeltOnline(int i, AxisMotionState& state, const TelemetryData& td,
                           MotionOutput& output, A6Drive** drives, int numHwDrives);
+    void   noteBeltMotionStream(int i, const TelemetryData& td);
     double stepPositionOnline(int i, AxisMotionState& state, const TelemetryData& td);
     double stepBeltParking(int i, AxisMotionState& state, MotionOutput& output);
     double stepPositionParking(int i, AxisMotionState& state);
@@ -435,11 +453,12 @@ private:
         double  beltRelaxerPct    = 80.0;     // % of torqueMaxPct that counts as dwell
         // Belt cue from the car's g (Config.h beltSource "g"): what tightens
         // it on each of the car's three axes, 0 off, 1 the value above zero,
-        // 2 below zero, 3 either (surge: accel / decel / both; sway: left /
-        // right / both; heave: press / lift / both), and sway's and heave's
-        // share against surge's.
+        // 2 below zero, 3 either (surge: decel / accel / both, accSurge
+        // reading above zero under braking; sway: left / right / both;
+        // heave: press / lift / both), and sway's and heave's share against
+        // surge's.
         bool    beltFromG         = false;
-        int     beltGMode         = 2;
+        int     beltGMode         = 1;
         int     beltGSway         = 0;
         int     beltGHeave        = 0;
         double  beltGSwayMix      = 1.0;
@@ -527,6 +546,11 @@ private:
             double sameSec = 0.0;
         };
         BeltGChan beltGCh[3];
+        // Belt from g: the motion stream's staleness, which (not the
+        // channels') lets the belt slacken by itself, with the posts.
+        // Armed once a motion frame is seen this session.
+        double  beltMotionStaleSec = 0.0;
+        bool    beltMotionSeen     = false;
         uint8_t beltLastTripWhy   = 0;    // 1=OVERSPEED 2=TRAVEL; sticky until next tension-up (card display)
         // Deinit seat phase-2 (ease-off-to-rest) per-axis state -- see startSeatRelief().
         double  seatReliefStartRaw = 0.0; // raw position where the ease-off began (cap reference)
@@ -620,7 +644,11 @@ private:
     std::atomic<uint16_t> m_devPendingMask{0};
     void applyPendingDeviceParams();
     bool             m_seatActive[MAX_DRIVES] = {};   // axes selected by startSeatHoming() (deinit seat)
-    std::atomic<bool> m_emergencyStop{false};
+    std::atomic<bool> m_emergencyStop{false};   // the e-stop input (held)
+    std::atomic<bool> m_estopTripped{false};    // latched by any e-stop, cleared only by clearEmergencyTrip
+    std::atomic<int>  m_estopTripSource{0};
+    std::atomic<int64_t> m_estopTripMs{0};
+    bool             estopHolds() const { return m_emergencyStop.load(std::memory_order_acquire) || m_estopTripped.load(std::memory_order_acquire); }
     double           m_estopElapsed = 0.0;
     bool             m_homingUnparkDone = false;
     bool             m_prevEstopState = false;  // estop edge detection in process()

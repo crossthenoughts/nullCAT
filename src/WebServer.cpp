@@ -429,6 +429,22 @@ std::string WebServer::buildStatusJson() const
     s += "\"loopRunning\":"  + jsonBool(loopRunning)           + ",";
     s += "\"masterOp\":"     + jsonBool(masterOp)             + ",";
     s += "\"estop\":"        + jsonBool(estop)                + ",";
+    // The e-stop's parts: the input held now, and the trip (any e-stop since
+    // the last initialize) with what tripped it and how long ago, so the
+    // dashboard can say why the rig will not move.
+    if (m_motion)
+    {
+        s += "\"estopInput\":"   + jsonBool(m_motion->isEstopInputHeld()) + ",";
+        s += "\"estopTripped\":" + jsonBool(m_motion->isEstopTripped())   + ",";
+        if (m_motion->isEstopTripped())
+        {
+            const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            const int64_t at = m_motion->estopTripMs();
+            s += "\"estopSource\":" + jsonStr(MotionController::estopSourceName(m_motion->estopTripSource())) + ",";
+            s += "\"estopTripAgoSec\":" + std::to_string(at > 0 ? std::max<int64_t>(0, (nowMs - at) / 1000) : 0) + ",";
+        }
+    }
     s += "\"needsRehome\":"  + jsonBool(ms.needsRehome)       + ",";
     s += "\"homing\":"       + jsonBool(anyHoming)            + ",";
     s += "\"parked\":"       + jsonBool(allParked)            + ",";
@@ -906,6 +922,9 @@ bool WebServer::start()
 
                 std::string nicName = m_config ? m_config->nicName : "";
                 bool ok = m_master && m_master->initializeAndEnterOp(nicName);
+                // The drives are re-initialized: an e-stop trip no longer
+                // holds the rig (refused while the e-stop is still held).
+                if (ok && m_motion && !(m_loop && m_loop->isRunning())) m_motion->clearEmergencyTrip();
                 if (!ok)
                 {
                     std::lock_guard<std::mutex> elk(m_initMutex);
@@ -1468,6 +1487,7 @@ bool WebServer::start()
             if (!m_loop) { errResp(res, "Components not ready."); return; }
             if (!m_master || !m_master->isOperational()) { errResp(res, "EtherCAT not operational. Run /api/init first."); return; }
             if (m_loop->isRunning()) { okResp(res); return; }
+            if (m_motion && m_motion->isEmergencyStop()) { errResp(res, "E-STOP tripped -- re-initialize the drives to resume."); return; }
             m_loop->start();
             okResp(res);
         });
@@ -1486,14 +1506,16 @@ bool WebServer::start()
             // every drive before its next frame (the RT loop, or the pump
             // while the loop is stopped). The hardware e-stop stays the
             // safety layer.
-            m_motion->setEmergencyStop(true);
+            m_motion->setEmergencyStop(true, MotionController::EstopSource::Web);
             m_master->requestStopAll();
             okResp(res);
         });
 
         postCmd("/api/estop/release", [this, okResp](const httplib::Request&, httplib::Response& res)
         {
-            if (m_motion) m_motion->setEmergencyStop(false);
+            // Releases the input only: the trip holds until the drives are
+            // re-initialized (Initialize clears it).
+            if (m_motion) m_motion->setEmergencyStop(false, MotionController::EstopSource::Web);
             okResp(res);
         });
 
@@ -2408,6 +2430,7 @@ bool WebServer::start()
             else
             {
                 if (!m_master || !m_master->isOperational()) { errResp(res, "EtherCAT not operational. Run init first."); return; }
+                if (m_motion && m_motion->isEmergencyStop()) { errResp(res, "E-STOP tripped -- re-initialize the drives to resume."); return; }
                 m_loop->start();
                 resolvedResp(res, "start");
             }
@@ -2424,6 +2447,8 @@ bool WebServer::start()
             const status::MotionAggregates agg =
                 status::deriveMotionAggregates(ms.axisState, ms.numDrives);
             if (agg.transitional) { errResp(res, "Transitioning -- toggle ignored."); return; }
+            if (agg.allParked && m_motion->isEmergencyStop())
+            { errResp(res, "E-STOP tripped -- re-initialize the drives to resume."); return; }
             MotionCommand c;
             c.type = agg.allParked ? MotionCommand::Type::StartUnpark : MotionCommand::Type::StartPark;
             m_motion->enqueueCommand(c);
@@ -2448,7 +2473,7 @@ bool WebServer::start()
             // Make the e-stop refusal VISIBLE here (the engine would refuse
             // silently): a blind press must not read as accepted.
             if (beltsSlack && m_motion->isEmergencyStop())
-            { errResp(res, "E-stop active -- tension refused."); return; }
+            { errResp(res, "E-STOP tripped -- re-initialize the drives to resume."); return; }
             MotionCommand c;
             c.type = beltsSlack ? MotionCommand::Type::TensionBelts : MotionCommand::Type::SlackBelts;
             m_motion->enqueueCommand(c);
@@ -2472,7 +2497,7 @@ bool WebServer::start()
             if (!agg.hasDevices)   { errResp(res, "No device axes on this rig."); return; }
             if (agg.transitional)  { errResp(res, "Device transitioning -- toggle ignored."); return; }
             if (!agg.anyEngaged && m_motion->isEmergencyStop())
-            { errResp(res, "E-stop active -- device engage refused."); return; }
+            { errResp(res, "E-STOP tripped -- re-initialize the drives to resume."); return; }
             MotionCommand c;
             c.type   = agg.anyEngaged ? MotionCommand::Type::ReleaseDevice
                                       : MotionCommand::Type::EngageDevice;

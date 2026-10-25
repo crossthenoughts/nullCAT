@@ -541,6 +541,11 @@ add_executable(TestShakerDsp tests/TestShakerDsp.cpp)
 target_include_directories(TestShakerDsp PRIVATE ${TEST_INCLUDE_DIRS})
 target_compile_options(TestShakerDsp PRIVATE /W3 /Zc:__cplusplus)
 add_test(NAME TestShakerDsp COMMAND TestShakerDsp)
+# The panel e-stop input's level filter: header-only, no GPIO.
+add_executable(TestEstopFilter tests/TestEstopFilter.cpp)
+target_include_directories(TestEstopFilter PRIVATE ${TEST_INCLUDE_DIRS})
+target_compile_options(TestEstopFilter PRIVATE /W3 /Zc:__cplusplus)
+add_test(NAME TestEstopFilter COMMAND TestEstopFilter)
 # The telemetry wire format and the channel store (parse, ingest, the
 # freshness verdicts, the recorder, the receive path on a loopback
 # socket): plain C++, no Qt. Was Pi-only; the parser is platform-neutral

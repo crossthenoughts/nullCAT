@@ -14,6 +14,7 @@
 // ============================================================
 
 #include "GpioPanel.h"
+#include "EstopFilter.h"
 #include "Logging.h"
 
 #include <gpiod.h>
@@ -24,6 +25,9 @@ namespace {
 constexpr int    POLL_MS          = 10;   // ~100 Hz
 constexpr int    DEBOUNCE_CYCLES  = 3;    // 3 × 10 ms = 30 ms stable
 constexpr int    BLINK_HALF_CYCLES = 25;  // 25 × 10 ms = 250 ms → ~2 Hz blink
+// The e-stop input's blips (EstopFilter.h): the first logged at once, any
+// more within a second summed into one line when the second is up.
+constexpr int    ESTOP_BLIP_LOG_CYCLES = 1000 / POLL_MS;
 
 inline gpiod_line_value boolToVal(bool on)
 {
@@ -143,6 +147,9 @@ void GpioPanel::run()
     };
 
     bool estopLatched = false;   // panel latch; no auto-resume on release
+    EstopFilter estopFilter = EstopFilter::forPanel(POLL_MS);
+    int  lastBlipLogTick = -ESTOP_BLIP_LOG_CYCLES;
+    int  blipsUnlogged   = 0;
     int  tick = 0;
     int  pE = -1;   // packed previous raw input state for change-logging
 
@@ -180,27 +187,42 @@ void GpioPanel::run()
 
         const PanelStatus st = m_getStatus ? m_getStatus() : PanelStatus{};
 
-        // E-STOP (level). Open (or cable cut) => assert + latch. Closed again =>
-        // auto-release: the mushroom is the deliberate control, so releasing it
-        // clears the e-stop and the UI (same effect as the web Release button).
-        if (estopOpen)
+        // E-STOP (level, filtered). Open (or cable cut) on two polls in a row
+        // => assert + latch; a single open read is a blip, logged and ignored.
+        // Closed for ESTOP_RELEASE_SEC => the input is released, the same as
+        // the web Release button: the e-stop trip holds until the drives are
+        // re-initialized, so a release never moves the rig.
+        switch (estopFilter.step(estopOpen))
         {
-            if (!estopLatched)
-            {
-                estopLatched = true;
-                if (m_actions.estop) m_actions.estop();
-                LOG_WARNING("GpioPanel: E-STOP engaged (mushroom open / cable cut).");
-            }
-            else if (!st.estop && m_actions.estop)
-            {
-                m_actions.estop();   // re-assert if cleared elsewhere while still open
-            }
-        }
-        else if (estopLatched)
-        {
+        case EstopFilter::Event::Engaged:
+            estopLatched = true;
+            if (m_actions.estop) m_actions.estop();
+            LOG_WARNING("GpioPanel: E-STOP engaged (mushroom open / cable cut).");
+            break;
+        case EstopFilter::Event::Released:
             estopLatched = false;
             if (m_actions.estopRelease) m_actions.estopRelease();
-            LOG_INFO("GpioPanel: E-STOP released (mushroom closed).");
+            LOG_INFO("GpioPanel: E-STOP released (mushroom closed). Re-initialize the drives to resume.");
+            break;
+        case EstopFilter::Event::Blip:
+            ++blipsUnlogged;
+            break;
+        case EstopFilter::Event::None:
+            // Re-assert if the input was released elsewhere (the web Release
+            // button) while the mushroom is still open.
+            if (estopLatched && !st.estopInput && m_actions.estop)
+                m_actions.estop();
+            break;
+        }
+        if (blipsUnlogged > 0 && tick - lastBlipLogTick >= ESTOP_BLIP_LOG_CYCLES)
+        {
+            LOG_WARNING(strf("GpioPanel: e-stop input read open for %d ms and closed again "
+                             "(%d time%s) -- ignored, not an e-stop. Repeats point at a loose "
+                             "wire, a contact or electrical noise on GPIO %u.",
+                             estopFilter.lastBlipSamples() * POLL_MS, blipsUnlogged,
+                             blipsUnlogged == 1 ? "" : "s", m_pins.estop));
+            lastBlipLogTick = tick;
+            blipsUnlogged   = 0;
         }
 
         const bool engagePress = edge(engageDown, engageStable, engageCnt);

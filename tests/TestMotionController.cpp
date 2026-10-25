@@ -934,7 +934,9 @@ private slots:
     // Same technique as the Stage C belt pin: deterministic full lifecycle
     // (no mocks, no clocks), composite string at 17 significant digits =
     // bit equality. Captured before the process() decomposition; the
-    // per-family extraction must leave every bit unchanged.
+    // per-family extraction must leave every bit unchanged. Re-pinned when
+    // the e-stop release stopped re-homing (the trip holds until a
+    // re-initialize): only the sum over the last 60 cycles moved.
     void positionPath_goldenSequence_stageD()
     {
         AppConfig cfg = makeAxisConfig("linear_vertical", "csp", "endstop",
@@ -981,14 +983,22 @@ private slots:
         for (int c = 0; c < 430; ++c) tick(empty);     // stale: hold, ease, park
         mc.setEmergencyStop(true);
         for (int c = 0; c < 30; ++c) tick(empty);
-        mc.setEmergencyStop(false);                    // clears: re-home
-        for (int c = 0; c < 60; ++c) tick(empty);
+        mc.setEmergencyStop(false);                    // released: the trip holds
+        double postLo = 1e9, postHi = -1e9;
+        for (int c = 0; c < 60; ++c)
+        {
+            tick(empty);
+            postLo = std::min(postLo, out.positions[0]);
+            postHi = std::max(postHi, out.positions[0]);
+        }
+        // The release alone moves nothing (it used to re-home and unpark).
+        QVERIFY2(postLo == 1.5 && postHi == 1.5, "e-stop release: held at park until a re-initialize");
 
         QStringList got;
         got << QString::number(sum, 'g', 17);
         for (int k = 0; k < 8; ++k) got << QString::number(sample[k], 'g', 17);
         const QString expected =
-            "21826.231531084239 50 53.815843524383901 23.903726310007027 "
+            "19182.981531084239 50 53.815843524383901 23.903726310007027 "
             "10.122989593188265 8.5970641193884063 50 1.5 1.5";
         QVERIFY2(got.join(" ") == expected,
                  qPrintable("golden drift, actual: " + got.join(" ")));

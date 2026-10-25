@@ -142,18 +142,32 @@ int main()
               && mc.getAxisState(BELT) != AxisMotionState::BLENDING,
               "TensionBelts under e-stop: axis never goes online");
 
-        // RULED Option A (Jul 20): release restores PERMISSION, not state --
-        // the belt stays slack-parked until an explicit TensionBelts.
+        // Release frees the input only: the trip holds until the drives are
+        // re-initialized, so the belt stays slack and TensionBelts is still
+        // refused.
         mc.setEmergencyStop(false);
         out = runCycles(mc, sim(0.5), 400);
         check(out.torques[BELT] == 0.0,
-              "e-stop release alone does not re-tension (explicit command required)");
+              "e-stop release alone does not re-tension");
+        check(mc.isEstopTripped() && mc.isEmergencyStop(),
+              "e-stop release: still tripped");
+        cmd(mc, MotionCommand::Type::TensionBelts);
+        out = runCycles(mc, sim(0.5), 400);
+        check(out.torques[BELT] == 0.0,
+              "TensionBelts after release, before re-initialize: refused");
 
-        // And the same command after release IS honored.
+        // A successful initialize clears the trip (restores PERMISSION, not
+        // state): the belt stays slack until an explicit TensionBelts...
+        check(mc.clearEmergencyTrip(), "trip clears once the input is released");
+        out = runCycles(mc, sim(0.5), 400);
+        check(out.torques[BELT] == 0.0,
+              "clearing the trip alone does not re-tension (explicit command required)");
+
+        // ...and that command is then honored.
         cmd(mc, MotionCommand::Type::TensionBelts);
         out = runCycles(mc, sim(0.5), 400);
         check(out.torques[BELT] > 0.0,
-              "TensionBelts after e-stop release: honored");
+              "TensionBelts after the trip is cleared: honored");
     }
 
     // ---- E-stop always honored, from any state ------------------------------

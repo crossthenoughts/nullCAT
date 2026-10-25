@@ -299,10 +299,15 @@ int main(int argc, char* argv[])
         // Buttons fire the same actions as the web endpoints.
         PanelActions acts;
         acts.init  = [&webServer]() { webServer.requestInit(); };
-        acts.start = [&loop, &master]()
+        acts.start = [&loop, &master, &motion]()
         {
             if (master.isOperational() && !loop.isRunning())
-                loop.start();
+            {
+                if (motion.isEmergencyStop())
+                    LOG_WARNING("GpioPanel: RUN refused -- E-STOP tripped; re-initialize the drives to resume.");
+                else
+                    loop.start();
+            }
         };
         acts.stop = [&loop]()
         {
@@ -348,10 +353,12 @@ int main(int argc, char* argv[])
             // next frame. The motion e-stop first, so the cycle that
             // carries it out disables in process() too. The hardware
             // e-stop stays the safety layer.
-            motion.setEmergencyStop(true);
+            motion.setEmergencyStop(true, MotionController::EstopSource::Gpio);
             master.requestStopAll();
         };
-        acts.estopRelease = [&motion]() { motion.setEmergencyStop(false); };
+        // Releases the input only: the trip holds until the drives are
+        // re-initialized.
+        acts.estopRelease = [&motion]() { motion.setEmergencyStop(false, MotionController::EstopSource::Gpio); };
 
         auto getStatus = [&master, &loop, &motion, &webServer, &config]() -> PanelStatus
         {
@@ -359,6 +366,7 @@ int main(int argc, char* argv[])
             s.masterOp    = master.isOperational();
             s.loopRunning = loop.isRunning();
             s.estop       = motion.isEmergencyStop();
+            s.estopInput  = motion.isEstopInputHeld();
             s.initBusy    = webServer.isInitBusy();
             if (s.masterOp)
                 for (int i = 0; i < master.getDriveCount(); ++i)

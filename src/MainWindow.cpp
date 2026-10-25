@@ -685,8 +685,13 @@ void MainWindow::onInitializeEtherCAT()
         return;
     }
 
+    // The drives are re-initialized: an e-stop trip no longer holds the rig
+    // (refused while the e-stop is still held).
+    const bool estopHeld = m_motion && !m_motion->clearEmergencyTrip();
     m_labelSlaveCount->setText(QString::number(m_master->getSlaveCount()));
-    statusBar()->showMessage("EtherCAT initialized and operational.");
+    statusBar()->showMessage(estopHeld
+        ? "EtherCAT initialized, but the E-STOP is still held: release it, then Stop EtherCAT and Initialize again."
+        : "EtherCAT initialized and operational.");
     updateButtonStates();   // label flips to "Stop EtherCAT" once OP + loop stopped
 }
 
@@ -696,6 +701,14 @@ void MainWindow::onStartControlLoop()
     // The start DIAG breadcrumb is emitted inside ControlLoop::start() so the
     // web /api/start path produces the same SOEM-log trail as this button.
     LOG_INFO("GUI: Start Control Loop clicked.");
+
+    if (m_motion && m_motion->isEmergencyStop())
+    {
+        QMessageBox::warning(this, "E-STOP", m_motion->isEstopInputHeld()
+            ? "E-STOP is still held. Release it, then Stop EtherCAT and Initialize EtherCAT to resume."
+            : "E-STOP tripped. Stop EtherCAT, then Initialize EtherCAT to resume.");
+        return;
+    }
 
     if (!m_loop->start())
     {
@@ -1085,7 +1098,7 @@ void MainWindow::onEmergencyStop()
     // The motion e-stop first (the cycle that carries out the stop then
     // disables in process() too); the bus owner disables every drive before
     // its next frame.
-    if (m_motion) m_motion->setEmergencyStop(true);
+    if (m_motion) m_motion->setEmergencyStop(true, MotionController::EstopSource::App);
     if (m_master) m_master->requestStopAll();
 
     m_btnEmergency->setText("⚡ E-STOP ACTIVE - click to clear");
@@ -1094,8 +1107,10 @@ void MainWindow::onEmergencyStop()
     disconnect(m_btnEmergency, &QPushButton::clicked, this, &MainWindow::onEmergencyStop);
     connect(m_btnEmergency, &QPushButton::clicked, this, [this]()
         {
-            LOG_INFO("GUI: Emergency stop cleared.");
-            if (m_motion) m_motion->setEmergencyStop(false);
+            LOG_INFO("GUI: Emergency stop released.");
+            if (m_motion) m_motion->setEmergencyStop(false, MotionController::EstopSource::App);
+            if (m_motion && m_motion->isEstopTripped())
+                statusBar()->showMessage("E-STOP released. The drives stay stopped: re-initialize them to resume.");
 
             m_btnEmergency->setText("⚡  EMERGENCY STOP");
             m_btnEmergency->setStyleSheet(kEstopStyle);

@@ -270,6 +270,11 @@ add_executable(TestShakerDsp ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestShakerDsp.
 target_include_directories(TestShakerDsp PRIVATE ${SRC})
 add_test(NAME TestShakerDsp COMMAND TestShakerDsp)
 
+# The panel e-stop input's level filter: header-only, no GPIO.
+add_executable(TestEstopFilter ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestEstopFilter.cpp)
+target_include_directories(TestEstopFilter PRIVATE ${SRC})
+add_test(NAME TestEstopFilter COMMAND TestEstopFilter)
+
 # Two sound cards as one row of shakers, on miniaudio's null backend:
 # the fan-out, the status, a card with fewer channels than asked for,
 # a card going away and coming back. ShakerOutput.cpp carries miniaudio.

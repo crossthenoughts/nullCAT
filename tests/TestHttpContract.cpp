@@ -951,11 +951,8 @@ int main()
           "status: hasDevices false on a device-less rig");
 
     // ---- toggle endpoints (one button per pair; server-resolved + guarded) ----
-    // Runs BEFORE the e-stop section: e-stop release triggers a re-home, and
-    // sim drives have no hardstop torque model (getTorquePercent()==0 without
-    // PDO pointers) so that homing never completes -- a KNOWN sim-fidelity
-    // gap (backlog: sim hardstop model). The transition guard then correctly
-    // refuses toggles forever after. Here everything is settled.
+    // Runs BEFORE the e-stop section, which trips the rig and walks it back
+    // through Stop EtherCAT and Initialize. Here everything is settled.
     // Belt is TENSIONED but may still be BLENDING from the re-tension above --
     // and the transition guard makes toggles NO-OPS during transitions (by
     // design). Settle first, then exercise resolution + cooldown.
@@ -1004,13 +1001,56 @@ int main()
     check(has(get("/api/status"), "\"beltsSlack\":true"),
           "tension under e-stop: belt STAYS slack (silent engine refusal)");
 
-    // ---- release restores permission, not state (Option A) ----
+    // ---- the trip names what stopped the rig and when ----
+    {
+        const std::string st = get("/api/status");
+        check(has(st, "\"estopInput\":true") && has(st, "\"estopTripped\":true")
+              && has(st, "\"estopSource\":\"dashboard e-stop\"") && has(st, "\"estopTripAgoSec\":"),
+              "status: the trip carries its source and age");
+    }
+
+    // ---- release frees the input only: the trip holds ----
     check(has(post("/api/estop/release"), "\"ok\":true"), "POST /api/estop/release accepted");
-    check(waitStatus("\"estop\":false", 3000), "status: estop:false");
-    std::this_thread::sleep_for(std::chrono::seconds(2));   // re-home/auto-unpark window
+    check(waitStatus("\"estopInput\":false", 3000), "status: estopInput:false after release");
+    {
+        const std::string st = get("/api/status");
+        check(has(st, "\"estop\":true") && has(st, "\"estopTripped\":true"),
+              "release alone: still tripped (estop:true)");
+    }
+    std::this_thread::sleep_for(std::chrono::seconds(2));   // nothing may move in this window
     check(has(get("/api/status"), "\"beltsSlack\":true"),
-          "Option A: belt still slack after e-stop release");
-    check(has(post("/api/belts/tension"), "\"ok\":true"), "re-tension accepted after release");
+          "belt still slack after e-stop release");
+    check(has(post("/api/belts/tension"), "\"ok\":true"),
+          "tension after release: ok:true (ACCEPTED, the engine refuses)");
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    check(has(get("/api/status"), "\"beltsSlack\":true"),
+          "tension after release, before re-initialize: belt STAYS slack");
+    check(has(post("/api/belts-toggle"), "re-initialize"),
+          "belts-toggle while tripped: visible refusal naming the fix");
+
+    // ---- a stopped loop will not start while tripped ----
+    check(has(post("/api/stop"), "\"ok\":true"), "POST /api/stop accepted (tripped)");
+    check(waitStatus("\"loopRunning\":false", 10000), "tripped: the loop stops");
+    check(has(post("/api/start"), "re-initialize"), "start while tripped: refused, names the fix");
+    check(has(post("/api/run-toggle"), "re-initialize"), "run-toggle while tripped: refused, names the fix");
+    check(has(get("/api/status"), "\"loopRunning\":false"), "the refused starts left the loop stopped");
+
+    // ---- only a successful re-initialize clears it ----
+    check(has(post("/api/deinit"), "\"ok\":true"), "POST /api/deinit accepted (tripped)");
+    check(waitStatus("\"masterOp\":false", 15000), "tripped: masterOp false");
+    check(has(get("/api/status"), "\"estopTripped\":true"), "Stop EtherCAT alone does not clear the trip");
+    check(has(post("/api/init"), "\"ok\":true"), "re-initialize accepted");
+    check(waitStatus("\"masterOp\":true", 15000), "re-initialize: masterOp true");
+    check(waitStatus("\"estopTripped\":false", 3000) && has(get("/api/status"), "\"estop\":false"),
+          "a successful re-initialize clears the trip");
+    check(has(post("/api/start"), "\"ok\":true"), "start after re-initialize: accepted");
+    check(waitStatus("\"loopRunning\":true", 5000), "start after re-initialize: loop runs");
+
+    // ---- the cleared trip restores permission, not state (Option A) ----
+    std::this_thread::sleep_for(std::chrono::seconds(2));   // auto-home window
+    check(has(get("/api/status"), "\"beltsSlack\":true"),
+          "Option A: belt still slack after the re-initialize");
+    check(has(post("/api/belts/tension"), "\"ok\":true"), "re-tension accepted after re-initialize");
     check(waitStatus("\"beltsSlack\":false", 5000), "re-tension takes effect");
 
     // ---- B1 security hardening: Host allowlist + no CORS ----

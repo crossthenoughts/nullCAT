@@ -41,6 +41,11 @@
     </div>
   </header>
 
+  <!-- E-STOP trip: shown while any e-stop since the last Initialize holds the
+       rig (app.js fills in what tripped it and when). Releasing the e-stop
+       does not clear it; Initialize does. -->
+  <div id="estopBanner" class="estop-banner" hidden></div>
+
   <!-- ===== view switch: Operate = the daily surfaces; Setup = host,
        provisioning, commissioning test, bindings, updater ===== -->
   <nav class="viewnav" id="viewNav">
@@ -439,6 +444,7 @@ sudo ./provision eth0 &lt;slave&gt; --verify    # confirm everything persisted</
     The rig keeps running and the <b>physical E-STOP still works</b>. Check the network path
     (direct cable / WiFi) - this clears automatically when data returns.
   </div>
+
 
   <!-- Command-refusal line: server's reason for a click that did nothing. -->
   <div id="cmdErr" class="cmd-err" hidden></div>

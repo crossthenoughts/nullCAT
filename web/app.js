@@ -127,6 +127,17 @@ function applyState(s){
   tstDrives = s.drives||[]; tstLoopRunning = running; refreshTestButtons();
 
   document.body.classList.toggle('estop-active', estop);
+  // The trip banner: what stopped the rig, when, and the one way back.
+  { const b=$('estopBanner'); if(b){ const t=!!s.estopTripped; b.hidden=!t;
+      if(t){ const mb=document.querySelector('.menubar'); b.style.top=((mb&&mb.offsetHeight)||96)+'px'; }
+      if(t){ const ago=+s.estopTripAgoSec||0, src=s.estopSource||'e-stop';
+        const when = ago<60 ? ago+' s ago' : ago<3600 ? Math.round(ago/60)+' min ago' : Math.round(ago/3600)+' h ago';
+        const h=String(src).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+        const steps = running ? 'Stop, then Stop EtherCAT, then Initialize EtherCAT'
+                    : op      ? 'Stop EtherCAT, then Initialize EtherCAT'
+                    :           'Initialize EtherCAT';
+        b.innerHTML = '⚠ <b>E-STOP</b> tripped by the '+h+' '+when+'. Nothing moves until the drives are re-initialized'
+          + (s.estopInput ? ': release the e-stop first, then ' : ': ') + '<b>'+steps+'</b>.'; } } }
   // Logo keys on the shared-model aggregate: estop > fault > running > offline -> the
   // four stateful images. This makes logo-fault.png actually trigger on a drive fault
   // (the old driveFault check tested d.state, a motion name that never says "fault",
@@ -174,7 +185,9 @@ function applyState(s){
   btn.belts.textContent=beltsSlack?'Tension Belts':'Slack Belts';
   btn.belts.disabled=!running||estop;
   btn.belts.classList.toggle('btn-start',beltsSlack);  // green-ish when it will apply tension
-  btn.estop.disabled=estop; btn.release.disabled=!estop;
+  // E-STOP and Release follow the input, so E-STOP can be pressed again
+  // while tripped; the trip itself stays until Initialize.
+  btn.estop.disabled=!!(s.estopInput ?? estop); btn.release.disabled=!(s.estopInput ?? estop);
 }
 function setV(el,t,c){ el.textContent=t; el.className='v'+(c?' '+c:''); }
 function setLogo(c){ if(!elLogo) return; const f={'is-offline':'logo-offline.png','is-online':'logo-online.png','is-fault':'logo-fault.png','is-estop':'logo-estop.png'}[c]||'logo-offline.png';

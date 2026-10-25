@@ -15,6 +15,7 @@
 #include "MotionController.h"
 #include "Logging.h"
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <shared_mutex>
@@ -99,6 +100,18 @@ void MotionController::configure(const AppConfig& config)
                        :                                              CommandConditioner::Mode::Bypass;
     m_needsRehome = true;
 
+    // Initialize is a fresh start: a command queued while the loop was
+    // stopped (a tension or engage pressed while tripped, a script) must
+    // not run at the next loop start. The loop is stopped whenever this
+    // runs, so this thread is the queue's only consumer.
+    {
+        MotionCommand stale;
+        int dropped = 0;
+        while (m_cmdQueue.pop(stale)) ++dropped;
+        if (dropped > 0)
+            LOG_INFO(strf("MotionController: %d queued command(s) from before the initialize discarded.", dropped));
+    }
+
     // Haptic layer: tuning + routes are rig-global config. applyHaptics is
     // shared with the live-apply staging path (a rig save applies without
     // a re-initialize).
@@ -158,7 +171,10 @@ void MotionController::configure(const AppConfig& config)
         ac.beltRelaxerSec    = dc.beltRelaxerSec;
         ac.beltRelaxerPct    = dc.beltRelaxerPct;
         ac.beltFromG         = (dc.beltSource == "g");
-        ac.beltGMode         = (dc.beltGMode == "off") ? 0 : (dc.beltGMode == "accel") ? 1 : (dc.beltGMode == "both") ? 3 : 2;
+        // Surge: the senders' accSurge reads above zero under braking (as
+        // SimHub gives it; the direct read is fitted to SimHub's sign), so
+        // "decel" takes the value above zero and "accel" the one below.
+        ac.beltGMode         = (dc.beltGMode == "off") ? 0 : (dc.beltGMode == "accel") ? 2 : (dc.beltGMode == "both") ? 3 : 1;
         ac.beltGSway         = (dc.beltGSway == "left") ? 1 : (dc.beltGSway == "right") ? 2 : (dc.beltGSway == "both") ? 3 : 0;
         ac.beltGHeave        = (dc.beltGHeave == "press") ? 1 : (dc.beltGHeave == "lift") ? 2 : (dc.beltGHeave == "both") ? 3 : 0;
         ac.beltGSwayMix      = std::isfinite(dc.beltGSwayMix)  ? std::max(0.0, std::min(3.0, dc.beltGSwayMix))  : 1.0;
@@ -208,7 +224,7 @@ void MotionController::configure(const AppConfig& config)
                           ac.torqueMaxPct * rf));
             if (ac.beltFromG)
             {
-                static const char* const kSurge[4] = { "off", "acceleration", "braking", "both" };
+                static const char* const kSurge[4] = { "off", "braking", "acceleration", "both" };
                 static const char* const kSway[4]  = { "off", "left", "right", "both" };
                 static const char* const kHeave[4] = { "off", "press", "lift", "both" };
                 LOG_INFO(strf("MotionController: Axis %d belt from the car's g: surge %s, sway %s x%.2f, "
@@ -306,17 +322,70 @@ void MotionController::configure(const AppConfig& config)
     applyHapticSinks();
 }
 
-void MotionController::setEmergencyStop(bool active)
+void MotionController::setEmergencyStop(bool active, EstopSource source)
 {
-    // Only touch the atomic here -- safe from any thread.
-    // The state transitions (ESTOPPING, startHoming on clear) happen inside
-    // process() via edge detection on m_prevEstopState, which runs exclusively
-    // on the RT thread, so m_axisState[] is never written off the RT thread.
-    m_emergencyStop.store(active, std::memory_order_release);
+    // Only atomics here -- safe from any thread. The state transitions
+    // (ESTOPPING, then PARKED in place) happen inside process() on the RT
+    // thread, so m_axisState[] is never written off it.
     if (active)
-        LOG_WARNING("MotionController: EMERGENCY STOP");
+    {
+        // The input first, then the trip (latched with its first source and
+        // time): a clearEmergencyTrip racing this sees the input held when
+        // it re-checks, and keeps the trip.
+        m_emergencyStop.store(true, std::memory_order_release);
+        if (!m_estopTripped.exchange(true, std::memory_order_acq_rel))
+        {
+            m_estopTripSource.store(static_cast<int>(source), std::memory_order_release);
+            m_estopTripMs.store(std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count(), std::memory_order_release);
+        }
+        // RT_LOG routes by thread: lock-free from the RT loop (a drive's
+        // quick stop, the transport), the ordinary path from any other.
+        RT_LOG_WARNING("MotionController: EMERGENCY STOP (%s)", estopSourceName(source));
+    }
     else
-        LOG_INFO("MotionController: Emergency stop cleared");
+    {
+        m_emergencyStop.store(false, std::memory_order_release);
+        if (m_estopTripped.load(std::memory_order_acquire))
+            RT_LOG_INFO("MotionController: Emergency stop input released (%s) -- the drives stay "
+                        "stopped until you re-initialize them.", estopSourceName(source));
+    }
+}
+
+bool MotionController::clearEmergencyTrip()
+{
+    if (m_emergencyStop.load(std::memory_order_acquire))
+    {
+        LOG_WARNING("MotionController: E-stop still held -- the trip stays until it is released and the drives are re-initialized.");
+        return false;
+    }
+    if (m_estopTripped.exchange(false, std::memory_order_acq_rel))
+    {
+        // An e-stop that landed during the clear keeps the trip.
+        if (m_emergencyStop.load(std::memory_order_acquire))
+        {
+            m_estopTripped.store(true, std::memory_order_release);
+            LOG_WARNING("MotionController: E-stop pressed during the initialize -- the trip stays.");
+            return false;
+        }
+        m_estopTripSource.store(0, std::memory_order_release);
+        m_estopTripMs.store(0, std::memory_order_release);
+        LOG_INFO("MotionController: E-stop trip cleared by re-initializing the drives.");
+    }
+    return true;
+}
+
+const char* MotionController::estopSourceName(EstopSource s)
+{
+    switch (s)
+    {
+    case EstopSource::Web:       return "dashboard e-stop";
+    case EstopSource::Gpio:      return "GPIO e-stop input";
+    case EstopSource::App:       return "app e-stop";
+    case EstopSource::Drive:     return "drive quick stop";
+    case EstopSource::Transport: return "EtherCAT transport failure";
+    default:                     return "e-stop";
+    }
 }
 
 bool MotionController::enqueueCommand(MotionCommand cmd)
@@ -473,8 +542,8 @@ void MotionController::serviceCommissioning(A6Drive** drives, int numHwDrives)
             ;   // keep the axis-kind refusal
         else if (plan.numSegments <= 0 || !anyExcited)
             refusal = "empty plan (no axes selected?)";
-        else if (m_emergencyStop.load(std::memory_order_acquire))
-            refusal = "e-stop active";
+        else if (estopHolds())
+            refusal = "e-stop tripped -- re-initialize the drives";
         else if (m_needsRehome)
             refusal = "rehome required -- home all axes first";
         else if (m_secsSinceTelemetry < 2.0)
@@ -642,6 +711,14 @@ bool MotionController::isAxisHomed(int i) const
 
 void MotionController::startHoming(int axisIndex)
 {
+    // Nothing moves after an e-stop until the drives are re-initialized:
+    // loop-start auto-homing, a fault-recovery rehome and the Home button
+    // alike.
+    if (estopHolds())
+    {
+        RT_LOG_WARNING("MotionController: Homing refused -- e-stop tripped; re-initialize the drives to resume.");
+        return;
+    }
     m_homingUnparkDone = false;
     m_needsRehome = false;
     int start = (axisIndex < 0) ? 0 : axisIndex;
@@ -905,6 +982,11 @@ void MotionController::trackHapticPeaks()
 
 void MotionController::startUnpark(A6Drive** drives, int numHwDrives)
 {
+    if (estopHolds())
+    {
+        RT_LOG_WARNING("MotionController: Unpark refused -- e-stop tripped; re-initialize the drives to resume.");
+        return;
+    }
     RT_LOG_INFO("MotionController: Starting unpark sequence...");
     for (int i = 0; i < m_numDrives; ++i)
     {
@@ -1031,9 +1113,9 @@ void MotionController::slackBelts()
 
 void MotionController::tensionBelts()
 {
-    if (m_emergencyStop.load(std::memory_order_acquire))
+    if (estopHolds())
     {
-        RT_LOG_WARNING("MotionController: TensionBelts ignored -- e-stop active.");
+        RT_LOG_WARNING("MotionController: TensionBelts refused -- e-stop tripped; re-initialize the drives to resume.");
         return;
     }
     for (int i = 0; i < m_numDrives; ++i)
@@ -1056,6 +1138,8 @@ void MotionController::tensionBelts()
             rt.lastTension    = 0.0;
             rt.onlineHadData  = false;
             rt.onlineStaleSec = 0.0;
+            rt.beltMotionSeen     = false;
+            rt.beltMotionStaleSec = 0.0;
             state = AxisMotionState::BLENDING;  // torque branch ramps 0 -> tension
             rt.beltHaveRaw      = false;        // re-seed guards (derivative + travel ref)
             rt.beltOverspeedSec = 0.0;
@@ -1077,9 +1161,9 @@ void MotionController::tensionBelts()
 
 void MotionController::engageDevices(int axisIndex)
 {
-    if (m_emergencyStop.load(std::memory_order_acquire))
+    if (estopHolds())
     {
-        RT_LOG_WARNING("MotionController: EngageDevice ignored -- e-stop active.");
+        RT_LOG_WARNING("MotionController: EngageDevice refused -- e-stop tripped; re-initialize the drives to resume.");
         return;
     }
     int start = (axisIndex < 0) ? 0 : axisIndex;
@@ -1688,6 +1772,7 @@ double MotionController::stepBeltBlending(int i, AxisMotionState& state,
     const bool haveData = beltDemand(i, telemetryData, tension);
     if (!haveData) tension = ac.torqueMinPct;
     if (haveData) rt.onlineHadData = true;
+    if (ac.beltFromG) noteBeltMotionStream(i, telemetryData);
     // Store the RAMPED value so the ONLINE slew cap starts from what was
     // actually commanded at the blend seam (no step at handoff). Velocity
     // fold applies during the blend too -- a slack lunge doesn't wait for
@@ -1752,6 +1837,18 @@ double MotionController::stepPositionBlending(int i, AxisMotionState& state,
     return outPos;
 }
 
+void MotionController::noteBeltMotionStream(int i, const TelemetryData& td)
+{
+    AxisRuntime& rt = m_runtime[i];
+    if (telemetryFrameUsable(td))
+    {
+        rt.beltMotionSeen     = true;
+        rt.beltMotionStaleSec = 0.0;
+    }
+    else if (rt.beltMotionSeen)
+        rt.beltMotionStaleSec += m_cycleTimeSec;
+}
+
 double MotionController::stepBeltOnline(int i, AxisMotionState& state,
     const TelemetryData& telemetryData, MotionOutput& output,
     A6Drive** drives, int numHwDrives)
@@ -1771,6 +1868,12 @@ double MotionController::stepBeltOnline(int i, AxisMotionState& state,
     //   phase 1 (<HOLD)  -> hold last tension (ride out a stutter)
     //   phase 2 (..to)   -> ease to torqueMin (neutral taut standby)
     //   phase 3 (>=to)   -> PARKING (ramp tension to 0 = slack)
+    // From g the belt's stream is the channel stream, which goes quiet
+    // whenever the game pauses or loses focus while the motion stream and
+    // the posts carry on: there it stops at phase 2 (taut at min) and
+    // phase 3 waits for the motion stream to have been stale for the hold,
+    // so it slackens with the posts, never on its own.
+    if (ac.beltFromG) noteBeltMotionStream(i, telemetryData);
     double tension = ac.torqueMinPct;
     double demand = 0.0;
     const bool haveData = beltDemand(i, telemetryData, demand);
@@ -1783,14 +1886,24 @@ double MotionController::stepBeltOnline(int i, AxisMotionState& state,
     else if (rt.onlineHadData)
     {
         rt.onlineStaleSec += m_cycleTimeSec;
-        if (rt.onlineStaleSec >= ac.onlineHoldTimeoutSec)
+        // From g: the motion stream stale for the hold, and the g gone for
+        // a ride-out of its own (a stutter never slackens it).
+        const bool slacken = ac.beltFromG
+            ? (rt.beltMotionSeen && rt.beltMotionStaleSec >= ac.onlineHoldTimeoutSec
+               && rt.onlineStaleSec >= std::min(ONLINE_STALE_HOLD_SEC, ac.onlineHoldTimeoutSec))
+            : (rt.onlineStaleSec >= ac.onlineHoldTimeoutSec);
+        if (slacken)
         {
             rt.interpElapsed  = 0.0;
             rt.interpDuration = ac.parkTimeSec;
             state             = AxisMotionState::PARKING;   // ramps tension -> 0
             output.torques[i] = rt.lastTension;
-            RT_LOG_WARNING("MotionController: Axis %d (belt) telemetry stale "
-                ">%.0fs -- easing slack.", i + 1, ac.onlineHoldTimeoutSec);
+            if (ac.beltFromG)
+                RT_LOG_WARNING("MotionController: Axis %d (belt from g) motion stream stale "
+                    ">%.0fs -- easing slack with the posts.", i + 1, ac.onlineHoldTimeoutSec);
+            else
+                RT_LOG_WARNING("MotionController: Axis %d (belt) telemetry stale "
+                    ">%.0fs -- easing slack.", i + 1, ac.onlineHoldTimeoutSec);
             return rt.currentPos;
         }
         tension = (rt.onlineStaleSec > ONLINE_STALE_HOLD_SEC)
@@ -2235,8 +2348,9 @@ void MotionController::hapticsIdleTick(const TelemetryData& td)
 {
     if (m_hapticsBusy.exchange(true, std::memory_order_acq_rel)) return;   // the RT loop has it
     // An e-stop silences the shakers with the loop stopped too (the GPIO
-    // button or the page's e-stop reach the flag whether or not it runs).
-    stepHapticsCycle(td, m_emergencyStop.load(std::memory_order_acquire));
+    // button or the page's e-stop reach the flag whether or not it runs),
+    // until the re-initialize that clears its trip.
+    stepHapticsCycle(td, estopHolds());
     {
         std::unique_lock<std::shared_mutex> lock(m_statusLock, std::try_to_lock);
         if (lock.owns_lock()) { publishHapticsStatusLocked(); publishLearnerLocked(); }   // this tick holds the flag
@@ -2337,7 +2451,9 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
     serviceCommissioning(drives, numHwDrives);
 
     output.numDrives = m_numDrives;
-    const bool estopNow = m_emergencyStop.load(std::memory_order_acquire);
+    // The input held, or tripped since the last initialize: either way the
+    // drives stay disabled (ControlLoop) and nothing moves.
+    const bool estopNow = estopHolds();
     output.emergencyStop = estopNow;
 
     // Edge-detect estop transitions here so every m_axisState[] write happens on
@@ -2353,12 +2469,15 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
     }
     else if (!estopNow && m_prevEstopState)
     {
-        // Falling edge: estop cleared -- rehome from wherever drives are.
-        RT_LOG_INFO("MotionController: Emergency stop cleared -- starting re-home.");
+        // Falling edge: the trip was cleared by re-initializing the drives.
+        // Nothing moves from here by itself (it used to re-home and then
+        // auto-unpark: a 10 ms blip on the GPIO input moved the rig with no
+        // one at the controls). The axes stay parked where the stop left
+        // them; the initialize that cleared the trip reset them to unhomed
+        // (configure), so the loop start's auto-homing or a Home press is
+        // what moves them next.
+        RT_LOG_INFO("MotionController: E-stop trip cleared -- the axes stay where they are until homed.");
         m_estopElapsed = 0.0;
-        // DO NOT call resetFilters() -- sets currentPos=parkPos causing 85mm jump
-        // DO NOT set PARKED -- PARKED state commands parkPos unconditionally each cycle
-        startHoming();
     }
     m_prevEstopState = estopNow;
 
@@ -2475,6 +2594,8 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
                 rt.onlineCond.seedState(outPos, 0.0);
                 rt.onlineHadData = false;
                 rt.onlineStaleSec = 0.0;
+                rt.beltMotionSeen     = false;
+                rt.beltMotionStaleSec = 0.0;
                 // Belt guards: re-seed derivative + net-travel reference at tension-up.
                 rt.beltHaveRaw      = false;
                 rt.beltOverspeedSec = 0.0;

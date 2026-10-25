@@ -3324,18 +3324,18 @@ int main()
             auto mc = belt("decel", 0.0);
             check(mc->getAxisState(0) == AxisMotionState::ONLINE, "I-25 setup: a belt from g reaches ONLINE");
             check(std::fabs(at(*mc, 0.0) - 5.0) < 1e-6, "I-25 decel: no g, torque min (the motion line at full scale is unused)");
-            check(std::fabs(at(*mc, -0.6) - 27.5) < 1e-6, "I-25 decel: half way from g from to g at max is half way up the range (a straight line)");
-            check(std::fabs(at(*mc, -1.1) - 50.0) < 1e-6, "I-25 decel: g at max, torque max");
-            check(std::fabs(at(*mc, -3.0) - 50.0) < 1e-6, "I-25 decel: past g at max, held at torque max");
-            check(std::fabs(at(*mc, 1.0) - 5.0) < 1e-6, "I-25 decel: acceleration leaves it at min");
-            check(std::fabs(at(*mc, -0.05) - 5.0) < 1e-6, "I-25 decel: inside the dead band, min");
+            check(std::fabs(at(*mc, 0.6) - 27.5) < 1e-6, "I-25 decel: half way from g from to g at max is half way up the range (a straight line)");
+            check(std::fabs(at(*mc, 1.1) - 50.0) < 1e-6, "I-25 decel: g at max, torque max");
+            check(std::fabs(at(*mc, 3.0) - 50.0) < 1e-6, "I-25 decel: past g at max, held at torque max");
+            check(std::fabs(at(*mc, -1.0) - 5.0) < 1e-6, "I-25 decel: acceleration leaves it at min");
+            check(std::fabs(at(*mc, 0.05) - 5.0) < 1e-6, "I-25 decel: inside the dead band, min");
         }
         {
             auto mc = belt("accel", 0.0);
-            check(std::fabs(at(*mc, 0.6) - 27.5) < 1e-6 && std::fabs(at(*mc, -1.0) - 5.0) < 1e-6,
+            check(std::fabs(at(*mc, -0.6) - 27.5) < 1e-6 && std::fabs(at(*mc, 1.0) - 5.0) < 1e-6,
                   "I-25 accel: acceleration tightens, braking does not");
             auto mb = belt("both", 0.0);
-            check(std::fabs(at(*mb, 0.6) - 27.5) < 1e-6 && std::fabs(at(*mb, -0.6) - 27.5) < 1e-6,
+            check(std::fabs(at(*mb, -0.6) - 27.5) < 1e-6 && std::fabs(at(*mb, 0.6) - 27.5) < 1e-6,
                   "I-25 both: either way tightens alike");
         }
         {
@@ -3346,26 +3346,26 @@ int main()
             cfg.drives[0].beltGCurve = 2.0;
             MotionController mc; mc.configure(cfg); mc.setEmergencyStop(false); tensionBelt(mc);
             run(mc, gFrame(0.0, true), 400, 1);
-            check(std::fabs(at(mc, -0.6) - (5.0 + 45.0 * 0.25)) < 1e-6, "I-25 curve 2: half the g share gives a quarter of the range");
+            check(std::fabs(at(mc, 0.6) - (5.0 + 45.0 * 0.25)) < 1e-6, "I-25 curve 2: half the g share gives a quarter of the range");
         }
         {
             auto mc = belt("decel", 30.0);
-            const double s1 = run(*mc, gFrame(-1.1 * G, true), 15, 1).hi;   // 30 ms at 2 ms a cycle
+            const double s1 = run(*mc, gFrame(1.1 * G, true), 15, 1).hi;   // 30 ms at 2 ms a cycle
             check(s1 > 5.0 + 0.5 * 45.0 && s1 < 5.0 + 0.75 * 45.0, "I-25 smoothing 30 ms: 30 ms after a step, about two thirds of the way");
-            check(std::fabs(run(*mc, gFrame(-1.1 * G, true), 200, 1).hi - 50.0) < 0.05, "I-25 smoothing: then it settles at torque max");
+            check(std::fabs(run(*mc, gFrame(1.1 * G, true), 200, 1).hi - 50.0) < 0.05, "I-25 smoothing: then it settles at torque max");
         }
         {
             // One junk frame does not restart the smoothing: the next g is
             // eased into, not jumped to.
             auto mc = belt("decel", 30.0);
-            run(*mc, gFrame(-0.6 * G, true), 200, 1);
-            run(*mc, gFrame(-20.0 * G, true), 8, 1);                      // one 16 ms junk frame
-            const double next = run(*mc, gFrame(-1.1 * G, true), 1, 1).hi;
+            run(*mc, gFrame(0.6 * G, true), 200, 1);
+            run(*mc, gFrame(20.0 * G, true), 8, 1);                      // one 16 ms junk frame
+            const double next = run(*mc, gFrame(1.1 * G, true), 1, 1).hi;
             check(next > 27.0 && next < 31.0, "I-25 smoothing: one junk frame does not restart it (the next g is eased into)");
             // A real gap does: back from 3 s of silence at no g, the belt
             // starts at min, not from the braking before the gap.
-            run(*mc, gFrame(-1.1 * G, true), 200, 1);
-            run(*mc, gFrame(-1.1 * G, false), 1500, 1);
+            run(*mc, gFrame(1.1 * G, true), 200, 1);
+            run(*mc, gFrame(1.1 * G, false), 1500, 1);
             const double back = run(*mc, gFrame(0.0, true), 1, 1).hi;
             check(std::fabs(back - 5.0) < 1e-6, "I-25 smoothing: after a gap it starts afresh (min at no g, not the braking before)");
         }
@@ -3374,9 +3374,9 @@ int main()
             // hard, tensioned again with the car still, the blend never
             // climbs from the old braking.
             auto mc = belt("decel", 250.0);
-            run(*mc, gFrame(-2.0 * G, true), 150, 1);
+            run(*mc, gFrame(2.0 * G, true), 150, 1);
             { MotionCommand c; c.type = MotionCommand::Type::SlackBelts; mc->enqueueCommand(c); }
-            run(*mc, gFrame(-2.0 * G, true), 200, 1);
+            run(*mc, gFrame(2.0 * G, true), 200, 1);
             tensionBelt(*mc);
             const Span up = run(*mc, gFrame(0.0, true), 100, 100);
             check(up.hi <= 5.0 + 1e-6, "I-25 tension-up starts the g smoothing afresh (no pull from the braking before the slack)");
@@ -3394,10 +3394,10 @@ int main()
             // An accSurge frozen while the rest of the stream lives on (a
             // sender that stopped sending it) reads as no g: min, ONLINE.
             auto mc = belt("decel", 0.0);
-            const double frozen = run(*mc, gFrame(-1.1 * G, true), 400, 1).hi;   // 0.8 s unchanged
+            const double frozen = run(*mc, gFrame(1.1 * G, true), 400, 1).hi;   // 0.8 s unchanged
             check(std::fabs(frozen - 5.0) < 1e-6 && mc->getAxisState(0) == AxisMotionState::ONLINE,
                   "I-25 an accSurge unchanged for over 0.5 s reads as no g: min, still ONLINE");
-            check(std::fabs(at(*mc, -0.6) - 27.5) < 1e-6, "I-25 ...and a changing g takes over again");
+            check(std::fabs(at(*mc, 0.6) - 27.5) < 1e-6, "I-25 ...and a changing g takes over again");
         }
         {
             // Settings out of range (validation only warns on load): a
@@ -3406,33 +3406,33 @@ int main()
             cfg.drives[0].beltSource = "g"; cfg.drives[0].beltGSmoothMs = 0.0; cfg.drives[0].beltGCurve = -1.0;
             MotionController mc; mc.configure(cfg); mc.setEmergencyStop(false); tensionBelt(mc);
             const Span still = run(mc, gFrame(0.0, true), 400, 300);
-            const Span hard  = run(mc, gFrame(-0.8 * G, true), 200, 200);
+            const Span hard  = run(mc, gFrame(0.8 * G, true), 200, 200);
             check(still.hi <= 5.0 + 1e-6 && hard.hi <= 50.0 + 1e-6, "I-25 a curve below 0 never asks for more than torque max");
         }
         {
             auto mc = belt("decel", 0.0);
-            const double held = run(*mc, gFrame(-0.6 * G, true), 100, 1).hi;
-            const double junk = run(*mc, gFrame(-20.0 * G, true), 5, 1).hi;
+            const double held = run(*mc, gFrame(0.6 * G, true), 100, 1).hi;
+            const double junk = run(*mc, gFrame(20.0 * G, true), 5, 1).hi;
             check(std::fabs(junk - held) < 1e-6, "I-25 a value past 8 g is a junk frame: the tension holds");
-            run(*mc, gFrame(-0.6 * G, true), 50, 1);
-            const double stale = run(*mc, gFrame(-0.6 * G, false), 1250, 1).hi;   // 2.5 s: past the 2 s hold
+            run(*mc, gFrame(0.6 * G, true), 50, 1);
+            const double stale = run(*mc, gFrame(0.6 * G, false), 1250, 1).hi;   // 2.5 s: past the 2 s hold
             check(std::fabs(stale - 5.0) < 1e-6 && mc->getAxisState(0) == AxisMotionState::ONLINE,
                   "I-25 the channel stream gone: past the hold, torque min (never the last g)");
             auto mu = belt("decel", 0.0);
-            run(*mu, gFrame(-0.6 * G, true), 100, 1);
-            const double unsent = run(*mu, gFrame(-0.6 * G, true, false), 1250, 1).hi;
+            run(*mu, gFrame(0.6 * G, true), 100, 1);
+            const double unsent = run(*mu, gFrame(0.6 * G, true, false), 1250, 1).hi;
             check(std::fabs(unsent - 5.0) < 1e-6, "I-25 a live stream without accSurge is no g: torque min past the hold");
         }
         {
             auto mc = belt("decel", 0.0);
-            run(*mc, gFrame(-1.1 * G, true), 100, 1);
+            run(*mc, gFrame(1.1 * G, true), 100, 1);
             mc->setEmergencyStop(true);
-            const Span e = run(*mc, gFrame(-1.1 * G, true), 50, 10);
+            const Span e = run(*mc, gFrame(1.1 * G, true), 50, 10);
             check(e.hi <= 1e-9 && e.lo >= -1e-9, "I-25 e-stop: torque 0 whatever the g");
         }
         {
             auto mc = belt("decel", 0.0, "motion");
-            const double t = run(*mc, gFrame(-1.1 * G, true, true, 0.0), 200, 1).hi;
+            const double t = run(*mc, gFrame(1.1 * G, true, true, 0.0), 200, 1).hi;
             check(std::fabs(t - 5.0) < 1e-6, "I-25 a belt left on motion follows the motion line (0 = min), whatever the g");
         }
     }
@@ -3591,7 +3591,7 @@ int main()
             check(mc->getAxisState(0) == AxisMotionState::ONLINE, "I-26 setup: a belt on cornering alone reaches ONLINE");
             check(near(hold(*mc, 0.0, 0.6, 1.0, 100), 27.5), "I-26 sway left: 0.6 g one way is half way up (as braking is)");
             check(near(hold(*mc, 0.0, -0.6, 1.0, 100), 5.0), "I-26 sway left: the other way leaves it at min");
-            check(near(hold(*mc, -1.1, 0.0, 1.0, 100), 5.0), "I-26 braking off: braking alone leaves it at min");
+            check(near(hold(*mc, 1.1, 0.0, 1.0, 100), 5.0), "I-26 braking off: braking alone leaves it at min");
             auto mr = belt("off", "right", 1.0, "off", 1.0);
             check(near(hold(*mr, 0.0, -0.6, 1.0, 100), 27.5) && near(hold(*mr, 0.0, 0.6, 1.0, 100), 5.0),
                   "I-26 sway right: the other side tightens it");
@@ -3602,9 +3602,9 @@ int main()
         {
             // Braking and cornering add up, cornering at its share.
             auto mc = belt("decel", "left", 0.5, "off", 1.0);
-            check(near(hold(*mc, -0.4, 0.4, 1.0, 100), 27.5), "I-26 braking 0.4 g + cornering 0.4 g at a share of 0.5 = 0.6 g");
+            check(near(hold(*mc, 0.4, 0.4, 1.0, 100), 27.5), "I-26 braking 0.4 g + cornering 0.4 g at a share of 0.5 = 0.6 g");
             auto mo = belt("decel", "off", 1.0, "off", 1.0);
-            check(near(hold(*mo, -0.6, 1.0, 1.0, 100), 27.5), "I-26 cornering off: the cornering g adds nothing");
+            check(near(hold(*mo, 0.6, 1.0, 1.0, 100), 27.5), "I-26 cornering off: the cornering g adds nothing");
         }
         {
             // Heave: the change from its mean, not the g itself.
@@ -3622,7 +3622,7 @@ int main()
         {
             // One g the belt takes, unsent: the others still drive it.
             auto mc = belt("decel", "left", 1.0, "off", 1.0);
-            const double t = hold(*mc, -0.6, 0.0, 1.0, 1250, 2);
+            const double t = hold(*mc, 0.6, 0.0, 1.0, 1250, 2);
             check(near(t, 27.5) && mc->getAxisState(0) == AxisMotionState::ONLINE,
                   "I-26 cornering unsent: braking still drives the belt (no standby)");
             // ...and the only one it takes, unsent: the standby stages.
@@ -3634,12 +3634,12 @@ int main()
         {
             // A junk cornering frame holds the cornering g; a run of them drops it.
             auto mc = belt("decel", "left", 1.0, "off", 1.0);
-            check(near(hold(*mc, -0.6, 0.4, 1.0, 100), 45.5), "I-26 braking 0.6 g + cornering 0.4 g = 1.0 g");
-            check(near(hold(*mc, -0.6, 20.0, 1.0, 5), 45.5), "I-26 a junk cornering frame: the cornering g holds");
-            check(near(hold(*mc, -0.6, 20.0, 1.0, 200), 27.5), "I-26 junk on cornering past 0.1 s: braking alone");
+            check(near(hold(*mc, 0.6, 0.4, 1.0, 100), 45.5), "I-26 braking 0.6 g + cornering 0.4 g = 1.0 g");
+            check(near(hold(*mc, 0.6, 20.0, 1.0, 5), 45.5), "I-26 a junk cornering frame: the cornering g holds");
+            check(near(hold(*mc, 0.6, 20.0, 1.0, 200), 27.5), "I-26 junk on cornering past 0.1 s: braking alone");
             // A cornering g held exactly (a sender that stopped sending it) is no g.
-            hold(*mc, -0.6, 0.4, 1.0, 100);
-            check(near(hold(*mc, -0.6, 0.4, 1.0, 400, 0, 2), 27.5), "I-26 cornering frozen over 0.5 s: no cornering g");
+            hold(*mc, 0.6, 0.4, 1.0, 100);
+            check(near(hold(*mc, 0.6, 0.4, 1.0, 400, 0, 2), 27.5), "I-26 cornering frozen over 0.5 s: no cornering g");
         }
         {
             // Parked in the pits: heave exactly 1 g (gravity, as a sender
@@ -3685,7 +3685,7 @@ int main()
         {
             // Nothing selected: min, and ONLINE (not the standby stages).
             auto mc = belt("off", "off", 1.0, "off", 1.0);
-            const double t = hold(*mc, -1.1, 1.0, 0.2, 3000);
+            const double t = hold(*mc, 1.1, 1.0, 0.2, 3000);
             check(near(t, 5.0) && mc->getAxisState(0) == AxisMotionState::ONLINE,
                   "I-26 nothing selected: min, still ONLINE after 6 s");
         }
@@ -3700,6 +3700,88 @@ int main()
             double hi = 0.0;
             for (int c = 0; c < 100; ++c) hi = std::max(hi, hold(*mc, 0.0, 0.0, 1.5, 1));
             check(hi <= 5.0 + 1e-3, "I-26 tension-up starts the heave mean afresh (no pull from the g before the slack)");
+        }
+    }
+
+    // ---- I-28: the belt from g slackens with the posts, never on its own ----
+    // The channel stream goes quiet whenever the game pauses or loses focus
+    // while the motion stream (and the posts) carry on: the belt eases to
+    // min and stays taut however long that lasts. It slackens by itself
+    // only once the motion stream has been stale for the hold too (5 s
+    // here), after a 2 s ride-out of the g's own; a motion stream never seen
+    // this session never slackens it. A belt on "motion" keeps its ladder.
+    {
+        const double G = 9.80665;
+        int tick = 0;
+        // The g changes by a hair every other cycle (a live sender never
+        // repeats a float exactly, and a frozen one reads as no g).
+        auto f = [&](double accG, bool chanFresh, bool motionLive) {
+            TelemetryData sd = frame(0.0, chanFresh, 65535.0);
+            sd.valid = motionLive;
+            sd.ncyHave[NcxTok::AccSurge] = true;
+            sd.ncy[NcxTok::AccSurge] = accG * G + ((++tick & 1) ? 1e-4 : 0.0);
+            return sd;
+        };
+        auto runFor = [&](MotionController& mc, double sec, double accG, bool chanFresh, bool motionLive) {
+            double t = 0.0;
+            const int cycles = static_cast<int>(sec / 0.002 + 0.5);
+            for (int c = 0; c < cycles; ++c) t = run(mc, f(accG, chanFresh, motionLive), 1, 1).hi;
+            return t;
+        };
+        auto belt = [&](const char* source, bool motionLive = true) {
+            AppConfig cfg = makeBeltConfig(0.0, 1.0);    // torque 5..50, onlineHoldTimeoutSec 5 s
+            DriveConfig& d = cfg.drives[0];
+            d.beltSource = source; d.beltGMode = "decel";
+            d.beltGFromG = 0.1; d.beltGFullG = 1.1; d.beltGSmoothMs = 0.0;
+            auto mc = std::make_unique<MotionController>();
+            mc->configure(cfg);
+            tensionBelt(*mc);
+            runFor(*mc, 0.8, 0.6, true, motionLive);
+            return mc;
+        };
+        auto online = [](MotionController& mc) { return mc.getAxisState(0) == AxisMotionState::ONLINE; };
+        {
+            auto mc = belt("g");
+            check(online(*mc) && std::fabs(runFor(*mc, 0.1, 0.6, true, true) - 27.5) < 1e-3,
+                  "I-28 setup: a belt from g tracking braking");
+            const double paused = runFor(*mc, 60.0, 0.6, false, true);   // a minute in the pause menu
+            check(online(*mc) && std::fabs(paused - 5.0) < 1e-6,
+                  "I-28 the g gone a minute, the motion stream live: taut at min, still ONLINE");
+            check(std::fabs(runFor(*mc, 0.1, 0.6, true, true) - 27.5) < 1e-3,
+                  "I-28 ...and the g takes over again when the game resumes (no re-tension)");
+        }
+        {
+            auto mc = belt("g");
+            const double early = runFor(*mc, 4.0, 0.6, false, false);
+            check(online(*mc) && std::fabs(early - 5.0) < 1e-6,
+                  "I-28 both streams gone 4 s: taut at min, ONLINE (inside the 5 s hold)");
+            runFor(*mc, 1.5, 0.6, false, false);
+            check(!online(*mc), "I-28 both streams gone past the hold: the belt slackens with the posts");
+            const double slack = runFor(*mc, 1.0, 0.6, false, false);
+            check(slack <= 1e-9 && mc->getAxisState(0) == AxisMotionState::PARKED,
+                  "I-28 ...to slack (PARKED, torque 0)");
+        }
+        {
+            auto mc = belt("g");
+            const double live = runFor(*mc, 20.0, 0.6, true, false);
+            check(online(*mc) && std::fabs(live - 27.5) < 1e-3,
+                  "I-28 the motion stream gone 20 s, the g live: the belt keeps following the g");
+            const double ride = runFor(*mc, 1.5, 0.6, false, false);
+            check(online(*mc) && std::fabs(ride - 27.5) < 1e-3,
+                  "I-28 ...then the g gone too: held through the 2 s ride-out");
+            runFor(*mc, 1.0, 0.6, false, false);
+            check(!online(*mc), "I-28 ...past it, it slackens (the motion stream long stale)");
+        }
+        {
+            auto mc = belt("g", false);
+            const double t = runFor(*mc, 30.0, 0.6, false, false);
+            check(online(*mc) && std::fabs(t - 5.0) < 1e-6,
+                  "I-28 no motion stream this session: the g gone 30 s, taut at min, never slack by itself");
+        }
+        {
+            auto mc = belt("motion");
+            runFor(*mc, 5.5, 0.6, true, false);
+            check(!online(*mc), "I-28 a belt on motion: the motion line gone past the hold, it slackens as before");
         }
     }
 

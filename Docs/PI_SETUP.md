@@ -282,7 +282,10 @@ center and holds. Watch the first one from a safe distance.
    center will fall the rest of its stroke when that happens (a long
    drop on a tall rig). Parking sets the verticals down on their rest
    position so there is nothing left to fall. With the rig parked,
-   press **E-STOP** and learn the release flow. You want the first
+   press **E-STOP** and learn the way back: after any e-stop (the
+   dashboard's or the mushroom) the rig stays stopped until you release
+   the e-stop, then **Stop EtherCAT** and **Initialize EtherCAT** again.
+   The dashboard's red banner says what tripped it. You want the first
    press to not be an emergency.
 
 **STOP LOOP** parks the axes (gently to their rest position) and stops.

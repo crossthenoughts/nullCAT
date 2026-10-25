@@ -32,7 +32,8 @@ struct PanelStatus
 {
     bool masterOp    = false;   // EtherCAT operational
     bool loopRunning = false;   // control loop active
-    bool estop       = false;   // software e-stop active
+    bool estop       = false;   // software e-stop active (input held or tripped)
+    bool estopInput  = false;   // the e-stop input itself held (any source)
     bool fault       = false;   // any drive fault/fatal
     bool initBusy    = false;   // init/de-init in progress
     bool homing      = false;   // any axis homing

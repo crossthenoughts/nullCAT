@@ -189,6 +189,12 @@ body{ font-family:'Space Grotesk',system-ui,sans-serif; color:var(--ink); backgr
   background:var(--danger); color:#fff; font-family:var(--mono); font-size:.78rem; line-height:1.5;
   letter-spacing:.03em; border-top:2px solid var(--ink); animation:logo-pulse 1.6s ease-in-out infinite; }
 .link-banner b{ font-weight:700; }
+/* e-stop trip: sticks under the menu bar (app.js sets top to its height),
+   clear of the Save bar and the refusal line at the bottom */
+.estop-banner{ position:sticky; top:96px; z-index:29; padding:.55rem 20px;
+  background:var(--danger); color:#fff; font-family:var(--mono); font-size:.8rem; line-height:1.5;
+  letter-spacing:.03em; border-bottom:2px solid var(--ink); }
+.estop-banner b{ font-weight:700; }
 
 /* command-refusal line: same slot as the link banner, directly above the buttons */
 .cmd-err{ position:fixed; left:0; right:0; bottom:62px; z-index:29; padding:.45rem 20px;

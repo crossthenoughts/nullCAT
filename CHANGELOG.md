@@ -18,7 +18,10 @@ middle number carries breaking changes and the last carries fixes.
   compressions or both (only its change: gravity and long hills never
   tighten the belt), each at its own share. It needs the SimHub plugin
   1.9, which now sends the car's accelerations and rotation rates. The
-  motion software's belt cue stays the default.
+  motion software's belt cue stays the default. A paused game or a switch
+  to another window leaves the belt taut at its minimum; it slackens by
+  itself only with the posts, when your motion software's stream stops
+  too.
 - Impacts feels walls and other cars: a sudden jump in the car's g along
   and across it knocks every corner, from **hit g** (2 g by default, full
   at three times that; 0 turns it off). With the SimHub plugin 1.9.
@@ -61,6 +64,13 @@ middle number carries breaking changes and the last carries fixes.
   reports it.
 
 ### Changed
+- An E-STOP now stays tripped until you re-initialize the drives.
+  Releasing it frees the button but nothing moves: Home, Unpark, Tension
+  Belts, device engage and Start are refused until you **Stop EtherCAT**
+  and **Initialize EtherCAT** again. Before, releasing it homed the rig
+  and unparked it by itself. A red banner on the dashboard says what
+  tripped it (the dashboard, the Pi's e-stop input, the Windows window, a
+  drive's own quick stop or the EtherCAT link) and how long ago.
 - Impacts: a hit that knocks through both the body and a corner in the
   same moment is one knock (the stronger), not two on top of each other.
 - Assetto Corsa Competizione: the rain and how wet the track is now reach
@@ -86,6 +96,11 @@ middle number carries breaking changes and the last carries fixes.
   **Slew cap** to 20000 on the belt in Setup to change it.
 
 ### Fixed
+- Pi: a flicker on the e-stop input lasting one 10 ms reading (a loose
+  wire or contact) no longer stops the rig and then moves it again by
+  itself. The input now has to read open for two readings in a row (20 ms)
+  to trip, and closed for half a second to count as released. A flicker is
+  written to the log with the pin's number, so a wiring fault shows.
 - Commands given at the same moment from more than one place (two browser
   tabs, the dashboard and the Pi's buttons, the Windows window and the
   dashboard) could be lost, or make the rig carry out old commands again

@@ -324,16 +324,145 @@ private slots:
             mc.process(empty, out, drives, 1);
         }
 
-        // E-stop cleared → startHoming() fires on the next process() call (P3-4:
-        // state transitions happen via edge detection inside process(), not in
-        // setEmergencyStop() which now only writes the atomic).
+        // Release frees the input; the trip holds. Nothing moves by itself
+        // (the release used to re-home and then auto-unpark).
         drive.clearFault();
         mc.setEmergencyStop(false);
-        mc.process(empty, out, drives, 1);  // falling edge detected → startHoming()
+        QVERIFY(!mc.isEstopInputHeld());
+        QVERIFY(mc.isEstopTripped());
+        QVERIFY(mc.isEmergencyStop());
+        out = runCycles(mc, &drive, 500);
+        QVERIFY2(out.emergencyStop, "the drives stay disabled after release");
+        QCOMPARE(mc.getAxisState(0), AxisMotionState::PARKED);
 
-        // Axis should now be homing
-        bool reachedHoming = (mc.getAxisState(0) == AxisMotionState::HOMING);
-        QVERIFY2(reachedHoming, "Axis should be HOMING after e-stop release");
+        // Homing is refused while tripped: the Home button, the loop start's
+        // auto-home and a fault-recovery rehome all come through here.
+        mc.startHoming();
+        runCycles(mc, &drive, 50);
+        QCOMPARE(mc.getAxisState(0), AxisMotionState::PARKED);
+
+        // A successful initialize clears the trip; homing is honoured again.
+        QVERIFY(mc.clearEmergencyTrip());
+        QVERIFY(!mc.isEmergencyStop());
+        mc.startHoming();
+        out = runCycles(mc, &drive, 1);
+        QVERIFY(!out.emergencyStop);
+        QCOMPARE(mc.getAxisState(0), AxisMotionState::HOMING);
+    }
+
+    // ----------------------------------------------------------------
+    // A one-sample blip on the e-stop input (the Pi's GPIO line read open
+    // for 10 ms with nobody at the button, 2026-10-25) used to re-home and
+    // auto-unpark the rig on release. Now it trips: the rig stops, stays
+    // stopped, refuses unpark, and moves again only after a re-initialize.
+    // ----------------------------------------------------------------
+    void estopBlip_tripsAndNeverResumesByItself()
+    {
+        AppConfig cfg = makeSingleAxisConfig();
+        MotionController mc;
+        mc.configure(cfg);
+
+        MockA6Drive drive;
+        drive.configure(1, 0.0, 1.0);
+        drive.setHardstop(-50.0, true, 50.0);
+        QVERIFY2(driveToOnline(mc, &drive) > 0, "Did not reach ONLINE");
+        QVERIFY(!mc.isEstopTripped());
+        QCOMPARE(mc.estopTripSource(), MotionController::EstopSource::None);
+
+        mc.setEmergencyStop(true, MotionController::EstopSource::Gpio);
+        runCycles(mc, &drive, 1);
+        mc.setEmergencyStop(false, MotionController::EstopSource::Gpio);
+        MotionOutput out = runCycles(mc, &drive, 2000);
+        QVERIFY2(out.emergencyStop, "the drives stay disabled after the blip");
+        QVERIFY(mc.isEstopTripped());
+        QCOMPARE(mc.estopTripSource(), MotionController::EstopSource::Gpio);
+        QVERIFY(mc.estopTripMs() > 0);
+        QCOMPARE(mc.getAxisState(0), AxisMotionState::PARKED);
+
+        // Unpark is refused while tripped (the dashboard's park toggle): the
+        // axis never leaves PARKED and its command never moves, not even for
+        // the few cycles a refused unpark would take to fall back to E-STOP.
+        MotionCommand unpark;
+        unpark.type = MotionCommand::Type::StartUnpark;
+        QVERIFY(mc.enqueueCommand(unpark));
+        const double heldAt = out.positions[0];
+        bool stayedParked = true, stayedPut = true;
+        for (int c = 0; c < 200; ++c)
+        {
+            out = runCycles(mc, &drive, 1);
+            stayedParked = stayedParked && mc.getAxisState(0) == AxisMotionState::PARKED;
+            stayedPut    = stayedPut && out.positions[0] == heldAt;
+        }
+        QVERIFY2(stayedParked, "unpark while tripped: the axis never leaves PARKED");
+        QVERIFY2(stayedPut, "unpark while tripped: the command never moves");
+
+        // The trip keeps its first source; a later press does not relabel it.
+        const int64_t at = mc.estopTripMs();
+        mc.setEmergencyStop(true, MotionController::EstopSource::Web);
+        QCOMPARE(mc.estopTripSource(), MotionController::EstopSource::Gpio);
+        QCOMPARE(mc.estopTripMs(), at);
+
+        // Initialize cannot clear it while the e-stop is held.
+        QVERIFY(!mc.clearEmergencyTrip());
+        QVERIFY(mc.isEstopTripped());
+        mc.setEmergencyStop(false, MotionController::EstopSource::Web);
+        QVERIFY(mc.isEstopTripped());
+
+        QVERIFY(mc.clearEmergencyTrip());
+        QVERIFY(!mc.isEstopTripped());
+        QCOMPARE(mc.estopTripSource(), MotionController::EstopSource::None);
+        QCOMPARE(mc.estopTripMs(), int64_t(0));
+
+        // Clearing the trip moves nothing either: the next move is a homing
+        // someone asks for (or the loop start's auto-home after the init).
+        out = runCycles(mc, &drive, 500);
+        QVERIFY(!out.emergencyStop);
+        QCOMPARE(mc.getAxisState(0), AxisMotionState::PARKED);
+    }
+
+    // ----------------------------------------------------------------
+    // A command queued while the loop is stopped (a Home or a tension
+    // pressed while tripped, a script) is discarded by the Initialize that
+    // clears the trip: it never runs at the next loop start.
+    // ----------------------------------------------------------------
+    void initialize_discardsCommandsQueuedBeforeIt()
+    {
+        AppConfig cfg = makeSingleAxisConfig();
+        MotionController mc;
+        mc.configure(cfg);
+
+        MockA6Drive drive;
+        drive.configure(1, 0.0, 1.0);
+        drive.setHardstop(-50.0, true, 50.0);
+        QVERIFY2(driveToOnline(mc, &drive) > 0, "Did not reach ONLINE");
+
+        mc.setEmergencyStop(true, MotionController::EstopSource::Web);
+        runCycles(mc, &drive, 100);                       // ESTOPPING -> PARKED
+        mc.setEmergencyStop(false, MotionController::EstopSource::Web);
+
+        // The loop is stopped (no process()); a Home arrives meanwhile.
+        MotionCommand home;
+        home.type   = MotionCommand::Type::StartHoming;
+        home.intVal = -1;
+        QVERIFY(mc.enqueueCommand(home));
+
+        // Stop EtherCAT, then Initialize: configure, then the trip clears.
+        mc.configure(cfg);
+        QVERIFY(mc.clearEmergencyTrip());
+
+        // The loop starts: the old Home must not run.
+        bool stayedParked = true;
+        for (int c = 0; c < 50; ++c)
+        {
+            runCycles(mc, &drive, 1);
+            stayedParked = stayedParked && mc.getAxisState(0) == AxisMotionState::PARKED;
+        }
+        QVERIFY2(stayedParked, "a command from before the Initialize never runs after it");
+
+        // A Home pressed after it is honoured.
+        QVERIFY(mc.enqueueCommand(home));
+        runCycles(mc, &drive, 1);
+        QCOMPARE(mc.getAxisState(0), AxisMotionState::HOMING);
     }
 
     // ---- TF-3-3: 3-drive fault recovery round-trip ----
