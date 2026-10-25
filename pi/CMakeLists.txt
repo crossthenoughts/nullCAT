@@ -359,6 +359,36 @@ target_link_libraries(TestHttpContract PRIVATE Qt6::Core ${SOEM_LIBRARY} Threads
 add_test(NAME TestHttpContract COMMAND TestHttpContract)
 set_tests_properties(TestHttpContract PROPERTIES TIMEOUT 120)
 
+# The master and the control loop on a fake bus (tests/FakeBus.h, the seam
+# in src/BusTransport.h): the pump, the requests, the loop's real drive
+# paths and the seat pass's e-stop guard without hardware. Built with the
+# extended suites (CI), not on every Pi build. Run with: ctest -R BusSeam
+if(NULLCAT_FULL_TESTS)
+add_executable(TestBusSeam
+    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestBusSeam.cpp
+    ${SRC}/EtherCATMaster.cpp
+    ${SRC}/SdoWorker.cpp
+    ${SRC}/A6Drive.cpp
+    ${SRC}/TelemetryInput.cpp
+    ${SRC}/MotionController.cpp
+    ${SRC}/CommissioningMode.cpp
+    ${SRC}/ControlLoop.cpp
+    ${SRC}/DriveFaultMonitor.cpp
+    ${SRC}/Config.cpp
+    ${SRC}/Logging.cpp)
+target_include_directories(TestBusSeam PRIVATE
+    ${SRC}
+    ${SOEM_ROOT}/include
+    ${SOEM_ROOT}/build/include
+    ${SOEM_ROOT}/osal
+    ${SOEM_ROOT}/osal/linux
+    ${SOEM_ROOT}/oshw/linux)
+target_compile_definitions(TestBusSeam PRIVATE SOEM_AVAILABLE)
+target_link_libraries(TestBusSeam PRIVATE Qt6::Core ${SOEM_LIBRARY} Threads::Threads ${NULLCAT_AUDIO_LIBS})
+add_test(NAME TestBusSeam COMMAND TestBusSeam)
+set_tests_properties(TestBusSeam PROPERTIES TIMEOUT 180)
+endif()
+
 # ============================================================
 # Extended (PC-era) LOGIC test suites, wired for cloud CI. Default OFF so
 # the Pi pre-push hook stays fast; the CI workflow configures with

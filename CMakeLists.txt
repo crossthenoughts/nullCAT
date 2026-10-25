@@ -418,7 +418,7 @@ if(WIN32)
 endif()
 
 # The test core, compiled ONCE as a static library every Qt test program
-# links except the nine bus tests (those link nullcat_bus_test_core, below).
+# links except the ten bus tests (those link nullcat_bus_test_core, below).
 # Each test used to compile its own copy of TEST_CORE_SOURCES (about
 # 25 copies of the same 12 files, most of a clean build). Static, so a test
 # takes only the objects it uses. Same includes, definitions and options as
@@ -588,7 +588,7 @@ if(WIN32 AND SOEM_LIBRARY)
         find_package(Qt5 COMPONENTS Test QUIET)
     endif()
 
-    # The bus test core, compiled ONCE for the nine bus tests below (each
+    # The bus test core, compiled ONCE for the ten bus tests below (each
     # compiled its own copy of up to ten of these). Built WITH SOEM_AVAILABLE,
     # unlike nullcat_test_core, so A6Drive.cpp, SdoWorker.cpp and
     # ControlLoop.cpp carry their SOEM paths: the two libraries never share
@@ -710,6 +710,43 @@ if(WIN32 AND SOEM_LIBRARY)
             ENVIRONMENT "${TEST_PATH_ENV}")
     else()
         set_tests_properties(TestPumpLifecycle PROPERTIES TIMEOUT 60)
+    endif()
+
+    # The master and the control loop on a fake bus (tests/FakeBus.h, the
+    # seam in src/BusTransport.h): the pump, the requests, the loop's real
+    # drive paths and the seat pass's e-stop guard without hardware.
+    add_executable(TestBusSeam tests/TestBusSeam.cpp)
+    target_include_directories(TestBusSeam PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${SOEM_INCLUDE_DIR}
+        ${SOEM_INCLUDE_DIR}/soem
+        ${SOEM_INCLUDE_DIR}/osal
+        ${SOEM_INCLUDE_DIR}/oshw
+    )
+    target_compile_definitions(TestBusSeam PRIVATE
+        _CRT_SECURE_NO_WARNINGS
+        _WINSOCK_DEPRECATED_NO_WARNINGS
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+        SOEM_AVAILABLE
+    )
+    target_compile_options(TestBusSeam PRIVATE /W3 /MP /Zc:__cplusplus)
+    target_link_libraries(TestBusSeam PRIVATE
+        nullcat_bus_test_core
+        ${TEST_QT_LIBS}
+        ${SOEM_LIBRARY}
+        ws2_32
+        winmm
+        avrt
+        Iphlpapi
+        "${NPCAP_SDK}/Lib/x64/wpcap.lib"
+        "${NPCAP_SDK}/Lib/x64/Packet.lib"
+    )
+    add_test(NAME TestBusSeam COMMAND TestBusSeam)
+    if(TEST_PATH_ENV)
+        set_tests_properties(TestBusSeam PROPERTIES TIMEOUT 120 ENVIRONMENT "${TEST_PATH_ENV}")
+    else()
+        set_tests_properties(TestBusSeam PROPERTIES TIMEOUT 120)
     endif()
 
     # ---- B222E: TestB222E - threading audit fixes C1/C3 (sim mode) ----

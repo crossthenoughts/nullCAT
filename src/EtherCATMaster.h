@@ -3,6 +3,7 @@
 #pragma once
 #include "A6Drive.h"
 #include "BusRequest.h"
+#include "BusTransport.h"
 #include "Config.h"
 #include "Logging.h"
 #include <string>
@@ -92,6 +93,11 @@ public:
     // configurePDOs(), enterOperational() in order with correct error
     // handling. Returns InitResult; operator bool() allows legacy bool checks.
     InitResult initializeAndEnterOp(const std::string& nicName);
+    // Tests only (BusTransport.h): OP on a fake bus, the drives (from
+    // setDriveConfigs) bound through the real PDO assignment. The bus is
+    // the caller's and must outlive the master's use of it (shutdown()
+    // lets go of it).
+    InitResult attachTestBus(BusTransport* bus);
 
     // Apply config values before initialize() - called by initializeAndEnterOp().
     // Also called at startup in main.cpp so defaults are correct from the start.
@@ -149,7 +155,7 @@ public:
 
     ecx_contextt* getContext() const
     {
-        if (m_simulationMode || !m_initialized) return nullptr;
+        if (m_simulationMode || m_testBus || !m_initialized) return nullptr;
         return static_cast<ecx_contextt*>(m_ctx);
     }
 
@@ -321,6 +327,11 @@ private:
     int     m_lastRawWkc  = -1;   // see lastRawWkc(); RT thread only
 
     void* m_ctx = nullptr;
+    // A test's fake bus (attachTestBus), else null: the cyclic frame, the
+    // DC time, the PDO slices and the AL probe come from it.
+    BusTransport* m_testBus = nullptr;
+    int     busExchange(ecx_contextt* ctx, uint32_t* exception);
+    int64_t busDcTimeNs(ecx_contextt* ctx) const;
 
     std::optional<InitResult> m_simulatedStageError;  // test injection; see setSimulatedStageError
 

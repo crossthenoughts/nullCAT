@@ -615,6 +615,19 @@ static int safeSendReceive(ecx_contextt* ctx, uint32_t* exceptionCode)
     return result;
 }
 
+// The cyclic frame (the pump, the OP bridge, sendReceive): SOEM's send and
+// receive, or a test's fake bus when one is attached. Bus owner only.
+int EtherCATMaster::busExchange(ecx_contextt* ctx, uint32_t* exception)
+{
+    if (m_testBus) { *exception = 0; return m_testBus->exchange(exception); }
+    return safeSendReceive(ctx, exception);
+}
+
+int64_t EtherCATMaster::busDcTimeNs(ecx_contextt* ctx) const
+{
+    return m_testBus ? m_testBus->dcTimeNs() : static_cast<int64_t>(ctx->DCtime);
+}
+
 // ============================================================
 // CSP mode SDO write with retry and read-back
 // Hardcoded to mode 8 (Cyclic Synchronous Position)
@@ -1912,7 +1925,7 @@ void EtherCATMaster::runOPBridge(ecx_contextt* ctx, int64_t ticksPer2Ms)
         PlatformRT::advancePeriod(bNext, ticksPer2Ms);
         serviceStopRequest();   // the bridge owns the bus for its frames (a fault reset waits for the loop)
         uint32_t ex = 0;
-        safeSendReceive(ctx, &ex);
+        busExchange(ctx, &ex);
         if (ex != 0) break;
         PlatformRT::waitUntil(bNext);
     }
@@ -2572,7 +2585,7 @@ void EtherCATMaster::startPumpBody()
     if (m_pumpActive.load()) return;
 
     ecx_contextt* ctx = static_cast<ecx_contextt*>(m_ctx);
-    if (!ctx) return;
+    if (!ctx && !m_testBus) return;   // a test bus runs without a SOEM context
 
     Logger::instance().logDiag(strf(
         "DIAG | start_pump_body | masterState=%d | pumpActive=%d | rtLoopActive=%d",
@@ -2630,7 +2643,7 @@ void EtherCATMaster::startPumpBody()
             PlatformRT::advancePeriod(pNext, periodCounts);
             serviceStopRequest();   // the pump owns the bus while the loop is stopped (a fault reset waits for the loop)
             uint32_t ex = 0;
-            safeSendReceive(ctx, &ex);
+            busExchange(ctx, &ex);
             if (ex != 0)
             {
                 LOG_ERROR(strf("EtherCATMaster: Pump thread crash (0x%08x) -- EtherCAT transport down.", ex));
@@ -2640,7 +2653,7 @@ void EtherCATMaster::startPumpBody()
             // Sample the DC phase for next cycle's trim (gated; off => no work).
             if (dcLock.enabled() && pumpCycNs > 0)
             {
-                int64_t ph = static_cast<int64_t>(ctx->DCtime) % pumpCycNs;
+                int64_t ph = busDcTimeNs(ctx) % pumpCycNs;
                 if (ph < 0) ph += pumpCycNs;
                 pumpPhase = ph;
             }
@@ -2982,6 +2995,7 @@ int EtherCATMaster::probeSlaveALStates(uint16_t* out, int maxSlaves, uint16_t* c
     // as NONE. Read-only; safe from the RT thread while it owns SOEM (the
     // seat pass runs after stopPump/setRtLoopActive).
     if (!m_initialized || m_simulationMode || !out) return 0;
+    if (m_testBus) return m_testBus->probeAlStates(out, maxSlaves, codes);
     ecx_contextt* ctx = ctxPtr(m_ctx);
     if (!ctx) return 0;
 
@@ -3286,14 +3300,17 @@ void EtherCATMaster::shutdown()
     // would then call ecx_mbxhandler on stale/uninitialised state.
     m_mbxHandlerInit = false;
 
-    if (m_simulationMode)
+    if (m_simulationMode || m_testBus)
     {
+        // A test bus as the hardware path ends: every drive disabled, on the bus.
+        if (m_testBus) { disableAllDrives(); uint32_t ex = 0; busExchange(nullptr, &ex); }
         for (auto& d : m_drives)
             d->clearPDOPointers();
         m_drives.clear();
         m_initialized = false;
         setMasterState(ECState::None);
-        LOG_INFO("EtherCATMaster: Sim shutdown complete.");
+        LOG_INFO(m_testBus ? "EtherCATMaster: Test bus shutdown complete." : "EtherCATMaster: Sim shutdown complete.");
+        m_testBus = nullptr;
         return;
     }
 
@@ -3358,7 +3375,7 @@ int EtherCATMaster::sendReceive()
     {
         // Serialise against the recovery thread's SOEM calls.
         std::lock_guard<std::mutex> lk(m_soemAccessMutex);
-        wkc = safeSendReceive(ctx, &ex);
+        wkc = busExchange(ctx, &ex);
     }
     if (ex == 0) m_lastRawWkc = wkc;
 
@@ -3375,14 +3392,14 @@ int EtherCATMaster::sendReceive()
     if (m_controlLoopHz > 0)
     {
         int64_t cycNs = 1000000000LL / m_controlLoopHz;
-        int64_t ph = static_cast<int64_t>(ctx->DCtime) % cycNs;
+        int64_t ph = busDcTimeNs(ctx) % cycNs;
         if (ph < 0) ph += cycNs;
         m_dcPhaseNs.store(ph, std::memory_order_relaxed);
     }
 
     // One-shot raw PDO byte dump
     static bool dumpDone = false;
-    if (!dumpDone)
+    if (!dumpDone && !m_testBus)
     {
         dumpDone = true;
         if (ctx->slavelist[1].outputs && ctx->slavelist[1].inputs)
@@ -3415,6 +3432,54 @@ int EtherCATMaster::sendReceive()
     return wkc;
 }
 
+InitResult EtherCATMaster::attachTestBus(BusTransport* bus)
+{
+    if (!bus || m_simulationMode)
+    {
+        InitResult r;
+        r.detail = "test bus: none given, or the master is in simulation mode";
+        return r;
+    }
+    if (m_initialized) shutdown();
+    m_stopRequest.clear();
+    m_faultResetRequest.clear();
+    if (!m_pumpDispatchThread.joinable())
+    {
+        m_pumpDispatchStop = false;
+        m_pumpDispatchReq  = false;
+        startPumpDispatchThread();
+    }
+    m_testBus     = bus;
+    m_slaveCount  = bus->slaveCount();
+    m_expectedWKC = bus->expectedWkc();
+    m_drives.clear();
+    // The drives as the hardware init makes them, bound as it binds them.
+    for (const DriveConfig& cfg : m_driveConfigs)
+    {
+        if (cfg.slaveIndex < 1 || cfg.slaveIndex > m_slaveCount) continue;
+        auto drive = std::make_unique<A6Drive>();
+        drive->setSlaveIndex(cfg.slaveIndex);
+        drive->setScaling(cfg.countsPerMm);
+        drive->setLimits(-2.0 * cfg.strokeMm, 2.0 * cfg.strokeMm);
+        drive->setName(cfg.name);
+        drive->setCommandSyncCycles(m_commandSyncCycles);
+        m_drives.push_back(std::move(drive));
+    }
+    assignPDOPointers();
+    // As the hardware init leaves them before OP: the target zeroed and
+    // the DS402 shutdown command (0x0006, ready to switch on), on the bus.
+    for (auto& drive : m_drives)
+    {
+        drive->setTargetPosition(0.0);
+        drive->prepareForPump();
+    }
+    { uint32_t ex = 0; busExchange(nullptr, &ex); }
+    m_initialized = true;
+    setMasterState(ECState::Op);
+    LOG_INFO(strf("EtherCATMaster: OP on a test bus, %d drive(s).", static_cast<int>(m_drives.size())));
+    return InitResult::success();
+}
+
 A6Drive* EtherCATMaster::getDrive(int index)
 {
     if (index < 0 || index >= (int)m_drives.size()) return nullptr;
@@ -3443,8 +3508,9 @@ void EtherCATMaster::assignPDOPointers()
     {
         int idx = drive->getSlaveIndex();
         if (idx < 1 || idx > m_slaveCount) continue;
-        uint8_t* out = ctx->slavelist[idx].outputs;
-        uint8_t* in = ctx->slavelist[idx].inputs;
+        uint8_t* out = m_testBus ? m_testBus->outputs(idx) : ctx->slavelist[idx].outputs;
+        uint8_t* in  = m_testBus ? m_testBus->inputs(idx)  : ctx->slavelist[idx].inputs;
+        const int obytes = m_testBus ? m_testBus->outputBytes(idx) : static_cast<int>(ctx->slavelist[idx].Obytes);
 
         if (!out || !in) continue;
 
@@ -3457,7 +3523,7 @@ void EtherCATMaster::assignPDOPointers()
             if (dc.slaveIndex == idx) { dcfg = &dc; break; }
 
         bool wantsTorque = dcfg && dcfg->mode == "torque";
-        bool has1702     = (ctx->slavelist[idx].Obytes == 19);
+        bool has1702     = (obytes == 19);
 
         if (wantsTorque && has1702)
         {
@@ -3508,7 +3574,7 @@ void EtherCATMaster::assignPDOPointers()
             if (wantsTorque)
                 LOG_WARNING(strf("  Slave %d: Torque mode requested but Obytes=%d (expected 19) -- "
                     "1702h assignment may have failed. Falling back to position layout.",
-                    idx, ctx->slavelist[idx].Obytes));
+                    idx, obytes));
 
             // 1701h RPDO (12 bytes): controlword(2) | target_position(4) | touch_probe(2) | forced_DO(4)
             // 1B01h TPDO (28 bytes): fault_code(2) | statusword(2) | actual_pos(4) | torque(2) | ...
@@ -3532,7 +3598,7 @@ bool EtherCATMaster::configureDC() { return true; }
 
 void EtherCATMaster::checkSlaveStates()
 {
-    if (!m_initialized || m_simulationMode) return;
+    if (!m_initialized || m_simulationMode || m_testBus) return;
     ecx_contextt* ctx = ctxPtr(m_ctx);
     for (int i = 1; i <= m_slaveCount; ++i)
     {
