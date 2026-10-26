@@ -77,7 +77,8 @@
             <div class="eh"><div class="eht"><span class="lab" id="hapEdKick">effect</span><h2 id="hapEdName"></h2></div><span class="sp"></span>
               <button type="button" class="hk" id="hapEdHelp" title="Show every setting's help text under its row">?</button>
               <button type="button" class="key sm nolamp ico" id="hapEdClose" title="Close (Esc)">✕</button></div>
-            <div class="edb" id="hapEdBody"><p class="tip" id="hapEdTip" title="Click to expand"></p></div>
+            <div class="edb" id="hapEdBody"><p class="tip" id="hapEdTip" title="Click to expand"></p>
+              <div class="edtop" id="hapEdTop"><div class="bans" id="hapEdBans"></div><div class="chips" id="hapEdChips"></div></div></div>
           </div>
           <div class="hcol">
             <div class="ph"><span class="lamp" id="hpLamp"></span><span class="pt">Haptics</span><span class="pc" id="hpLive">routable effects</span><span class="sp"></span>
@@ -364,11 +365,11 @@ sudo ./provision eth0 &lt;slave&gt; --verify    # confirm everything persisted</
             <div class="test-axes" id="testAxes"></div>
 
             <div class="test-modes" id="testModes">
-              <label><input type="radio" name="tmode" value="cycle" checked> Motion cycle</label>
-              <label><input type="radio" name="tmode" value="tone"> Tone</label>
-              <label><input type="radio" name="tmode" value="sweep"> Sweep</label>
-              <label><input type="radio" name="tmode" value="step"> Step</label>
-              <label><input type="radio" name="tmode" value="song"> Song</label>
+              <label class="key sm latch"><input type="radio" name="tmode" value="cycle" checked hidden> Motion cycle</label>
+              <label class="key sm latch"><input type="radio" name="tmode" value="tone" hidden> Tone</label>
+              <label class="key sm latch"><input type="radio" name="tmode" value="sweep" hidden> Sweep</label>
+              <label class="key sm latch"><input type="radio" name="tmode" value="step" hidden> Step</label>
+              <label class="key sm latch"><input type="radio" name="tmode" value="song" hidden> Song</label>
             </div>
 
             <div class="test-params" id="tp-cycle">

@@ -713,7 +713,7 @@ function renderBindings(){
     const cap=btnCapturing===cmd;
     return `<div class="frow bindrow">
       <span>${label}</span>
-      <span class="bindcur${b?'':' unbound'}">${cap?'press a button…':(b?(b.label||(b.vendor+':'+b.product+' #'+b.code)):' - ')}</span>
+      <span class="bindcur${b?'':' unbound'}${cap?' cap':''}">${cap?'press a button…':(b?(b.label||(b.vendor+':'+b.product+' #'+b.code)):' - ')}</span>
       <button class="btn btn-sm" data-bindcmd="${cmd}" ${btnCapturing?'disabled':''}>${b?'Rebind':'Bind'}</button>
       <button class="btn btn-sm" data-clearcmd="${cmd}" ${(!b||btnCapturing)?'disabled':''}>Clear</button>
     </div>`; }).join('');
@@ -1537,8 +1537,8 @@ function shakerStatus(s){
   // a card is not open) and one test button per shaker number.
   if(el._built!==(k.channels||0)+1){
     el._built=(k.channels||0)+1;
-    el.innerHTML='<span id="shakerLine"></span> <button class="btn btn-sm" type="button" id="shakerReopen" hidden title="Open the sound cards again (a card unplugged and back, or the sound output moved)">reopen</button> <span id="shakerTests">'
-      +Array.from({length:k.channels||0},(_,c)=>'<button class="btn btn-sm" type="button" data-shtest="'+c+'" title="40 Hz for a second on this channel">test '+(c+1)+'</button>').join(' ')+'</span>';
+    el.innerHTML='<div class="glass shl"><span id="shakerLine"></span></div> <button class="key sm nolamp" type="button" id="shakerReopen" hidden title="Open the sound cards again (a card unplugged and back, or the sound output moved)">Reopen</button> <div class="shm" id="shakerTests">'
+      +Array.from({length:k.channels||0},(_,c)=>'<span class="shc"><span class="glass lvw"><i class="lvl" data-lv="'+c+'"></i></span><button class="key sm nolamp" type="button" data-shtest="'+c+'" title="Shaker '+(c+1)+': 40 Hz for a second on this channel">'+(c+1)+'</button></span>').join('')+'</div>';
     el.querySelectorAll('[data-shtest]').forEach(b=>{ b.onclick=async()=>{ try{ await fetch(API+'/api/shakers/test',{method:'POST',body:JSON.stringify({channel:+b.dataset.shtest})}); }catch(_){} }; });
     const ro=$('shakerReopen'); if(ro) ro.onclick=async()=>{ ro.disabled=true; try{ await postCmd('/api/shakers/reopen'); }finally{ ro.disabled=false; } };
   }
@@ -1554,6 +1554,8 @@ function shakerStatus(s){
   const line=$('shakerLine'); if(line) line.textContent='Shakers: '+(k.open?'':'not open: ')+devs.map(devText).join(' | ')+'.';
   const ro=$('shakerReopen'); if(ro) ro.hidden=!devs.some(d=>!d.open);
   const tests=$('shakerTests'); if(tests) tests.hidden=!k.open;
+  // the meters: one per shaker, from each card's levels (0..1)
+  for(const d of devs) (d.levels||[]).forEach((v,i)=>{ const m=el.querySelector('.lvl[data-lv="'+((d.first|0)+i)+'"]'); if(m) m.style.height=Math.round(Math.max(0,Math.min(1,+v||0))*100)+'%'; });
 }
 
 let hapOpenDrawer=null;
@@ -2359,6 +2361,7 @@ function hapCatOf(k){ for(const [n,ks] of HAP_CATS) if(ks.includes(k)) return n;
 function hapMixerDress(t){
   const tile=t.tile, num=tile.querySelector('input[data-k="ampPct"]'), wrap=tile.querySelector('.hap-wwrap'), nm=tile.querySelector('.dh .nm');
   if(nm&&!nm._wired){ nm._wired=true; nm.onclick=()=>hapOpenFx(t.fx.k); nm.title='Open '+t.fx.label; }
+  const chip=tile.querySelector('.hap-routechip'); if(chip&&!chip._dr){ chip._dr=true; const o=chip.onclick; chip.onclick=()=>{ if(o) o(); hapDrawerDress(); }; }
   const svg=tile.querySelector('svg.hap-wave'); if(svg) svg.setAttribute('preserveAspectRatio','none');
   if(!num||!wrap||tile.querySelector('.mxamp')) return;
   const val=document.createElement('span'); val.className='mxval vt'; wrap.appendChild(val);
@@ -2433,9 +2436,11 @@ function hapOpenFx(k,force){
   const kk=$('hapEdKick'); if(kk) kk.textContent=hapCatOf(k);
   const tip=$('hapEdTip'); if(tip){ tip.textContent=t.fx.tip||''; tip.classList.remove('open'); }
   if(hapOpenDrawer!==k) hapDrawerRender(t.fx);
+  hapDrawerDress();
   const dr=$('hapDrawer'); if(dr) dr.hidden=false;
   document.querySelectorAll('#hpRail .rx').forEach(r=>r.classList.toggle('sel',r.dataset.fx===k));
   setLayout(uiLayout.mo,'ed');
+  hapEdDress();
 }
 function hapCloseEd(keepSel){
   const k=hapSel, t=k&&hapTiles[k], ph=document.querySelector('#hapStrip [data-ph]');
@@ -2449,6 +2454,35 @@ function hapCloseEd(keepSel){
   const h=$('hapEdHelp'); if(h) h.onclick=()=>{ const t=hapSel&&hapTiles[hapSel]; const on=h.classList.toggle('on'); if(t) t.tile.classList.toggle('help',on); };
   const tip=$('hapEdTip'); if(tip) tip.onclick=()=>tip.classList.toggle('open');
   document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&uiLayout.hp==='ed'&&document.body.dataset.view==='op') hapCloseEd(); }); }
+/* The routing heading hapDrawerRender writes is one line, title and hint
+   together; in the editor the hint goes under the title in smaller type. */
+function hapDrawerDress(){
+  const t=document.querySelector('#hapDrawer .hd-t'); if(!t||t.querySelector('.hd-h')) return;
+  const s=t.textContent, i=s.indexOf(' ('); if(i<0) return;
+  t.textContent=''; const a=document.createElement('span'); a.textContent=s.slice(0,i);
+  const b=document.createElement('span'); b.className='hd-h'; b.textContent=s.slice(i+2).replace(/\)$/,'');
+  t.append(a,b);
+}
+/* The editor's banners and input chips, from what the tile already shows:
+   amp 0, no route, and the channel line hapLive writes (a name then
+   ✓ received, · optional and idle, ✗ required but not sent). */
+function hapEdDress(){
+  const bans=$('hapEdBans'), chips=$('hapEdChips'); if(!bans||!chips) return;
+  const t=hapSel&&hapTiles[hapSel];
+  if(!t||uiLayout.hp!=='ed'){ bans._h=chips._h=''; bans.innerHTML=''; chips.innerHTML=''; return; }
+  const ch=t.tile.querySelector('[data-chan]'), txt=ch?ch.textContent.trim():'';
+  let items=[];
+  if(/[✓✗·]/.test(txt)){ const parts=txt.split(/\s*([✓✗·])\s*/).filter(Boolean); for(let i=0;i+1<parts.length;i+=2) items.push({label:parts[i],mark:parts[i+1]}); }
+  else if(t.fx.chan) items=t.fx.chan.map(e=>({label:hapChanSpec(e).label,mark:''}));
+  const missing=items.filter(x=>x.mark==='✗').map(x=>x.label);
+  const routed=(t.dv.routes||[]).some(r=>r&&r.gain>0);
+  const b=[]; if(!(+t.dv.ampPct>0)) b.push('off: amp 0'); if(!routed) b.push('not routed'); if(missing.length) b.push('not sent: '+missing.join(', '));
+  const bk=b.join('|'); if(bans._h!==bk){ bans._h=bk; bans.innerHTML='';
+    for(const s of b){ const e=document.createElement('span'); e.className='ban'; e.innerHTML='<span class="lamp warn"></span><span class="vt warn"></span>'; e.lastChild.textContent=s; bans.appendChild(e); } }
+  const ck=items.map(x=>x.label+x.mark).join('|'); if(chips._h!==ck){ chips._h=ck; chips.innerHTML='';
+    for(const x of items){ const e=document.createElement('span'); e.className='chip'; e.innerHTML='<span class="lamp"></span><span></span>';
+      e.firstChild.className='lamp '+(x.mark==='✓'?'ok':x.mark==='✗'?'warn':''); e.lastChild.textContent=x.label; e.title=x.mark==='✓'?'received':x.mark==='✗'?'required, not sent':x.mark==='·'?'optional, idle':'no sender yet'; chips.appendChild(e); } }
+}
 /* Once a second: the session readouts, the head keys' lit state, the
    fold's summary, the rail lamps and the live count, from state the page
    already holds. */
@@ -2469,6 +2503,7 @@ function hapUiRefresh(){
     const rx=document.querySelector('#hpRail .rx[data-fx="'+k+'"]'); if(rx){ const sd=t.tile.querySelector('.sdot'); rx.querySelector('.lamp').className='lamp '+(muted?'':t.level>0.05?'ok':sd&&sd.classList.contains('d1')?'warn':''); } }
   const pc=$('hpLive'); if(pc) pc.textContent=live+' live';
   const hl=$('hpLamp'); if(hl) hl.className='lamp '+(hapMutedNow?'warn':any?'ok':'');
+  hapEdDress();
 }
 setInterval(hapUiRefresh,1000);
 
@@ -2887,7 +2922,7 @@ function buildTestAxes(){
     // DISCONNECTED, and near-park single-leg re-homes. A full solo sweep
     // on a coupled platform binds (see HEXAPOD_SETUP.md).
     const hb=document.createElement('button'); hb.type='button';
-    hb.className='thome'; hb.textContent='Home';
+    hb.className='thome key sm nolamp'; hb.textContent='Home';
     hb.title='Home this axis alone (direction checks unloaded; near-park re-homes)';
     hb.addEventListener('click',e=>{ e.preventDefault(); postJson('/api/home',{axis:i+1}); });
     row.appendChild(hb);
