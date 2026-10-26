@@ -56,14 +56,22 @@
   <!-- ===== Operate: Motion left, Haptics right ===== -->
   <main class="ws" id="ws" data-mo="full" data-hp="mix">
     <section class="pnl mo" id="mo">
-      <div class="ph"><span class="lamp" id="moLamp"></span><span class="pt">Motion</span><span class="pc" id="driveCount"> - </span><span class="sp"></span>
-        <button type="button" class="key sm nolamp pk" id="btn-reset-stats" title="Re-baseline peak accel, clip rate, binds and following-error on all cards, and the haptics tiles' input peaks - drives stay live">Reset peaks</button></div>
-      <div class="body">
-        <section class="grid" id="drive-grid"></section>
+      <div class="full">
+        <div class="ph"><span class="lamp" id="moLamp"></span><span class="pt">Motion</span><span class="pc" id="driveCount"> - </span><span class="sp"></span>
+          <button type="button" class="key sm nolamp pk" id="btn-reset-stats" title="Re-baseline peak accel, clip rate, binds and following-error on all axes, and the haptics tiles' input peaks - drives stay live">Reset peaks</button>
+          <button type="button" class="key sm nolamp ico" data-pnl="mo-rail" title="Minimise to rail">«</button></div>
+        <div class="body">
+          <!-- One row per axis (buildDriveCards), opening downward into its detail grid. -->
+          <div class="axh"><span></span><span class="lab">Axis</span><div class="rg rgh"><span class="lab c-st">State</span><span class="lab">Position · target</span><span class="lab r">mm</span><span class="lab r c-vel">mm/s</span><span class="lab c-tq">Torque %</span><span class="lab r c-tmp">°C</span><span class="lab r c-fe">Fol err</span></div><span></span></div>
+          <div id="drive-grid"></div>
+        </div>
       </div>
+      <div class="rail"><button type="button" class="key sm nolamp ico" data-pnl="mo-full" title="Expand Motion">»</button><span class="rlt">Motion</span><div id="moRail"></div></div>
     </section>
     <section class="pnl hp" id="hp">
-      <div class="ph"><span class="lamp" id="hpLamp"></span><span class="pt">Haptics</span><span class="pc">routable effects</span><span class="sp"></span></div>
+      <div class="full">
+      <div class="ph"><span class="lamp" id="hpLamp"></span><span class="pt">Haptics</span><span class="pc">routable effects</span><span class="sp"></span>
+        <button type="button" class="key sm nolamp ico" data-pnl="hp-rail" title="Minimise to rail">»</button></div>
       <div class="body">
         <!-- hapInit shows these once the rig has a torque axis and the
              experimental flag is on; both stay hidden otherwise. -->
@@ -84,6 +92,8 @@
             silent.</div>
         </section>
       </div>
+      </div>
+      <div class="rail"><button type="button" class="key sm nolamp ico" data-pnl="hp-mix" title="Expand Haptics">«</button><span class="rlt">Haptics</span><div id="hpRail"></div></div>
     </section>
   </main>
 

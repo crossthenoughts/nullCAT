@@ -224,53 +224,84 @@ function setLogo(c){ if(!elLogo) return; const f={'is-offline':'logo-offline.png
 function renderSpark(){ let p=''; for(let k=0;k<jfill;k++){ const i=(jhead-jfill+k+SPARK_N)%SPARK_N; const v=jbuf[i];
   p+=(k/(SPARK_N-1)*60).toFixed(1)+','+(18-Math.min(v,150)/150*16).toFixed(1)+' '; } sparkLine.setAttribute('points',p.trim()); }
 
+/* ---- Motion rows. One row per axis: lamp, name and role, then a glass
+   strip of state, position bar with target tick, position, velocity,
+   torque bar, IGBT and following error; a click opens the row downward
+   into the detail grid (target, peaks, duty, speed, guard, accel headroom,
+   the raw statusword, the config line) and an "Axis setup" key. The same
+   /api/status drives[] fields the cards showed, written onto the same
+   class hooks; peaks stay sticky per session as before. ---- */
+const AX_OPEN_KEY='nullcat.ui.axes';
+let axOpen=[]; try{ axOpen=JSON.parse(localStorage.getItem(AX_OPEN_KEY))||[]; }catch(_){ axOpen=[]; }
+if(!Array.isArray(axOpen)) axOpen=[];
+const LAMP_OF={'s-op':'ok','s-home':'warn','s-fault':'bad','s-estop':'bad','s-park':'acc','s-off':''};
+function axToggle(i,on){ const w=driveGrid.children[i]; if(!w) return; if(on===undefined) on=!w.classList.contains('open');
+  w.classList.toggle('open',on); axOpen=axOpen.filter(x=>x!==i); if(on) axOpen.push(i);
+  try{ localStorage.setItem(AX_OPEN_KEY,JSON.stringify(axOpen)); }catch(_){} }
 function buildDriveCards(drives, loopRunning){
+  const rail=$('moRail');
   while(driveGrid.children.length<drives.length){
-    const i=driveGrid.children.length; const c=document.createElement('div'); c.className='dcard';
-    c.innerHTML=
-      `<div class="dh"><span class="dot"></span><span class="nm">Drive ${i}</span><span class="tag typ"> - </span><span class="tag dir"></span></div>`+
-      `<div class="dcfg"> - </div>`+
-      `<div class="srow"><span class="stxt"> - </span><span class="sw"></span></div>`+
-      `<div class="flt" style="display:none"></div>`+
-      `<div class="metrics">`+
-        `<div class="mr pos-only"><span class="mk">Pos mm</span><span class="mv c pos"> - </span></div>`+
-        `<div class="mr pos-only"><span class="mk">Tgt mm</span><span class="mv tgt"> - </span></div>`+
-        `<div class="mr pos-only"><span class="mk">Vel mm/s</span><span class="mv vel"> - </span></div>`+
-        `<div class="mr sub pos-only"><span class="mk2">peak</span><span class="mv2 velpk"> - </span></div>`+
-        `<div class="mr trq-only"><span class="mk">Cmd %</span><span class="mv cmdtrq"> - </span></div>`+
-        `<div class="mr"><span class="mk">Trq %</span><span class="mv trq"> - </span></div>`+
-        `<div class="mr sub"><span class="mk2">peak</span><span class="mv2 trqpk"> - </span></div>`+
-        `<div class="mr trq-only"><span class="mk">Duty rms 60s</span><span class="mv rms"> - </span></div>`+
-        `<div class="mr trq-only"><span class="mk">Speed rpm</span><span class="mv rpmv"> - </span></div>`+
-        `<div class="mr trq-only"><span class="mk">IGBT °C</span><span class="mv igbt"> - </span></div>`+
-        `<div class="mr trq-only"><span class="mk">Guard</span><span class="mv guardv"> - </span></div>`+
-        `<div class="mr pos-only"><span class="mk">Accel mm/s²</span><span class="mv acc"> - </span></div>`+
-        `<div class="abar pos-only"><div class="fill"></div><div class="lim"></div></div>`+
-        `<div class="mr sub pos-only"><span class="mk2">clamp</span><span class="mv2 clip"> - </span></div>`+
-        `<div class="mr pos-only"><span class="mk">Follow err mm</span><span class="mv ferr"> - </span></div>`+
+    const i=driveGrid.children.length;
+    const w=document.createElement('div'); w.className='axw'+(axOpen.includes(i)?' open':''); w.dataset.ax=i;
+    w.innerHTML=
+      `<div class="axr"><span class="lamp dot"></span>`+
+        `<span class="nm"><b class="nmt"> - </b><small class="role"><span class="typ"> - </span><span class="dir"></span></small><small class="stt"> - </small></span>`+
+        `<div class="rg glass">`+
+          `<span class="c-st vt dim stxt"> - </span>`+
+          `<span class="bar pos-only"><i class="pf"></i><b class="tt"></b></span><span class="vt dim na trq-only">torque only · CST</span>`+
+          `<span class="r pos-only"><span class="seg pos" data-g="88.888">--.---</span></span><span class="r trq-only"><span class="mono cmdtrq"> - </span></span>`+
+          `<span class="r c-vel mono vel"> - </span>`+
+          `<span class="c-tq tq"><span class="bar t"><i class="tf"></i></span><span class="mono r trq"> - </span></span>`+
+          `<span class="r c-tmp mono igbt"> - </span>`+
+          `<span class="r c-fe mono ferr"> - </span>`+
+        `</div><span class="chev"></span></div>`+
+      `<div class="axx"><div class="srow"><span class="sw"></span><span class="dcfg"> - </span></div><div class="flt" style="display:none"></div>`+
+        `<div class="glass dg metrics">`+
+          `<div class="pos-only"><span class="dl">Target mm</span><span class="dv tgt"> - </span></div>`+
+          `<div class="pos-only"><span class="dl">Peak vel mm/s</span><span class="dv velpk"> - </span></div>`+
+          `<div class="trq-only"><span class="dl">Cmd %</span><span class="dv cmdtrq2"> - </span></div>`+
+          `<div><span class="dl">Peak trq %</span><span class="dv trqpk"> - </span></div>`+
+          `<div class="trq-only"><span class="dl">Duty rms 60 s</span><span class="dv rms"> - </span></div>`+
+          `<div class="trq-only"><span class="dl">Speed rpm</span><span class="dv rpmv"> - </span></div>`+
+          `<div class="trq-only"><span class="dl">Guard</span><span class="dv guardv"> - </span></div>`+
+          `<div class="pos-only acc-c"><span class="dl">Accel mm/s² · peak / limit</span><span class="dv acc"> - </span><span class="abar"><span class="fill"></span><span class="lim"></span></span><span class="dl clip"> - </span></div>`+
+        `</div>`+
+        `<div class="axf"><span class="sp"></span><button type="button" class="key sm nolamp axsetup" title="Open this axis in Setup">Axis setup ›</button></div>`+
       `</div>`;
-    driveGrid.appendChild(c);
+    w.querySelector('.axr').addEventListener('click',e=>{ if(e.target.closest('button,input,select,a')) return; axToggle(i); });
+    w.querySelector('.axsetup').addEventListener('click',()=>{ setView('setup'); setupPage('axes');
+      const s=$('axisSel'); if(s){ s.value=String(i); s.dispatchEvent(new Event('change')); } });
+    driveGrid.appendChild(w);
+    if(rail){ const r=document.createElement('button'); r.type='button'; r.className='rx';
+      r.innerHTML='<span class="lamp"></span><span class="glass rb"><i></i></span><span class="rxn"></span>';
+      r.onclick=()=>{ setLayout('full',uiLayout.hp); axToggle(i,true); }; rail.appendChild(r); }
   }
-  while(driveGrid.children.length>drives.length) driveGrid.removeChild(driveGrid.lastChild);
+  while(driveGrid.children.length>drives.length){ driveGrid.removeChild(driveGrid.lastChild);
+    if(rail&&rail.lastElementChild) rail.removeChild(rail.lastElementChild); }
 
+  let anyBad=false;
   drives.forEach((d,i)=>{
-    const card=driveGrid.children[i];
+    const card=driveGrid.children[i], rx=rail?rail.children[i]:null;
     // Status from the shared model (StatusModel via /api/status `ind`): canonical
     // colour class + verbatim text. Proven identical to the former local derivation
     // by TestStatusModel's 210-combo golden-reference sweep. The raw statusword is
-    // still shown separately below.
+    // still shown separately in the detail.
     const ind = d.ind || {};
     const stext = ind.text || ' - ';
     const sclass = ind.cls || 's-off';
-    card.className='dcard '+sclass+(sclass==='s-fault'?' fault':'');
-    card.querySelector('.nm').textContent  = d.name || ('Drive '+i);
-    card.querySelector('.typ').textContent = TYPE[d.axisType] || ' - ';
+    const lampc = LAMP_OF[sclass]||'';
+    if(sclass==='s-fault'||sclass==='s-estop') anyBad=true;
+    const isTorque = d.mode==='torque';
+    card.className='axw '+sclass+(sclass==='s-fault'?' fault':'')+(isTorque?' torque':'')+(card.classList.contains('open')?' open':'');
+    card.querySelector('.dot').className='lamp dot '+lampc;
+    card.querySelector('.nmt').textContent  = d.name || ('Drive '+i);
+    card.querySelector('.typ').textContent = (TYPE[d.axisType] || ' - ').toLowerCase();
     const dir=card.querySelector('.dir');
-    if(typeof d.invertDir==='boolean'){ dir.textContent=d.invertDir?'REV':'FWD'; dir.style.display=''; }
-    else { dir.style.display='none'; }
-    // status row: chosen status text + raw statusword hex
-    card.querySelector('.stxt').textContent = stext;
-    card.querySelector('.sw').textContent   = ('sw' in d) ? hex4(d.sw) : '';
+    dir.textContent = (typeof d.invertDir==='boolean') ? ' · '+(d.invertDir?'rev':'fwd') : '';
+    // status: chosen status text (the strip, and the compact layout's line under the name) + raw statusword hex
+    const st=card.querySelector('.stxt'); st.textContent = stext; st.className='c-st vt stxt '+(lampc||'dim');
+    card.querySelector('.stt').textContent = stext;
+    card.querySelector('.sw').textContent   = ('sw' in d) ? 'SW '+hex4(d.sw) : '';
     // decoded fault line: precise Er name once the 0x203F read lands, else
     // the coarse 603F class. Hidden entirely when not faulted.
     const fEl=card.querySelector('.flt');
@@ -280,36 +311,28 @@ function buildDriveCards(drives, loopRunning){
         fEl.style.display='';
       } else fEl.style.display='none';
     }
-    // config line: stroke · pitch (small, static)
-    // Torque axes have no stroke/ballscrew and no meaningful position rows -- hide them
-    // (CSS .torque .pos-only) and show the mode instead. TRQ % stays (the useful readout).
-    const isTorque = d.mode==='torque';
-    card.classList.toggle('torque', isTorque);
-    // Rotary lever: metric row labels read in degrees. Swapped once per
-    // kind change (dataset flag), not per poll.
+    // Rotary lever: labels read in degrees. Swapped once per kind change.
     const rotCard = d.axisType==='rotary_lever' ? '1':'0';
     if(card.dataset.rot!==rotCard){
       card.dataset.rot=rotCard;
       const rot = rotCard==='1';
-      const lbl=(sel,lin,deg)=>{ const el=card.querySelector(sel); if(el){ const mk=el.parentElement.querySelector('.mk'); if(mk) mk.textContent=rot?deg:lin; } };
-      lbl('.mv.pos','Pos mm','Pos °'); lbl('.mv.tgt','Tgt mm','Tgt °');
-      lbl('.mv.vel','Vel mm/s','Vel °/s'); lbl('.mv.acc','Accel mm/s²','Accel °/s²');
-      lbl('.mv.ferr','Follow err mm','Follow err °');
+      const lbl=(sel,lin,deg)=>{ const el=card.querySelector(sel); if(el){ const dl=el.parentElement.querySelector('.dl'); if(dl) dl.textContent=rot?deg:lin; } };
+      lbl('.dv.tgt','Target mm','Target °'); lbl('.dv.velpk','Peak vel mm/s','Peak vel °/s'); lbl('.dv.acc','Accel mm/s² · peak / limit','Accel °/s² · peak / limit');
     }
+    // config line: stroke · pitch (static); torque axes have no stroke
     if(isTorque){
       card.querySelector('.dcfg').textContent = 'torque · CST';
-      // Torque telemetry rows (see WebServer: cmdTrq/rms/rpm/igbtC/guard).
+      // Torque telemetry (see WebServer: cmdTrq/rms/rpm/igbtC/guard).
       const set=(sel,txt)=>{ const e=card.querySelector(sel); if(e) e.textContent=txt; return e; };
-      set('.cmdtrq', typeof d.cmdTrq==='number'? d.cmdTrq.toFixed(1) : ' - ');
+      const cmd = typeof d.cmdTrq==='number'? d.cmdTrq.toFixed(1) : ' - ';
+      set('.cmdtrq', cmd); set('.cmdtrq2', cmd);
       const rmsEl=set('.rms', typeof d.rms==='number'? d.rms.toFixed(0)+'%' : ' - ');
       if(rmsEl) rmsEl.style.color = typeof d.rms!=='number' ? ''
-        : d.rms>105 ? 'var(--danger)' : d.rms>85 ? 'var(--warn)' : 'var(--ok)';   // vs RATED; >100 = i2t clock
+        : d.rms>105 ? 'var(--bad)' : d.rms>85 ? 'var(--warn)' : 'var(--ok)';   // vs RATED; >100 = i2t clock
       set('.rpmv', typeof d.rpm==='number'? Math.abs(d.rpm).toFixed(0) : ' - ');
-      set('.igbt', typeof d.igbtC==='number'? d.igbtC.toFixed(0) : ' - ');
       const GUARD={overspeed:'OVERSPEED TRIP',travel:'TRAVEL TRIP',relaxed:'RELAXED'};
       const gEl=set('.guardv', GUARD[d.guard]||' - ');
-      if(gEl) gEl.style.color = d.guard==='relaxed' ? 'var(--warn)'
-                              : d.guard ? 'var(--danger)' : 'var(--ink-soft)';
+      if(gEl) gEl.style.color = d.guard==='relaxed' ? 'var(--warn)' : d.guard ? 'var(--bad)' : '';
     }
     else if(d.axisType==='rotary_lever'){
       const arc = (typeof d.strokeMm==='number')? d.strokeMm.toFixed(0)+'°':' - ';
@@ -320,16 +343,26 @@ function buildDriveCards(drives, loopRunning){
       const pitch  = (typeof d.ballscrewPitch==='number')? d.ballscrewPitch.toFixed(1)+'mm/rev':'';
       card.querySelector('.dcfg').textContent = pitch? stroke+' · '+pitch : stroke;
     }
-    // metrics - current big, peak small (peaks sticky per session)
+    // metrics - current in the strip, peaks in the detail (sticky per session)
     const pk=peaks[i]||(peaks[i]={vel:0,trq:0});
     if(typeof d.vel==='number' && Math.abs(d.vel)>pk.vel) pk.vel=Math.abs(d.vel);
     if(typeof d.trq==='number' && d.trq>pk.trq) pk.trq=d.trq;
-    card.querySelector('.pos').textContent   = typeof d.pos==='number'? d.pos.toFixed(3):' - ';
+    setSeg(card.querySelector('.pos'), typeof d.pos==='number'? d.pos.toFixed(3):'--.---');
     card.querySelector('.tgt').textContent   = typeof d.target==='number'? d.target.toFixed(3):' - ';
     card.querySelector('.vel').textContent   = typeof d.vel==='number'? d.vel.toFixed(2):' - ';
     card.querySelector('.velpk').textContent = typeof d.vel==='number'? pk.vel.toFixed(2):' - ';
     card.querySelector('.trq').textContent   = typeof d.trq==='number'? d.trq.toFixed(1):' - ';
     card.querySelector('.trqpk').textContent = typeof d.trq==='number'? pk.trq.toFixed(1):' - ';
+    const igbt=card.querySelector('.igbt'); igbt.textContent = typeof d.igbtC==='number'? d.igbtC.toFixed(0) : ' - ';
+    // position bar (position over stroke) with the target tick; torque bar
+    const stroke=(typeof d.strokeMm==='number'&&d.strokeMm>0)?d.strokeMm:0;
+    const pf=card.querySelector('.pf'), tt=card.querySelector('.tt');
+    const posPct=(stroke&&typeof d.pos==='number')? Math.max(0,Math.min(100,d.pos/stroke*100)) : 0;
+    pf.style.width=posPct.toFixed(1)+'%';
+    if(stroke&&typeof d.target==='number'){ tt.style.display='block'; tt.style.left=Math.max(0,Math.min(100,d.target/stroke*100)).toFixed(1)+'%'; }
+    else tt.style.display='none';
+    const tf=card.querySelector('.tf'); const trqPct=(typeof d.trq==='number')? Math.max(0,Math.min(100,d.trq)) : 0;
+    tf.style.width=trqPct.toFixed(1)+'%'; tf.classList.toggle('hot', trqPct>80);
     // Peak WINDOWED commanded accel vs the Amax limit -- the real headroom gauge. It's the
     // macroscopic accel (|dvel| over ~10 ms), NOT per-cycle: the per-cycle value pegs at
     // exactly Amax on every frame-boundary discontinuity, so it read 100% at every Amax.
@@ -347,14 +380,36 @@ function buildDriveCards(drives, loopRunning){
       fill.style.width = Math.min(pct/125*100,100).toFixed(1)+'%';   // track = 0..125% Amax, limit marked at 80%
       const hot = pct>=95 || clip>=10;   // at the accel limit, or the clamp is binding a lot
       bar.classList.toggle('hot',hot);
-      accEl.style.color = hot ? 'var(--danger)' : '';
+      accEl.style.color = hot ? 'var(--bad)' : '';
     } else { accEl.textContent=' - '; accEl.style.color=''; fill.style.width='0%'; bar.classList.remove('hot'); }
     const clipEl=card.querySelector('.clip');
     clipEl.textContent = (typeof d.accelClipPct==='number')? `${clip.toFixed(1)}% clip · ${brake.toFixed(1)}% brake` : ' - ';
     const ferrEl=card.querySelector('.ferr');
     ferrEl.textContent = (typeof d.followErrPeak==='number')? d.followErrPeak.toFixed(3) : ' - ';
+    // the rail's item: lamp, a bar of position (or torque for torque axes), a short name
+    if(rx){ rx.querySelector('.lamp').className='lamp '+lampc; rx.querySelector('.rb i').style.height=(isTorque?trqPct:posPct).toFixed(1)+'%';
+      const nm=rx.querySelector('.rxn'); const sn=(d.name||('D'+i)).slice(0,4); if(nm.textContent!==sn) nm.textContent=sn; rx.title=d.name||''; }
   });
+  const ml=$('moLamp'); if(ml) ml.className='lamp '+(anyBad?'bad':loopRunning?'ok':'');
 }
+
+/* ---- layout state: Motion full or rail, Haptics mix or rail (the editor
+   state arrives with the Haptics step). Motion on the rail leaves Haptics
+   the width; Haptics on the rail forces Motion full. Persists per browser. ---- */
+const LAYOUT_KEY='nullcat.ui.layout';
+let uiLayout={mo:'full',hp:'mix'};
+try{ const l=JSON.parse(localStorage.getItem(LAYOUT_KEY)); if(l&&typeof l==='object') Object.assign(uiLayout,l); }catch(_){}
+function applyLayout(){ const ws=$('ws'); if(!ws) return; ws.dataset.mo=uiLayout.mo; ws.dataset.hp=uiLayout.hp; }
+function setLayout(mo,hp){
+  if(hp==='rail') mo='full';
+  if(mo==='rail'&&hp==='rail') hp='mix';
+  if(hp==='ed') hp='mix';   // no editor yet
+  uiLayout.mo=mo; uiLayout.hp=hp; applyLayout();
+  try{ localStorage.setItem(LAYOUT_KEY,JSON.stringify(uiLayout)); }catch(_){}
+}
+{ const PNL={'mo-rail':()=>setLayout('rail',uiLayout.hp),'mo-full':()=>setLayout('full',uiLayout.hp),'hp-rail':()=>setLayout('full','rail'),'hp-mix':()=>setLayout(uiLayout.mo,'mix')};
+  document.querySelectorAll('[data-pnl]').forEach(b=>{ b.onclick=()=>{ const f=PNL[b.dataset.pnl]; if(f) f(); }; });
+  setLayout(uiLayout.mo,uiLayout.hp); }
 
 /* ---- connection (freshness) ---- */
 /* Link-lost guard: on Disconnected (>=5s = 10 missed polls) grey EVERY button and show the
