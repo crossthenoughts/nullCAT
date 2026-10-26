@@ -6,6 +6,14 @@ middle number carries breaking changes and the last carries fixes.
 
 ## [Unreleased]
 
+## [0.9.9] - 2026-10-26
+
+Belts pulled straight from the car's g and Impacts that feel the hits,
+with SimHub plugin 1.9 (protocol 1.9); direct telemetry from the game
+where the sender has it; an E-STOP that stays tripped until you
+re-initialize; four more games in the car table; a support bundle for
+problem reports. On the Raspberry Pi and Windows.
+
 ### Added
 - Belts can pull straight from the car's g: set **Belt cue from** to
   **g** in the belt's Setup and nullCAT maps the car's braking,
