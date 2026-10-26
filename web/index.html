@@ -75,10 +75,6 @@
         <section class="panel" id="hapPanel" hidden>
           <div class="hap-strip" id="hapStrip"></div>
           <div id="hapDrawer" hidden></div>
-          <div class="hap-savebar" id="hapSaveBar" hidden>
-            <span class="hk" id="hapDirtyMsg">unsaved changes</span>
-            <button class="btn btn-start btn-sm" id="hapSave" type="button">Save</button>
-          </div>
           <div class="fldtip" id="hapMsg" style="color:var(--warn)"></div>
           <div class="fldtip">Effects ride on top of the normal feel and are clamped inside each
             axis's own limits. Amplitude 0 = off; an effect also needs a route (the chip on its
@@ -91,354 +87,398 @@
     </section>
   </main>
 
-  <!-- ===== Setup: everything commissioned once ===== -->
+  <!-- ===== Setup: everything commissioned once. One page at a time; every
+       page's controls stay in the document (ids, handlers unchanged), and
+       the body carries the old config panel's id so the dirty tracker still
+       hears every edit. ===== -->
   <main class="su" id="su">
+    <nav class="pnl sun" id="sun">
+      <div class="sung lab">Rig</div>
+      <button type="button" class="suni" data-su="axes"><span class="lamp"></span><span class="sunt"><b>Axes</b><small data-sum>-</small></span></button>
+      <button type="button" class="suni" data-su="blend"><span class="lamp"></span><span class="sunt"><b>Blend &amp; conditioning</b><small data-sum>-</small></span></button>
+      <div class="sung lab">Outputs</div>
+      <button type="button" class="suni" data-su="shk"><span class="lamp"></span><span class="sunt"><b>Shakers / audio</b><small data-sum>-</small></span></button>
+      <div class="sung lab">Inputs</div>
+      <button type="button" class="suni" data-su="btn"><span class="lamp"></span><span class="sunt"><b>Button box</b><small data-sum>-</small></span></button>
+      <button type="button" class="suni" data-su="sim"><span class="lamp"></span><span class="sunt"><b>Sim channels</b><small data-sum>-</small></span></button>
+      <div class="sung lab">Devices</div>
+      <button type="button" class="suni" data-su="dev"><span class="lamp"></span><span class="sunt"><b>Force-feel devices</b><small data-sum>-</small></span></button>
+      <div class="sung lab">Commissioning</div>
+      <button type="button" class="suni" data-su="prov"><span class="lamp"></span><span class="sunt"><b>Drive provisioning</b><small data-sum>-</small></span></button>
+      <button type="button" class="suni" data-su="test"><span class="lamp"></span><span class="sunt"><b>Commissioning tests</b><small data-sum>-</small></span></button>
+      <div class="sung lab">Host</div>
+      <button type="button" class="suni" data-su="sys"><span class="lamp"></span><span class="sunt"><b>System</b><small data-sum>-</small></span></button>
+    </nav>
     <section class="pnl suc">
-      <div class="body sub">
+      <div class="ph suh">
+        <div class="eht"><span class="lab" id="suKick">Rig</span><h2 id="suTitle">Axes</h2></div>
+        <span class="sp"></span>
+        <span class="pill-pending" id="cfgPending" style="display:none"></span>
+        <span class="cfg-note" id="cfgStatus"></span>
+      </div>
+      <div class="body sub" id="cfgPanel">
 
-  <!-- ===== configuration (inline collapsible) ===== -->
-  <div class="sec sec-toggle" id="cfgHead">
-    <span class="arrow" id="cfgArrow">▸</span>
-    <span class="t">Configuration</span><span class="c">commissioning</span>
-    <span class="pill-pending" id="cfgPending" style="display:none"></span>
-    <span class="rule"></span>
-  </div>
-  <section class="panel collapsed" id="cfgPanel">
-    <div class="cbody">
-      <div class="cfg-note" id="cf-hostnote" style="display:none;grid-column:1/-1">
-        Host settings (NIC, ports, timing, GPIO) are managed by the desktop app on this machine - read-only here. Rig &amp; axis settings below are editable.
-      </div>
-      <div class="cfg-note" id="cf-rignote" style="grid-column:1/-1"></div>
-      <div class="cgrp">
-        <div class="gt">EtherCAT / Runtime</div>
-        <label class="frow"><span>Simulation mode</span><input id="cf-sim" type="checkbox"></label>
-        <label class="frow"><span>NIC</span><input id="cf-nic" value="eth0"></label>
-        <label class="frow"><span>Loop rate</span>
-          <select id="cf-hz">
-            <option value="250">250 Hz · 4000 µs</option>
-            <option value="500">500 Hz · 2000 µs</option>
-            <option value="1000">1000 Hz · 1000 µs</option>
-            <option value="2000" selected>2000 Hz · 500 µs</option>
-            <option value="4000">4000 Hz · 250 µs</option>
-          </select></label>
-        <label class="frow"><span>PDO watchdog</span><input id="cf-wd" value="100" type="number"><span class="u">ms</span></label>
-        <label class="frow"><span>DC sync offset</span><input id="cf-dc" value="0" type="number"><span class="u">ns</span></label>
-      </div>
-      <div class="cgrp">
-        <div class="gt">Network / telemetry</div>
-        <label class="frow"><span>Web bind</span><input id="cf-bind" value="0.0.0.0"></label>
-        <label class="frow"><span>Web port</span><input id="cf-wport" value="8080" type="number"></label>
-        <label class="frow" title="Optional. When ticked, every browser must enter this password once before it can see or control the rig. Applies after a service restart. Plain HTTP transport: this locks the door against casual access on your network, it is not encryption."><span>Web password</span><input id="cf-authen" type="checkbox"> <input id="cf-authtok" type="password" placeholder="none" autocomplete="new-password"></label>
-        <div class="fldtip">Off = anyone on your network who can reach this page can control the rig. Recommended once the rig is on a shared network.</div>
-        <label class="frow"><span>Telemetry port</span><input id="cf-sport" value="4444" type="number"></label>
-        <label class="frow" title="THIS machine's address to listen on - never the game PC's. 0.0.0.0 or blank = all interfaces (recommended). A specific IP restricts to one interface and fails if the machine loses that address."><span>Telemetry bind</span><input id="cf-sbind" value="" placeholder="auto"></label>
-        <div class="fldtip">This machine's listen address, not the sender's. Blank or 0.0.0.0 = all interfaces (recommended).</div>
-      </div>
-      <div class="cgrp">
-        <div class="gt">Logging</div>
-        <label class="frow"><span>Level</span>
-          <select id="cf-loglvl"><option>debug</option><option selected>info</option><option>warning</option><option>error</option><option>critical</option></select></label>
-        <label class="frow"><span>Log file</span><input id="cf-logfile" value="logs/app.log"></label>
-        <label class="frow"><span>To console</span><input id="cf-logcon" type="checkbox" checked></label>
-        <label class="frow"><span>Diagnostics</span><input id="cf-diag" type="checkbox" checked></label>
-        <label class="frow"><span>Drive temp polling</span><input id="cf-temppoll" type="checkbox" checked></label>
-        <div class="frow"><span>Support bundle</span>
-          <button class="btn btn-sm btn-action" id="cf-logdl" type="button">Download logs</button></div>
-        <div class="fldtip">Saves one file to this computer: recent log, app + soem log tails, rig and host config, version. Attach it when reporting a problem.</div>
-      </div>
-      <div class="cgrp">
-        <div class="gt">Motion blend</div>
-        <label class="frow"><span>Blend time</span><input id="cf-blendt" type="number" step="0.01"><span class="u">s</span></label>
-        <label class="frow"><span>Blend max vel</span><input id="cf-blendv" type="number" step="0.01"><span class="u">mm/s</span></label>
-      </div>
-      <div class="cgrp">
-        <div class="gt">Command conditioning</div>
-        <label class="frow"><span>Mode</span>
-          <select id="cf-condmode"><option value="bypass">Bypass</option><option value="interpolate">Interpolate</option><option value="filter">Filter</option></select></label>
-        <div class="cfg-note" id="cf-condnote"></div>
-        <div class="cfg-note" id="cf-udphint">UDP rate: - </div>
-      </div>
-      <div class="cgrp" id="updBlock" hidden>
-        <div class="gt">Software</div>
-        <div class="cfg-note">Running <span id="updCur">-</span></div>
-        <div class="cfg-note" id="updNote">Updates need the rig parked and EtherCAT stopped.</div>
-        <button type="button" id="updCheck">Check for updates</button>
-        <button type="button" id="updGo" hidden>Update</button>
-      </div>
-      <div class="cgrp" id="devBlock" hidden style="grid-column:1/-1">
-        <div class="gt">Devices</div>
-        <div class="cfg-note">A device is an axis of type <code>shifter</code> or <code>pedal</code>. It homes
-          by pushing gently against its travel stop, then rests limp (moves freely) until engaged.
-          Engage loads the force feel; Release goes limp again. Feel comes from the device parameters -
-          apply a preset as a starting point, edit if you like, then Save.</div>
-        <div id="devCards"><p class="cfg-note">No device axes configured. Add an axis and set its type to shifter or pedal.</p></div>
-      </div>
-      <div class="cgrp">
-        <div class="gt">GPIO control panel</div>
-        <label class="frow"><span>Mode</span>
-          <select id="cf-gpiomode">
-            <option value="off">Off</option>
-            <option value="estop">E-STOP only</option>
-            <option value="estop_led">E-STOP + LEDs</option>
-            <option value="full">E-STOP + buttons + LEDs</option>
-          </select></label>
-        <div class="frow"><span>LED test</span>
-          <button class="btn btn-sm btn-action" id="cf-ledtest" type="button">Run LED test</button></div>
-        <div class="cfg-note" style="grid-column:1/-1">Pins use defaults (see wiring PDF); edit <code>host.json</code> for custom pins. Mode change needs a restart; LED test runs immediately.</div>
-      </div>
-      <div class="cgrp">
-        <div class="gt">Advanced / EtherCAT tuning</div>
-        <label class="frow"><span>Command sync cycles</span><input id="cf-cmdsync" type="number"></label>
-        <label class="frow"><span>WKC valid. cycles</span><input id="cf-wkccyc" type="number"></label>
-        <label class="frow"><span>WKC valid. thresh</span><input id="cf-wkcthr" type="number" step="0.05"></label>
-        <label class="frow"><span>Capability scan</span><input id="cf-capscan" type="checkbox"></label>
-        <label class="frow"><span>Require fault reset</span><input id="cf-reqreset" type="checkbox"></label>
-        <label class="frow" id="devShowRow" hidden title="Shows the experimental surfaces on the Operate view: the force-device section (shifter/pedal axes) and the Haptics strip. Off = they disappear entirely; nothing else changes."><span>Experimental features</span><input id="cf-showdev" type="checkbox"></label>
-        <div class="fldtip">Devices (shifter, pedal) and the haptic effect layer. Hidden until ticked.</div>
-        <label class="frow" title="Drive bass shakers or other tactile transducers from a USB sound card: the haptic effects route to its channels like to any axis. Takes effect after a restart."><span>Shakers</span><input id="cf-shakers" type="checkbox"></label>
-        <label class="frow" title="Which playback device: part of its name (case does not matter), empty for the system default, or null for no hardware (a bench with no card)."><span>Audio device</span><input id="cf-audiodev" type="text" list="audioDevList" placeholder="(default)"><datalist id="audioDevList"></datalist></label>
-        <label class="frow" title="How many of the card's outputs are shakers (1 to 8). A stereo USB dongle is 2; an 8-channel box is 8."><span>Shaker channels</span><input id="cf-audioch" type="number" min="1" max="8" step="1"></label>
-        <label class="frow" title="A second card, for example a second stereo dongle: its channels follow the first card's in the shaker numbering. Empty = none."><span>Audio device 2</span><input id="cf-audiodev2" type="text" list="audioDevList" placeholder="(none)"></label>
-        <label class="frow"><span>Channels 2</span><input id="cf-audioch2" type="number" min="1" max="8" step="1"></label>
-        <div class="fldtip" id="shakerStatus">Shakers off.</div>
-      </div>
-      <div class="cgrp" id="axisGrp" style="grid-column:1/-1">
-        <div class="gt">Per-axis configuration</div>
-        <div class="frow"><span>Axis</span>
-          <span style="display:flex;gap:6px;align-items:center">
-            <select id="axisSel"></select>
-            <button class="btn btn-sm btn-start" id="axisAdd" type="button">+ Add</button>
-            <button class="btn btn-sm btn-stop" id="axisDel" type="button">− Remove</button>
-            <button class="btn btn-sm btn-warn" id="axisApplyAll" type="button">Apply→all</button>
-          </span>
-        </div>
-        <div id="axisFields"></div>
-      </div>
-      <!-- Button bindings. One row
-           per bindable command; capture flow = click Bind, press the button.
-           Saves hot-apply (buttons.json) - no restart, no re-init. -->
-      <div class="cgrp" style="grid-column:1/-1">
-        <div class="gt bind-head" id="bindHead"><span class="arrow" id="bindArrow">▸</span>
-          Button bindings <span class="c">HID box → rig commands · saved separately, applies live</span></div>
-        <div class="bind-body collapsed" id="bindBody">
-          <div class="cfg-note" id="btnBindNativeNote" style="display:none;border-left:2px solid var(--warn,#f5b340);padding-left:8px;margin-bottom:6px">
-            <b>PC:</b> keep the Web UI enabled for buttons to work. The button reader runs with the web server - bound presses only register while <code>webUIEnabled</code> is on. Turn the Web UI off and the box goes silent (bindings are kept, just not read).
-          </div>
-          <div id="btnBindRows" class="cfg-note">loading…</div>
-          <div style="margin-top:6px">
-            <span class="cfg-note" id="btnBindStatus"></span>
-            <button class="btn btn-sm btn-start" id="btnBindSave" type="button" disabled>Save bindings</button>
+        <!-- Rig · Axes -->
+        <div class="supg" data-pg="axes">
+          <div class="cfg-note" id="cf-rignote"></div>
+          <div class="cgrp" id="axisGrp">
+            <div class="gt">Per-axis configuration</div>
+            <div class="frow"><span>Axis</span>
+              <span style="display:flex;gap:6px;align-items:center">
+                <select id="axisSel"></select>
+                <button class="btn btn-sm btn-start" id="axisAdd" type="button">+ Add</button>
+                <button class="btn btn-sm btn-stop" id="axisDel" type="button">− Remove</button>
+                <button class="btn btn-sm btn-warn" id="axisApplyAll" type="button">Apply→all</button>
+              </span>
+            </div>
+            <div id="axisFields"></div>
           </div>
         </div>
-      </div>
-      <!-- Sim channels for the numbered line: last, and folded by default.
-           A SimHub setup never needs it, and its ~90 rows sat between the
-           shaker settings and the button bindings. -->
-      <div class="cgrp" style="grid-column:1/-1">
-        <div class="gt bind-head" id="ncxHead"><span class="arrow" id="ncxArrow">▸</span>
-          Sim channels (numbered line) <span class="c">FlyPT Mover, SimTools, your own feeder · not needed for SimHub</span></div>
-        <div class="bind-body collapsed" id="ncxBody">
-          <div class="fldtip">For senders that use the numbered NULLCATX line (FlyPT Mover, SimTools, a
-            feeder of your own): which slot carries which channel, with a scale and offset for its
-            units. The SimHub plugin names every channel it sends, and a named channel always wins,
-            so nothing here affects a SimHub setup. Saved with the rig config.</div>
-          <div id="ncxRows"></div>
-          <div class="frow" style="margin-top:6px">
-            <button class="btn btn-sm" id="ncxAdd" type="button">+ Add binding</button>
-            <button class="btn btn-sm" id="ncxDefaults" type="button">Reset to defaults</button>
-            <span class="fldtip" id="ncxMsg"></span>
+
+        <!-- Rig · Blend & conditioning -->
+        <div class="supg" data-pg="blend">
+          <div class="cbody">
+            <div class="cgrp">
+              <div class="gt">Motion blend</div>
+              <label class="frow"><span>Blend time</span><input id="cf-blendt" type="number" step="0.01"><span class="u">s</span></label>
+              <label class="frow"><span>Blend max vel</span><input id="cf-blendv" type="number" step="0.01"><span class="u">mm/s</span></label>
+            </div>
+            <div class="cgrp">
+              <div class="gt">Command conditioning</div>
+              <label class="frow"><span>Mode</span>
+                <select id="cf-condmode"><option value="bypass">Bypass</option><option value="interpolate">Interpolate</option><option value="filter">Filter</option></select></label>
+              <div class="cfg-note" id="cf-condnote"></div>
+              <div class="cfg-note" id="cf-udphint">UDP rate: - </div>
+            </div>
           </div>
         </div>
-      </div>
-    </div>
-    <div class="cfg-foot">
-      <span class="cfg-note">Theme applies live (saved in browser); haptics apply live on Save;
-        device feel applies live while the device is limp. All other rig fields (global + per-axis) write to
-        <code>rig.json</code> and take effect on the next <strong>EtherCAT Initialize</strong>;
-        host/network settings need a <strong>service restart</strong> (Pi) or app restart.</span>
-      <span class="spacer"></span>
-      <span class="cfg-note" id="cfgStatus"></span>
-      <button class="btn btn-start btn-sm" id="cfgSave">Save to rig.json</button>
-    </div>
-  </section>
 
-  <!-- ===== drive provisioning reference (inline collapsible) ===== -->
-  <div class="sec sec-toggle" id="provHead">
-    <span class="arrow" id="provArrow">▸</span>
-    <span class="t">Drive Provisioning</span><span class="c">panel reference</span>
-    <span class="rule"></span>
-  </div>
-  <section class="panel collapsed" id="provPanel">
-    <div class="prov-body">
+        <!-- Outputs · Shakers / audio -->
+        <div class="supg" data-pg="shk">
+          <div class="cbody">
+            <div class="cgrp">
+              <div class="gt">Sound cards</div>
+              <label class="frow" title="Drive bass shakers or other tactile transducers from a USB sound card: the haptic effects route to its channels like to any axis. Takes effect after a restart."><span>Shakers</span><span class="key sm latch" id="shkKey"><input id="cf-shakers" type="checkbox" hidden> Shakers</span></label>
+              <label class="frow" title="Which playback device: part of its name (case does not matter), empty for the system default, or null for no hardware (a bench with no card)."><span>Audio device</span><input id="cf-audiodev" type="text" list="audioDevList" placeholder="(default)"><datalist id="audioDevList"></datalist></label>
+              <label class="frow" title="How many of the card's outputs are shakers (1 to 8). A stereo USB dongle is 2; an 8-channel box is 8."><span>Shaker channels</span><input id="cf-audioch" type="number" min="1" max="8" step="1"></label>
+              <label class="frow" title="A second card, for example a second stereo dongle: its channels follow the first card's in the shaker numbering. Empty = none."><span>Audio device 2</span><input id="cf-audiodev2" type="text" list="audioDevList" placeholder="(none)"></label>
+              <label class="frow"><span>Channels 2</span><input id="cf-audioch2" type="number" min="1" max="8" step="1"></label>
+              <div class="fldtip">Device and channel changes apply after a restart. Effects reach the shakers through each effect's routing in Haptics.</div>
+            </div>
+            <div class="cgrp">
+              <div class="gt">Status · live level</div>
+              <div class="fldtip" id="shakerStatus">Shakers off.</div>
+            </div>
+          </div>
+        </div>
 
-      <!-- Step 1: unlock + carrier, every drive, panel-only -->
-      <div class="prov-callout">
-        <div class="pc-step">Step 1 · every drive · front panel</div>
-        <div class="pc-title">Unlock factory params, then double the carrier to 16&nbsp;kHz</div>
-        <ol class="pc-list">
-          <li><b>Unlock:</b> set <code>C00.31</code> = <b>1107</b> (super-user; drive disabled).</li>
-          <li><b>Carrier → 16 kHz:</b> navigate to <code>R22.38</code> and change <b>0 → 1</b> (×2 on the 8&nbsp;kHz base).</li>
-          <li><b>Save</b> the params, then <b>power-cycle</b> the drive.</li>
-        </ol>
-        <div class="pc-note">⚠ <b>Panel-only.</b> <code>R22.38</code> (<code>0x2022:39</code>) is not writable over EtherCAT/SDO even after the unlock, so the <code>provision</code> tool can't set it. Only <b>8 / 16 kHz</b> are valid - any other carrier faults (<code>Er31.0</code> / <code>Er50.1</code>). Skip the carrier if this drive must match others still on the 8&nbsp;kHz base.</div>
-      </div>
+        <!-- Inputs · Button box. One row per bindable command; capture flow =
+             click Bind, press the button. Saves hot-apply (buttons.json). -->
+        <div class="supg" data-pg="btn">
+          <div class="w">
+            <div class="cfg-note" id="btnBindNativeNote" style="display:none;border-left:2px solid var(--warn,#f5b340);padding-left:8px;margin-bottom:6px">
+              <b>PC:</b> keep the Web UI enabled for buttons to work. The button reader runs with the web server - bound presses only register while <code>webUIEnabled</code> is on. Turn the Web UI off and the box goes silent (bindings are kept, just not read).
+            </div>
+            <div class="cfg-note">HID box → rig commands · saved separately, applies live.</div>
+            <div id="btnBindRows" class="cfg-note">loading…</div>
+            <div class="row sbt">
+              <button class="btn btn-sm btn-start" id="btnBindSave" type="button" disabled>Save bindings</button>
+              <span class="cfg-note" id="btnBindStatus"></span>
+            </div>
+          </div>
+        </div>
 
-      <!-- Step 2: config params via the standalone tool -->
-      <div class="prov-callout pc-soft">
-        <div class="pc-step">Step 2 · config params · provision tool</div>
-        <div class="pc-title">Write the nullCAT parameter set (service stopped - the tool owns the NIC)</div>
-        <pre class="pc-code">sudo systemctl stop nullcat-pi
+        <!-- Inputs · Sim channels for the numbered line. -->
+        <div class="supg" data-pg="sim">
+          <div class="w">
+            <div class="fldtip">For senders that use the numbered NULLCATX line (FlyPT Mover, SimTools, a
+              feeder of your own): which slot carries which channel, with a scale and offset for its
+              units. The SimHub plugin names every channel it sends, and a named channel always wins,
+              so nothing here affects a SimHub setup. Saved with the rig config.</div>
+            <div id="ncxRows"></div>
+            <div class="row sbt">
+              <button class="btn btn-sm" id="ncxAdd" type="button">+ Add binding</button>
+              <button class="btn btn-sm" id="ncxDefaults" type="button">Reset to defaults</button>
+              <span class="fldtip" id="ncxMsg"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Devices · Force-feel devices (devRender shows the block while
+             the experimental switch is on). -->
+        <div class="supg" data-pg="dev">
+          <div class="cgrp" id="devBlock" hidden>
+            <div class="gt">Devices</div>
+            <div class="cfg-note">A device is an axis of type <code>shifter</code> or <code>pedal</code>. It homes
+              by pushing gently against its travel stop, then rests limp (moves freely) until engaged.
+              Engage loads the force feel; Release goes limp again. Feel comes from the device parameters -
+              apply a preset as a starting point, edit if you like, then Save.</div>
+            <div id="devCards"><p class="cfg-note">No device axes configured. Add an axis and set its type to shifter or pedal.</p></div>
+          </div>
+          <div class="cfg-note devoff">Devices (shifter, pedal) appear here once <b>Experimental features</b> is on under Host → System.</div>
+        </div>
+
+        <!-- Commissioning · Drive provisioning reference -->
+        <div class="supg" data-pg="prov" id="provPanel">
+          <div class="prov-body">
+
+            <!-- Step 1: unlock + carrier, every drive, panel-only -->
+            <div class="prov-callout">
+              <div class="pc-step">Step 1 · every drive · front panel</div>
+              <div class="pc-title">Unlock factory params, then double the carrier to 16&nbsp;kHz</div>
+              <ol class="pc-list">
+                <li><b>Unlock:</b> set <code>C00.31</code> = <b>1107</b> (super-user; drive disabled).</li>
+                <li><b>Carrier → 16 kHz:</b> navigate to <code>R22.38</code> and change <b>0 → 1</b> (×2 on the 8&nbsp;kHz base).</li>
+                <li><b>Save</b> the params, then <b>power-cycle</b> the drive.</li>
+              </ol>
+              <div class="pc-note">⚠ <b>Panel-only.</b> <code>R22.38</code> (<code>0x2022:39</code>) is not writable over EtherCAT/SDO even after the unlock, so the <code>provision</code> tool can't set it. Only <b>8 / 16 kHz</b> are valid - any other carrier faults (<code>Er31.0</code> / <code>Er50.1</code>). Skip the carrier if this drive must match others still on the 8&nbsp;kHz base.</div>
+            </div>
+
+            <!-- Step 2: config params via the standalone tool -->
+            <div class="prov-callout pc-soft">
+              <div class="pc-step">Step 2 · config params · provision tool</div>
+              <div class="pc-title">Write the nullCAT parameter set (service stopped - the tool owns the NIC)</div>
+              <pre class="pc-code">sudo systemctl stop nullcat-pi
 sudo ./provision eth0 &lt;slave&gt; --fresh    # write the params, verify, store to NVRAM
 # power-cycle the drive
 sudo ./provision eth0 &lt;slave&gt; --verify    # confirm everything persisted</pre>
-        <div class="pc-note">Writes the 18 deliberate params + both notch frequencies (7999) + baseline inertia, and stores to NVRAM <b>only if every readback verifies</b>. A before-state backup file is written first. Per-axis inertia (auto-ID) and notch frequency are tuned separately - they are not blind-cloned.</div>
-      </div>
+              <div class="pc-note">Writes the 18 deliberate params + both notch frequencies (7999) + baseline inertia, and stores to NVRAM <b>only if every readback verifies</b>. A before-state backup file is written first. Per-axis inertia (auto-ID) and notch frequency are tuned separately - they are not blind-cloned.</div>
+            </div>
 
-      <!-- Role check: drive-resident params vs each axis's configured role -->
-      <div class="prov-callout pc-soft">
-        <div class="pc-step">Role check · after any drive swap, replacement, or factory reset</div>
-        <div class="pc-title">Do the drives' own saved settings match the job each one has now?</div>
-        <div class="pc-note">Settings saved inside a drive move with the physical drive, not with your rig config.
-          This reads the role-critical ones (runaway protection <code>C06.20</code>) from every drive and flags any
-          that disagree with the axis's role - a belt drive with protection still on faults <code>Er06.0</code> the
-          moment the belt is back-driven. Needs EtherCAT <b>initialized with the loop stopped</b>; fix any flagged
-          value on the drive's front panel, save, power-cycle.</div>
-        <div class="frow"><button class="btn btn-sm btn-action" id="pc-rolecheck" type="button">Check drive settings</button>
-          <span class="fldtip" id="pc-rolemsg"></span></div>
-        <div id="pc-roletbl"></div>
-      </div>
+            <!-- Role check: drive-resident params vs each axis's configured role -->
+            <div class="prov-callout pc-soft">
+              <div class="pc-step">Role check · after any drive swap, replacement, or factory reset</div>
+              <div class="pc-title">Do the drives' own saved settings match the job each one has now?</div>
+              <div class="pc-note">Settings saved inside a drive move with the physical drive, not with your rig config.
+                This reads the role-critical ones (runaway protection <code>C06.20</code>) from every drive and flags any
+                that disagree with the axis's role - a belt drive with protection still on faults <code>Er06.0</code> the
+                moment the belt is back-driven. Needs EtherCAT <b>initialized with the loop stopped</b>; fix any flagged
+                value on the drive's front panel, save, power-cycle.</div>
+              <div class="frow"><button class="btn btn-sm btn-action" id="pc-rolecheck" type="button">Check drive settings</button>
+                <span class="fldtip" id="pc-rolemsg"></span></div>
+              <div id="pc-roletbl"></div>
+            </div>
 
-      <!-- The exact params the tool writes - all panel-doable, so this doubles as a manual sheet -->
-      <div class="pc-note" style="margin:-2px 0 2px">
-        The values below are <b>exactly what the <code>provision</code> tool writes</b> - every one has a front-panel code,
-        so you can key them in by hand if you'd rather not run the tool. <b>Save to NVRAM on the panel</b> when done.
-      </div>
-      <div class="prov-tables">
-        <table class="prov-table">
-          <caption>EtherCAT sync - required by this master</caption>
-          <thead><tr><th>Panel</th><th>Control</th><th>nullCAT</th><th>Notes</th></tr></thead>
-          <tbody>
-            <tr><td>C13.05</td><td>Sync mode</td><td>2</td><td>DC sync (mandatory for this master)</td></tr>
-            <tr><td>C13.02</td><td>Sync lost window</td><td>20</td><td></td></tr>
-            <tr><td>C13.06</td><td>Sync error window</td><td>6000</td><td></td></tr>
-          </tbody>
-        </table>
+            <!-- The exact params the tool writes - all panel-doable, so this doubles as a manual sheet -->
+            <div class="pc-note" style="margin:-2px 0 2px">
+              The values below are <b>exactly what the <code>provision</code> tool writes</b> - every one has a front-panel code,
+              so you can key them in by hand if you'd rather not run the tool. <b>Save to NVRAM on the panel</b> when done.
+            </div>
+            <div class="prov-tables">
+              <table class="prov-table">
+                <caption>EtherCAT sync - required by this master</caption>
+                <thead><tr><th>Panel</th><th>Control</th><th>nullCAT</th><th>Notes</th></tr></thead>
+                <tbody>
+                  <tr><td>C13.05</td><td>Sync mode</td><td>2</td><td>DC sync (mandatory for this master)</td></tr>
+                  <tr><td>C13.02</td><td>Sync lost window</td><td>20</td><td></td></tr>
+                  <tr><td>C13.06</td><td>Sync error window</td><td>6000</td><td></td></tr>
+                </tbody>
+              </table>
 
-        <table class="prov-table">
-          <caption>Gains, stiffness &amp; inertia - cloned across drives</caption>
-          <thead><tr><th>Panel</th><th>Control</th><th>nullCAT</th><th>Notes</th></tr></thead>
-          <tbody>
-            <tr><td>C00.04</td><td>Gain auto-tune mode</td><td>0</td><td>Manual - gains frozen, not auto-tuned</td></tr>
-            <tr><td>C00.05</td><td>Stiffness level</td><td>10</td><td></td></tr>
-            <tr><td>C00.06</td><td>Load inertia ratio</td><td>100</td><td>Baseline (factory) - auto-ID per axis later</td></tr>
-            <tr><td>C01.01</td><td>1st speed loop gain</td><td>150</td><td></td></tr>
-            <tr><td>C01.02</td><td>1st speed loop integral time</td><td>5685</td><td></td></tr>
-            <tr><td>C01.03</td><td>1st torque ref filter time</td><td>112</td><td></td></tr>
-            <tr><td>C01.08</td><td>2nd position loop gain</td><td>400</td><td></td></tr>
-            <tr><td>C01.09</td><td>2nd speed loop gain</td><td>250</td><td></td></tr>
-            <tr><td>C01.0A</td><td>2nd speed loop integral time</td><td>3184</td><td></td></tr>
-            <tr><td>C01.0B</td><td>2nd torque ref filter time</td><td>200</td><td></td></tr>
-            <tr><td>C01.10</td><td>Speed feedback filter</td><td>1</td><td></td></tr>
-            <tr><td>C01.22</td><td>1st-order low-pass filter time</td><td>50</td><td></td></tr>
-          </tbody>
-        </table>
+              <table class="prov-table">
+                <caption>Gains, stiffness &amp; inertia - cloned across drives</caption>
+                <thead><tr><th>Panel</th><th>Control</th><th>nullCAT</th><th>Notes</th></tr></thead>
+                <tbody>
+                  <tr><td>C00.04</td><td>Gain auto-tune mode</td><td>0</td><td>Manual - gains frozen, not auto-tuned</td></tr>
+                  <tr><td>C00.05</td><td>Stiffness level</td><td>10</td><td></td></tr>
+                  <tr><td>C00.06</td><td>Load inertia ratio</td><td>100</td><td>Baseline (factory) - auto-ID per axis later</td></tr>
+                  <tr><td>C01.01</td><td>1st speed loop gain</td><td>150</td><td></td></tr>
+                  <tr><td>C01.02</td><td>1st speed loop integral time</td><td>5685</td><td></td></tr>
+                  <tr><td>C01.03</td><td>1st torque ref filter time</td><td>112</td><td></td></tr>
+                  <tr><td>C01.08</td><td>2nd position loop gain</td><td>400</td><td></td></tr>
+                  <tr><td>C01.09</td><td>2nd speed loop gain</td><td>250</td><td></td></tr>
+                  <tr><td>C01.0A</td><td>2nd speed loop integral time</td><td>3184</td><td></td></tr>
+                  <tr><td>C01.0B</td><td>2nd torque ref filter time</td><td>200</td><td></td></tr>
+                  <tr><td>C01.10</td><td>Speed feedback filter</td><td>1</td><td></td></tr>
+                  <tr><td>C01.22</td><td>1st-order low-pass filter time</td><td>50</td><td></td></tr>
+                </tbody>
+              </table>
 
-        <table class="prov-table">
-          <caption>Notch filters - sound profile (notches 1 &amp; 2)</caption>
-          <thead><tr><th>Panel</th><th>Control</th><th>nullCAT</th><th>Notes</th></tr></thead>
-          <tbody>
-            <tr><td>C01.40</td><td>1st notch frequency</td><td>7999</td><td>8000 = parked/off; 7999 engages. Per-axis: set to measured resonance</td></tr>
-            <tr><td>C01.41</td><td>1st notch width</td><td>100</td><td>0 = filter does nothing</td></tr>
-            <tr><td>C01.42</td><td>1st notch depth</td><td>10</td><td>1000 = no attenuation, 10 = deepest</td></tr>
-            <tr><td>C01.43</td><td>2nd notch frequency</td><td>7999</td><td></td></tr>
-            <tr><td>C01.44</td><td>2nd notch width</td><td>100</td><td></td></tr>
-            <tr><td>C01.45</td><td>2nd notch depth</td><td>10</td><td></td></tr>
-          </tbody>
-        </table>
-      </div>
+              <table class="prov-table">
+                <caption>Notch filters - sound profile (notches 1 &amp; 2)</caption>
+                <thead><tr><th>Panel</th><th>Control</th><th>nullCAT</th><th>Notes</th></tr></thead>
+                <tbody>
+                  <tr><td>C01.40</td><td>1st notch frequency</td><td>7999</td><td>8000 = parked/off; 7999 engages. Per-axis: set to measured resonance</td></tr>
+                  <tr><td>C01.41</td><td>1st notch width</td><td>100</td><td>0 = filter does nothing</td></tr>
+                  <tr><td>C01.42</td><td>1st notch depth</td><td>10</td><td>1000 = no attenuation, 10 = deepest</td></tr>
+                  <tr><td>C01.43</td><td>2nd notch frequency</td><td>7999</td><td></td></tr>
+                  <tr><td>C01.44</td><td>2nd notch width</td><td>100</td><td></td></tr>
+                  <tr><td>C01.45</td><td>2nd notch depth</td><td>10</td><td></td></tr>
+                </tbody>
+              </table>
+            </div>
 
-      <div class="pc-note" style="padding-top:4px">
-        Full parameter table + factory-vs-configured diff in
-        <code>Docs/drive_provisioning_param_map.md</code>; drive manual in <code>Docs/A6-EC_series_servo_drive_manual.pdf</code>.
-      </div>
-    </div>
-  </section>
+            <div class="pc-note" style="padding-top:4px">
+              Full parameter table + factory-vs-configured diff in
+              <code>Docs/drive_provisioning_param_map.md</code>; drive manual in <code>Docs/A6-EC_series_servo_drive_manual.pdf</code>.
+            </div>
+          </div>
+        </div>
 
-  <!-- ===== commissioning tests (inline collapsible) ===== -->
-  <div class="sec sec-toggle" id="testHead">
-    <span class="arrow" id="testArrow">▸</span>
-    <span class="t">Commissioning Tests</span><span class="c">motion cycle · vibration · sweep · song</span>
-    <span class="rule"></span>
-  </div>
-  <section class="panel collapsed" id="testPanel">
-    <div class="test-body">
-      <div class="test-note">
-        Runs only while the <b>loop is running</b> and the rig is
-        <b>parked</b> (press <b>Park All</b> on the dashboard first; do not
-        stop the loop) with no telemetry streaming. Amplitudes auto-derate to each axis's stroke /
-        velocity / acceleration budgets (derated results are flagged), the normal guard
-        chain stays live, and a sustained following error aborts the test and re-parks.
-        Belt axes are never tested.
-      </div>
+        <!-- Commissioning · tests. The page keeps the old panel's id and
+             'collapsed' class while another page is shown: pollTestStatus
+             reads it to skip polling with no test running. -->
+        <div class="supg collapsed" data-pg="test" id="testPanel">
+          <div class="test-body">
+            <div class="glass ilk" id="testInterlock">
+              <span class="il"><span class="lamp" data-il="loop"></span><span class="vt dim">Loop running</span></span>
+              <span class="il"><span class="lamp" data-il="parked"></span><span class="vt dim">Rig parked</span></span>
+              <span class="il"><span class="lamp" data-il="notel"></span><span class="vt dim">No telemetry</span></span>
+            </div>
+            <div class="test-note">
+              Runs only while the <b>loop is running</b> and the rig is
+              <b>parked</b> (press <b>Park All</b> on the dashboard first; do not
+              stop the loop) with no telemetry streaming. Amplitudes auto-derate to each axis's stroke /
+              velocity / acceleration budgets (derated results are flagged), the normal guard
+              chain stays live, and a sustained following error aborts the test and re-parks.
+              Belt axes are never tested.
+            </div>
 
-      <div class="test-axes" id="testAxes"></div>
+            <div class="test-axes" id="testAxes"></div>
 
-      <div class="test-modes" id="testModes">
-        <label><input type="radio" name="tmode" value="cycle" checked> Motion cycle</label>
-        <label><input type="radio" name="tmode" value="tone"> Tone</label>
-        <label><input type="radio" name="tmode" value="sweep"> Sweep</label>
-        <label><input type="radio" name="tmode" value="step"> Step</label>
-        <label><input type="radio" name="tmode" value="song"> Song</label>
-      </div>
+            <div class="test-modes" id="testModes">
+              <label><input type="radio" name="tmode" value="cycle" checked> Motion cycle</label>
+              <label><input type="radio" name="tmode" value="tone"> Tone</label>
+              <label><input type="radio" name="tmode" value="sweep"> Sweep</label>
+              <label><input type="radio" name="tmode" value="step"> Step</label>
+              <label><input type="radio" name="tmode" value="song"> Song</label>
+            </div>
 
-      <div class="test-params" id="tp-cycle">
-        <span class="tp"><label><input type="checkbox" id="tcPitch" checked> pitch</label><input type="number" id="tcPitchPct" value="30" min="1" max="90">%</span>
-        <span class="tp"><label><input type="checkbox" id="tcRoll" checked> roll</label><input type="number" id="tcRollPct" value="30" min="1" max="90">%</span>
-        <span class="tp"><label><input type="checkbox" id="tcHeave" checked> heave</label><input type="number" id="tcHeavePct" value="40" min="1" max="90">%</span>
-        <span class="tp"><label><input type="checkbox" id="tcHoriz" checked> horizontal</label><input type="number" id="tcHorizPct" value="30" min="1" max="90">%</span>
-        <span class="tp">rate <input type="number" id="tcFreq" value="0.2" min="0.05" max="1" step="0.05"> Hz</span>
-        <span class="tp">cycles <input type="number" id="tcCycles" value="2" min="1" max="10"></span>
-      </div>
-      <div class="test-params" id="tp-tone" hidden>
-        <span class="tp">freq <input type="number" id="ttFreq" value="25" min="0.5" max="80" step="0.5"> Hz</span>
-        <span class="tp">amp <input type="number" id="ttPct" value="2" min="0.1" max="90" step="0.1">%</span>
-        <span class="tp">duration <input type="number" id="ttDur" value="5" min="1" max="60"> s</span>
-      </div>
-      <div class="test-params" id="tp-sweep" hidden>
-        <span class="tp">from <input type="number" id="tsF0" value="5" min="0.5" max="80" step="0.5"> Hz</span>
-        <span class="tp">to <input type="number" id="tsF1" value="50" min="0.5" max="80" step="0.5"> Hz</span>
-        <span class="tp">step <input type="number" id="tsStep" value="2.5" min="0.5" max="20" step="0.5"> Hz</span>
-        <span class="tp">dwell <input type="number" id="tsDwell" value="2" min="1" max="10"> s</span>
-        <span class="tp">amp <input type="number" id="tsPct" value="2" min="0.1" max="90" step="0.1">%</span>
-      </div>
-      <div class="test-params" id="tp-step" hidden>
-        <span class="tp">amp <input type="number" id="tpPct" value="5" min="0.5" max="90" step="0.5">%</span>
-        <span class="tp">hold <input type="number" id="tpHold" value="3" min="1" max="20"> s</span>
-        <span class="c">jump to +amp and hold - the guard chain sets the slew; measures overshoot / rise / settling</span>
-      </div>
-      <div class="test-params" id="tp-song" hidden>
-        <textarea id="tgNotes" rows="3" spellcheck="false">a0:2.5 r:0.5 a0:0.75 r:0.25 c1:0.75 r:0.25 a0:0.75 r:0.25 g0:1.5 r:0.5 f0:2.5 r:0.5 e0:3 r:2 a0:2.5 r:0.5 a0:0.75 r:0.25 c1:0.75 r:0.25 a0:0.75 r:0.25 g0:0.75 r:0.25 f0:0.75 r:0.25 g0:0.75 r:0.25 f0:0.75 r:0.25 e0:4 r:2</textarea>
-        <span class="tp">beat <input type="number" id="tgBeat" value="0.24" min="0.1" max="2" step="0.05"> s</span>
-        <span class="tp">amp <input type="number" id="tgPct" value="2" min="0.1" max="90" step="0.1">%</span>
-        <span class="c">notes c0-b8, # / b, ":beats" for length, "r" = rest · actuators speak ~20-60 Hz (octaves 0-1)</span>
-      </div>
+            <div class="test-params" id="tp-cycle">
+              <span class="tp"><label><input type="checkbox" id="tcPitch" checked> pitch</label><input type="number" id="tcPitchPct" value="30" min="1" max="90">%</span>
+              <span class="tp"><label><input type="checkbox" id="tcRoll" checked> roll</label><input type="number" id="tcRollPct" value="30" min="1" max="90">%</span>
+              <span class="tp"><label><input type="checkbox" id="tcHeave" checked> heave</label><input type="number" id="tcHeavePct" value="40" min="1" max="90">%</span>
+              <span class="tp"><label><input type="checkbox" id="tcHoriz" checked> horizontal</label><input type="number" id="tcHorizPct" value="30" min="1" max="90">%</span>
+              <span class="tp">rate <input type="number" id="tcFreq" value="0.2" min="0.05" max="1" step="0.05"> Hz</span>
+              <span class="tp">cycles <input type="number" id="tcCycles" value="2" min="1" max="10"></span>
+            </div>
+            <div class="test-params" id="tp-tone" hidden>
+              <span class="tp">freq <input type="number" id="ttFreq" value="25" min="0.5" max="80" step="0.5"> Hz</span>
+              <span class="tp">amp <input type="number" id="ttPct" value="2" min="0.1" max="90" step="0.1">%</span>
+              <span class="tp">duration <input type="number" id="ttDur" value="5" min="1" max="60"> s</span>
+            </div>
+            <div class="test-params" id="tp-sweep" hidden>
+              <span class="tp">from <input type="number" id="tsF0" value="5" min="0.5" max="80" step="0.5"> Hz</span>
+              <span class="tp">to <input type="number" id="tsF1" value="50" min="0.5" max="80" step="0.5"> Hz</span>
+              <span class="tp">step <input type="number" id="tsStep" value="2.5" min="0.5" max="20" step="0.5"> Hz</span>
+              <span class="tp">dwell <input type="number" id="tsDwell" value="2" min="1" max="10"> s</span>
+              <span class="tp">amp <input type="number" id="tsPct" value="2" min="0.1" max="90" step="0.1">%</span>
+            </div>
+            <div class="test-params" id="tp-step" hidden>
+              <span class="tp">amp <input type="number" id="tpPct" value="5" min="0.5" max="90" step="0.5">%</span>
+              <span class="tp">hold <input type="number" id="tpHold" value="3" min="1" max="20"> s</span>
+              <span class="c">jump to +amp and hold - the guard chain sets the slew; measures overshoot / rise / settling</span>
+            </div>
+            <div class="test-params" id="tp-song" hidden>
+              <textarea id="tgNotes" rows="3" spellcheck="false">a0:2.5 r:0.5 a0:0.75 r:0.25 c1:0.75 r:0.25 a0:0.75 r:0.25 g0:1.5 r:0.5 f0:2.5 r:0.5 e0:3 r:2 a0:2.5 r:0.5 a0:0.75 r:0.25 c1:0.75 r:0.25 a0:0.75 r:0.25 g0:0.75 r:0.25 f0:0.75 r:0.25 g0:0.75 r:0.25 f0:0.75 r:0.25 e0:4 r:2</textarea>
+              <span class="tp">beat <input type="number" id="tgBeat" value="0.24" min="0.1" max="2" step="0.05"> s</span>
+              <span class="tp">amp <input type="number" id="tgPct" value="2" min="0.1" max="90" step="0.1">%</span>
+              <span class="c">notes c0-b8, # / b, ":beats" for length, "r" = rest · actuators speak ~20-60 Hz (octaves 0-1)</span>
+            </div>
 
-      <div class="test-run">
-        <button id="btnTestStart" class="btn btn-start btn-sm" type="button" disabled>Start test</button>
-        <button id="btnTestStop" class="btn btn-stop btn-sm" type="button" disabled>Abort</button>
-        <span class="cfg-note" id="testStatus"></span>
-      </div>
+            <div class="test-run">
+              <button id="btnTestStart" class="btn btn-start btn-sm" type="button" disabled>Start test</button>
+              <button id="btnTestStop" class="btn btn-stop btn-sm" type="button" disabled>Abort</button>
+              <span class="cfg-note" id="testStatus"></span>
+            </div>
 
-      <div class="test-results" id="testResults" hidden></div>
-    </div>
-  </section>
+            <div class="test-results" id="testResults" hidden></div>
+          </div>
+        </div>
+
+        <!-- Host · System -->
+        <div class="supg" data-pg="sys">
+          <div class="cfg-note" id="cf-hostnote" style="display:none;margin-bottom:10px">
+            Host settings (NIC, ports, timing, GPIO) are managed by the desktop app on this machine - read-only here. Rig &amp; axis settings are editable.
+          </div>
+          <div class="cbody">
+            <div class="cgrp">
+              <div class="gt">EtherCAT / Runtime</div>
+              <label class="frow"><span>Simulation mode</span><input id="cf-sim" type="checkbox"></label>
+              <label class="frow"><span>NIC</span><input id="cf-nic" value="eth0"></label>
+              <label class="frow"><span>Loop rate</span>
+                <select id="cf-hz">
+                  <option value="250">250 Hz · 4000 µs</option>
+                  <option value="500">500 Hz · 2000 µs</option>
+                  <option value="1000">1000 Hz · 1000 µs</option>
+                  <option value="2000" selected>2000 Hz · 500 µs</option>
+                  <option value="4000">4000 Hz · 250 µs</option>
+                </select></label>
+              <label class="frow"><span>PDO watchdog</span><input id="cf-wd" value="100" type="number"><span class="u">ms</span></label>
+              <label class="frow"><span>DC sync offset</span><input id="cf-dc" value="0" type="number"><span class="u">ns</span></label>
+            </div>
+            <div class="cgrp">
+              <div class="gt">Network / telemetry</div>
+              <label class="frow"><span>Web bind</span><input id="cf-bind" value="0.0.0.0"></label>
+              <label class="frow"><span>Web port</span><input id="cf-wport" value="8080" type="number"></label>
+              <label class="frow" title="Optional. When ticked, every browser must enter this password once before it can see or control the rig. Applies after a service restart. Plain HTTP transport: this locks the door against casual access on your network, it is not encryption."><span>Web password</span><input id="cf-authen" type="checkbox"> <input id="cf-authtok" type="password" placeholder="none" autocomplete="new-password"></label>
+              <div class="fldtip">Off = anyone on your network who can reach this page can control the rig. Recommended once the rig is on a shared network.</div>
+              <label class="frow"><span>Telemetry port</span><input id="cf-sport" value="4444" type="number"></label>
+              <label class="frow" title="THIS machine's address to listen on - never the game PC's. 0.0.0.0 or blank = all interfaces (recommended). A specific IP restricts to one interface and fails if the machine loses that address."><span>Telemetry bind</span><input id="cf-sbind" value="" placeholder="auto"></label>
+              <div class="fldtip">This machine's listen address, not the sender's. Blank or 0.0.0.0 = all interfaces (recommended).</div>
+            </div>
+            <div class="cgrp">
+              <div class="gt">Logging</div>
+              <label class="frow"><span>Level</span>
+                <select id="cf-loglvl"><option>debug</option><option selected>info</option><option>warning</option><option>error</option><option>critical</option></select></label>
+              <label class="frow"><span>Log file</span><input id="cf-logfile" value="logs/app.log"></label>
+              <label class="frow"><span>To console</span><input id="cf-logcon" type="checkbox" checked></label>
+              <label class="frow"><span>Diagnostics</span><input id="cf-diag" type="checkbox" checked></label>
+              <label class="frow"><span>Drive temp polling</span><input id="cf-temppoll" type="checkbox" checked></label>
+              <div class="frow"><span>Support bundle</span>
+                <button class="btn btn-sm btn-action" id="cf-logdl" type="button">Download logs</button></div>
+              <div class="fldtip">Saves one file to this computer: recent log, app + soem log tails, rig and host config, version. Attach it when reporting a problem.</div>
+            </div>
+            <div class="cgrp" id="updBlock" hidden>
+              <div class="gt">Software</div>
+              <div class="cfg-note">Running <span id="updCur">-</span></div>
+              <div class="cfg-note" id="updNote">Updates need the rig parked and EtherCAT stopped.</div>
+              <div class="row sbt">
+                <button type="button" class="btn btn-sm" id="updCheck">Check for updates</button>
+                <button type="button" class="btn btn-sm btn-start" id="updGo" hidden>Update</button>
+              </div>
+            </div>
+            <div class="cgrp">
+              <div class="gt">GPIO control panel</div>
+              <label class="frow"><span>Mode</span>
+                <select id="cf-gpiomode">
+                  <option value="off">Off</option>
+                  <option value="estop">E-STOP only</option>
+                  <option value="estop_led">E-STOP + LEDs</option>
+                  <option value="full">E-STOP + buttons + LEDs</option>
+                </select></label>
+              <div class="frow"><span>LED test</span>
+                <button class="btn btn-sm btn-action" id="cf-ledtest" type="button">Run LED test</button></div>
+              <div class="cfg-note">Pins use defaults (see wiring PDF); edit <code>host.json</code> for custom pins. Mode change needs a restart; LED test runs immediately.</div>
+            </div>
+            <div class="cgrp">
+              <div class="gt">Advanced / EtherCAT tuning</div>
+              <label class="frow"><span>Command sync cycles</span><input id="cf-cmdsync" type="number"></label>
+              <label class="frow"><span>WKC valid. cycles</span><input id="cf-wkccyc" type="number"></label>
+              <label class="frow"><span>WKC valid. thresh</span><input id="cf-wkcthr" type="number" step="0.05"></label>
+              <label class="frow"><span>Capability scan</span><input id="cf-capscan" type="checkbox"></label>
+              <label class="frow"><span>Require fault reset</span><input id="cf-reqreset" type="checkbox"></label>
+              <label class="frow" id="devShowRow" hidden title="Shows the experimental surfaces on the Operate view: the force-device section (shifter/pedal axes) and the Haptics strip. Off = they disappear entirely; nothing else changes."><span>Experimental features</span><input id="cf-showdev" type="checkbox"></label>
+              <div class="fldtip">Devices (shifter, pedal) and the haptic effect layer. Hidden until ticked.</div>
+            </div>
+          </div>
+        </div>
 
       </div>
     </section>
   </main>
 
-  <!-- ===== save strip (step 2 fills it); log drawer; link-lost guard; action bar ===== -->
-  <div class="savebar" id="savebar"></div>
+  <!-- ===== save strip: the existing dirty counts and the existing save.
+       refreshDirtyUI shows it (#hapSaveBar) and writes its message; both
+       Save buttons call saveConfig as before (#hapSave stays for scripts
+       and the smoke test). ===== -->
+  <div class="savebar" id="hapSaveBar" hidden>
+    <span class="lamp warn"></span>
+    <span class="hk" id="hapDirtyMsg">unsaved changes</span>
+    <span class="sp"></span>
+    <button class="btn btn-sm" id="hapSave" type="button" hidden>Save</button>
+    <button class="key sm lit" id="cfgSave" type="button">Save to rig.json</button>
+  </div>
 
   <div class="logd" id="logd">
     <div class="logh"><span class="lab">Activity log</span><span class="sp"></span>

@@ -78,7 +78,7 @@ function setView(v){
   setView(v==='setup'?'setup':'op');
   const o=$('vwBtn-op'), s=$('vwBtn-setup');
   if(o) o.onclick=()=>setView('op');
-  if(s) s.onclick=()=>setView('setup'); }
+  if(s) s.onclick=()=>{ setView('setup'); if(cfgBaseline&&dirtyState().count===0) loadConfig(); }; }
 
 /* Three housings: a6 (the default), light, graphite. The storage key is
    unchanged; a browser that stored the old "dark" gets graphite. */
@@ -97,7 +97,7 @@ async function pollStatus(){ try{ const r=await fetch(API+'/api/status');
 
 /* ---- apply status ---- */
 function applyState(s){
-  lastRecvMs=Date.now();
+  lastRecvMs=Date.now(); lastStatus=s;
   setLinkDown(false);   // fresh data: clear the link-lost guard (button states recomputed below)
   const running=!!s.loopRunning, op=!!s.masterOp, estop=!!s.estop;
 
@@ -414,10 +414,46 @@ btn.shutdown.onclick=()=>{ if(confirm('Shut down the Pi?\n\nIt will power OFF - 
 
 /* ---- collapsible panels (arrows) ---- */
 function toggle(panel, arrow){ const c=panel.classList.toggle('collapsed'); arrow.textContent=c?'▸':'▾'; }
-$('cfgHead').onclick=()=>{ const wasCollapsed=$('cfgPanel').classList.contains('collapsed'); toggle($('cfgPanel'),$('cfgArrow')); if(wasCollapsed) loadConfig(); };
-$('provHead').onclick=()=>toggle($('provPanel'),$('provArrow'));
-$('testHead').onclick=()=>{ const was=$('testPanel').classList.contains('collapsed');
-  toggle($('testPanel'),$('testArrow')); if(was){ buildTestAxes(); pollTestStatus(); } };
+/* ---- Setup pages. One page shows at a time; the others stay in the
+   document, so every control keeps its id and handler. Selecting the tests
+   page does what opening its panel did (build the axis list, poll), and
+   the page keeps the old panel's 'collapsed' class while another page is
+   up, which is what pollTestStatus reads. The choice persists per browser. */
+const SETUP_PAGES={axes:['Rig','Axes'],blend:['Rig','Blend & conditioning'],shk:['Outputs','Shakers / audio'],btn:['Inputs','Button box'],
+  sim:['Inputs','Sim channels'],dev:['Devices','Force-feel devices'],prov:['Commissioning','Drive provisioning'],test:['Commissioning','Commissioning tests'],sys:['Host','System']};
+let setupCur='axes'; try{ setupCur=localStorage.getItem('nullcat.ui.setup')||'axes'; }catch(_){}
+function setupPage(id){
+  if(!SETUP_PAGES[id]) id='axes';
+  setupCur=id; try{ localStorage.setItem('nullcat.ui.setup',id); }catch(_){}
+  document.querySelectorAll('#su .supg').forEach(p=>{ const on=p.dataset.pg===id; p.classList.toggle('on',on); if(p.id==='testPanel') p.classList.toggle('collapsed',!on); });
+  document.querySelectorAll('#sun [data-su]').forEach(b=>b.classList.toggle('on',b.dataset.su===id));
+  const [k,t]=SETUP_PAGES[id]; const kk=$('suKick'), tt=$('suTitle'); if(kk) kk.textContent=k; if(tt) tt.textContent=t;
+  if(id==='test'){ buildTestAxes(); pollTestStatus(); }
+}
+document.querySelectorAll('#sun [data-su]').forEach(b=>{ b.onclick=()=>setupPage(b.dataset.su); });
+setupPage(setupCur);
+/* Nav summaries and lamps, and the tests page's interlock lamps, from the
+   state the page already holds (config copy, bindings, the last status). */
+let lastStatus=null;
+function setupNavRefresh(){
+  const sum=(id,t,l)=>{ const b=document.querySelector('#sun [data-su="'+id+'"]'); if(!b) return;
+    const s=b.querySelector('[data-sum]'); if(s&&s.textContent!==t) s.textContent=t;
+    const lp=b.querySelector('.lamp'); if(lp) lp.className='lamp'+(l?' '+l:''); };
+  const drv=(cfgObj&&cfgObj.drives)||[]; sum('axes', drv.length+(drv.length===1?' axis':' axes')+' · slave order', '');
+  const cm=$('cf-condmode'), bt=$('cf-blendt');
+  sum('blend', (cm&&cm.selectedIndex>=0?cm.options[cm.selectedIndex].text:'-')+(bt&&bt.value!==''?' · '+bt.value+' s':''), '');
+  const sk=$('cf-shakers'), nsh=hapShakerCount(); sum('shk', sk&&sk.checked?(nsh+' ch'):'off', sk&&sk.checked?'ok':'');
+  { const key=$('shkKey'); if(key&&sk) key.classList.toggle('on',sk.checked); }
+  const nb=(btnMap.bindings||[]).length; sum('btn', nb+' of '+BINDABLE.length+' bound', nb?'ok':'');
+  sum('sim', ((cfgObj&&cfgObj.ncxBindings)||[]).length+' slots · not for SimHub', '');
+  const nd=cfgObj?devAxes().length:0; sum('dev', nd?nd+(nd>1?' devices':' device'):'none', nd?'ok':'');
+  sum('prov', 'A6-EC · params · role check', '');
+  sum('test', tstActive?'running…':(tstLoopRunning?'ready':'needs the loop running'), tstActive?'warn':(tstLoopRunning?'ok':''));
+  const au=$('cf-authen'); sum('sys', 'v'+(meta.version||'?')+(au&&!au.checked?' · web password off':''), au&&!au.checked?'warn':'');
+  const s=lastStatus||{}; const il={loop:!!s.loopRunning, parked:!!s.parked, notel:!s.telemetryReceiving};
+  document.querySelectorAll('#testInterlock [data-il]').forEach(l=>{ const on=!!il[l.dataset.il]; l.className='lamp'+(on?' ok':''); const t=l.nextElementSibling; if(t) t.className='vt'+(on?' ok':' dim'); });
+}
+setInterval(setupNavRefresh,1000);
 // Button bindings: collapsed by default. It is a commissioning-time task, and
 // left expanded its full-width panel pushed the config Save bar off screen.
 { const h=$('bindHead'); if(h) h.onclick=()=>toggle($('bindBody'),$('bindArrow')); }
@@ -429,7 +465,7 @@ $('testHead').onclick=()=>{ const was=$('testPanel').classList.contains('collaps
 { const k=$('logKey'), d=$('logd'); if(k&&d) k.onclick=()=>{ const o=d.classList.toggle('open'); k.classList.toggle('on',o); };
   const t=$('chk-tail'), tk=$('tailKey'); if(t&&tk) t.onchange=()=>tk.classList.toggle('on',t.checked); }
 /* The status window's System cell opens Setup. */
-{ const b=$('sysBtn'); if(b) b.onclick=()=>setView('setup'); }
+{ const b=$('sysBtn'); if(b) b.onclick=()=>{ setView('setup'); setupPage('sys'); }; }
 
 /* Persisted collapse for the Operate sections (fight the sprawl): the
    choice sticks per browser. Clicks on embedded actions (Reset peaks)
