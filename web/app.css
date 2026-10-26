@@ -144,6 +144,8 @@ body.estop-active{box-shadow:inset 0 0 0 4px var(--bad)}
 .ws[data-hp="ed"]{grid-template-columns:minmax(64px,1fr) min(calc(var(--hl) + var(--edw)),calc(100% - 76px))}
 .ws[data-hp="rail"]{grid-template-columns:minmax(0,1fr) 64px}
 .ws[data-mo="rail"]{grid-template-columns:64px minmax(0,1fr)}
+/* no haptics (hapInit): Motion alone, nothing to minimise it for */
+.ws[data-nohap="1"]{grid-template-columns:minmax(0,1fr)}.ws[data-nohap="1"] .hp,.ws[data-nohap="1"] .mo .ico[data-pnl]{display:none}
 .pnl{position:relative;min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--pnl);border-radius:5px;box-shadow:inset 0 1px 0 var(--hi),0 0 0 1px var(--edge),0 3px 10px rgba(0,0,0,.3);overflow:hidden}
 .full{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column}
 .rail{display:none;flex:1;min-height:0;flex-direction:column;align-items:center;gap:4px;padding:9px 0;overflow-y:auto;overflow-x:hidden}
@@ -358,9 +360,118 @@ body[data-view="setup"] .ws{display:none}body[data-view="setup"] .su{display:gri
 .devgeo label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--silk)}
 .devgeo input,.devgeo select{width:110px}
 .devlive{font:500 14px var(--mono);color:var(--disp);text-shadow:0 0 5px var(--glow);min-width:70px;display:inline-block}
-/* haptics tiles (step 4 turns them into mixer rows + the editor) */
-.hap-strip{column-width:188px;column-gap:10px;padding:6px 0 4px}
-.hap-tile{background:var(--pnl2);border-radius:4px;padding:9px 11px;display:flex;flex-direction:column;gap:6px;break-inside:avoid;-webkit-column-break-inside:avoid;margin:0 0 10px;width:100%;box-sizing:border-box;box-shadow:inset 0 1px 0 var(--hi),0 0 0 1px var(--edge)}
+/* ---- Haptics: the mixer (one row per effect tile), the editor the
+   selected tile moves into, the session block and the Rig · car · sim fold ---- */
+.hpin{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr)}
+.ws[data-hp="ed"] .hpin{grid-template-columns:minmax(0,1fr) var(--hl)}
+.ed{container:ed/inline-size;display:none;min-width:0;min-height:0;flex-direction:column;box-shadow:inset -1px 0 0 var(--edge)}
+.ws[data-hp="ed"] .ed{display:flex;animation:edIn .2s ease-out}@keyframes edIn{from{opacity:0;transform:translateX(18px)}}
+.hcol{min-width:0;min-height:0;display:flex;flex-direction:column}
+.ses{display:flex;flex-direction:column;gap:8px;padding:10px 4px 6px}
+.sr{display:flex;align-items:center;gap:8px;min-height:26px}
+.sr>.lab,.sr>.hk{width:56px;flex:none}.sr>select{flex:1}.sr .hap-game{flex:1;flex-wrap:nowrap;gap:6px}
+.sr .hap-game select{flex:1;max-width:none}
+.sg{display:grid;grid-template-columns:40px minmax(0,1fr);gap:6px 10px;align-items:center;padding:9px 12px}
+.sg .vt{overflow:hidden;text-overflow:ellipsis}
+.sv{padding:5px 8px}.sv .seg{font-size:16px}
+
+.ses .hap-game .hk:first-child{width:56px;flex:none;font:600 11px/1.2 var(--lab);letter-spacing:.14em;text-transform:uppercase;color:var(--silk)}
+.ses .hap-game #hapProfMsg{flex-basis:100%;width:auto;font:500 11px var(--mono);letter-spacing:0;text-transform:none}
+.ses .hap-game #hapProfMsg:empty{display:none}
+.ses .hap-game{flex-wrap:wrap}
+.mxg{display:flex;align-items:center;gap:10px;padding:14px 8px 5px}
+.mxg::after{content:'';flex:1;height:1px;background:var(--edge2);opacity:.45}
+/* a tile as a mixer row: sim dot · name · wave + amp · fader · M */
+.hap-strip>.hap-tile{display:grid;grid-template-columns:11px minmax(0,1fr) 92px 76px 30px;align-items:center;gap:9px;height:38px;padding:0 6px 0 9px;border-radius:3px;margin:0;background:none;box-shadow:none}
+.hap-strip>.hap-tile:hover{background:var(--hov)}
+.hap-strip>.hap-tile.sel{background:var(--sel);box-shadow:inset 3px 0 0 var(--acc)}
+.hap-strip>.hap-tile>.dh{display:contents}
+.hap-strip>.hap-tile>:not(.dh):not(.hap-wwrap):not(.mxamp){display:none}
+.hap-strip>.hap-tile>.dh>.dot{display:none}
+.hap-strip>.hap-tile>.dh>.sdot{grid-column:1;grid-row:1;margin:0}
+.hap-strip>.hap-tile>.dh>.nm{grid-column:2;grid-row:1;min-width:0;padding:0;background:none;border:0;text-align:left;font:600 14.5px var(--lab);color:var(--ink);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0}
+.hap-strip>.hap-tile>.dh>.nm:hover{text-decoration:underline dotted var(--silk);text-underline-offset:4px}
+.hap-strip>.hap-tile:not(.on)>.dh>.nm,.hap-strip>.hap-tile.muted>.dh>.nm{color:var(--faint)}
+.hap-strip>.hap-tile>.hap-wwrap{grid-column:3;grid-row:1;display:grid;grid-template-columns:minmax(0,1fr) 28px;align-items:center;gap:6px;height:24px;padding:0 7px;background:var(--glass);border-radius:3px;box-shadow:inset 0 2px 5px rgba(0,0,0,.85),inset 0 0 0 1px rgba(0,0,0,.7),0 1px 0 var(--hi)}
+.hap-strip>.hap-tile>.hap-wwrap .hap-wave{height:18px;padding:0;border:0}
+.hap-strip>.hap-tile>.hap-wwrap .hap-wtag{display:none}
+.hap-strip>.hap-tile>.hap-wwrap .mxval{text-align:right;font-size:11px}
+.hap-strip>.hap-tile.muted .hap-wave{opacity:.25}
+.hap-strip>.hap-tile>.mxamp{grid-column:4;grid-row:1}
+.hap-strip>.hap-tile>.dh>.hmute{grid-column:5;grid-row:1;width:30px;height:26px;margin:0;padding:0;border:0;border-radius:3px;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;background:linear-gradient(180deg,var(--keyTop),var(--key) 88%);color:var(--keyInk);font:600 11px/1 var(--lab);cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 0 0 1px var(--kring),0 3px 0 var(--kdep);transition:transform .05s,box-shadow .05s}
+.hap-strip>.hap-tile>.dh>.hmute::before{content:'';width:12px;height:2px;border-radius:1px;background:var(--lampOff);box-shadow:inset 0 0 0 1px rgba(0,0,0,.6)}
+.hap-strip>.hap-tile>.dh>.hmute.on{transform:translateY(2px);box-shadow:inset 0 2px 4px rgba(0,0,0,.3),0 0 0 1px var(--kring),0 1px 0 var(--kdep)}
+.hap-strip>.hap-tile>.dh>.hmute.on::before{background:var(--bad);box-shadow:0 0 6px var(--bad)}
+/* the placeholder left in the mixer while a tile is in the editor */
+.hap-strip>.mx-ph{display:grid;grid-template-columns:11px minmax(0,1fr) auto;gap:9px;align-items:center;height:38px;padding:0 6px 0 9px;border-radius:3px;background:var(--sel);box-shadow:inset 3px 0 0 var(--acc)}
+.mx-ph .mn{min-width:0;padding:0;background:none;border:0;text-align:left;font:600 14.5px var(--lab);color:var(--ink);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mx-ph .hint{font-size:11px;padding-right:4px}
+/* the editor: the tile in full */
+.eh{padding-left:16px}
+.eh h2{margin:0;font:700 16px/1.1 var(--lab);letter-spacing:.12em;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis}
+.edb{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:12px 16px 16px}
+.tip{margin:0 0 10px;font-size:13px;line-height:1.5;color:var(--silk);text-wrap:pretty;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}
+.tip.open{display:block}.tip:empty{display:none}
+.hk.help{width:20px;height:20px;padding:0;border:0;border-radius:50%;background:var(--key);color:var(--silk);font:700 11px var(--mono);cursor:pointer;box-shadow:0 0 0 1px rgba(0,0,0,.5),0 2px 0 rgba(0,0,0,.5)}
+#hapEdHelp{width:20px;height:20px;padding:0;border:0;border-radius:50%;background:var(--key);color:var(--silk);font:700 11px var(--mono);cursor:pointer;box-shadow:0 0 0 1px rgba(0,0,0,.5),0 2px 0 rgba(0,0,0,.5)}
+#hapEdHelp.on{color:var(--acc);transform:translateY(1px);box-shadow:0 0 0 1px rgba(0,0,0,.5)}
+.ined{display:flex;flex-direction:column;gap:8px;padding:0;background:none;box-shadow:none;margin:0}
+.ined>.dh{display:flex;align-items:center;gap:10px;min-height:30px}
+.ined>.dh>.dot,.ined>.dh>.nm{display:none}
+.ined>.dh>.sdot{width:11px;height:4px;border-radius:1px;margin:0;background:var(--lampOff);box-shadow:inset 0 0 0 1px rgba(0,0,0,.55)}
+.ined>.dh>.sdot.d1{background:var(--warn);box-shadow:0 0 6px var(--warn)}.ined>.dh>.sdot.d2{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+.ined>.dh>.hmute{margin-left:auto}
+.ined>.hap-wwrap{position:relative;height:128px;background:var(--glass);border-radius:3px;box-shadow:inset 0 2px 5px rgba(0,0,0,.85),inset 0 0 0 1px rgba(0,0,0,.7),0 1px 0 var(--hi)}
+.ined>.hap-wwrap .hap-wave{position:absolute;inset:0;width:100%;height:100%;padding:0;border:0}
+.ined>.hap-wwrap .hap-wave polyline{stroke-width:1.2;filter:drop-shadow(0 0 4px var(--glow))}
+.ined>.hap-wwrap .hap-wtag{top:8px;left:10px;right:auto;font:600 9.5px var(--mono);letter-spacing:.14em;color:var(--dim)}
+.ined>.hap-wwrap .mxval{position:absolute;right:10px;bottom:7px;font:600 9.5px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+.ined>.hchan{display:flex;flex-wrap:wrap;gap:6px;padding:4px 0;margin:0;font:500 11px var(--mono);color:var(--ink2);min-height:0}
+.ined>.hchan:empty{display:none}
+.ined>.hwheels{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px 12px;padding:6px 12px;margin:0;background:var(--glass);border-radius:3px;box-shadow:inset 0 2px 5px rgba(0,0,0,.85),inset 0 0 0 1px rgba(0,0,0,.7);font:600 11px var(--mono);letter-spacing:.06em;color:var(--disp);text-shadow:0 0 5px var(--glow)}
+.ined>.hwheels[data-in]{display:block}
+.ined>.hap-game{gap:8px}
+.ined>.hrows{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:0 26px;padding:8px 12px 10px;background:var(--pnl2);border-radius:4px;box-shadow:inset 0 1px 0 var(--hi),0 0 0 1px var(--edge)}
+.ined>.hrows>.hsec{grid-column:1/-1}
+.ined .hr{display:grid;grid-template-columns:minmax(0,1fr) 70px;gap:10px;align-items:center;min-height:34px}
+.ined .hr:has(select){grid-template-columns:minmax(0,1fr) 150px}
+.ined .hr .hk{font:500 13.5px var(--lab);letter-spacing:0;text-transform:none;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ined .hr input[type=number]{width:70px;height:26px}.ined .hr select{width:100%;height:26px}
+.ined .hr.carkey .hk::after,.ined .hr.typekey .hk::after{content:'car';display:inline-block;margin-left:6px;padding:0 4px;border-radius:2px;font:600 8.5px/14px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--acc);box-shadow:inset 0 0 0 1px currentColor;vertical-align:1px}
+.ined .hr.typekey .hk::after{content:'type';color:var(--warnInk)}
+.cardefault .ined .hr.carkey .hk::after{content:'default';color:var(--warnInk)}
+.ined.help .hr[data-phelp]:not([data-phelp=""])::after{content:attr(data-phelp);grid-column:1/-1;margin:-4px 0 8px;font-size:12.5px;line-height:1.45;color:var(--silk);text-wrap:pretty;white-space:normal}
+.ined.help .hr{grid-auto-rows:min-content}
+.ined>.hcar{font-size:12.5px}
+.ined>.hb{display:flex;align-items:center;gap:10px;margin:0;padding:0}
+.edb .hap-drawer{margin:0;padding:10px 12px;border-left:0;background:var(--pnl2);border-radius:4px;box-shadow:inset 0 1px 0 var(--hi),0 0 0 1px var(--edge);flex-direction:column;align-items:stretch;gap:0}
+.edb .hap-drawer .hd-t{font:700 12.5px var(--lab);letter-spacing:.14em;text-transform:uppercase;color:var(--ink);margin-bottom:6px}
+.edb .hap-drawer label{display:flex;align-items:center;gap:8px;min-height:34px;font-size:13.5px;color:var(--ink2);flex-wrap:wrap}
+.edb .hap-drawer input{width:70px;height:26px}.edb .hap-drawer select{height:26px}
+.edb .hap-drawer .hk{font:500 11px var(--mono);color:var(--silk);letter-spacing:0;text-transform:none}
+.hp #hapAbout{margin:10px 8px 0;font-size:11.5px;line-height:1.45;color:var(--silk)}
+/* the Rig · car · sim fold holding the Master tile */
+.sxs{display:flex;flex-direction:column;gap:6px;margin-top:12px}
+.sx{background:var(--pnl2);border-radius:4px;box-shadow:inset 0 1px 0 var(--hi),0 0 0 1px var(--edge)}
+.sxh{display:flex;align-items:center;gap:10px;width:100%;min-width:0;height:40px;padding:0 12px;background:none;border:0;cursor:pointer;text-align:left;color:inherit}
+.arw{flex:none;width:0;height:0;border-left:5px solid var(--silk);border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .15s}
+.sx.open .arw{transform:rotate(90deg)}
+.sxt{font:700 12.5px var(--lab);letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+.sum{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden;font:500 11.5px var(--mono);color:var(--ink2);white-space:nowrap;text-overflow:ellipsis}
+.sxb{display:none;padding:2px 12px 12px}
+.sx.open .sxb{display:block;animation:dropIn .18s ease-out}
+.sxb>.hap-tile{display:flex;flex-direction:column;gap:6px;padding:4px 0 0;margin:0;background:none;box-shadow:none}
+.sxb>.hap-tile>.dh,.sxb>.hap-tile>.hchan,.sxb>.hap-tile>.hap-wwrap{display:none}
+.sxb .hr{min-height:30px}.sxb .hr .hk{font:500 13px var(--lab);letter-spacing:0;text-transform:none;color:var(--ink2)}
+.sxb .hr:has(#hapMasterGain){display:none}
+.sxb .hsec{font:600 11px var(--lab);letter-spacing:.14em;text-transform:uppercase;color:var(--silk);border-top:1px solid var(--edge);padding:12px 0 2px;margin:0}
+.sxb .hsec:first-child{border-top:0;padding-top:4px}
+/* rail items for effects */
+.hp .rx .rxn{letter-spacing:.06em}
+@media(max-width:899px){.ws[data-hp="ed"] .hpin{display:flex;flex-direction:column}}
+@container ed (max-width:520px){.ined>.hrows{grid-template-columns:1fr}}
+/* the remaining tile styles (inside the editor and the fold) */
+.hap-tile{background:var(--pnl2);border-radius:4px;padding:9px 11px;display:flex;flex-direction:column;gap:6px;width:100%;box-sizing:border-box;box-shadow:inset 0 1px 0 var(--hi),0 0 0 1px var(--edge)}
 .hap-tile .dh .nm{font-size:13px}
 .hap-tile.on .dh .dot{background:var(--acc);box-shadow:0 0 6px var(--acc)}
 .hap-wave{width:100%;height:26px;display:block;padding-bottom:5px;border-bottom:1px solid var(--edge)}
@@ -380,11 +491,8 @@ body[data-view="setup"] .ws{display:none}body[data-view="setup"] .su{display:gri
 .hr input{width:64px;height:22px;font-size:12px;padding:0 4px;text-align:right;font-variant-numeric:tabular-nums}
 .hr input[type=checkbox]{width:auto;height:auto;padding:0;margin:0 .2rem}
 .hb{display:flex;justify-content:space-between;align-items:center;margin-top:auto;padding-top:2px}
-.hap-savebar{display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:6px 2px 2px;border-top:1px solid var(--edge2);margin-top:4px}
-.hap-savebar[hidden]{display:none}
 .hchan{min-height:1.1em;font:500 9px var(--mono);letter-spacing:.06em;color:var(--silk);margin-top:-3px}
 .hchan.bad{color:var(--bad)}
-.hap-savebar .hk{font:600 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--warnInk)}
 .hap-routechip{font:500 9.5px var(--mono);color:var(--silk);cursor:pointer;text-decoration:underline dotted;background:none;border:none;padding:0}
 .hap-drawer{background:var(--pnl2);border-left:3px solid var(--acc);padding:8px 12px;margin:2px 0 6px;display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;box-shadow:0 0 0 1px var(--edge)}
 .hap-drawer .hd-t{font:600 9.5px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--silk);flex-basis:100%}

@@ -70,28 +70,45 @@
     </section>
     <section class="pnl hp" id="hp">
       <div class="full">
-      <div class="ph"><span class="lamp" id="hpLamp"></span><span class="pt">Haptics</span><span class="pc">routable effects</span><span class="sp"></span>
-        <button type="button" class="key sm nolamp ico" data-pnl="hp-rail" title="Minimise to rail">»</button></div>
-      <div class="body">
-        <!-- hapInit shows these once the rig has a torque axis and the
-             experimental flag is on; both stay hidden otherwise. -->
-        <div class="sec sec-toggle" id="hapHead" hidden>
-          <span class="arrow" id="hapArrow">▾</span>
-          <span class="t">Effects</span><span class="c">routable effects</span>
-          <span class="rule"></span>
+        <div class="hpin">
+          <!-- The effect editor: the selected tile moves in here (hapOpenFx),
+               with the route drawer below it as its routing section. -->
+          <div class="ed" id="hapEd">
+            <div class="eh"><div class="eht"><span class="lab" id="hapEdKick">effect</span><h2 id="hapEdName"></h2></div><span class="sp"></span>
+              <button type="button" class="hk" id="hapEdHelp" title="Show every setting's help text under its row">?</button>
+              <button type="button" class="key sm nolamp ico" id="hapEdClose" title="Close (Esc)">✕</button></div>
+            <div class="edb" id="hapEdBody"><p class="tip" id="hapEdTip" title="Click to expand"></p></div>
+          </div>
+          <div class="hcol">
+            <div class="ph"><span class="lamp" id="hpLamp"></span><span class="pt">Haptics</span><span class="pc" id="hpLive">routable effects</span><span class="sp"></span>
+              <span id="hapHeadKeys"></span>
+              <button type="button" class="key sm nolamp ico" data-pnl="hp-rail" title="Minimise to rail">»</button></div>
+            <div class="body">
+              <!-- hapInit shows this once the rig has a torque axis (or a
+                   shaker) and the experimental flag is on; otherwise the whole
+                   Haptics panel stays hidden and Motion has the width. -->
+              <section class="panel" id="hapPanel" hidden>
+                <!-- Session block: the Master tile's profile and follow-car rows
+                     move up here (hapMixerBuild), with the car and game the sim
+                     names and a fader mirrored onto the master gain input. -->
+                <div class="ses" id="hapSes">
+                  <div class="sr" id="hapSesProf"></div>
+                  <div class="glass sg"><span class="dl">Car</span><span class="vt" id="hapSesCar">-</span><span class="dl">Game</span><span class="vt" id="hapSesGame">-</span></div>
+                  <div class="sr" title="Master gain on every effect"><span class="lab">Gain</span><input type="range" id="hapGainFader" min="0" max="2" step="0.05" value="1"><span class="glass sv"><span class="seg" id="hapGainSeg" data-g="8.88">1.00</span></span></div>
+                </div>
+                <div class="hap-strip" id="hapStrip"></div>
+                <div id="hapDrawer" hidden></div>
+                <div class="fldtip" id="hapMsg" style="color:var(--warn)"></div>
+                <div class="fldtip" id="hapAbout">Effects ride on top of the normal feel and are clamped inside each
+                  axis's own limits. Amplitude 0 = off; an effect also needs a route (the routing section in its
+                  editor) to a torque axis that is live (belt tensioned, device engaged). Changes apply
+                  live on Save, no re-initialize. The continuous effects need their NULLCATX channels
+                  from the sender (see the SimHub plugin README); a missing channel leaves the effect
+                  silent.</div>
+              </section>
+            </div>
+          </div>
         </div>
-        <section class="panel" id="hapPanel" hidden>
-          <div class="hap-strip" id="hapStrip"></div>
-          <div id="hapDrawer" hidden></div>
-          <div class="fldtip" id="hapMsg" style="color:var(--warn)"></div>
-          <div class="fldtip">Effects ride on top of the normal feel and are clamped inside each
-            axis's own limits. Amplitude 0 = off; an effect also needs a route (the chip on its
-            tile) to a torque axis that is live (belt tensioned, device engaged). Changes apply
-            live on Save, no re-initialize. The continuous effects need their NULLCATX channels
-            from the sender (see the SimHub plugin README); a missing channel leaves the effect
-            silent.</div>
-        </section>
-      </div>
       </div>
       <div class="rail"><button type="button" class="key sm nolamp ico" data-pnl="hp-mix" title="Expand Haptics">«</button><span class="rlt">Haptics</span><div id="hpRail"></div></div>
     </section>

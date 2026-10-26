@@ -400,10 +400,18 @@ const LAYOUT_KEY='nullcat.ui.layout';
 let uiLayout={mo:'full',hp:'mix'};
 try{ const l=JSON.parse(localStorage.getItem(LAYOUT_KEY)); if(l&&typeof l==='object') Object.assign(uiLayout,l); }catch(_){}
 function applyLayout(){ const ws=$('ws'); if(!ws) return; ws.dataset.mo=uiLayout.mo; ws.dataset.hp=uiLayout.hp; }
+/* Haptics available or not (hapInit decides: a torque axis or a shaker, and
+   the experimental tickbox). Without it the Haptics panel is hidden and the
+   workspace is Motion alone, full width. */
+function hapAvail(on){ const ws=$('ws'); if(!ws) return; ws.dataset.nohap=on?'0':'1';
+  if(!on&&(uiLayout.mo!=='full'||uiLayout.hp!=='mix')){ if(uiLayout.hp==='ed') hapCloseEd(); else setLayout('full','mix'); } }
 function setLayout(mo,hp){
+  { const ws=$('ws'); if(ws&&ws.dataset.nohap==='1'){ mo='full'; hp='mix'; } }   // no Haptics panel: Motion has the width
   if(hp==='rail') mo='full';
-  if(mo==='rail'&&hp==='rail') hp='mix';
-  if(hp==='ed') hp='mix';   // no editor yet
+  // Motion on the rail leaves Haptics the width: the editor opens (on the
+  // selected effect, else the first) so the room is used.
+  if(mo==='rail'&&hp!=='ed'){ hp='ed'; if(!(hapSel&&hapTiles[hapSel])){ const k=Object.keys(hapTiles)[0]; if(k){ uiLayout.mo=mo; hapOpenFx(k,true); return; } hp='mix'; mo='full'; } else { uiLayout.mo=mo; hapOpenFx(hapSel,true); return; } }
+  if(hp==='ed'&&!(hapSel&&hapTiles[hapSel]&&hapTiles[hapSel].tile.classList.contains('ined'))) hp='mix';
   uiLayout.mo=mo; uiLayout.hp=hp; applyLayout();
   try{ localStorage.setItem(LAYOUT_KEY,JSON.stringify(uiLayout)); }catch(_){}
 }
@@ -533,8 +541,8 @@ function wireCollapse(headId, arrowId, panelId, key){
   h.onclick=(e)=>{ if(e.target.closest('.act,button,input,select,label')) return;
     c=!c; try{ localStorage.setItem(key,c?'1':'0'); }catch(_){} apply(); };
 }
-wireCollapse('drvHead','drvArrow','drive-grid','nullcat.sec.drives');
-wireCollapse('hapHead','hapArrow','hapPanel','nullcat.sec.haptics');
+// The Motion and Effects section headers went with the panel redesign (a
+// panel minimises to its rail instead), so nothing collapses on Operate now.
 
 /* ---- theme menu (header) ---- */
 document.querySelectorAll('#thmMenu [data-t]').forEach(b=>{ b.onclick=()=>{ theme=applyTheme(b.dataset.t);
@@ -1255,6 +1263,7 @@ function hapCarKeyTip(){ return hapCarDefaultOn?HAP_CARDEFAULT_TIP:HAP_CARKEY_TI
 function hapCarDefaultMark(on){
   hapCarDefaultOn=!!on;
   const strip=$('hapStrip'); if(strip) strip.classList.toggle('cardefault',hapCarDefaultOn);
+  const ed=$('hapEd'); if(ed) ed.classList.toggle('cardefault',hapCarDefaultOn);
   document.querySelectorAll('#hapStrip .hr.carkey').forEach(row=>{
     const help=row.dataset.phelp||'';
     row.dataset.help=hapCarKeyTip()+(help?'\n\n'+help:''); row.title=row.dataset.help;
@@ -2014,13 +2023,13 @@ function hapLive(s){
 }
 
 function hapInit(){
-  const head=$('hapHead'), panel=$('hapPanel'), strip=$('hapStrip');
-  if(!head||!panel||!strip||!cfgObj) return;
+  const panel=$('hapPanel'), strip=$('hapStrip');
+  if(!panel||!strip||!cfgObj) return;
   // Experimental gate (the same tickbox as the device section) + needs a
   // torque-capable axis to route anything to.
   const cb=$('cf-showdev');
-  if(!(cb&&cb.checked)||(!hapRouteAxes().length&&!hapShakerCount())){ head.hidden=true; panel.hidden=true; return; }
-  head.hidden=false; panel.hidden=false;
+  if(!(cb&&cb.checked)||(!hapRouteAxes().length&&!hapShakerCount())){ panel.hidden=true; hapAvail(false); return; }
+  panel.hidden=false; hapAvail(true);
   cfgObj.haptics=cfgObj.haptics||{};
   // Fill defaults IN PLACE: the route drawer and the tiles hold references
   // to these objects, so re-rendering must never swap them for copies.
@@ -2311,7 +2320,137 @@ function hapInit(){
   hapCarRefresh();   // the car line and the Engine tile's notes, once the tiles exist
   // A route drawer open across a rebuild shows the config as it is now.
   if(hapOpenDrawer&&hapTiles[hapOpenDrawer]){ const k=hapOpenDrawer; hapOpenDrawer=null; hapDrawerRender(hapTiles[k].fx); }
+  hapMixerBuild();   // the tiles as mixer rows, the editor, the fold, the rail
 }
+
+/* ---- The mixer, the editor and the fold (presentation over the tiles
+   hapInit built: nothing here changes what a tile writes or posts).
+   A tile IS its mixer row (CSS); its sim dot is the lamp, its wave the
+   mini scope, its M key the mute. A fader mirrors the tile's amp input
+   (it writes through that input's own handler). Selecting an effect moves
+   its tile into the editor pane, leaves a placeholder row, and brings the
+   route drawer under it as the routing section; every lookup hapLive
+   makes stays inside the tile, so it keeps updating wherever it sits. ---- */
+const HAP_CATS=[['Engine & driveline',['rpmVibe','limiter','gearShift','driveline','tc']],['Braking & tyres',['abs','slipLon','slipLat','wheels']],['Road & track',['road','kerb','surface','impacts']],['Controls',['detentClick']]];
+const HAP_ABBR={rpmVibe:'ENG',limiter:'LIM',gearShift:'GEAR',driveline:'DRV',tc:'TC',abs:'ABS',slipLon:'LONG',slipLat:'LAT',wheels:'WHL',road:'ROAD',kerb:'KERB',surface:'SURF',impacts:'IMP',detentClick:'CLK'};
+const HAP_SEL_KEY='nullcat.ui.sel', HAP_FOLD_KEY='nullcat.ui.rigfold';
+let hapSel=null; try{ hapSel=localStorage.getItem(HAP_SEL_KEY)||null; }catch(_){}
+function hapCatOf(k){ for(const [n,ks] of HAP_CATS) if(ks.includes(k)) return n; return 'Effects'; }
+function hapMixerDress(t){
+  const tile=t.tile, num=tile.querySelector('input[data-k="ampPct"]'), wrap=tile.querySelector('.hap-wwrap'), nm=tile.querySelector('.dh .nm');
+  if(nm&&!nm._wired){ nm._wired=true; nm.onclick=()=>hapOpenFx(t.fx.k); nm.title='Open '+t.fx.label; }
+  const svg=tile.querySelector('svg.hap-wave'); if(svg) svg.setAttribute('preserveAspectRatio','none');
+  if(!num||!wrap||tile.querySelector('.mxamp')) return;
+  const val=document.createElement('span'); val.className='mxval vt'; wrap.appendChild(val);
+  const rg=document.createElement('input'); rg.type='range'; rg.className='mxamp'; rg.min=num.min; rg.max=num.max; rg.step=num.step||'1'; rg.title='amp %';
+  const sync=()=>{ rg.value=num.value; const on=+num.value>0; val.textContent=on?String(+num.value):'OFF'; val.classList.toggle('dim',!on); };
+  rg.oninput=()=>{ num.value=rg.value; num.dispatchEvent(new Event('change')); };
+  num.addEventListener('change',sync); sync();
+  tile.appendChild(rg);
+}
+function hapMixerBuild(){
+  const strip=$('hapStrip'), edb=$('hapEdBody'); if(!strip) return;
+  // a tile from before this rebuild still in the editor: gone with its rebuild
+  if(edb) edb.querySelectorAll('.hap-tile').forEach(e=>e.remove());
+  const tiles=[...strip.querySelectorAll('.hap-tile[data-fx]')];
+  const master=strip.querySelector('.hap-tile:not([data-fx])');
+  for(const tile of tiles){ const t=hapTiles[tile.dataset.fx]; if(t) hapMixerDress(t); }
+  // groups, in the design's order; anything unlisted under Effects
+  const byCat={}; for(const tile of tiles) (byCat[hapCatOf(tile.dataset.fx)]=byCat[hapCatOf(tile.dataset.fx)]||[]).push(tile);
+  const order=HAP_CATS.map(c=>c[0]).concat(Object.keys(byCat).filter(c=>!HAP_CATS.some(x=>x[0]===c)));
+  for(const cat of order){ if(!byCat[cat]) continue; const g=document.createElement('div'); g.className='mxg'; g.innerHTML='<span class="lab"></span>'; g.firstChild.textContent=cat; strip.appendChild(g); for(const tile of byCat[cat]) strip.appendChild(tile); }
+  // the Master tile: its profile and follow-car rows up into the session
+  // block, Mute and Rec into the panel head, the rest in a fold
+  if(master){
+    const ses=$('hapSesProf'); if(ses){ ses.innerHTML='';   // a previous build's rows: their Master tile is gone
+      const pr=master.querySelector('#hapProfSel'); const prow=pr&&pr.closest('.hr');
+      if(prow){ prow.classList.add('hap-game');
+        { const sec=prow.previousElementSibling; if(sec&&sec.classList.contains('hsec')) sec.hidden=true; }
+        // the four profile actions fold into a More menu (the same buttons, same handlers)
+        const menu=document.createElement('details'); menu.className='menu';
+        menu.innerHTML='<summary class="key sm nolamp">More</summary><div class="mnu"></div>';
+        const mn=menu.querySelector('.mnu');
+        ['hapProfLoad','hapProfSave','hapProfBind','hapProfDel'].forEach(id=>{ const b=prow.querySelector('#'+id); if(b){ b.className=''; mn.appendChild(b); } });
+        const msg=prow.querySelector('#hapProfMsg');
+        prow.appendChild(menu); if(msg) prow.appendChild(msg);
+        menu.addEventListener('click',e=>{ if(e.target.closest('.mnu button')) menu.open=false; });
+        ses.appendChild(prow); }
+      const fc=master.querySelector('#hapFollowCar'); const frow=fc&&fc.closest('.hr');
+      if(frow){ const lab=fc.closest('label'); if(lab){ lab.className='key sm latch'+(fc.checked?' on':''); fc.hidden=true; fc.addEventListener('change',()=>lab.classList.toggle('on',fc.checked)); }
+        if(prow) prow.appendChild(frow.firstElementChild===lab?lab:frow.querySelector('label')||frow); frow.remove(); } }
+    const hk=$('hapHeadKeys'); if(hk){ hk.innerHTML=''; const rb=master.querySelector('#hapRecBtn'), mb=master.querySelector('#hapMuteBtn');
+      if(rb){ rb.className='key sm latch red'; rb.textContent='Rec'; hk.appendChild(rb); }
+      if(mb){ mb.className='key sm latch amb'; hk.appendChild(mb); } }
+    let open=false; try{ open=localStorage.getItem(HAP_FOLD_KEY)==='1'; }catch(_){}
+    const fold=document.createElement('div'); fold.className='sxs'; fold.innerHTML='<div class="sx'+(open?' open':'')+'" id="hapRigFold"><button type="button" class="sxh"><span class="arw"></span><span class="sxt">Rig · car · sim</span><span class="sp"></span><span class="sum" id="hapRigSum"></span></button><div class="sxb"></div></div>';
+    fold.querySelector('.sxb').appendChild(master);
+    fold.querySelector('.sxh').onclick=()=>{ const sx=fold.querySelector('.sx'); const o=sx.classList.toggle('open'); try{ localStorage.setItem(HAP_FOLD_KEY,o?'1':'0'); }catch(_){} };
+    strip.appendChild(fold);
+    const gf=$('hapGainFader'), gi=master.querySelector('#hapMasterGain');
+    if(gf&&gi) gf.oninput=()=>{ gi.value=gf.value; gi.dispatchEvent(new Event('change')); };   // rebound every build: gi is this build's input
+  }
+  // the rail: one item per effect, in the mixer's grouped order
+  const rail=$('hpRail'); if(rail){ rail.innerHTML='';
+    for(const tile of strip.querySelectorAll('.hap-tile[data-fx]')){ const k=tile.dataset.fx, t=hapTiles[k]; if(!t) continue;
+      const r=document.createElement('button'); r.type='button'; r.className='rx'; r.dataset.fx=k; r.title=t.fx.label;
+      r.innerHTML='<span class="lamp"></span><span class="rxn"></span>'; r.querySelector('.rxn').textContent=HAP_ABBR[k]||t.fx.label.slice(0,4).toUpperCase();
+      r.onclick=()=>hapOpenFx(k); rail.appendChild(r); } }
+  // an effect that was open stays open across the rebuild
+  if(hapSel&&hapTiles[hapSel]&&uiLayout.hp==='ed') hapOpenFx(hapSel,true); else if(uiLayout.hp==='ed') setLayout(uiLayout.mo,'mix');
+}
+function hapOpenFx(k,force){
+  const t=hapTiles[k]; if(!t) return;
+  if(!force&&hapSel===k&&uiLayout.hp==='ed'){ hapCloseEd(); return; }
+  hapCloseEd(true);
+  hapSel=k; try{ localStorage.setItem(HAP_SEL_KEY,k); }catch(_){}
+  const ph=document.createElement('div'); ph.className='mx-ph'; ph.dataset.ph=k;
+  ph.innerHTML='<span class="lamp acc"></span><button type="button" class="mn"></button><span class="hint">editing</span>';
+  ph.querySelector('.mn').textContent=t.fx.label; ph.querySelector('.mn').onclick=()=>hapCloseEd();
+  t.tile.replaceWith(ph);
+  const edb=$('hapEdBody'); if(edb){ edb.appendChild(t.tile); const dr=$('hapDrawer'); if(dr) edb.appendChild(dr); }
+  t.tile.classList.add('ined'); t.tile._tip=t.tile.title; t.tile.title='';
+  const nm=$('hapEdName'); if(nm) nm.textContent=t.fx.label;
+  const kk=$('hapEdKick'); if(kk) kk.textContent=hapCatOf(k);
+  const tip=$('hapEdTip'); if(tip){ tip.textContent=t.fx.tip||''; tip.classList.remove('open'); }
+  if(hapOpenDrawer!==k) hapDrawerRender(t.fx);
+  const dr=$('hapDrawer'); if(dr) dr.hidden=false;
+  document.querySelectorAll('#hpRail .rx').forEach(r=>r.classList.toggle('sel',r.dataset.fx===k));
+  setLayout(uiLayout.mo,'ed');
+}
+function hapCloseEd(keepSel){
+  const k=hapSel, t=k&&hapTiles[k], ph=document.querySelector('#hapStrip [data-ph]');
+  if(t&&ph&&t.tile.classList.contains('ined')){ ph.replaceWith(t.tile); t.tile.classList.remove('ined'); if(t.tile._tip) t.tile.title=t.tile._tip; }
+  else if(ph) ph.remove();
+  const dr=$('hapDrawer'), strip=$('hapStrip'); if(dr&&strip&&dr.parentElement!==strip.parentElement){ strip.insertAdjacentElement('afterend',dr); }
+  if(dr){ dr.hidden=true; } hapOpenDrawer=null;
+  if(!keepSel){ hapSel=null; try{ localStorage.removeItem(HAP_SEL_KEY); }catch(_){} document.querySelectorAll('#hpRail .rx').forEach(r=>r.classList.remove('sel')); if(uiLayout.hp==='ed') setLayout(uiLayout.mo,'mix'); }
+}
+{ const c=$('hapEdClose'); if(c) c.onclick=()=>hapCloseEd();
+  const h=$('hapEdHelp'); if(h) h.onclick=()=>{ const t=hapSel&&hapTiles[hapSel]; const on=h.classList.toggle('on'); if(t) t.tile.classList.toggle('help',on); };
+  const tip=$('hapEdTip'); if(tip) tip.onclick=()=>tip.classList.toggle('open');
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&uiLayout.hp==='ed'&&document.body.dataset.view==='op') hapCloseEd(); }); }
+/* Once a second: the session readouts, the head keys' lit state, the
+   fold's summary, the rail lamps and the live count, from state the page
+   already holds. */
+function hapUiRefresh(){
+  const panel=$('hapPanel'); if(!panel) return;
+  if(panel.hidden){ if(uiLayout.hp==='ed') hapCloseEd(); return; }
+  const cg=$('hapSesCar'), gg=$('hapSesGame'); if(cg) cg.textContent=(($('hapCarNow')||{}).textContent||'-'); if(gg) gg.textContent=(($('hapGameNow')||{}).textContent||'-');
+  const gi=$('hapMasterGain'), gf=$('hapGainFader'), gs=$('hapGainSeg');
+  if(gi&&gf&&document.activeElement!==gf) gf.value=gi.value; if(gi&&gs) setSeg(gs,(+gi.value||0).toFixed(2));
+  const mb=$('hapMuteBtn'); if(mb) mb.classList.toggle('on',hapMutedNow);
+  { const fc=$('hapFollowCar'); const lab=fc&&fc.closest('label'); if(lab&&lab.classList.contains('key')) lab.classList.toggle('on',fc.checked); }
+  const rb=$('hapRecBtn'); if(rb) rb.classList.toggle('on',hapRecOn);
+  const sum=$('hapRigSum'); if(sum){ const b=$('hapPosBudget'), d=$('hapAxisDelay'), f=$('hapFollowCar');
+    sum.textContent='budget '+(b?b.value:'-')+' · delay '+(d?d.value:'-')+' ms · '+(f&&f.checked?'follows car':'manual'); }
+  let live=0, any=false;
+  for(const k in hapTiles){ const t=hapTiles[k]; const routed=(t.dv.routes||[]).some(r=>r&&r.gain>0);
+    const muted=t.tile.classList.contains('muted'); if(t.dv.ampPct>0&&routed&&!muted) live++; if(t.level>0.05&&!muted) any=true;
+    const rx=document.querySelector('#hpRail .rx[data-fx="'+k+'"]'); if(rx){ const sd=t.tile.querySelector('.sdot'); rx.querySelector('.lamp').className='lamp '+(muted?'':t.level>0.05?'ok':sd&&sd.classList.contains('d1')?'warn':''); } }
+  const pc=$('hpLive'); if(pc) pc.textContent=live+' live';
+  const hl=$('hpLamp'); if(hl) hl.className='lamp '+(hapMutedNow?'warn':any?'ok':'');
+}
+setInterval(hapUiRefresh,1000);
 
 function devInit(){
   const row=$('devShowRow'); if(row) row.hidden=(meta.platform!=='linux');

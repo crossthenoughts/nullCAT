@@ -152,17 +152,24 @@ try {
   }));
   const carsApi = await (await fetch(`http://127.0.0.1:${PORT}/api/cars/list`)).json();
   const nCars = (carsApi.cars || []).length;
-  // Open the Lateral slip tile's route drawer: a per-wheel effect lists a
-  // part selector beside every axis gain.
+  // Open the Lateral slip effect's editor from its mixer row: the tile moves
+  // into the editor pane with the route drawer under it as the routing
+  // section, and a per-wheel effect lists a part selector beside every axis
+  // gain. Closing the editor puts the tile back in its row.
   const drawer = await page.evaluate(() => {
-    const chip = document.querySelector('#hapStrip .hap-tile[data-fx="slipLat"] .hap-routechip');
-    if (!chip) return { chip: false };
-    chip.click();
-    const dr = document.getElementById('hapDrawer');
-    return { chip: true, hidden: !dr || dr.hidden,
+    const name = document.querySelector('#hapStrip .hap-tile[data-fx="slipLat"] .dh .nm');
+    if (!name) return { chip: false };
+    name.click();
+    const dr = document.getElementById('hapDrawer'), edb = document.getElementById('hapEdBody');
+    const r = { chip: true, hidden: !dr || dr.hidden,
+             inEditor: !!edb && !!dr && dr.parentElement === edb && !!edb.querySelector('.hap-tile[data-fx="slipLat"]'),
+             layout: (document.getElementById('ws') || { dataset: {} }).dataset.hp,
              gains: dr ? dr.querySelectorAll('input[data-axis]').length : 0,
              parts: dr ? dr.querySelectorAll('select[data-part]').length : 0,
              partOpts: dr && dr.querySelector('select[data-part]') ? dr.querySelector('select[data-part]').options.length : 0 };
+    document.getElementById('hapEdClose').click();
+    r.back = !!document.querySelector('#hapStrip .hap-tile[data-fx="slipLat"]') && !document.querySelector('#hapStrip [data-ph]');
+    return r;
   });
   const schema = await (await fetch(`http://127.0.0.1:${PORT}/api/haptics/schema`)).json();
   const nEffects = (schema.effects || []).length;
@@ -297,9 +304,12 @@ try {
   if (st.presetOpts !== 9)      fails.push(`starting point selector has ${st.presetOpts} options, expected the 8 shipped starting points and the prompt`);
   if (!st.carNotes)             fails.push('no car notes block on the Engine tile');
   if (!st.carNotesHidden)       fails.push('car notes block is showing with no car named');
-  if (!drawer.chip)             fails.push('no route chip on the Lateral slip tile');
+  if (!drawer.chip)             fails.push('no name key on the Lateral slip mixer row');
   else {
-    if (drawer.hidden)          fails.push('route drawer did not open');
+    if (drawer.hidden)          fails.push('route drawer did not open with the editor');
+    if (!drawer.inEditor)       fails.push('the Lateral slip tile and its route drawer did not move into the editor pane');
+    if (drawer.layout !== 'ed') fails.push(`opening an effect left the Haptics panel in layout "${drawer.layout}", expected ed`);
+    if (!drawer.back)           fails.push('closing the editor did not put the Lateral slip tile back in its mixer row');
     if (drawer.gains !== 2)     fails.push(`route drawer lists ${drawer.gains} axes, expected 2 (Seat + Belt)`);
     if (drawer.parts !== 2)     fails.push(`route drawer has ${drawer.parts} part selectors, expected one per axis`);
     if (drawer.partOpts !== 7)  fails.push(`part selector has ${drawer.partOpts} options, expected 7 (all, front, rear, 4 corners)`);
