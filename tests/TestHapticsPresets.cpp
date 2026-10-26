@@ -132,7 +132,10 @@ private slots:
         {
             if (!it.value().isObject())
             {
-                QVERIFY2(it.value() == before.value(it.key()), qPrintable(it.key()));
+                // The one rig-level value a type sets: the belts' g at max.
+                const bool named = ow.haptics.contains(it.key());
+                QVERIFY2(it.value() == (named ? ow.haptics.value(it.key()) : before.value(it.key())), qPrintable(it.key()));
+                if (named) ++changed;
                 continue;
             }
             const QJsonObject o = it.value().toObject(), was = before.value(it.key()).toObject();
@@ -147,7 +150,8 @@ private slots:
                 if (named) ++changed;
             }
         }
-        QCOMPARE(changed, 17);   // 2 + 3 + 7 + 1 + 2 + 2: every listed setting landed
+        QCOMPARE(changed, 18);   // 2 + 3 + 7 + 1 + 2 + 2 + the belt g: every listed setting landed
+        QCOMPARE(c.hapticsBeltFullG, 2.5);
 
         // The listed values, by name...
         QCOMPARE(c.hapticsSlipLat.peak, 5.5);
@@ -184,6 +188,23 @@ private slots:
         QCOMPARE(c.hapticsFx[static_cast<size_t>(haptics::Effect::Tc)].ampPct, 20.0);
     }
 
+    // The belts' g at max for the type of car: written and read back with
+    // the haptics object, 0 (each belt's own) or 0.2..6, anything else
+    // flagged by validation.
+    void beltFullG_roundTripAndRange()
+    {
+        AppConfig c; c.hapticsBeltFullG = 1.8;
+        AppConfig d; Config::readHapticsObject(Config::writeHapticsObject(c), d);
+        QCOMPARE(d.hapticsBeltFullG, 1.8);
+        AppConfig z; QVERIFY(z.hapticsBeltFullG == 0.0);
+        auto flagged = [](const AppConfig& a) {
+            for (const std::string& e : a.validate()) if (e.find("beltFullG") != std::string::npos) return true;
+            return false; };
+        QVERIFY(!flagged(c) && !flagged(z));
+        AppConfig bad; bad.hapticsBeltFullG = 0.1; QVERIFY(flagged(bad));
+        bad.hapticsBeltFullG = 7.0; QVERIFY(flagged(bad));
+    }
+
     void shipped_valuesInRangeAndValid()
     {
         HapticsPresets p;
@@ -194,8 +215,16 @@ private slots:
             QVERIFY(!pr.haptics.contains("masterGain"));
             QVERIFY(!pr.haptics.contains("positionBudget"));
             QVERIFY(!pr.haptics.contains("followCar"));
+            // Every shipped type sets the belts' g at max, in range.
+            QVERIFY2(pr.haptics.contains("beltFullG"), pr.name.c_str());
             for (auto it = pr.haptics.begin(); it != pr.haptics.end(); ++it)
             {
+                if (it.key() == "beltFullG")
+                {
+                    const double g = it.value().toDouble(-1.0);
+                    QVERIFY2(g >= 0.2 && g <= 6.0, pr.name.c_str());
+                    continue;
+                }
                 const haptics::EffectInfo* info = haptics::findEffect(it.key().toStdString().c_str());
                 QVERIFY2(info, qPrintable(it.key()));
                 const std::vector<std::string> car = CarTable::carKeys(it.key().toStdString());
@@ -250,12 +279,13 @@ private slots:
         "abs":       { "ampPct": 50, "sharp": 0.7 },
         "masterGain": 2,
         "positionBudget": 1,
+        "beltFullG": 1.7,
         "warpDrive": { "ampPct": 10 }
       }
     },
     "Alpha": {
       "description": "only what it may not set",
-      "haptics": { "rpmVibe": { "litres": 4 }, "masterGain": 0.5 }
+      "haptics": { "rpmVibe": { "litres": 4 }, "masterGain": 0.5, "beltFullG": "big" }
     },
     "Mid café name": {
       "description": "an escaped name",
@@ -272,7 +302,8 @@ private slots:
         QCOMPARE(list[1].name, std::string("Mid caf\xc3\xa9 name"));   // the file's é, decoded
 
         const QJsonObject h = list[0].haptics;
-        QCOMPARE(h.keys(), QStringList({ "abs", "driveline", "road" }));
+        QCOMPARE(h.keys(), QStringList({ "abs", "beltFullG", "driveline", "road" }));
+        QCOMPARE(h.value("beltFullG").toDouble(), 1.7);   // the one rig-level key a type may set
         QCOMPARE(h.value("road").toObject().keys(), QStringList({ "rough" }));   // no routes, nothing unknown, numbers only
         QCOMPARE(h.value("road").toObject().value("rough").toDouble(), 3.0);
         QCOMPARE(h.value("driveline").toObject().keys(), QStringList({ "whinePitch" }));   // driven and lug hz are the car's

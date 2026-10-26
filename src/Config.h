@@ -343,6 +343,13 @@ struct AppConfig
     // Hold the axis haptic overlays back by this much (ms, 0..60) so the
     // fast sinks land together with the slower shaker path. 0 = off.
     double                hapticsAxisDelayMs = 0.0;
+    // Belts on the car's g: the g at max for the type of car (a starting
+    // point sets it), used by every belt whose source is "g" instead of its
+    // own beltGFullG; 0 = each belt's own. Applies live, like the tiles.
+    double                hapticsBeltFullG = 0.0;
+    // A belt's g at max, its own (DriveConfig::beltGFullG) or the type of
+    // car's: the one range (the web page holds the same).
+    static constexpr double kBeltFullGMin = 0.2, kBeltFullGMax = 6.0;
     // Follow the car: when the sim names a car the car table (CarTable.h)
     // knows, take its engine, limiter, driveline, ABS and TC settings.
     // Routes and the rest of the strip never move. Off = the table only

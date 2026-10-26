@@ -301,6 +301,7 @@ body[data-view="setup"] .ws{display:none}body[data-view="setup"] .su{display:gri
 .fldtip{font-size:11.5px;color:var(--silk);line-height:1.4;margin:-2px 0 6px;opacity:.85}
 .frow.dirty>span:first-child::after{content:'';display:inline-block;width:7px;height:3px;margin-left:7px;vertical-align:middle;border-radius:1px;background:var(--warn);box-shadow:0 0 5px var(--warn)}
 .frow.dirty input,.frow.dirty select{outline:1px solid var(--warn)}
+.frow .ftag{display:inline-block;margin-left:6px;padding:0 4px;border-radius:2px;font:600 8.5px/14px var(--mono);font-style:normal;letter-spacing:.08em;text-transform:uppercase;color:var(--ok);box-shadow:inset 0 0 0 1px currentColor;vertical-align:1px}
 .pill-pending{margin-left:10px;padding:1px 8px;border-radius:3px;font:600 10px var(--mono);white-space:nowrap;color:var(--warnInk);box-shadow:inset 0 0 0 1px var(--warn)}
 .cgrp.host-owned{opacity:.72}
 .cgrp.host-owned .gt::after{content:" - desktop-app managed";font-weight:normal;font-style:italic;opacity:.85;text-transform:none;letter-spacing:0}
@@ -490,6 +491,7 @@ body[data-view="setup"] .ws{display:none}body[data-view="setup"] .su{display:gri
 .sxb>.hap-tile{display:flex;flex-direction:column;gap:6px;padding:4px 0 0;margin:0;background:none;box-shadow:none}
 .sxb>.hap-tile>.dh,.sxb>.hap-tile>.hchan,.sxb>.hap-tile>.hap-wwrap{display:none}
 .sxb .hr{min-height:30px}.sxb .hr .hk{font:500 13px var(--lab);letter-spacing:0;text-transform:none;color:var(--ink2)}
+.sxb .hr.typekey>.hk:first-child::after{content:'type';display:inline-block;margin-left:6px;padding:0 4px;border-radius:2px;font:600 8.5px/14px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--warnInk);box-shadow:inset 0 0 0 1px currentColor;vertical-align:1px}
 .sxb .hr:has(#hapMasterGain){display:none}
 .sxb .hsec{font:600 11px var(--lab);letter-spacing:.14em;text-transform:uppercase;color:var(--silk);border-top:1px solid var(--edge);padding:12px 0 2px;margin:0}
 .sxb .hsec:first-child{border-top:0;padding-top:4px}

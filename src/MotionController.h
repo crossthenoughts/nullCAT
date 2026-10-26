@@ -254,6 +254,16 @@ public:
     // restart semantics.
     void stageDeviceParams(int axisIndex, const DeviceParams& p);
 
+    // ---- Belt from g live-apply ----
+    // A rig save whose only axis changes are a belt's g shape (surge, sway,
+    // heave and their shares, g from, g at max, curve, smoothing) stages
+    // the shape here (web thread); the RT thread takes it at the top of a
+    // cycle without waiting on the web thread. The belt's source, its
+    // torque range and its guards still wait for an Initialize.
+    void stageBeltG(int axisIndex, const DriveConfig& dc);
+    // A save that changes the axes drops any shape staged by index.
+    void clearStagedBeltG();
+
 private:
     // Belt runaway guards (overspeed persistence + net-travel cap), armed in
     // BLENDING and ONLINE. Returns true if tripped: state latched to PARKED
@@ -629,8 +639,13 @@ private:
         double masterGain = 1.0;
         double positionBudget = 0.4;
         double axisDelayMs = 0.0;
+        double beltFullG = 0.0;
     };
     HapticsStage     m_hapStage;
+    // The type of car's belt g at max (haptics beltFullG; 0 = each belt's
+    // own). Written where the haptics config lands (configure, the staged
+    // apply), read by the belt law on the RT thread.
+    double           m_beltTypeFullG = 0.0;
     std::mutex       m_hapStageLock;
     std::atomic<bool> m_hapStagePending{false};
     // Channel-health snapshot for the status surface, the channel values
@@ -648,6 +663,20 @@ private:
     DeviceParams          m_devPending[MAX_DRIVES];
     std::atomic<uint16_t> m_devPendingMask{0};
     void applyPendingDeviceParams();
+    // The belt-from-g law's settings as one copyable block. configure() and
+    // the live apply both go through beltGShapeOf (one place for the
+    // clamps and the names).
+    struct BeltGShape
+    {
+        int    mode = 1, sway = 0, heave = 0;
+        double swayMix = 1.0, heaveMix = 1.0, fromG = 0.05, fullG = 1.5, curve = 1.0, smoothMs = 30.0;
+    };
+    static BeltGShape beltGShapeOf(const DriveConfig& dc);
+    static void       putBeltGShape(AxisConfig& ac, const BeltGShape& s);
+    std::mutex            m_beltGLock;
+    BeltGShape            m_beltGPending[MAX_DRIVES];
+    std::atomic<uint16_t> m_beltGMask{0};
+    void applyPendingBeltG();
     bool             m_seatActive[MAX_DRIVES] = {};   // axes selected by startSeatHoming() (deinit seat)
     std::atomic<bool> m_emergencyStop{false};   // the e-stop input (held)
     std::atomic<bool> m_estopTripped{false};    // latched by any e-stop, cleared only by clearEmergencyTrip

@@ -3331,6 +3331,40 @@ int main()
             check(std::fabs(at(*mc, 0.05) - 5.0) < 1e-6, "I-25 decel: inside the dead band, min");
         }
         {
+            // Live apply (a rig save that moves only the g shape): the next
+            // cycle pulls to the new scale, with no Initialize and the belt
+            // still ONLINE; a new surge choice lands the same way.
+            auto mc = belt("decel", 0.0);
+            check(std::fabs(at(*mc, 0.6) - 27.5) < 1e-6, "I-25 live: before, g at max 1.1");
+            DriveConfig d = makeBeltConfig(0.0, 1.0).drives[0];
+            d.beltSource = "g"; d.beltGMode = "decel"; d.beltGFromG = 0.1; d.beltGFullG = 2.1; d.beltGSmoothMs = 0.0;
+            mc->stageBeltG(0, d);
+            const double after = run(*mc, gFrame(0.6 * G, true), 1, 1).hi;
+            check(std::fabs(after - (5.0 + 45.0 * 0.25)) < 1e-6 && mc->getAxisState(0) == AxisMotionState::ONLINE,
+                  "I-25 live: a staged g at max of 2.1 pulls a quarter of the range at 0.6 g on the next cycle, still ONLINE");
+            d.beltGMode = "accel";
+            mc->stageBeltG(0, d);
+            check(std::fabs(at(*mc, 0.6) - 5.0) < 1e-6 && std::fabs(at(*mc, -0.6) - (5.0 + 45.0 * 0.25)) < 1e-6,
+                  "I-25 live: a staged surge on acceleration takes over from braking");
+        }
+        {
+            // The type of car's belt g at max (haptics beltFullG) wins over
+            // the belt's own while it is set, and a save of it lands live
+            // through the haptics stage; 0 hands back to the belt's own.
+            AppConfig cfg = makeBeltConfig(0.0, 1.0);
+            cfg.drives[0].beltSource = "g"; cfg.drives[0].beltGMode = "decel";
+            cfg.drives[0].beltGFromG = 0.1; cfg.drives[0].beltGFullG = 1.1; cfg.drives[0].beltGSmoothMs = 0.0;
+            cfg.hapticsBeltFullG = 2.1;
+            MotionController mc; mc.configure(cfg); mc.setEmergencyStop(false); tensionBelt(mc);
+            run(mc, gFrame(0.0, true), 400, 1);
+            check(std::fabs(at(mc, 0.6) - (5.0 + 45.0 * 0.25)) < 1e-6,
+                  "I-25 type: the type of car's g at max (2.1) is in force over the belt's own (1.1)");
+            cfg.hapticsBeltFullG = 0.0; mc.stageHaptics(cfg);
+            run(mc, gFrame(0.0, true), 50, 1);   // the g moves (an unchanged g for 0.5 s reads as none)
+            check(std::fabs(at(mc, 0.6) - 27.5) < 1e-6 && mc.getAxisState(0) == AxisMotionState::ONLINE,
+                  "I-25 type: saved back to 0, the belt's own g at max again, live");
+        }
+        {
             auto mc = belt("accel", 0.0);
             check(std::fabs(at(*mc, -0.6) - 27.5) < 1e-6 && std::fabs(at(*mc, 1.0) - 5.0) < 1e-6,
                   "I-25 accel: acceleration tightens, braking does not");
@@ -3681,6 +3715,25 @@ int main()
             hold(mc, 0.0, 0.0, 1.0, 400);
             const double t = hold(mc, 0.0, 0.6, 1.0, 15);
             check(t > 14.0 && t < 21.0, "I-26 smoothing 30 ms on cornering: 30 ms after a step, about two thirds of the way");
+        }
+        {
+            // A channel switched back on live starts afresh: sway taken off
+            // with its low-pass high from a corner, then put back on with no
+            // cornering, pulls nothing (it used to pull from the old corner
+            // for up to the smoothing time). Surge stays on throughout.
+            AppConfig cfg = makeBeltConfig(0.0, 1.0);
+            DriveConfig& d = cfg.drives[0];
+            d.beltSource = "g"; d.beltGMode = "decel"; d.beltGSway = "left";
+            d.beltGFromG = 0.1; d.beltGFullG = 1.1; d.beltGSmoothMs = 250.0;
+            MotionController mc; mc.configure(cfg); mc.setEmergencyStop(false); tensionBelt(mc);
+            hold(mc, 0.0, 0.0, 1.0, 100);
+            const double corner = hold(mc, 0.0, 1.0, 1.0, 200);   // 0.4 s of corner: the low-pass well up
+            DriveConfig off = d; off.beltGSway = "off";
+            mc.stageBeltG(0, off);
+            hold(mc, 0.0, 0.0, 1.0, 10);
+            mc.stageBeltG(0, d);
+            const double back = hold(mc, 0.0, 0.0, 1.0, 1);
+            check(corner > 25.0 && near(back, 5.0), "I-26 live: sway switched back on with no cornering pulls nothing (starts afresh, not from the corner before)");
         }
         {
             // Nothing selected: min, and ONLINE (not the standby stages).

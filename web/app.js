@@ -591,8 +591,8 @@ function applyHostOwnership(){
   // webUIEnabled on. On the Pi the web server is always the control surface.
   const bn=$('btnBindNativeNote'); if(bn) bn.style.display=native?'block':'none';
   const rn=$('cf-rignote'); if(rn) rn.textContent = native
-    ? 'Rig & axis settings: portable rig config - saved here, applies on the next Stop → Re-initialize.'
-    : 'Rig & axis settings: saved here, apply on the next Stop → Re-initialize (device feel applies live). Host/network settings need a service restart.';
+    ? 'Rig & axis settings: portable rig config, saved here. Settings marked live apply on Save; the rest apply on the next Stop → Re-initialize, and a save that changes any of those waits for it whole.'
+    : 'Rig & axis settings: saved here. Settings marked live (and device feel) apply on Save; the rest apply on the next Stop → Re-initialize, and a save that changes any of those waits for it whole. Host/network settings need a service restart.';
 }
 
 /* ---- UI state clarity ----
@@ -984,15 +984,15 @@ const AXIS_SPEC=[
   {k:'beltRelaxerSec',label:'Relaxer (0=off)',type:'num',min:0,max:120,step:1,unit:'s',torque:true,tip:'Sustained near-max tension for this long eases to min (at the Slew cap rate) until demand drops - pre-empts the drive thermal fault that would park the whole rig.'},
   {k:'beltRelaxerPct',label:'Relaxer band',type:'num',min:20,max:100,step:1,unit:'%',torque:true,tip:'Fraction of Torque max that counts as near-max for the relaxer dwell.'},
   {k:'beltSource',label:'Belt cue from',type:'select',opts:['motion','g'],torque:true,tip:'motion: the tension your motion software sends on this axis (as before). g: nullCAT pulls the belt straight from the car\'s g (surge: braking and acceleration; sway: cornering; heave: crests and compressions; needs a protocol 1.9 sender such as the SimHub plugin 1.9), shaped by the settings below; the motion software\'s value for this axis is then unused.'},
-  {k:'beltGMode',label:'Surge',type:'select',opts:['decel','accel','both','off'],torque:true,tip:'With the cue from g, the g along the car: decel tightens under braking, accel under acceleration, both under either, off leaves surge out (a belt on sway or heave alone). If it tightens the wrong way round, pick the other one (senders differ on the sign).'},
-  {k:'beltGSway',label:'Sway',type:'select',opts:['off','left','right','both'],torque:true,tip:'With the cue from g, the g across the car: it adds to the pull in left-hand corners, right-hand corners or both. With a belt on each shoulder, give each its own side. If a belt tightens in the wrong corners, pick the other side.'},
-  {k:'beltGSwayMix',label:'Sway share',type:'num',min:0,max:3,step:0.05,torque:true,tip:'With sway on: how much a g of sway pulls against a g of surge (1 = the same).'},
-  {k:'beltGHeave',label:'Heave',type:'select',opts:['off','lift','press','both'],torque:true,tip:'With the cue from g, the vertical g: it adds to the pull over crests (lift: the car goes light), into compressions (press) or both. Only the change counts: gravity and long hills never tighten the belt. If it is the wrong way round, pick the other one.'},
-  {k:'beltGHeaveMix',label:'Heave share',type:'num',min:0,max:3,step:0.05,torque:true,tip:'With heave on: how much a g of heave pulls against a g of surge (1 = the same).'},
-  {k:'beltGFromG',label:'g from',type:'num',min:0,max:2,step:0.01,unit:'g',torque:true,tip:'With the cue from g: below this the belt stays at Torque min (a dead band for the small g of cruising).'},
-  {k:'beltGFullG',label:'g at max',type:'num',min:0.2,max:6,step:0.05,unit:'g',torque:true,tip:'With the cue from g: the g that pulls the belt to Torque max. Lower makes it stronger; road cars brake at about 1 g, race cars 2 to 4 g.'},
-  {k:'beltGCurve',label:'g curve',type:'num',min:0.3,max:3,step:0.05,torque:true,tip:'With the cue from g: 1 is a straight line from g from to g at max. Above 1 is softer at small g and steeper near the top; below 1 the reverse.'},
-  {k:'beltGSmoothMs',label:'g smoothing',type:'num',min:0,max:250,step:5,unit:'ms',torque:true,tip:'With the cue from g: how much the g is smoothed (it arrives about 60 times a second from most senders, about 333 with direct telemetry). 20 to 40 ms takes the steps out at 60; more is softer but later.'},
+  {k:'beltGMode',label:'Surge',type:'select',live:true,opts:['decel','accel','both','off'],torque:true,tip:'With the cue from g, the g along the car: decel tightens under braking, accel under acceleration, both under either, off leaves surge out (a belt on sway or heave alone). If it tightens the wrong way round, pick the other one (senders differ on the sign).'},
+  {k:'beltGSway',label:'Sway',type:'select',live:true,opts:['off','left','right','both'],torque:true,tip:'With the cue from g, the g across the car: it adds to the pull in left-hand corners, right-hand corners or both. With a belt on each shoulder, give each its own side. If a belt tightens in the wrong corners, pick the other side.'},
+  {k:'beltGSwayMix',label:'Sway share',type:'num',live:true,min:0,max:3,step:0.05,torque:true,tip:'With sway on: how much a g of sway pulls against a g of surge (1 = the same).'},
+  {k:'beltGHeave',label:'Heave',type:'select',live:true,opts:['off','lift','press','both'],torque:true,tip:'With the cue from g, the vertical g: it adds to the pull over crests (lift: the car goes light), into compressions (press) or both. Only the change counts: gravity and long hills never tighten the belt. If it is the wrong way round, pick the other one.'},
+  {k:'beltGHeaveMix',label:'Heave share',type:'num',live:true,min:0,max:3,step:0.05,torque:true,tip:'With heave on: how much a g of heave pulls against a g of surge (1 = the same).'},
+  {k:'beltGFromG',label:'g from',type:'num',live:true,min:0,max:2,step:0.01,unit:'g',torque:true,tip:'With the cue from g: below this the belt stays at Torque min (a dead band for the small g of cruising).'},
+  {k:'beltGFullG',label:'g at max',type:'num',live:true,min:0.2,max:6,step:0.05,unit:'g',torque:true,tip:'With the cue from g: the g that pulls the belt to Torque max. Lower makes it stronger; road cars brake at about 1 g, race cars 2 to 4 g.'},
+  {k:'beltGCurve',label:'g curve',type:'num',live:true,min:0.3,max:3,step:0.05,torque:true,tip:'With the cue from g: 1 is a straight line from g from to g at max. Above 1 is softer at small g and steeper near the top; below 1 the reverse.'},
+  {k:'beltGSmoothMs',label:'g smoothing',type:'num',live:true,min:0,max:250,step:5,unit:'ms',torque:true,tip:'With the cue from g: how much the g is smoothed (it arrives about 60 times a second from most senders, about 333 with direct telemetry). 20 to 40 ms takes the steps out at 60; more is softer but later.'},
 ];
 function condMode(){ return (cfgObj&&cfgObj.conditioningMode)||'bypass'; }
 const isRot=d=>d&&d.axisType==='rotary_lever';
@@ -1022,7 +1022,9 @@ function renderAxisFields(i){
   if(!d){ host.innerHTML='<p class="cfg-note">No drive at this index.</p>'; return; }
   let h='';
   for(const f of AXIS_SPEC){ if(!axisApplicable(f,d)) continue; const v=d[f.k];
-    const e=effSpec(f,d);
+    const e0=effSpec(f,d);
+    // a setting that applies on Save (no re-initialize) says so beside its name
+    const e=f.live?Object.assign({},e0,{label:e0.label+'<i class="ftag" title="Applies on Save with the loop running, unless the same save also changes a setting that needs a re-initialize">live</i>'}):e0;
     if(f.type==='bool') h+=`<label class="frow"><span>${e.label}</span><input type="checkbox" data-k="${f.k}" ${v?'checked':''}></label>`;
     else if(f.type==='select'){
       // A file value not in the option list is injected, never clobbered
@@ -1037,6 +1039,8 @@ function renderAxisFields(i){
     // Feel/behaviour one-liner under fields that carry one (the belt
     // guards especially: what each knob does to the belt, not just units).
     if(f.tip) h+=`<div class="fldtip">${f.tip}</div>`;
+    if(f.k==='beltGFullG'&&d.beltSource==='g'){ const tg=+((cfgObj&&cfgObj.haptics&&cfgObj.haptics.beltFullG)||0);
+      if(tg>0) h+=`<div class="fldtip" style="color:var(--warnInk)">The type of car sets ${tg} g now (Haptics, Rig · car · sim): that one is in force. This one is used when it is 0.</div>`; }
   }
   // Filter-knee consequences, live next to the knob (Filter mode only).
   if(d.mode==='csp' && condMode()==='filter' && typeof d.trackingWnHz==='number' && d.maxAccelerationMmS2){
@@ -2119,10 +2123,12 @@ function hapInit(){
       +'<button class="btn btn-sm" type="button" id="hapProfDel" title="Forget the chosen profile and its bindings">delete</button>'
       +'<span class="hk" id="hapProfMsg"></span></div>'
       +'<div class="hsec" title="Pick the type of car closest to what you drive and apply it: it sets how the tyres let go, how stiff the road and kerbs feel, the wheels and the knocks for that type. Then pull the car (car table) for the engine, gearbox, ABS and TC. Your routes and master stay as they are.">starting point: the type of car</div>'
-      +'<div class="hr hap-game" title="Pick the type of car closest to what you drive, apply, then pull the car (car table) for the engine, gearbox, ABS and TC. It sets the slip, road, kerb, wheels and impacts settings for that type; your routes, master gain, pos budget and the settings the car table owns stay as they are."><span class="hk">type</span>'
+      +'<div class="hr hap-game" title="Pick the type of car closest to what you drive, apply, then pull the car (car table) for the engine, gearbox, ABS and TC. It sets the slip, road, kerb, wheels and impacts settings for that type, and the belt g at max (over each belt\'s own); your routes, master gain, pos budget and the settings the car table owns stay as they are."><span class="hk">type</span>'
       +'<select id="hapPresetSel"><option value="">(pick a type)</option></select>'
-      +'<button class="btn btn-sm" type="button" id="hapPresetApply" title="Set the slip, road, kerb, wheels and impacts settings for the chosen type of car. Routes, master gain, pos budget and the engine, limiter, driveline, ABS and TC stay as they are.">apply</button>'
+      +'<button class="btn btn-sm" type="button" id="hapPresetApply" title="Set the slip, road, kerb, wheels and impacts settings and the belt g at max for the chosen type of car. Routes, master gain, pos budget and the engine, limiter, driveline, ABS and TC stay as they are.">apply</button>'
       +'<span class="hk" id="hapPresetMsg"></span></div>'
+      +'<div class="hr typekey" data-pk="beltFullG" title="The g at which a belt pulling from the car\'s g reaches its torque max, for this type of car: about 1 for a road car, 2 for a GT3. The type of car sets it; change it here and save, and it applies straight away. 0 = each belt\'s own g at max (Setup, the belt\'s axis)."><span class="hk">belt g at max</span>'
+      +'<input type="number" min="0" max="6" step="0.05" id="hapBeltFullG" value="'+(isFinite(+cfgObj.haptics.beltFullG)?+cfgObj.haptics.beltFullG:0)+'"></div>'
       +'<div class="hsec" title="The car table: only the engine, limiter, driveline, ABS and TC tiles, per car. Routes, master gain, pos budget and the other tiles stay as you saved them.">car table: engine, limiter, driveline, ABS, TC</div>'
       +'<div class="hr hap-game" title="The car table: how each car\'s engine, limiter, driveline, ABS and TC feel, shipped for the Assetto Corsa and Automobilista 2 rosters plus your own entries. Applying an entry moves those five tiles only; routes, master gain and every other tile stay yours."><span class="hk">this car</span>'
       +'<span class="hk" id="hapCarNow">(none)</span>'
@@ -2198,7 +2204,7 @@ function hapInit(){
     tsel.onchange=()=>{ hapPresetPick=tsel.value; const o=tsel.options[tsel.selectedIndex]; tsel.title=(o&&o.title)||''; tsay(tsel.title); };
     mc.querySelector('#hapPresetApply').onclick=async()=>{
       const name=tsel.value; if(!name){ tsay('pick a type'); return; }
-      if(dirtyState().count>0&&!confirm('You have unsaved edits on this page; applying a starting point rewrites the saved slip, road, kerb, wheels and impacts settings and reloads the page state. Continue?')) return;
+      if(dirtyState().count>0&&!confirm('You have unsaved edits on this page; applying a starting point rewrites the saved slip, road, kerb, wheels and impacts settings and the belt g at max and reloads the page state. Continue?')) return;
       try{
         const j=await post('/api/haptics/presets/apply',{name});
         if(typeof j.gen==='number') hapCarGenLive=j.gen;   // this page reloads itself: the status need not again
@@ -2249,6 +2255,9 @@ function hapInit(){
     di.onchange=()=>{ const v=+di.value; if(!isFinite(v)) return;
       cfgObj.haptics.axisDelayMs=Math.max(0,Math.min(60,v)); di.value=cfgObj.haptics.axisDelayMs;
       refreshDirtyUI(); };
+    const bg=mc.querySelector('#hapBeltFullG');
+    if(bg) bg.onchange=()=>{ let v=+bg.value; if(!isFinite(v)) return;
+      v=(v<=0)?0:Math.max(0.2,Math.min(6,v)); cfgObj.haptics.beltFullG=v; bg.value=v; refreshDirtyUI(); };
     const bi=mc.querySelector('#hapPosBudget');
     bi.onchange=()=>{ const v=+bi.value; if(!isFinite(v)) return;
       cfgObj.haptics.positionBudget=Math.max(0,Math.min(1,v)); bi.value=cfgObj.haptics.positionBudget;

@@ -376,6 +376,7 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
     h["masterGain"] = c.hapticsMasterGain;
     h["positionBudget"] = c.hapticsPositionBudget;
     h["axisDelayMs"] = c.hapticsAxisDelayMs;
+    h["beltFullG"] = c.hapticsBeltFullG;
     h["followCar"] = c.hapticsFollowCar;
     return h;
 }
@@ -458,6 +459,7 @@ void Config::readHapticsObject(const QJsonObject& h, AppConfig& c)
     if (h.contains("masterGain"))  c.hapticsMasterGain = h.value("masterGain").toDouble(1.0);
     if (h.contains("positionBudget")) c.hapticsPositionBudget = h.value("positionBudget").toDouble(0.4);
     if (h.contains("axisDelayMs")) c.hapticsAxisDelayMs = h.value("axisDelayMs").toDouble(0.0);
+    if (h.contains("beltFullG"))   c.hapticsBeltFullG = h.value("beltFullG").toDouble(0.0);
     if (h.contains("followCar"))   c.hapticsFollowCar = h.value("followCar").toBool(true);
 }
 
@@ -947,6 +949,9 @@ void Config::clampHaptics(AppConfig& c, std::vector<std::string>& warnings)
     }
     clampD(c.hapticsMasterGain, 0.0, 2.0, "haptics.masterGain");
     clampD(c.hapticsPositionBudget, 0.0, 1.0, "haptics.positionBudget");
+    // 0 = each belt's own; below 0 (a hand edit) means the same.
+    if (!(c.hapticsBeltFullG > 0.0)) { if (c.hapticsBeltFullG != 0.0) clampD(c.hapticsBeltFullG, 0.0, 0.0, "haptics.beltFullG"); }
+    else clampD(c.hapticsBeltFullG, AppConfig::kBeltFullGMin, AppConfig::kBeltFullGMax, "haptics.beltFullG");
 }
 
 // Which file a validate() error belongs to, for the warning that reports
@@ -1588,6 +1593,8 @@ std::vector<std::string> AppConfig::validate() const
             errors.push_back("haptics.masterGain out of range [0, 2]");
         if (hapticsPositionBudget < 0.0 || hapticsPositionBudget > 1.0)
             errors.push_back("haptics.positionBudget out of range [0, 1]");
+        if (!std::isfinite(hapticsBeltFullG) || (hapticsBeltFullG != 0.0 && (hapticsBeltFullG < kBeltFullGMin || hapticsBeltFullG > kBeltFullGMax)))
+            errors.push_back("haptics.beltFullG must be 0 (each belt's own) or in [0.2, 6]");
         if (hapticsAxisDelayMs < 0.0 || hapticsAxisDelayMs > 60.0)
             errors.push_back("haptics.axisDelayMs out of range [0, 60]");
         if (audioChannels < 1 || audioChannels > haptics::MAX_SHAKER_OUT)

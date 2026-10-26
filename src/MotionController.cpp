@@ -99,6 +99,10 @@ void MotionController::configure(const AppConfig& config)
                        : (config.conditioningMode == "filter")      ? CommandConditioner::Mode::Filter
                        :                                              CommandConditioner::Mode::Bypass;
     m_needsRehome = true;
+    // A belt shape staged since the config was read is NOT dropped here: the
+    // web thread stages only while the running axes are the file's (see
+    // WebServer), so it is newer than or the same as what is read now. A
+    // save that changes the axes drops it (clearStagedBeltG).
 
     // Initialize is a fresh start: a command queued while the loop was
     // stopped (a tension or engage pressed while tripped, a script) must
@@ -117,6 +121,7 @@ void MotionController::configure(const AppConfig& config)
     // a re-initialize).
     applyHaptics(config);
     m_hapPositionBudget = std::max(0.0, std::min(1.0, config.hapticsPositionBudget));
+    m_beltTypeFullG = std::isfinite(config.hapticsBeltFullG) ? config.hapticsBeltFullG : 0.0;
     // The axis delay too: it was only set by a live apply, so after every
     // start or Initialize the axes played undelayed until the next save.
     m_haptics.setAxisDelayCycles(axisDelayCycles(config.hapticsAxisDelayMs, m_cycleTimeSec));
@@ -171,20 +176,7 @@ void MotionController::configure(const AppConfig& config)
         ac.beltRelaxerSec    = dc.beltRelaxerSec;
         ac.beltRelaxerPct    = dc.beltRelaxerPct;
         ac.beltFromG         = (dc.beltSource == "g");
-        // Surge: the senders' accSurge reads above zero under braking (as
-        // SimHub gives it; the direct read is fitted to SimHub's sign), so
-        // "decel" takes the value above zero and "accel" the one below.
-        ac.beltGMode         = (dc.beltGMode == "off") ? 0 : (dc.beltGMode == "accel") ? 2 : (dc.beltGMode == "both") ? 3 : 1;
-        ac.beltGSway         = (dc.beltGSway == "left") ? 1 : (dc.beltGSway == "right") ? 2 : (dc.beltGSway == "both") ? 3 : 0;
-        ac.beltGHeave        = (dc.beltGHeave == "press") ? 1 : (dc.beltGHeave == "lift") ? 2 : (dc.beltGHeave == "both") ? 3 : 0;
-        ac.beltGSwayMix      = std::isfinite(dc.beltGSwayMix)  ? std::max(0.0, std::min(3.0, dc.beltGSwayMix))  : 1.0;
-        ac.beltGHeaveMix     = std::isfinite(dc.beltGHeaveMix) ? std::max(0.0, std::min(3.0, dc.beltGHeaveMix)) : 1.0;
-        // Clamped into their ranges here as well: validation only warns on
-        // load, and a curve at or below 0 would ask for more than torque max.
-        ac.beltGFromG        = std::max(0.0, std::min(2.0, dc.beltGFromG));
-        ac.beltGFullG        = std::max(ac.beltGFromG + 0.05, std::min(6.0, std::max(0.2, dc.beltGFullG)));
-        ac.beltGCurve        = std::isfinite(dc.beltGCurve) ? std::max(0.3, std::min(3.0, dc.beltGCurve)) : 1.0;
-        ac.beltGSmoothMs     = std::isfinite(dc.beltGSmoothMs) ? std::max(0.0, std::min(250.0, dc.beltGSmoothMs)) : 30.0;
+        putBeltGShape(ac, beltGShapeOf(dc));
         // Shaft-rpm math for the overspeed guard: getActualPositionRaw() returns
         // counts/countsPerMm "units", so one motor rev = encoderCountsPerRev/countsPerMm.
         ac.beltUnitsPerRev = (dc.countsPerMm > 0.0)
@@ -1228,6 +1220,100 @@ void MotionController::releaseDevices(int axisIndex)
     }
 }
 
+// ---- Belt from g: the shape, and its live apply ---------------------------------
+
+// A g at max held to its range and at least 0.05 g above g from: one rule
+// for the belt's own and the type of car's.
+static double beltFullGWithin(double fromG, double fullG)
+{
+    return std::max(fromG + 0.05, std::min(AppConfig::kBeltFullGMax, std::max(AppConfig::kBeltFullGMin, fullG)));
+}
+
+MotionController::BeltGShape MotionController::beltGShapeOf(const DriveConfig& dc)
+{
+    BeltGShape s;
+    // Surge: the senders' accSurge reads above zero under braking (as
+    // SimHub gives it; the direct read is fitted to SimHub's sign), so
+    // "decel" takes the value above zero and "accel" the one below.
+    s.mode     = (dc.beltGMode == "off") ? 0 : (dc.beltGMode == "accel") ? 2 : (dc.beltGMode == "both") ? 3 : 1;
+    s.sway     = (dc.beltGSway == "left") ? 1 : (dc.beltGSway == "right") ? 2 : (dc.beltGSway == "both") ? 3 : 0;
+    s.heave    = (dc.beltGHeave == "press") ? 1 : (dc.beltGHeave == "lift") ? 2 : (dc.beltGHeave == "both") ? 3 : 0;
+    s.swayMix  = std::isfinite(dc.beltGSwayMix)  ? std::max(0.0, std::min(3.0, dc.beltGSwayMix))  : 1.0;
+    s.heaveMix = std::isfinite(dc.beltGHeaveMix) ? std::max(0.0, std::min(3.0, dc.beltGHeaveMix)) : 1.0;
+    // Clamped into their ranges here as well: validation only warns on
+    // load, and a curve at or below 0 would ask for more than torque max.
+    s.fromG    = std::isfinite(dc.beltGFromG) ? std::max(0.0, std::min(2.0, dc.beltGFromG)) : 0.05;
+    s.fullG    = beltFullGWithin(s.fromG, std::isfinite(dc.beltGFullG) ? dc.beltGFullG : 1.5);
+    s.curve    = std::isfinite(dc.beltGCurve) ? std::max(0.3, std::min(3.0, dc.beltGCurve)) : 1.0;
+    s.smoothMs = std::isfinite(dc.beltGSmoothMs) ? std::max(0.0, std::min(250.0, dc.beltGSmoothMs)) : 30.0;
+    return s;
+}
+
+void MotionController::putBeltGShape(AxisConfig& ac, const BeltGShape& s)
+{
+    ac.beltGMode = s.mode; ac.beltGSway = s.sway; ac.beltGHeave = s.heave;
+    ac.beltGSwayMix = s.swayMix; ac.beltGHeaveMix = s.heaveMix;
+    ac.beltGFromG = s.fromG; ac.beltGFullG = s.fullG; ac.beltGCurve = s.curve; ac.beltGSmoothMs = s.smoothMs;
+}
+
+void MotionController::stageBeltG(int axisIndex, const DriveConfig& dc)
+{
+    // Web thread: only the index here. The RT side checks the axis is a
+    // belt of the running config when it takes the stage (the running
+    // config belongs to the RT thread and to configure()).
+    if (axisIndex < 0 || axisIndex >= MAX_DRIVES) return;
+    const BeltGShape s = beltGShapeOf(dc);
+    {
+        std::lock_guard<std::mutex> lk(m_beltGLock);
+        m_beltGPending[axisIndex] = s;
+    }
+    m_beltGMask.fetch_or(uint16_t(1u << axisIndex), std::memory_order_release);
+}
+
+// A save that changes the axes: a shape staged by index no longer names
+// the axis it was meant for.
+void MotionController::clearStagedBeltG()
+{
+    m_beltGMask.store(0, std::memory_order_release);
+}
+
+// RT thread, top of a cycle. Never waits on the web thread: a save
+// mid-copy leaves the shape for the next cycle (the mask clears inside the
+// lock, so a stage landing between the copy and the clear is kept). The
+// low-pass state carries on (a new smoothing eases from where it is),
+// except for a channel switched on: it starts afresh, as at tension-up,
+// not from the g it held when it was switched off.
+void MotionController::applyPendingBeltG()
+{
+    if (!m_beltGMask.load(std::memory_order_acquire)) return;
+    BeltGShape s[MAX_DRIVES];
+    uint16_t mask;
+    {
+        std::unique_lock<std::mutex> lk(m_beltGLock, std::try_to_lock);
+        if (!lk.owns_lock()) return;
+        mask = m_beltGMask.exchange(0, std::memory_order_acq_rel);
+        for (int i = 0; i < MAX_DRIVES; ++i) if (mask & (1u << i)) s[i] = m_beltGPending[i];
+    }
+    static const char* const kSurge[4] = { "off", "braking", "acceleration", "both" };
+    for (int i = 0; i < m_numDrives; ++i)
+    {
+        if (!(mask & (1u << i))) continue;
+        AxisConfig& ac = m_axisConfig[i];
+        if (!ac.caps.beltType) continue;
+        const int was[3] = { ac.beltGMode, ac.beltGSway, ac.beltGHeave };
+        const int now[3] = { s[i].mode, s[i].sway, s[i].heave };
+        for (int k = 0; k < 3; ++k)
+            if (was[k] == 0 && now[k] != 0) { m_runtime[i].beltGCh[k].live = false; m_runtime[i].beltGCh[k].meanLive = false; }
+        const bool same = ac.beltGMode == s[i].mode && ac.beltGSway == s[i].sway && ac.beltGHeave == s[i].heave
+                       && ac.beltGSwayMix == s[i].swayMix && ac.beltGHeaveMix == s[i].heaveMix && ac.beltGFromG == s[i].fromG
+                       && ac.beltGFullG == s[i].fullG && ac.beltGCurve == s[i].curve && ac.beltGSmoothMs == s[i].smoothMs;
+        putBeltGShape(ac, s[i]);
+        if (!same)
+            RT_LOG_INFO("MotionController: Axis %d belt from the car's g applied live: surge %s, %.2f..%.2f g, curve %.2f, smoothed %.0f ms",
+                        i + 1, kSurge[s[i].mode & 3], s[i].fromG, s[i].fullG, s[i].curve, s[i].smoothMs);
+    }
+}
+
 // ---- Device live-apply (tuning path) -------------------------------------------
 
 void MotionController::stageDeviceParams(int axisIndex, const DeviceParams& p)
@@ -1751,7 +1837,9 @@ double MotionController::beltGTension(int i, double x)
 {
     const AxisConfig& ac = m_axisConfig[i];
     if (!std::isfinite(x)) x = 0.0;
-    double u = std::max(0.0, std::min(1.0, (x - ac.beltGFromG) / std::max(1e-6, ac.beltGFullG - ac.beltGFromG)));
+    // The type of car's g at max wins over the belt's own while it is set.
+    const double full = (m_beltTypeFullG > 0.0) ? beltFullGWithin(ac.beltGFromG, m_beltTypeFullG) : ac.beltGFullG;
+    double u = std::max(0.0, std::min(1.0, (x - ac.beltGFromG) / std::max(1e-6, full - ac.beltGFromG)));
     if (ac.beltGCurve != 1.0) u = std::pow(u, ac.beltGCurve);
     const double t = ac.torqueMinPct + (ac.torqueMaxPct - ac.torqueMinPct) * u;
     // Never outside the belt's own range, whatever the settings say.
@@ -2266,6 +2354,7 @@ void MotionController::stageHaptics(const AppConfig& c)
     m_hapStage.masterGain = c.hapticsMasterGain;
     m_hapStage.positionBudget = c.hapticsPositionBudget;
     m_hapStage.axisDelayMs    = c.hapticsAxisDelayMs;
+    m_hapStage.beltFullG      = c.hapticsBeltFullG;
     m_hapStagePending.store(true, std::memory_order_release);
 }
 
@@ -2300,6 +2389,7 @@ void MotionController::applyStagedHaptics()
     }
     applyHapticsTo(m_haptics, s.fx, s.engine, s.slipLat, s.slipLon, s.road, s.kerb, s.abs, s.tc, s.surface, s.wheels, s.impacts, s.driveline, s.masterGain);
     m_hapPositionBudget = std::max(0.0, std::min(1.0, s.positionBudget));
+    m_beltTypeFullG = std::isfinite(s.beltFullG) ? s.beltFullG : 0.0;
     m_haptics.setAxisDelayCycles(axisDelayCycles(s.axisDelayMs, m_cycleTimeSec));
     applyHapticSinks();
     RT_LOG_INFO("MotionController: haptics settings applied live.");
@@ -2446,6 +2536,8 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
 
     // Device live-apply: staged feel/geometry params land on limp devices.
     applyPendingDeviceParams();
+    // Belt from g live-apply: a saved g shape lands this cycle.
+    applyPendingBeltG();
 
     // Telemetry-quiet tracking for the commissioning entry rail: a test must
     // not start while a game/SimHub stream is live (the two would fight).

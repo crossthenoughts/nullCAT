@@ -153,9 +153,16 @@ static bool jsonEqual(const std::string& a, const std::string& b)
     return da == db;
 }
 
+// A belt's g shape: applied live on save (MotionController::stageBeltG).
+// The belt's source, torque range and guards are not in it: they wait for
+// an Initialize.
+static const char* const kBeltGLiveKeys[] = { "beltGMode", "beltGSway", "beltGSwayMix", "beltGHeave", "beltGHeaveMix",
+                                              "beltGFromG", "beltGFullG", "beltGCurve", "beltGSmoothMs" };
+
 // True when two rig bodies differ ONLY in the parts the running process
-// applies live on save (haptics tuning + per-device feel), i.e. nothing that
-// needs an Initialize changed. Unparseable bodies count as "needs init".
+// applies live on save (haptics tuning, per-device feel, a belt's g shape),
+// i.e. nothing that needs an Initialize changed. Unparseable bodies count
+// as "needs init".
 static bool rigDiffIsLiveOnly(const std::string& oldBody, const std::string& newBody)
 {
     auto strip = [](const std::string& s, QJsonObject& out) -> bool
@@ -171,6 +178,7 @@ static bool rigDiffIsLiveOnly(const std::string& oldBody, const std::string& new
         {
             QJsonObject a = axes.at(i).toObject();
             a.remove("device");
+            for (const char* k : kBeltGLiveKeys) a.remove(QLatin1String(k));
             axes.replace(i, a);
         }
         out.insert("axes", axes);
@@ -916,18 +924,20 @@ bool WebServer::start()
                         // landing mid-reload).
                         std::lock_guard<std::mutex> io(m_profilesIo);
                         reloaded = m_configReloader();
+                        // rig.json is now what this process runs: the pill
+                        // for it goes out (host.json still needs a restart).
+                        // Under the reload's lock, so a save landing after
+                        // the read keeps its own pill.
+                        if (reloaded)
+                        {
+                            m_rigNeedsInit.store(false);
+                            if (!m_configPath.empty())
+                                m_rigKnownMtime.store(fileMtime(siblingFile(m_configPath, "rig.json")));
+                        }
                     }
                     if (!reloaded)
                         LOG_WARNING("WebServer: config reload from disk failed -- "
                                     "initializing with the in-memory config.");
-                    else
-                    {
-                        // rig.json is now what this process runs: the pill
-                        // for it goes out (host.json still needs a restart).
-                        m_rigNeedsInit.store(false);
-                        if (!m_configPath.empty())
-                            m_rigKnownMtime.store(fileMtime(siblingFile(m_configPath, "rig.json")));
-                    }
                     m_motion->configure(*m_config);
                 }
 
@@ -1396,6 +1406,13 @@ bool WebServer::start()
                     return;
                 }
             }
+            // Whether the running config's axes are the file's before this
+            // save: not when an earlier save (or a hand edit) is waiting for
+            // an Initialize. A g shape is staged by axis index, so only then
+            // does an index in the file name the same running axis.
+            const bool rigPendingBefore = m_rigNeedsInit.load()
+                || (!m_configPath.empty() && fileMtime(siblingFile(m_configPath, "rig.json"))
+                       > (m_rigKnownMtime.load() ? m_rigKnownMtime.load() : static_cast<long long>(m_processStart)));
             std::string oldBody;
             const int wr = writeConfigNamespace("rig.json", Config::validateRigBody(m_configPath, req.body),
                                                 req.body, res, &oldBody);
@@ -1430,8 +1447,19 @@ bool WebServer::start()
                 std::vector<DriveConfig> axes;
                 if (Config::parseRigBodyAxes(req.body, axes))
                     for (size_t i = 0; i < axes.size() && i < MAX_DRIVES; ++i)
+                    {
                         if (axisCaps(axes[i].axisType, axes[i].mode).isDevice())
                             m_motion->stageDeviceParams((int)i, axes[i].device);
+                        // A belt's g shape, when nothing else on the axes
+                        // changed and the running axes are the file's (in
+                        // the same order and kind): live from the next cycle.
+                        if (liveOnly && !rigPendingBefore && axes[i].beltSource == "g"
+                            && axisCaps(axes[i].axisType, axes[i].mode).beltType)
+                            m_motion->stageBeltG((int)i, axes[i]);
+                    }
+                // A save that changes the axes: a shape staged by index
+                // would land on whatever axis that index is after it.
+                if (!liveOnly) m_motion->clearStagedBeltG();
                 // Haptics live-apply: reload the just-written config from
                 // disk and stage its haptics tuning - amp/frequency/routing
                 // edits take effect immediately, no re-initialize. (A save

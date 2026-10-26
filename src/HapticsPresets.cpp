@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "HapticsPresets.h"
 #include "CarTable.h"
+#include "Config.h"
 #include "HapticsRegistry.h"
 #include "Logging.h"
 #include <QFile>
@@ -96,6 +97,15 @@ QJsonObject HapticsPresets::clean(const QJsonObject& h, const std::string& prese
     for (auto it = h.begin(); it != h.end(); ++it)
     {
         const std::string tile = it.key().toStdString();
+        // The one rig-level setting a type of car may set: the belts' g at
+        // max (a GT3 pulls harder than a road car).
+        if (tile == "beltFullG")
+        {
+            const double v = it.value().toDouble(-1.0);
+            if (it.value().isDouble() && v >= AppConfig::kBeltFullGMin && v <= AppConfig::kBeltFullGMax) out[it.key()] = it.value();
+            else LOG_WARNING(strf("Haptics: starting point '%s': beltFullG is not a g between 0.2 and 6, ignored.", preset.c_str()));
+            continue;
+        }
         const haptics::EffectInfo* info = haptics::findEffect(tile.c_str());
         if (!info || !it.value().isObject())
         {

@@ -7,7 +7,8 @@
 //
 // A starting point is a named, partial haptics object for a type of car
 // (road car, cup car, GT3, open wheeler): only the settings that depend
-// on the type (slip, road, kerb, wheels, impacts), under the same tile and
+// on the type (slip, road, kerb, wheels, impacts, and beltFullG, the g a
+// belt on the car's g reaches its max at), under the same tile and
 // setting names as rig.json's haptics object. Applying one is a merge over
 // the live set (Config::readHapticsObject) that leaves everything it does
 // not name exactly as it was. It never carries routes, master gain, the

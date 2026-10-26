@@ -6,6 +6,48 @@ middle number carries breaking changes and the last carries fixes.
 
 ## [Unreleased]
 
+### Added
+- A belt on the car's g follows the type of car: each starting point sets
+  **belt g at max** (about 1 for a road car, 1.4 for a cup car, 2 for a
+  GT3, 2.5 for an open wheeler), shown under the type on the Haptics
+  panel and saved like the tiles, with the loop running. 0 leaves each belt
+  on its own g at max.
+- SimHub plugin: with `"kunosDirectHeights": "on"` beside `"kunosDirect"`,
+  the road heights under the tyres and, in Competizione, EVO and Rally,
+  the game's own kerb vibration go straight from the game at its physics
+  rate, fast enough for the Kerb tile to feel a rumble strip's ribs.
+  Off by default.
+
+### Changed
+- A belt's g settings (surge, sway, heave and their shares, g from, g at
+  max, curve, smoothing) apply on Save with the loop running: no Stop,
+  re-initialize, unpark or re-tension. Settings on the Axes page that apply
+  on Save are marked **live**; the rest still wait for the next
+  re-initialize, and a save that also changes one of those waits for it
+  whole.
+- The car table rows say what they do: **this car** with **re-apply**,
+  **save as mine** and **forget mine**, and **another car** for the search.
+  With follow car on, neither is needed.
+- The car readout at the top of the Haptics panel shows what the car table
+  has for the car as tags (stock, yours, near match, not applied, no entry,
+  defaults) that a long name no longer hides.
+- The Force-feel devices page is shown on the Raspberry Pi only, where
+  devices run.
+
+### Fixed
+- The Motion rows no longer pile the accel readout down their left edge
+  once a parked axis enables.
+- The header fits the window: its readouts drop out, least needed first
+  and the link with its clock last, instead of pushing the theme key and
+  the E-STOP off the edge.
+- Shakers: the level meters and test keys fit the card, up to eight in a
+  row.
+- SimHub plugin: the game's kerb vibration no longer depends on the
+  contact patches (a game without them lost its kerbs too). Where a game
+  gives no contact patches, its own slip angles go instead. The direct
+  read also runs for a game that does not move its page's packet counter,
+  and says why when it is not live, in its property and in SimHub's log.
+
 ## [0.9.10] - 2026-10-26
 
 The UI overhaul release. The web page is a new instrument console: the

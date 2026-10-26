@@ -706,6 +706,29 @@ int main()
         check(bare.status == 200 && has(bare.body, "\"ok\":true") && has(compact(get("/api/rig")), "\"masterGain\":0.8"),
               "POST /api/rig without the header (a script) is taken as is");
     }
+    // A belt's g shape applies live on save (staged with the motion
+    // controller); its torque range still waits for an Initialize. Taking
+    // the beltG keys out of the live set makes the first row fail.
+    {
+        const auto axisWith = [](const std::string& b, const char* key, double v)
+        {
+            QJsonObject root = QJsonDocument::fromJson(QByteArray::fromStdString(b)).object();
+            QJsonArray axes = root.value("axes").toArray();
+            QJsonObject a = axes.at(0).toObject(); a[key] = v; axes.replace(0, a);
+            root["axes"] = axes;
+            return QJsonDocument(root).toJson().toStdString();
+        };
+        std::string body; int gen = -1;
+        check(getRig(body, gen), "GET /api/rig for the belt g edits");
+        const Reply g = postHdr("/api/rig", axisWith(body, "beltGFullG", 2.0), {{"X-Nullcat-Gen", std::to_string(gen)}});
+        check(g.status == 200 && has(g.body, "\"changed\":true") && has(g.body, "\"needsInit\":false")
+              && has(get("/api/meta"), "\"rigPendingRestart\":false"),
+              "a save that moves only a belt's g at max applies live: no Initialize asked for");
+        check(getRig(body, gen), "GET /api/rig again");
+        const Reply t = postHdr("/api/rig", axisWith(body, "torqueMaxPct", 40.0), {{"X-Nullcat-Gen", std::to_string(gen)}});
+        check(t.status == 200 && has(t.body, "\"needsInit\":true"),
+              "a save that moves the belt's torque max still asks for an Initialize");
+    }
     // Starting points: the shipped file beside the config lists its four
     // types in the file's order; apply refuses an unknown name and merges a
     // known one into the saved rig (its own settings only: the engine the
