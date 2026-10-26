@@ -6,6 +6,54 @@ middle number carries breaking changes and the last carries fixes.
 
 ## [Unreleased]
 
+## [0.9.10] - 2026-10-26
+
+The UI overhaul release. The web page is a new instrument console: the
+same controls, settings, saves and readouts as 0.9.9, laid out as a
+console of glowing displays, lamps and keys, in three housings. Nothing
+behind the page changed, so 0.9.9 brings the old page back as it was.
+
+### Changed
+- Two views in place of one long page. **Operate** has Motion on the left
+  and Haptics on the right; **Setup** has a page for each area in a left
+  nav (Axes, Blend & conditioning, Shakers / audio, Button box, Sim
+  channels, Force-feel devices, Drive provisioning, Commissioning tests,
+  System), each with a lamp and a one-line summary.
+- Motion shows the axes as rows: lamp, name and role, then a glass strip
+  with the state, the position bar with its target tick, mm, mm/s, the
+  torque bar and %, °C and following error. Click a row for the detail
+  grid (target, peaks, duty, speed, accel, guard) and an **Axis setup**
+  key that opens that axis in Setup. Columns give way as the panel
+  narrows.
+- Haptics is a mixer. The effects are rows under Engine & driveline,
+  Braking & tyres, Road & track and Controls, each with its sim lamp, a
+  mini scope, an amp fader and an M key. Click a name and the effect opens
+  in an editor beside the mixer: a large scope, banners for amp 0, not
+  routed and channels the sender is not sending, the sender's channels as
+  chips with lamps, every setting with its help text under the **?** key,
+  and the routing underneath. The profile, follow car, the car and game,
+  and the master gain sit at the top of the mixer; pos budget, axis delay,
+  the starting point, the car table and the sim dots fold under **Rig ·
+  car · sim**. Either panel minimises to a rail of lamps.
+- The header is a status window: link, clock, loop, EtherCAT, rate,
+  slaves, UDP and jitter as segment displays, and a **System** key that
+  opens the System page. The action bar's keys carry lamps; the glass
+  between them shows a command's refusal, the save result and "rig saved,
+  re-initialize to apply" from either view; the E-STOP is red and large.
+- A save strip appears above the bar whenever something is unsaved, in
+  either view, with the count and the Save key.
+- Three housings under **Theme**: A6 slate (the default), Light and
+  Graphite. A browser set to the old dark theme gets Graphite. The fonts
+  ship with nullCAT, so a Pi with no internet draws the page the same.
+- Shakers / audio shows a level meter over each shaker's test key. Button
+  box shows the bound button in a keycap. Commissioning tests has its
+  modes as keys and a Home key per axis.
+
+### Removed
+- The collapsible section headers (Drives, Effects, Configuration) and
+  their remembered open or closed state; the panels minimise to a rail
+  instead, and Setup is its own view.
+
 ## [0.9.9] - 2026-10-26
 
 Belts pulled straight from the car's g and Impacts that feel the hits,
