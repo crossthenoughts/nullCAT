@@ -384,6 +384,10 @@ constexpr ParamHelp kHelp[] = {
       "140. Single-seater on wets: 140 to 160. Any car on slicks: 60 to 70." },
     { "surface", "smooth",
       "How far water fills the road's texture under a tyre, 0 to 1. 0.6 to 0.8 for most." },
+    { "surface", "assume",
+      "The ground the tyres are on when the sim does not say (AC Rally, AC EVO, Assetto Corsa): gravel plays "
+      "the stones and the gravel's texture all the time. The rally types of car set it: gravel for a gravel "
+      "stage, tarmac for a tarmac one. Every other type sets tarmac. A sim that says what the ground is wins." },
 
     // ---- wheels ----
     { "wheels", "balance",

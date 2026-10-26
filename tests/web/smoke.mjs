@@ -301,7 +301,7 @@ try {
   if (!(st.carSug.rows > 0 && st.carSug.shown && st.carSug.game))
     fails.push(`preset search: typing "bmw m3" shows ${st.carSug.rows} rows (shown ${st.carSug.shown}, game "${st.carSug.game}"), expected matching cars with their game`);
   if (!st.presetRow)            fails.push('no starting point row (type selector and apply) on the Master tile');
-  if (st.presetOpts !== 9)      fails.push(`starting point selector has ${st.presetOpts} options, expected the 8 shipped starting points and the prompt`);
+  if (st.presetOpts !== 11)     fails.push(`starting point selector has ${st.presetOpts} options, expected the 10 shipped starting points and the prompt`);
   if (!st.carNotes)             fails.push('no car notes block on the Engine tile');
   if (!st.carNotesHidden)       fails.push('car notes block is showing with no car named');
   if (!drawer.chip)             fails.push('no name key on the Lateral slip mixer row');

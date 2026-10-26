@@ -1327,6 +1327,29 @@ int main()
               "I-10 surface: the gravel under FL strikes stones, the tarmac under FR none");
         check(pk0 > 1.0 && pk1 < 1e-9, "I-10 surface: FL's route plays them, FR's is silent");
 
+        // No surface type from the sim: the ground the tile assumes. Gravel
+        // strikes stones on every tyre; the default (tarmac) none; a sim
+        // that says tarmac wins over an assumed gravel.
+        {
+            haptics::Layer A; haptics::LawsState as;
+            A.configureFx(FxType::Surface, sp);
+            haptics::SurfaceParams q; q.assume = 1.0;   // gravel
+            A.configureSurface(q);
+            NcxValues n{}; n.fresh = true;
+            n.have[NcxValues::SpeedKmh] = true; n.val[NcxValues::SpeedKmh] = 72.0;
+            for (int i = 0; i < 1500; ++i) { haptics::driveLaws(A, as, n, dt); A.step(dt); }
+            check(A.surfaceModel().stonesStruck(WheelFL) > 50 && A.surfaceModel().stonesStruck(WheelRR) > 50,
+                  "I-10 surface: no surface sent, gravel assumed: stones on every tyre");
+            haptics::Layer T; haptics::LawsState ts;
+            T.configureFx(FxType::Surface, sp);
+            for (int i = 0; i < 1500; ++i) { haptics::driveLaws(T, ts, n, dt); T.step(dt); }
+            check(T.surfaceModel().stonesStruck(WheelFL) == 0, "I-10 surface: no surface sent, nothing assumed: tarmac, no stones");
+            haptics::Layer S; haptics::LawsState ss;
+            S.configureFx(FxType::Surface, sp); S.configureSurface(q);
+            for (int w = 0; w < 4; ++w) { n.have[NcxValues::SurfaceFL + w] = true; n.val[NcxValues::SurfaceFL + w] = SurfTarmac; }
+            for (int i = 0; i < 1500; ++i) { haptics::driveLaws(S, ss, n, dt); S.step(dt); }
+            check(S.surfaceModel().stonesStruck(WheelFL) == 0, "I-10 surface: the sim saying tarmac wins over an assumed gravel");
+        }
         // Rain builds a water film (a minute of heavy rain: 63%); the sim's
         // own wetness wins over it; per tyre wins over that.
         surf(SurfTarmac, SurfTarmac, SurfTarmac, SurfTarmac);

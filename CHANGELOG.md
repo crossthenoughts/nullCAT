@@ -17,6 +17,20 @@ middle number carries breaking changes and the last carries fixes.
   the game's own kerb vibration go straight from the game at its physics
   rate, fast enough for the Kerb tile to feel a rumble strip's ribs.
   Off by default.
+- Two rally types of car to start from: **Rally gravel** and **Rally
+  tarmac** (first guesses, tuned on AC Rally), between Open wheeler and the
+  AMS2 types. Both turn the kerb detection from road heights off: a rally
+  road read as kerbs, about 30 knocks a minute on the shakers on a tarmac
+  stage of AC Rally and 14 on gravel, with none in the replay once the
+  type is applied.
+- The Surface tile can take the ground the tyres are on when the sim does
+  not say (AC Rally, AC EVO, Assetto Corsa): **no surface sent** gravel,
+  dirt, snow or sand. The gravel rally type sets gravel, so the stones under
+  the floor and the gravel's texture play on a gravel stage exactly as in
+  an Automobilista 2 gravel trap. A sim that sends the surface wins, and
+  every other type sets tarmac, so it never stays on after a rally stage.
+  Every type now also sets the stones, and the AC and AMS2 circuit types
+  the kerb detection (15 mm).
 
 ### Changed
 - A belt's g settings (surge, sway, heave and their shares, g from, g at

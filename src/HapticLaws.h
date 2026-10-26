@@ -1514,8 +1514,13 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         if (vel)         for (int w = 0; w < WHEEL_COUNT; ++w) L.driveRoad(w, v.val[NcxValues::SuspVelFL + w]);
         else if (travel) for (int w = 0; w < WHEEL_COUNT; ++w) L.driveRoadTravel(w, v.val[NcxValues::SuspTravelFL + w]);
         if (height)      for (int w = 0; w < WHEEL_COUNT; ++w) L.driveRoadHeight(w, v.val[NcxValues::RoadHeightFL + w]);
+        // No surface type from the sim: the ground the Surface tile assumes
+        // (a rally type of car sets gravel), tarmac unless set.
+        static constexpr int kAssumed[5] = { SurfTarmac, SurfGravel, SurfDirt, SurfSnow, SurfSand };
+        const double as = L.surfaceParams().assume;
+        const int assumed = kAssumed[std::isfinite(as) ? std::max(0, std::min(4, static_cast<int>(std::lround(as)))) : 0];
         for (int w = 0; w < WHEEL_COUNT; ++w)
-            L.driveRoadSurface(w, surf ? surfaceClass(v.val[NcxValues::SurfaceFL + w]) : SurfTarmac);
+            L.driveRoadSurface(w, surf ? surfaceClass(v.val[NcxValues::SurfaceFL + w]) : assumed);
         if (body)
             L.driveChassis(v.val[NcxValues::AccHeave],
                            v.have[NcxValues::PitchDeg] ? v.val[NcxValues::PitchDeg] : 0.0,

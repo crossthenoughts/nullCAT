@@ -68,11 +68,11 @@ private slots:
     {
         HapticsPresets p;
         QVERIFY2(p.load(shippedPath().toStdString()), "resources/presets.json missing or unreadable");
-        QCOMPARE(p.count(), 8);
+        QCOMPARE(p.count(), 10);
         const auto list = p.list();
-        const char* names[] = { "Road car", "Cup car", "GT3 / GT", "Open wheeler",
+        const char* names[] = { "Road car", "Cup car", "GT3 / GT", "Open wheeler", "Rally gravel", "Rally tarmac",
                                 "Road car (AMS2)", "Cup car (AMS2)", "GT3 / GT (AMS2)", "Open wheeler (AMS2)" };
-        for (size_t i = 0; i < 8; ++i)
+        for (size_t i = 0; i < 10; ++i)
         {
             QCOMPARE(list[i].name, std::string(names[i]));
             QVERIFY2(!list[i].description.empty(), names[i]);
@@ -150,7 +150,7 @@ private slots:
                 if (named) ++changed;
             }
         }
-        QCOMPARE(changed, 18);   // 2 + 3 + 7 + 1 + 2 + 2 + the belt g: every listed setting landed
+        QCOMPARE(changed, 21);   // 2 + 3 + 7 + 2 + 2 + 2 + 2 + the belt g: every listed setting landed
         QCOMPARE(c.hapticsBeltFullG, 2.5);
 
         // The listed values, by name...
@@ -215,8 +215,13 @@ private slots:
             QVERIFY(!pr.haptics.contains("masterGain"));
             QVERIFY(!pr.haptics.contains("positionBudget"));
             QVERIFY(!pr.haptics.contains("followCar"));
-            // Every shipped type sets the belts' g at max, in range.
+            // Every shipped type sets the belts' g at max, in range, and the
+            // ground assumed when the sim sends none (gravel only on the
+            // gravel rally type): switching from a rally type to any other
+            // never leaves gravel on.
             QVERIFY2(pr.haptics.contains("beltFullG"), pr.name.c_str());
+            QVERIFY2(pr.haptics.value("surface").toObject().contains("assume"), pr.name.c_str());
+            QCOMPARE(pr.haptics.value("surface").toObject().value("assume").toDouble(), pr.name == "Rally gravel" ? 1.0 : 0.0);
             for (auto it = pr.haptics.begin(); it != pr.haptics.end(); ++it)
             {
                 if (it.key() == "beltFullG")

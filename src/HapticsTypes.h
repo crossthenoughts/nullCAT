@@ -206,6 +206,10 @@ struct SurfaceParams
     double puddles = 0.6;    // the drag tug into a puddle and the bite out of it, 0..1
     double aquaKmh = 90.0;   // the speed a tyre floats at in standing water
     double smooth  = 0.7;    // how far water smooths the road's texture, 0..1
+    // The ground the tyres are taken to be on when the sim sends no surface
+    // type (AC Rally, AC EVO, plain AC): 0 tarmac, 1 gravel, 2 dirt, 3 snow,
+    // 4 sand. A rally type of car sets it; tarmac for every other type.
+    double assume  = 0.0;
 };
 
 // The Wheels tile (WheelsModel.h): what each wheel does as it turns, through

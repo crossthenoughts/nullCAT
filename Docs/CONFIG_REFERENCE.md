@@ -235,6 +235,7 @@ Surface fields (`surface`; `freqHz` is kept but unused):
 | `puddles` | `0.6` | 0 to 1: puddles laid out per side on a wet road (a 60 % x wet squared chance per 4 m, 1 to 3.5 m long): the tug entering (stronger with speed squared, full at 90 km/h) and the bite out of a float. |
 | `aquaKmh` | `90` | 40 to 250: the speed a tyre floats at in standing water (higher in shallower water). |
 | `smooth` | `0.7` | 0 to 1: how far water fills the Road tile's texture under a tyre (its short wavelengths). |
+| `assume` | `0` | The ground the tyres are taken to be on when the sim sends no surface type (`surface*` absent): `0` tarmac, `1` gravel, `2` dirt, `3` snow, `4` sand, for the Road and Surface tiles. The rally starting points set it (gravel or tarmac), every other type tarmac. A sim that sends the surface wins. |
 
 Wheels fields (`wheels`; `freqHz` is kept but unused). Each wheel's road input runs through a quarter car per corner with the `road` entry's `bodyHz`, `hopHz`, `damping` and `hpHz`; a post's 100 % is 0.3 mm of body movement, a belt's or shaker's that movement at 8 Hz. A route's `part` plays the mean of its corners. Each wheel turns at speed x (1 + its slip ratio) from `slipRatio*` (or `wheelSpeed*`), else at the road speed, on a 2 m circumference.
 

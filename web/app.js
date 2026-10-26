@@ -1296,7 +1296,7 @@ let HAP_FX=[], HAP_DEF={};
 const HAP_CARKEY_TIP='Follows the car: a car\'s entry in the car table can set this (follow car, or re-apply), and "save as mine" keeps yours. Untinted settings are general: a new car leaves them as they are.';
 // ...and on a setting the type of car sets (a starting point: Road car, Cup
 // car, GT3, Open wheeler), tinted in its own colour.
-const HAP_TYPEKEY_TIP='Follows the type of car: applying a starting point on the Master tile (Road car, Cup car, GT3 / GT, Open wheeler) sets this. A new car leaves it as it is.';
+const HAP_TYPEKEY_TIP='Follows the type of car: applying a starting point (Haptics panel, Rig · car · sim: road car, cup car, GT3, open wheeler, rally gravel or tarmac) sets this. A new car leaves it as it is.';
 const HAP_CARDEFAULT_TIP='The car table has no entry for this car, so this setting is on its default rather than the last car\'s. Pick a car like it in the preset box and apply it, or tune it and "save for this car".';
 let hapCarDefaultOn=false;   // the car tiles are on the defaults (the car has no entry)
 function hapCarKeyTip(){ return hapCarDefaultOn?HAP_CARDEFAULT_TIP:HAP_CARKEY_TIP; }

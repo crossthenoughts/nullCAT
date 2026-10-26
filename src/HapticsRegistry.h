@@ -219,6 +219,7 @@ constexpr ParamSpec kSurfaceParams[] = {        // surface: stones, crunch, stud
     { "puddles", "puddle x",   0,   1,   0.05, nullptr },   // the tug into a puddle, the bite out
     { "aquaKmh", "aqua km/h",  40,  250, 5,    nullptr },   // a tyre floats in standing water from here
     { "smooth",  "smooth x",   0,   1,   0.05, nullptr },   // how far water fills the road's texture
+    { "assume",  "no surface sent", 0, 4, 1,   "tarmac|gravel|dirt|snow|sand" },   // the ground when the sim sends none
 };
 constexpr ParamSpec kWheelsParams[] = {         // wheels: out of round, flat spots, brake judder
     { "ampPct",  "amp %",      0,   100, 1,    nullptr },
