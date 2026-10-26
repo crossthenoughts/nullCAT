@@ -315,11 +315,11 @@ try {
     if (drawer.partOpts !== 7)  fails.push(`part selector has ${drawer.partOpts} options, expected 7 (all, front, rear, 4 corners)`);
   }
 
-  // A page left with an effect's editor open and Motion on the rail loads
-  // again: the stored layout used to stop the script at load (the effect
-  // state read before it was declared), leaving "Disconnected" for good.
+  // A page left on the tests page, with an effect's editor open and Motion
+  // on the rail loads again: each stored choice used to stop the script at
+  // load (state read before it was declared), leaving "Disconnected" for good.
   {
-    await page.evaluate(() => { localStorage.setItem('nullcat.ui.layout', JSON.stringify({ mo: 'rail', hp: 'ed' })); localStorage.setItem('nullcat.ui.sel', 'slipLat'); });
+    await page.evaluate(() => { localStorage.setItem('nullcat.ui.layout', JSON.stringify({ mo: 'rail', hp: 'ed' })); localStorage.setItem('nullcat.ui.sel', 'slipLat'); localStorage.setItem('nullcat.ui.setup', 'test'); });
     const before = pageErrors.length;
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
     await sleep(3500);
@@ -328,12 +328,15 @@ try {
       badge: (document.getElementById('conn-status') || {}).textContent || '',
       hp: (document.getElementById('ws') || { dataset: {} }).dataset.hp,
       mo: (document.getElementById('ws') || { dataset: {} }).dataset.mo,
-      ed: !!document.querySelector('#hapEdBody .hap-tile[data-fx="slipLat"]') }));
+      ed: !!document.querySelector('#hapEdBody .hap-tile[data-fx="slipLat"]'),
+      setup: (document.querySelector('#su .supg.on') || { dataset: {} }).dataset.pg,
+      testList: document.querySelectorAll('#testAxes > *').length }));
     if (pageErrors.length > before)  fails.push('reload with a stored editor-open layout: page errors ' + pageErrors.slice(before).join(' | '));
     if (!back.booted)                fails.push('reload with a stored editor-open layout: the script did not finish its start');
     if (!/Connected/.test(back.badge)) fails.push(`reload with a stored editor-open layout: badge "${back.badge}", expected Connected`);
     if (!(back.hp === 'ed' && back.mo === 'rail' && back.ed)) fails.push(`reload with a stored editor-open layout: layout ${back.mo}/${back.hp}, editor ${back.ed}, expected rail/ed with Lateral slip open`);
-    await page.evaluate(() => { localStorage.removeItem('nullcat.ui.layout'); localStorage.removeItem('nullcat.ui.sel'); });
+    if (!(back.setup === 'test' && back.testList > 0)) fails.push(`reload with a stored tests page: page ${back.setup}, ${back.testList} test rows, expected the tests page built`);
+    await page.evaluate(() => { localStorage.removeItem('nullcat.ui.layout'); localStorage.removeItem('nullcat.ui.sel'); localStorage.removeItem('nullcat.ui.setup'); });
   }
 
   if (fails.length) { console.error(childOut.slice(-2000)); die('\n  ' + fails.join('\n  ')); }

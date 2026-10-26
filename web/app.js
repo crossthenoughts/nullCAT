@@ -506,16 +506,19 @@ function toggle(panel, arrow){ const c=panel.classList.toggle('collapsed'); arro
 const SETUP_PAGES={axes:['Rig','Axes'],blend:['Rig','Blend & conditioning'],shk:['Outputs','Shakers / audio'],btn:['Inputs','Button box'],
   sim:['Inputs','Sim channels'],dev:['Devices','Force-feel devices'],prov:['Commissioning','Drive provisioning'],test:['Commissioning','Commissioning tests'],sys:['Host','System']};
 let setupCur='axes'; try{ setupCur=localStorage.getItem('nullcat.ui.setup')||'axes'; }catch(_){}
-function setupPage(id){
+function setupPage(id,atLoad){
   if(!SETUP_PAGES[id]) id='axes';
   setupCur=id; try{ localStorage.setItem('nullcat.ui.setup',id); }catch(_){}
   document.querySelectorAll('#su .supg').forEach(p=>{ const on=p.dataset.pg===id; p.classList.toggle('on',on); if(p.id==='testPanel') p.classList.toggle('collapsed',!on); });
   document.querySelectorAll('#sun [data-su]').forEach(b=>b.classList.toggle('on',b.dataset.su===id));
   const [k,t]=SETUP_PAGES[id]; const kk=$('suKick'), tt=$('suTitle'); if(kk) kk.textContent=k; if(tt) tt.textContent=t;
-  if(id==='test'){ buildTestAxes(); pollTestStatus(); }
+  if(id==='test'&&!atLoad){ buildTestAxes(); pollTestStatus(); }
 }
 document.querySelectorAll('#sun [data-su]').forEach(b=>{ b.onclick=()=>setupPage(b.dataset.su); });
-setupPage(setupCur);
+// At load the tests page's state (tstDrives) is declared further down, so a
+// stored tests page used to stop the whole script here: its build and poll
+// run at the end of the boot instead.
+setupPage(setupCur,true);
 /* Nav summaries and lamps, and the tests page's interlock lamps, from the
    state the page already holds (config copy, bindings, the last status). */
 let lastStatus=null;
@@ -2479,6 +2482,10 @@ function hapOpenFx(k,force){
   setLayout(uiLayout.mo,'ed');
   hapEdDress();
 }
+// The editor holds an effect. Before the config arrives there are no tiles
+// (and the panel is hidden): a stored "editor open" layout then waits for
+// hapMixerBuild to reopen it, and nothing may close it and drop the choice.
+function hapEdOpen(){ const t=hapSel&&hapTiles[hapSel]; return !!(t&&t.tile.classList.contains('ined')); }
 function hapCloseEd(keepSel){
   const k=hapSel, t=k&&hapTiles[k], ph=document.querySelector('#hapStrip [data-ph]');
   if(t&&ph&&t.tile.classList.contains('ined')){ ph.replaceWith(t.tile); t.tile.classList.remove('ined'); if(t.tile._tip) t.tile.title=t.tile._tip; }
@@ -2490,7 +2497,7 @@ function hapCloseEd(keepSel){
 { const c=$('hapEdClose'); if(c) c.onclick=()=>hapCloseEd();
   const h=$('hapEdHelp'); if(h) h.onclick=()=>{ const t=hapSel&&hapTiles[hapSel]; const on=h.classList.toggle('on'); if(t) t.tile.classList.toggle('help',on); };
   const tip=$('hapEdTip'); if(tip) tip.onclick=()=>tip.classList.toggle('open');
-  document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&uiLayout.hp==='ed'&&document.body.dataset.view==='op') hapCloseEd(); }); }
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&uiLayout.hp==='ed'&&hapEdOpen()&&document.body.dataset.view==='op') hapCloseEd(); }); }
 /* The routing heading hapDrawerRender writes is one line, title and hint
    together; in the editor the hint goes under the title in smaller type. */
 function hapDrawerDress(){
@@ -2525,7 +2532,7 @@ function hapEdDress(){
    already holds. */
 function hapUiRefresh(){
   const panel=$('hapPanel'); if(!panel) return;
-  if(panel.hidden){ if(uiLayout.hp==='ed') hapCloseEd(); return; }
+  if(panel.hidden){ if(uiLayout.hp==='ed'&&hapEdOpen()) hapCloseEd(); return; }
   const cg=$('hapSesCar'), gg=$('hapSesGame'); if(gg) gg.textContent=(($('hapGameNow')||{}).textContent||'-');
   if(cg){ // the name (it truncates) and what the car table has for it (it never does)
     const c=hapCarLast, tags=[];
@@ -3160,4 +3167,5 @@ setInterval(pollTestStatus,1000);
 /* ---- boot ---- */
 updateConn(); pollStatus(); setInterval(pollStatus, 500); pollLogs();
 fitHeader();   // before the first status too: a page that never connects still fits
+if(setupCur==='test'){ buildTestAxes(); pollTestStatus(); }   // a stored tests page (setupPage at load left it to here)
 window.__nullcatBooted=true;   // read by the safety net in index.html
