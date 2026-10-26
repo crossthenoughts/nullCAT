@@ -193,7 +193,7 @@ body[data-view="setup"] .ws{display:none}body[data-view="setup"] .su{display:gri
 .ab .key{letter-spacing:.05em;padding:0 10px 0 8px}.ab .key.nolamp{padding:0 9px}.ab .estop{padding:0 22px}
 .msg{flex:1;min-width:160px;height:34px;display:flex;align-items:center;padding:0 12px;overflow:hidden}
 .msg .vt{overflow:hidden;text-overflow:ellipsis;letter-spacing:.06em;white-space:nowrap}
-.msg .vt[hidden]{display:none}
+.msg .vt[hidden]{display:none}.msg .vt.warn{color:var(--warnInk)}.msg #barNote{letter-spacing:.02em}
 @media(max-width:1560px){.msg{display:none!important}.ab .abg:last-child{margin-left:auto}.ab.alert .msg{display:flex!important;order:-1;flex-basis:100%}}
 
 /* ---- responsive shell ---- */

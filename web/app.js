@@ -664,6 +664,26 @@ async function refreshPendingPill(fetchMeta){
                   :`host settings saved - ${restart} to apply`;
 }
 setInterval(()=>refreshPendingPill(true),15000);
+/* ---- The bar's message glass mirrors the Setup head: the save status
+   (#cfgStatus, several writers in saveConfig and applyToAll) for 10 s after
+   it changes, else the pending pill (#cfgPending: what the controller has
+   not picked up yet, until a re-initialize or restart clears it). A command
+   refusal has the glass while it shows. Same text and colours; observers
+   follow the existing writers rather than touching each one. ---- */
+let barNoteUntil=0, barNoteTimer=null;
+function barNoteSync(){
+  const el=$('barNote'), err=$('cmdErr'), st=$('cfgStatus'), pill=$('cfgPending'); if(!el) return;
+  if(err&&!err.hidden){ el.hidden=true; return; }
+  const saveOn=!!(st&&st.textContent&&performance.now()<barNoteUntil);
+  const pendOn=!!(pill&&pill.style.display!=='none'&&pill.textContent);
+  if(saveOn){ el.textContent=st.textContent; el.style.color=st.style.color||''; el.className='vt'; }
+  else if(pendOn){ el.textContent=pill.textContent; el.style.color=''; el.className='vt warn'; }
+  el.title=(saveOn||pendOn)?el.textContent:''; el.hidden=!(saveOn||pendOn);
+}
+{ const st=$('cfgStatus'), pill=$('cfgPending'), err=$('cmdErr'), all={childList:true,characterData:true,subtree:true,attributes:true};
+  if(st) new MutationObserver(()=>{ barNoteUntil=performance.now()+10000; if(barNoteTimer) clearTimeout(barNoteTimer); barNoteTimer=setTimeout(barNoteSync,10100); barNoteSync(); }).observe(st,all);
+  if(pill) new MutationObserver(barNoteSync).observe(pill,all);
+  if(err) new MutationObserver(barNoteSync).observe(err,{attributes:true}); }
 
 /* ---- Button-binding page ----
    One row per bindable command: current binding + Bind (press-to-capture) +

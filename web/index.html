@@ -534,8 +534,10 @@ sudo ./provision eth0 &lt;slave&gt; --verify    # confirm everything persisted</
       <button type="button" id="btn-belts"   class="key" disabled hidden>Slack Belts</button>
       <button type="button" id="btn-fault"   class="key amb">Reset Fault</button>
     </div>
-    <!-- Command-refusal line: server's reason for a click that did nothing. -->
-    <div class="glass msg"><span class="vt bad" id="cmdErr" hidden></span></div>
+    <!-- Message glass: the server's reason for a click that did nothing;
+         otherwise the Setup head's save status and pending pill, mirrored
+         here (barNoteSync) so they read from Operate too. -->
+    <div class="glass msg"><span class="vt bad" id="cmdErr" hidden></span><span class="vt" id="barNote" hidden></span></div>
     <div class="abg">
       <button type="button" id="btn-restart"  class="key nolamp quiet">Restart</button>
       <button type="button" id="btn-shutdown" class="key nolamp quiet">Shutdown</button>
