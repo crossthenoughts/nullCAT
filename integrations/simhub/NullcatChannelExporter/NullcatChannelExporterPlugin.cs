@@ -217,6 +217,7 @@ namespace NullcatChannelExporter
             var port = 4444;
             var settingsNote = "no NullcatChannelExporter.json found, defaults";
             var kunosOn = false;
+            var heightsOn = false;
             for (var g = 0; g < Groups.Length; g++) { _fileProps[g] = new string[4]; _groupProps[g] = new string[4]; }
             try
             {
@@ -246,6 +247,8 @@ namespace NullcatChannelExporter
                     _curbsProp  = ExtractString(text, "curbsProp");
                     var kd = ExtractString(text, "kunosDirect");
                     kunosOn = kd != null && (kd.Trim().Equals("on", StringComparison.OrdinalIgnoreCase) || kd.Trim().Equals("true", StringComparison.OrdinalIgnoreCase));
+                    var kh = ExtractString(text, "kunosDirectHeights");
+                    heightsOn = kh != null && (kh.Trim().Equals("on", StringComparison.OrdinalIgnoreCase) || kh.Trim().Equals("true", StringComparison.OrdinalIgnoreCase));
                     for (var g = 0; g < Groups.Length; g++)
                     {
                         for (var w = 0; w < 4; w++)
@@ -286,7 +289,7 @@ namespace NullcatChannelExporter
             // memory (KunosDirect.cs): from the settings file, and flipped
             // while driving by the ToggleKunosDirect action (bind it to a
             // button under Controls and events) to compare it with SimHub's.
-            _kunos = new KunosDirect(kunosOn, Send, msg => { try { SimHub.Logging.Current.Info(msg); } catch { } });
+            _kunos = new KunosDirect(kunosOn, heightsOn, string.IsNullOrWhiteSpace(_curbsProp), Send, msg => { try { SimHub.Logging.Current.Info(msg); } catch { } });
             try { pluginManager.AddProperty("KunosDirect", GetType(), _kunos.Status()); } catch { }
             try
             {
@@ -437,7 +440,7 @@ namespace NullcatChannelExporter
             var kunos = _kunos;   // End may clear the field meanwhile
             if (kunos != null)
             {
-                kunos.SetGame(IsAcFamily(family), family != _kunosGame);
+                kunos.SetGame(IsAcFamily(family), family != _kunosGame, family != "assettocorsa");
                 _kunosGame = family;
                 double? surge = null, sway = null, heaveAcc = null;
                 try { surge = d.AccelerationSurge; sway = d.AccelerationSway; heaveAcc = d.AccelerationHeave; } catch { }
@@ -503,7 +506,7 @@ namespace NullcatChannelExporter
             AppendBodyMotion(y, d, !fastSurge, !fastSway);
             if (IsAcFamily(family))
             {
-                AppendAcContact(y, d);
+                AppendAcContact(y, d, family, kunos != null && kunos.Carries(3), kunos != null && kunos.Carries(4));
                 if (family == "assettocorsacompetizione") AppendAccWeather(y, pluginManager);
             }
             else if (family == "automobilista2")
@@ -604,22 +607,77 @@ namespace NullcatChannelExporter
         // angle field). Competizione and EVO also give the game's own kerb
         // vibration. Read by reflection, so a SimHub update that renames its
         // reader types disables these channels instead of the plugin.
-        private void AppendAcContact(StringBuilder y, StatusDataBase d)
+        // fastHeights / fastKerb: the direct read's fast line carries them now
+        // (one source per channel: two would alternate on the rig).
+        private void AppendAcContact(StringBuilder y, StatusDataBase d, string game, bool fastHeights, bool fastKerb)
         {
             object raw;
-            try { raw = d.GetRawDataObject(); } catch { return; }
+            try { raw = d.GetRawDataObject(); } catch { raw = null; }
             var phys = AcPhysics(raw);
-            if (phys == null || _acContactPoint == null) return;
+            AcDiagnose(game, raw, phys);
+            if (phys == null) return;
+            var fileSlip = !string.IsNullOrWhiteSpace(_fileProps[0][0]);
+            if (!AppendAcPatches(y, d, phys, fastHeights, fileSlip))
+            {
+                _hadContact = false;
+                // No contact points from this game: its own slip angles
+                // where its page has them (Competizione, EVO, Rally), in
+                // radians on the page.
+                if (!fileSlip && _acSlipAngle != null && d.SpeedKmh > 5.0)
+                {
+                    Array sa = null;
+                    try { sa = _acSlipAngle.GetValue(phys) as Array; } catch { sa = null; }
+                    if (sa != null && sa.Length >= 4)
+                    {
+                        var ang = new double[4]; var all = true;
+                        for (var w = 0; w < 4 && all; w++)
+                        {
+                            try { ang[w] = Convert.ToDouble(sa.GetValue(w), CultureInfo.InvariantCulture) * 180.0 / Math.PI; }
+                            catch { all = false; }
+                            if (double.IsNaN(ang[w]) || double.IsInfinity(ang[w])) all = false;
+                        }
+                        if (all)
+                            for (var w = 0; w < 4; w++)
+                                y.Append(",slipAngle").Append(Wheels[w]).Append('=')
+                                 .Append(ang[w].ToString("0.###", CultureInfo.InvariantCulture));
+                    }
+                }
+            }
+
+            // The game's own kerb vibration (Competizione, EVO, Rally), unless
+            // the settings file binds a curbs property or the fast line
+            // carries it. Never behind the contact points (a game without
+            // them used to lose its kerbs too).
+            if (_acKerb != null && string.IsNullOrWhiteSpace(_curbsProp) && !fastKerb)
+            {
+                try
+                {
+                    var k = Convert.ToDouble(_acKerb.GetValue(phys), CultureInfo.InvariantCulture) * 100.0;
+                    if (!double.IsNaN(k)) y.Append(",curbs=").Append(Math.Max(0, Math.Min(100, k)).ToString("0.#", CultureInfo.InvariantCulture));
+                }
+                catch { }
+            }
+        }
+
+        // The contact patches: road heights (unless the fast line carries
+        // them), wheelbase and track, and a slip angle per wheel from where
+        // each patch moved. False when the game gives no usable patches.
+        private bool AppendAcPatches(StringBuilder y, StatusDataBase d, object phys, bool fastHeights, bool fileSlip)
+        {
+            if (_acContactPoint == null) return false;
             var cp = _acContactPoint.GetValue(phys) as Array;
             var ch = _acContactHeading != null ? _acContactHeading.GetValue(phys) as Array : null;
             var px = new double[4]; var py = new double[4]; var pz = new double[4];
             for (var w = 0; w < 4; w++)
-                if (!AcVec(cp, w, out px[w], out py[w], out pz[w])) return;
+                if (!AcVec(cp, w, out px[w], out py[w], out pz[w])) return false;
+            // All four at the origin: a page that does not fill them.
+            if (px[0] == 0 && py[0] == 0 && pz[0] == 0 && px[3] == 0 && py[3] == 0 && pz[3] == 0) return false;
 
             // Road height under each tyre, mm (hills and all: nullCAT filters).
-            for (var w = 0; w < 4; w++)
-                y.Append(",roadHeight").Append(Wheels[w]).Append('=')
-                 .Append((py[w] * 1000.0).ToString("0.##", CultureInfo.InvariantCulture));
+            if (!fastHeights)
+                for (var w = 0; w < 4; w++)
+                    y.Append(",roadHeight").Append(Wheels[w]).Append('=')
+                     .Append((py[w] * 1000.0).ToString("0.##", CultureInfo.InvariantCulture));
 
             // Geometry from the patches: front pair midpoint to rear pair
             // midpoint, and the mean distance across each axle (horizontal).
@@ -630,7 +688,6 @@ namespace NullcatChannelExporter
                  .Append(",trackWidth=").Append(tw.ToString("0.###", CultureInfo.InvariantCulture));
 
             // Slip angle per wheel, unless the settings file binds its own.
-            var fileSlip = !string.IsNullOrWhiteSpace(_fileProps[0][0]);
             if (!fileSlip && ch != null && _hadContact && d.SpeedKmh > 5.0)
             {
                 var ang = new double[4];
@@ -653,18 +710,40 @@ namespace NullcatChannelExporter
             }
             for (var w = 0; w < 4; w++) { _prevPx[w] = px[w]; _prevPz[w] = pz[w]; }
             _hadContact = true;
+            return true;
+        }
 
-            // The game's own kerb vibration (Competizione, EVO), unless the
-            // settings file binds a curbs property.
-            if (_acKerb != null && string.IsNullOrWhiteSpace(_curbsProp))
+        // Once per game and reader type, SimHub's log says what the game's
+        // raw data offers this plugin: a game whose channels go missing (AC
+        // EVO's kerbs, 2026-10) is diagnosed from the log alone.
+        private string _acDiagKey = "";
+        private void AcDiagnose(string game, object raw, object phys)
+        {
+            var key = game + "|" + (raw == null ? "-" : raw.GetType().FullName) + "|" + (phys == null ? "-" : phys.GetType().FullName);
+            if (key == _acDiagKey) return;
+            _acDiagKey = key;
+            string sample = "";
+            if (phys != null && _acContactPoint != null)
             {
                 try
                 {
-                    var k = Convert.ToDouble(_acKerb.GetValue(phys), CultureInfo.InvariantCulture) * 100.0;
-                    if (!double.IsNaN(k)) y.Append(",curbs=").Append(Math.Max(0, Math.Min(100, k)).ToString("0.#", CultureInfo.InvariantCulture));
+                    var cp = _acContactPoint.GetValue(phys) as Array;
+                    double x, yy, z;
+                    sample = cp == null ? " (contact points: no array)"
+                           : AcVec(cp, 0, out x, out yy, out z) ? " (front left patch " + x.ToString("0.###", CultureInfo.InvariantCulture) + ", "
+                               + yy.ToString("0.###", CultureInfo.InvariantCulture) + ", " + z.ToString("0.###", CultureInfo.InvariantCulture) + ")"
+                           : " (contact points unreadable: no X/Y/Z or not a number)";
                 }
-                catch { }
+                catch (Exception ex) { sample = " (contact points: " + ex.Message + ")"; }
             }
+            var msg = "nullCAT Channel Exporter: " + game + " raw data: "
+                    + (raw == null ? "none" : raw.GetType().Name)
+                    + (phys == null ? ", no Physics" : ", Physics " + phys.GetType().FullName)
+                    + ", contact points " + (_acContactPoint != null ? "yes" : "no")
+                    + ", headings " + (_acContactHeading != null ? "yes" : "no")
+                    + ", kerb vibration " + (_acKerb != null ? "yes" : "no")
+                    + ", slip angles " + (_acSlipAngle != null ? "yes" : "no") + sample;
+            try { SimHub.Logging.Current.Info(msg); } catch { }
         }
 
         // Automobilista 2: the surface under each tyre (the game's terrain
@@ -814,7 +893,7 @@ namespace NullcatChannelExporter
 
         // Reflection over SimHub's Assetto Corsa reader types, cached by type.
         private Type _acRawType, _acPhysType, _acCoordType;
-        private FieldInfo _acPhysField, _acContactPoint, _acContactHeading, _acKerb, _acCx, _acCy, _acCz;
+        private FieldInfo _acPhysField, _acContactPoint, _acContactHeading, _acKerb, _acSlipAngle, _acCx, _acCy, _acCz;
         private PropertyInfo _acPhysProp;
         private readonly double[] _prevPx = new double[4], _prevPz = new double[4];
         private bool _hadContact;
@@ -838,9 +917,13 @@ namespace NullcatChannelExporter
             if (pt != _acPhysType)
             {
                 _acPhysType       = pt;
-                _acContactPoint   = pt.GetField("TyreContactPoint");
-                _acContactHeading = pt.GetField("TyreContactHeading");
-                _acKerb           = pt.GetField("kerbVibration") ?? pt.GetField("KerbVibration");
+                // Names as SimHub's readers spell them, case aside (a
+                // reader update that changes the case keeps working).
+                const BindingFlags F = BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase;
+                _acContactPoint   = pt.GetField("TyreContactPoint", F);
+                _acContactHeading = pt.GetField("TyreContactHeading", F);
+                _acKerb           = pt.GetField("kerbVibration", F);
+                _acSlipAngle      = pt.GetField("slipAngle", F);
             }
             return ph;
         }

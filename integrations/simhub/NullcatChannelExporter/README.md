@@ -165,7 +165,25 @@ driving, bind the SimHub action **ToggleKunosDirect** to a button under
 **Controls and events** (with the switch set, nullCAT turns it back
 within about two seconds). The property `NullcatChannelExporter.KunosDirect`
 shows what it is doing: off, matching, or live with the rate and the
-match it found.
+match it found. When it is not live it says why: the game is not running
+(its shared memory is not open), the game's page is not moving, or no
+clear match yet. Whenever that changes, SimHub's log says it too.
+
+With `"kunosDirectHeights": "on"` as well, the same short line carries
+the height of the road under each tyre and, in Competizione, EVO and
+Rally, the game's own kerb vibration, also at the physics rate. A rumble
+strip's ribs pass under a tyre about 110 times a second at 100 km/h, too
+fast for SimHub's 60 a second to show, so with this on the Kerb tile can
+feel them, and the Road tile gets every bump. Off by default.
+
+## What the plugin reads in the Assetto Corsa family
+
+Once per game, SimHub's log lists what the game's raw data offers the
+plugin: the contact patches (for the road heights, the wheelbase and the
+slip angles), the kerb vibration and the game's own slip angles. The kerb
+vibration goes whenever the game has it, with or without contact patches.
+Where a game gives no contact patches, the plugin sends the game's own
+slip angles instead.
 
 ## Optional: binding per-wheel channels yourself
 

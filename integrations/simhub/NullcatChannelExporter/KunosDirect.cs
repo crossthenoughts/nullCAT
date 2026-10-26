@@ -24,6 +24,16 @@
 // component matches clearly, whenever the match falls away, when the game
 // pauses or stops, and with the switch off, SimHub's values go on the main
 // line as before.
+//
+// With "kunosDirectHeights": "on" as well, the same line carries the height
+// of the road under each tyre (the page's contact points) and, where the
+// page has one (Competizione, EVO, Rally; plain Assetto Corsa's ends
+// before it), the game's own kerb vibration, at the physics rate: a rumble
+// strip's ribs pass under a tyre about 110 times a second at 100 km/h, too
+// fast for SimHub's 60 a second to see.
+//
+// A new physics step is the packet counter moving or, for a game that does
+// not move it, any value read changing.
 
 using System;
 using System.Diagnostics;
@@ -42,6 +52,11 @@ namespace NullcatChannelExporter
         // steer angle, speed and velocity[3].
         private const string MapName = "Local\\acpmf_physics";
         private const int PacketIdOffset = 0, AccGOffset = 44, ViewBytes = 56;
+        // TyreContactPoint[4] (x, y, z in m, y up) and kerbVibration, at
+        // the offsets SimHub's own readers use for these pages; the view
+        // covers them only with heights on (plain AC's page ends at 580).
+        private const int ContactOffset = 420, ContactStride = 12, KerbOffset = 784;
+        private const int ViewBytesAc = 580, ViewBytesExt = 800;
 
         // The match: an exponential window of about half a minute of
         // driving; decided after 10 s of it; a component counts when it
@@ -67,6 +82,16 @@ namespace NullcatChannelExporter
         private DateTime _nextOpenTry = DateTime.MinValue;
 
         private volatile bool _enabled;
+        private volatile bool _heights;    // the road heights (and kerb) ride the fast line too
+        private readonly bool _kerbFast;   // the kerb may ride it (no curbs property bound in the settings file)
+        private volatile bool _openTried;  // the page has been asked for at least once
+        private double _lastSpeedKmh;      // the speed at the last Observe
+        private volatile bool _ext;        // the running game's page reaches kerbVibration
+        private volatile bool _openOk;     // the page is open
+        private double _lastStepSec = -1;  // when Observe last saw a new physics step
+        private double _lastSeenG0 = double.NaN, _lastSeenG1, _lastSeenG2;
+        private string _lastLogged = "";
+        private double _lastLogSec = -100;
         private volatile bool _gameOk;     // the running game is one of the family
         private volatile Map  _map;        // what the page's values are, as SimHub's
         private volatile bool _live;       // the fast line is carrying the matched values now
@@ -113,9 +138,11 @@ namespace NullcatChannelExporter
             public double C { get { return Ms - K * Mh; } }
         }
 
-        public KunosDirect(bool enabled, Action<string> send, Action<string> log)
+        // kerbFast: the game's kerb vibration may go on the fast line (false
+        // when the settings file binds a curbs property: one source each).
+        public KunosDirect(bool enabled, bool heights, bool kerbFast, Action<string> send, Action<string> log)
         {
-            _enabled = enabled; _send = send; _log = log;
+            _enabled = enabled; _heights = heights; _kerbFast = kerbFast; _send = send; _log = log;
             ResetFit();
             _thread = new Thread(Loop) { IsBackground = true, Name = "nullCAT Kunos direct", Priority = ThreadPriority.AboveNormal };
             _thread.Start();
@@ -139,18 +166,25 @@ namespace NullcatChannelExporter
 
         // Called on SimHub's tick: whether the game is one of the family (a
         // different game starts the match over).
-        public void SetGame(bool acFamily, bool changed)
+        // extended: the game's page reaches kerbVibration (all but plain AC).
+        public void SetGame(bool acFamily, bool changed, bool extended)
         {
-            if (changed) { _map = null; _live = false; ResetFit(); Close(); }
+            // The game first, then the close: a reopen on the reader thread
+            // sizes its view for this game, not the last one.
             _gameOk = acFamily;
+            _ext = extended;
+            if (changed) { _map = null; _live = false; ResetFit(); Close(); _lastStepSec = -1; }
         }
 
-        // Whether the fast line carries this axis now (the main line then
-        // leaves it out): 0 surge, 1 sway, 2 heave.
+        // Whether the fast line carries this now (the main line then leaves
+        // it out): 0 surge, 1 sway, 2 heave, 3 the road heights, 4 the kerb.
         public bool Carries(int axis)
         {
+            if (!(_enabled && _gameOk && _live)) return false;
+            if (axis == 3) return _heights;
+            if (axis == 4) return _heights && _ext && _kerbFast;
             var m = _map;
-            return _enabled && _gameOk && _live && m != null && m.Src[axis] >= 0;
+            return m != null && m.Src[axis] >= 0;
         }
 
         // SimHub's values this tick against the page's, while moving.
@@ -159,10 +193,15 @@ namespace NullcatChannelExporter
             var now = _clock.Elapsed.TotalSeconds;
             var dt = _lastObserveSec < 0 ? 0.0 : Math.Min(FitMaxGapSec, now - _lastObserveSec);
             _lastObserveSec = now;
+            _lastSpeedKmh = speedKmh;
             if (!_enabled || !_gameOk || speedKmh < MovingKmh) return;
             int packet; double g0, g1, g2;
-            if (!TryRead(out packet, out g0, out g1, out g2) || packet == _lastFitPacket) return;
-            _lastFitPacket = packet;
+            if (!TryRead(out packet, out g0, out g1, out g2)) return;
+            // A new step: the counter moved, or (a game that does not move
+            // it) the values did.
+            if (packet == _lastFitPacket && g0 == _lastSeenG0 && g1 == _lastSeenG1 && g2 == _lastSeenG2) return;
+            _lastFitPacket = packet; _lastSeenG0 = g0; _lastSeenG1 = g1; _lastSeenG2 = g2;
+            _lastStepSec = now;
             var sim = new[] { surge, sway, heave };
             var page = new[] { g0, g1, g2 };
             for (var a = 0; a < 3; a++)
@@ -180,10 +219,22 @@ namespace NullcatChannelExporter
             if (!_enabled) return "off";
             if (!_gameOk) return "on, waiting for an Assetto Corsa family game";
             var m = _map;
+            var now = _clock.Elapsed.TotalSeconds;
+            var driving = _lastSpeedKmh >= MovingKmh;
+            // Below 20 km/h the page is not asked for (the match runs while
+            // driving), so that is not the page's fault.
+            if (!_openOk)
+                return (_openTried && driving)
+                    ? "on, the game's shared memory (" + MapName + ") is not open: is the game running?"
+                    : "on, waiting to drive (the match starts above 20 km/h)";
             if (m == null || !m.Any)
-                return _drivenSec < FitMinSec
+            {
+                if (driving && _lastObserveSec >= 0 && now - _lastObserveSec < 2 && (_lastStepSec < 0 || now - _lastStepSec > 2))
+                    return "on, the game's page is not moving (no new physics step while driving): SimHub's values are sent" + (_heights ? HeightsNote() : "");
+                return (_drivenSec < FitMinSec
                     ? "on, matching against SimHub (" + (int)(_drivenSec * 100 / FitMinSec) + "%, keep driving)"
-                    : "on, no clear match: SimHub's values are sent";
+                    : "on, no clear match: SimHub's values are sent") + (_heights ? HeightsNote() : "");
+            }
             var sb = new StringBuilder(_live ? "on, live " + _rate + "/s:" : "on, matched (game paused or stopped):");
             for (var a = 0; a < 3; a++)
             {
@@ -193,7 +244,11 @@ namespace NullcatChannelExporter
                   .Append(m.C[a].ToString("0.###", CultureInfo.InvariantCulture)).Append(" (r ")
                   .Append(m.R[a].ToString("0.###", CultureInfo.InvariantCulture)).Append(");");
             }
-            return sb.ToString().TrimEnd(';');
+            return sb.ToString().TrimEnd(';') + (_heights ? HeightsNote() : "");
+        }
+        private string HeightsNote()
+        {
+            return _live ? "; road heights" + (_ext && _kerbFast ? " and kerb" : "") + " at the physics rate" : "; road heights waiting";
         }
 
         // Called each time the main line goes: the fast line runs only while
@@ -211,6 +266,16 @@ namespace NullcatChannelExporter
         public void Tick()
         {
             _rate = Interlocked.Exchange(ref _sentThisSecond, 0);
+            // SimHub's log says what the direct read is doing whenever that
+            // changes (at most every 10 s), so a session's log shows why it
+            // was or was not live without anyone watching the property.
+            var now = _clock.Elapsed.TotalSeconds;
+            if (!_enabled || now - _lastLogSec < 10) return;
+            var s = Status();
+            var key = s.Contains("live ") ? "live" : s;   // the rate moves every second
+            if (key == _lastLogged) return;
+            _lastLogged = key; _lastLogSec = now;
+            _log("nullCAT Channel Exporter: Kunos direct " + s);
         }
 
         public void Dispose()
@@ -263,31 +328,41 @@ namespace NullcatChannelExporter
         {
             var tick = new FineTick();
             var lastPacket = int.MinValue;
+            double l0 = double.NaN, l1 = 0, l2 = 0, lh = 0;
             var sinceStep = Stopwatch.StartNew();
-            var sb = new StringBuilder(96);
+            var sb = new StringBuilder(256);
+            var hts = new double[4];
             while (_run)
             {
                 var m = _map;
-                if (!_enabled || !_gameOk || m == null || !m.Any || !MainFlowing())
+                var accel = m != null && m.Any;
+                if (!_enabled || !_gameOk || (!accel && !_heights) || !MainFlowing())
                 {
                     _live = false;
                     Thread.Sleep(20);
                     continue;
                 }
-                int packet; double g0, g1, g2;
-                if (TryRead(out packet, out g0, out g1, out g2) && packet != lastPacket)
+                int packet; double g0, g1, g2, kerb; bool heightsOk, kerbOk;
+                if (TryReadFull(out packet, out g0, out g1, out g2, hts, out heightsOk, out kerb, out kerbOk)
+                    && (packet != lastPacket || g0 != l0 || g1 != l1 || g2 != l2 || (heightsOk && hts[0] + hts[1] + hts[2] + hts[3] != lh)))
                 {
-                    lastPacket = packet;
+                    lastPacket = packet; l0 = g0; l1 = g1; l2 = g2; lh = heightsOk ? hts[0] + hts[1] + hts[2] + hts[3] : lh;
                     sinceStep.Restart();
                     var page = new[] { g0, g1, g2 };
                     sb.Clear().Append("NULLCATY");
-                    for (var a = 0; a < 3; a++)
-                    {
-                        if (m.Src[a] < 0) continue;
-                        var v = m.K[a] * page[m.Src[a]] + m.C[a];
-                        if (double.IsNaN(v) || double.IsInfinity(v)) continue;
-                        sb.Append(',').Append(Tokens[a]).Append('=').Append(v.ToString("0.####", CultureInfo.InvariantCulture));
-                    }
+                    if (accel)
+                        for (var a = 0; a < 3; a++)
+                        {
+                            if (m.Src[a] < 0) continue;
+                            var v = m.K[a] * page[m.Src[a]] + m.C[a];
+                            if (double.IsNaN(v) || double.IsInfinity(v)) continue;
+                            sb.Append(',').Append(Tokens[a]).Append('=').Append(v.ToString("0.####", CultureInfo.InvariantCulture));
+                        }
+                    if (_heights && heightsOk)
+                        for (var w = 0; w < 4; w++)
+                            sb.Append(",roadHeight").Append(WheelNames[w]).Append('=').Append((hts[w] * 1000.0).ToString("0.##", CultureInfo.InvariantCulture));
+                    if (_heights && kerbOk && _kerbFast)
+                        sb.Append(",curbs=").Append(Math.Max(0, Math.Min(100, kerb * 100.0)).ToString("0.#", CultureInfo.InvariantCulture));
                     if (sb.Length > 8)
                     {
                         _send(sb.ToString());
@@ -299,6 +374,57 @@ namespace NullcatChannelExporter
                 tick.Wait();
             }
             tick.Dispose();
+        }
+
+        private static readonly string[] WheelNames = { "FL", "FR", "RL", "RR" };
+
+        // The g, and with heights on the contact points' heights and the
+        // kerb vibration, in one consistent read (the counter the same
+        // before and after).
+        private bool TryReadFull(out int packet, out double g0, out double g1, out double g2,
+                                 double[] heights, out bool heightsOk, out double kerb, out bool kerbOk)
+        {
+            heightsOk = false; kerb = 0; kerbOk = false;
+            if (!_heights) return TryRead(out packet, out g0, out g1, out g2);
+            packet = 0; g0 = g1 = g2 = 0;
+            lock (_mapLock)
+            {
+                if (_view == null && (!_enabled || !Open())) return false;
+                try
+                {
+                    for (var attempt = 0; attempt < 3; attempt++)
+                    {
+                        var p1 = _view.ReadInt32(PacketIdOffset);
+                        var a = _view.ReadSingle(AccGOffset);
+                        var b = _view.ReadSingle(AccGOffset + 4);
+                        var c = _view.ReadSingle(AccGOffset + 8);
+                        var ok = true;
+                        for (var w = 0; w < 4; w++)
+                        {
+                            var y = _view.ReadSingle(ContactOffset + w * ContactStride + 4);
+                            if (float.IsNaN(y) || float.IsInfinity(y)) ok = false;
+                            heights[w] = y;
+                        }
+                        float k = 0; var kOk = false;
+                        if (_ext && _view.Capacity >= KerbOffset + 4)
+                        {
+                            k = _view.ReadSingle(KerbOffset);
+                            kOk = !(float.IsNaN(k) || float.IsInfinity(k));
+                        }
+                        var p2 = _view.ReadInt32(PacketIdOffset);
+                        if (p1 != p2) continue;
+                        if (float.IsNaN(a) || float.IsNaN(b) || float.IsNaN(c) ||
+                            float.IsInfinity(a) || float.IsInfinity(b) || float.IsInfinity(c)) return false;
+                        packet = p1; g0 = a; g1 = b; g2 = c;
+                        // All four at 0: a page that does not fill them.
+                        heightsOk = ok && (heights[0] != 0 || heights[1] != 0 || heights[2] != 0 || heights[3] != 0);
+                        kerb = k; kerbOk = kOk;
+                        return true;
+                    }
+                    return false;
+                }
+                catch { CloseLocked(); return false; }
+            }
         }
 
         // One consistent read of the page: the packet counter the same
@@ -333,14 +459,19 @@ namespace NullcatChannelExporter
         private bool Open()
         {
             if (DateTime.UtcNow < _nextOpenTry) return false;
+            _openTried = true;
             try
             {
                 _mmf  = MemoryMappedFile.OpenExisting(MapName, MemoryMappedFileRights.Read);
-                _view = _mmf.CreateViewAccessor(0, ViewBytes, MemoryMappedFileAccess.Read);
+                var bytes = !_heights ? ViewBytes : _ext ? ViewBytesExt : ViewBytesAc;
+                try { _view = _mmf.CreateViewAccessor(0, bytes, MemoryMappedFileAccess.Read); }
+                catch when (bytes > ViewBytesAc) { _view = _mmf.CreateViewAccessor(0, ViewBytesAc, MemoryMappedFileAccess.Read); }
+                _openOk = true;
                 return true;
             }
             catch
             {
+                _openOk = false;
                 CloseLocked();
                 _nextOpenTry = DateTime.UtcNow.AddSeconds(1);
                 return false;
