@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="a6">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,37 +7,44 @@
   <link rel="stylesheet" href="app.css">
   <link rel="icon" href="logo-online.png">
 </head>
-<body>
+<body data-theme="a6" data-view="op">
 
-  <!-- ===== sticky header (taller; status lives here, no duplicate strip) ===== -->
-  <header class="menubar">
+  <!-- ===== header: brand, view switch, status window, theme ===== -->
+  <header class="top">
     <div class="brand">
       <img id="logo" class="logo-badge is-offline" src="logo-offline.png" alt="nullCAT status">
-      <div class="brand-text">
-        <div class="wordmark">null<span class="brand-accent">CAT</span></div>
-        <div class="brand-sub">ØWERKS · ETHERCAT MOTION</div>
-      </div>
+      <div class="bn"><b><span>null</span>CAT</b><small>ØWERKS · ETHERCAT MOTION</small></div>
     </div>
-    <div class="spacer"></div>
-    <div class="hstatus">
-      <div class="hstatus-top">
-        <span class="badge badge-off" id="conn-status">Disconnected</span>
-        <span class="clock" id="clock">--:--:--</span>
-      </div>
-      <div class="hstatus-cells">
-        <div class="hc"><span class="k">Loop</span><span class="v" id="v-loop"> - </span></div>
-        <div class="hc"><span class="k">EtherCAT</span><span class="v" id="v-ec"> - </span></div>
-        <div class="hc"><span class="k">Rate</span><span class="v" id="v-rate"> - </span></div>
-        <div class="hc"><span class="k">Cycle</span><span class="v" id="v-cyc"> - </span></div>
-        <div class="hc"><span class="k">WKC</span><span class="v" id="v-wkc"> - </span></div>
-        <div class="hc"><span class="k">Slaves</span><span class="v" id="v-slv"> - </span></div>
-        <div class="hc"><span class="k">Telemetry</span><span class="v" id="v-telemetry"> - </span></div>
-        <div class="hc"><span class="k">UDP new/rx Hz</span><span class="v" id="v-udp"> - </span></div>
-        <div class="hc jit"><span class="k">Jitter now/pk µs</span>
-          <span class="v"><span id="v-jit"> - </span><span class="sep">/</span><span id="v-jpk"> - </span></span>
-          <svg class="spark" viewBox="0 0 60 18" preserveAspectRatio="none"><polyline id="sparkLine" points=""></polyline></svg>
+    <div class="vw">
+      <button type="button" id="vwBtn-op" class="key sm latch">Operate</button>
+      <button type="button" id="vwBtn-setup" class="key sm latch">Setup</button>
+    </div>
+    <!-- Status window. The ids are what applyState writes to; a .lamp
+         before a .vt value takes that value's ok/warn/bad colour. -->
+    <div class="stat glass" id="stat">
+      <span class="c lo"><span class="dl">Link</span><span class="v"><span class="lamp"></span><span class="vt dim" id="conn-status">Disconnected</span><span class="seg" id="clock" data-g="88:88:88">--:--:--</span></span></span>
+      <span class="c"><span class="dl">Loop</span><span class="v"><span class="lamp"></span><span class="vt dim" id="v-loop">-</span></span></span>
+      <span class="c"><span class="dl">EtherCAT</span><span class="v"><span class="lamp"></span><span class="vt dim" id="v-ec">-</span></span></span>
+      <span class="c lo"><span class="dl">Rate</span><span class="v"><span class="seg" id="v-rate" data-g="8888">----</span><span class="dl">Hz</span></span></span>
+      <span class="c lo2"><span class="dl">Cycle</span><span class="v"><span class="seg" id="v-cyc" data-g="8888">----</span><span class="dl">µs</span></span></span>
+      <span class="c lo2"><span class="dl">WKC</span><span class="v"><span class="lamp"></span><span class="seg" id="v-wkc" data-g="88">-</span></span></span>
+      <span class="c lo"><span class="dl">Slaves</span><span class="v"><span class="seg" id="v-slv" data-g="8">-</span><span class="dl" id="v-slvN">/ -</span></span></span>
+      <span class="c lo2"><span class="dl">Telemetry</span><span class="v"><span class="lamp"></span><span class="vt dim" id="v-telemetry">-</span></span></span>
+      <span class="c lo"><span class="dl">UDP new/rx</span><span class="v" id="v-udp"><span class="vt dim">-</span></span></span>
+      <span class="c"><span class="dl">Jitter now / pk</span><span class="v"><span class="seg" id="v-jit" data-g="88">--</span><span class="dl">/</span><span class="seg" id="v-jpk" data-g="88">--</span><span class="dl">µs</span>
+        <svg class="spark" viewBox="0 0 60 18" preserveAspectRatio="none"><polyline id="sparkLine" points=""></polyline></svg></span></span>
+      <button type="button" class="c more" id="sysBtn" title="System details (Setup)"><span class="dl">System</span><span class="chv"></span></button>
+    </div>
+    <span class="sp"></span>
+    <div class="hdr-r">
+      <details class="menu thm" id="thmMenu">
+        <summary class="key sm nolamp" id="thmK">Theme</summary>
+        <div class="mnu">
+          <button type="button" data-t="a6">A6 slate</button>
+          <button type="button" data-t="graphite">Graphite</button>
+          <button type="button" data-t="light">Light</button>
         </div>
-      </div>
+      </details>
     </div>
   </header>
 
@@ -46,43 +53,48 @@
        does not clear it; Initialize does. -->
   <div id="estopBanner" class="estop-banner" hidden></div>
 
-  <!-- ===== view switch: Operate = the daily surfaces; Setup = host,
-       provisioning, commissioning test, bindings, updater ===== -->
-  <nav class="viewnav" id="viewNav">
-    <button type="button" id="vwBtn-op" class="vw-on">Operate</button>
-    <button type="button" id="vwBtn-setup">Setup</button>
-  </nav>
+  <!-- ===== Operate: Motion left, Haptics right ===== -->
+  <main class="ws" id="ws" data-mo="full" data-hp="mix">
+    <section class="pnl mo" id="mo">
+      <div class="ph"><span class="lamp" id="moLamp"></span><span class="pt">Motion</span><span class="pc" id="driveCount"> - </span><span class="sp"></span>
+        <button type="button" class="key sm nolamp pk" id="btn-reset-stats" title="Re-baseline peak accel, clip rate, binds and following-error on all cards, and the haptics tiles' input peaks - drives stay live">Reset peaks</button></div>
+      <div class="body">
+        <section class="grid" id="drive-grid"></section>
+      </div>
+    </section>
+    <section class="pnl hp" id="hp">
+      <div class="ph"><span class="lamp" id="hpLamp"></span><span class="pt">Haptics</span><span class="pc">routable effects</span><span class="sp"></span></div>
+      <div class="body">
+        <!-- hapInit shows these once the rig has a torque axis and the
+             experimental flag is on; both stay hidden otherwise. -->
+        <div class="sec sec-toggle" id="hapHead" hidden>
+          <span class="arrow" id="hapArrow">▾</span>
+          <span class="t">Effects</span><span class="c">routable effects</span>
+          <span class="rule"></span>
+        </div>
+        <section class="panel" id="hapPanel" hidden>
+          <div class="hap-strip" id="hapStrip"></div>
+          <div id="hapDrawer" hidden></div>
+          <div class="hap-savebar" id="hapSaveBar" hidden>
+            <span class="hk" id="hapDirtyMsg">unsaved changes</span>
+            <button class="btn btn-start btn-sm" id="hapSave" type="button">Save</button>
+          </div>
+          <div class="fldtip" id="hapMsg" style="color:var(--warn)"></div>
+          <div class="fldtip">Effects ride on top of the normal feel and are clamped inside each
+            axis's own limits. Amplitude 0 = off; an effect also needs a route (the chip on its
+            tile) to a torque axis that is live (belt tensioned, device engaged). Changes apply
+            live on Save, no re-initialize. The continuous effects need their NULLCATX channels
+            from the sender (see the SimHub plugin README); a missing channel leaves the effect
+            silent.</div>
+        </section>
+      </div>
+    </section>
+  </main>
 
-  <!-- ===== drives (hero) ===== -->
-  <div class="sec sec-toggle vw-op" id="drvHead">
-    <span class="arrow" id="drvArrow">▾</span>
-    <span class="t">Drives</span><span class="c" id="driveCount"> - </span>
-    <span class="rule"></span>
-    <span class="act" id="btn-reset-stats" title="Re-baseline peak accel, clip rate, binds and following-error on all cards, and the haptics tiles' input peaks - drives stay live">Reset peaks</span>
-  </div>
-  <section class="grid vw-op" id="drive-grid"></section>
-
-  <!-- ===== haptics strip (routable effects; rides on top of the feel) ===== -->
-  <div class="sec sec-toggle vw-op" id="hapHead" hidden>
-    <span class="arrow" id="hapArrow">▾</span>
-    <span class="t">Haptics</span><span class="c">routable effects</span>
-    <span class="rule"></span>
-  </div>
-  <section class="panel vw-op" id="hapPanel" hidden>
-    <div class="hap-strip" id="hapStrip"></div>
-    <div id="hapDrawer" hidden></div>
-    <div class="hap-savebar" id="hapSaveBar" hidden>
-      <span class="hk" id="hapDirtyMsg">unsaved changes</span>
-      <button class="btn btn-start btn-sm" id="hapSave" type="button">Save</button>
-    </div>
-    <div class="fldtip" id="hapMsg" style="color:var(--warn)"></div>
-    <div class="fldtip">Effects ride on top of the normal feel and are clamped inside each
-      axis's own limits. Amplitude 0 = off; an effect also needs a route (the chip on its
-      tile) to a torque axis that is live (belt tensioned, device engaged). Changes apply
-      live on Save, no re-initialize. The continuous effects need their NULLCATX channels
-      from the sender (see the SimHub plugin README); a missing channel leaves the effect
-      silent.</div>
-  </section>
+  <!-- ===== Setup: everything commissioned once ===== -->
+  <main class="su" id="su">
+    <section class="pnl suc">
+      <div class="body sub">
 
   <!-- ===== configuration (inline collapsible) ===== -->
   <div class="sec sec-toggle" id="cfgHead">
@@ -97,12 +109,7 @@
         Host settings (NIC, ports, timing, GPIO) are managed by the desktop app on this machine - read-only here. Rig &amp; axis settings below are editable.
       </div>
       <div class="cfg-note" id="cf-rignote" style="grid-column:1/-1"></div>
-      <div class="cgrp vw-setup">
-        <div class="gt">Appearance</div>
-        <label class="frow"><span>Theme</span>
-          <select id="cf-theme"><option value="light">Light (cream)</option><option value="dark">Dark (signal)</option></select></label>
-      </div>
-      <div class="cgrp vw-setup">
+      <div class="cgrp">
         <div class="gt">EtherCAT / Runtime</div>
         <label class="frow"><span>Simulation mode</span><input id="cf-sim" type="checkbox"></label>
         <label class="frow"><span>NIC</span><input id="cf-nic" value="eth0"></label>
@@ -117,7 +124,7 @@
         <label class="frow"><span>PDO watchdog</span><input id="cf-wd" value="100" type="number"><span class="u">ms</span></label>
         <label class="frow"><span>DC sync offset</span><input id="cf-dc" value="0" type="number"><span class="u">ns</span></label>
       </div>
-      <div class="cgrp vw-setup">
+      <div class="cgrp">
         <div class="gt">Network / telemetry</div>
         <label class="frow"><span>Web bind</span><input id="cf-bind" value="0.0.0.0"></label>
         <label class="frow"><span>Web port</span><input id="cf-wport" value="8080" type="number"></label>
@@ -127,7 +134,7 @@
         <label class="frow" title="THIS machine's address to listen on - never the game PC's. 0.0.0.0 or blank = all interfaces (recommended). A specific IP restricts to one interface and fails if the machine loses that address."><span>Telemetry bind</span><input id="cf-sbind" value="" placeholder="auto"></label>
         <div class="fldtip">This machine's listen address, not the sender's. Blank or 0.0.0.0 = all interfaces (recommended).</div>
       </div>
-      <div class="cgrp vw-setup">
+      <div class="cgrp">
         <div class="gt">Logging</div>
         <label class="frow"><span>Level</span>
           <select id="cf-loglvl"><option>debug</option><option selected>info</option><option>warning</option><option>error</option><option>critical</option></select></label>
@@ -139,26 +146,26 @@
           <button class="btn btn-sm btn-action" id="cf-logdl" type="button">Download logs</button></div>
         <div class="fldtip">Saves one file to this computer: recent log, app + soem log tails, rig and host config, version. Attach it when reporting a problem.</div>
       </div>
-      <div class="cgrp vw-op">
+      <div class="cgrp">
         <div class="gt">Motion blend</div>
         <label class="frow"><span>Blend time</span><input id="cf-blendt" type="number" step="0.01"><span class="u">s</span></label>
         <label class="frow"><span>Blend max vel</span><input id="cf-blendv" type="number" step="0.01"><span class="u">mm/s</span></label>
       </div>
-      <div class="cgrp vw-op">
+      <div class="cgrp">
         <div class="gt">Command conditioning</div>
         <label class="frow"><span>Mode</span>
           <select id="cf-condmode"><option value="bypass">Bypass</option><option value="interpolate">Interpolate</option><option value="filter">Filter</option></select></label>
         <div class="cfg-note" id="cf-condnote"></div>
         <div class="cfg-note" id="cf-udphint">UDP rate: - </div>
       </div>
-      <div class="cgrp vw-setup" id="updBlock" hidden>
+      <div class="cgrp" id="updBlock" hidden>
         <div class="gt">Software</div>
         <div class="cfg-note">Running <span id="updCur">-</span></div>
         <div class="cfg-note" id="updNote">Updates need the rig parked and EtherCAT stopped.</div>
         <button type="button" id="updCheck">Check for updates</button>
         <button type="button" id="updGo" hidden>Update</button>
       </div>
-      <div class="cgrp vw-op" id="devBlock" hidden style="grid-column:1/-1">
+      <div class="cgrp" id="devBlock" hidden style="grid-column:1/-1">
         <div class="gt">Devices</div>
         <div class="cfg-note">A device is an axis of type <code>shifter</code> or <code>pedal</code>. It homes
           by pushing gently against its travel stop, then rests limp (moves freely) until engaged.
@@ -166,7 +173,7 @@
           apply a preset as a starting point, edit if you like, then Save.</div>
         <div id="devCards"><p class="cfg-note">No device axes configured. Add an axis and set its type to shifter or pedal.</p></div>
       </div>
-      <div class="cgrp vw-setup">
+      <div class="cgrp">
         <div class="gt">GPIO control panel</div>
         <label class="frow"><span>Mode</span>
           <select id="cf-gpiomode">
@@ -179,7 +186,7 @@
           <button class="btn btn-sm btn-action" id="cf-ledtest" type="button">Run LED test</button></div>
         <div class="cfg-note" style="grid-column:1/-1">Pins use defaults (see wiring PDF); edit <code>host.json</code> for custom pins. Mode change needs a restart; LED test runs immediately.</div>
       </div>
-      <div class="cgrp vw-setup">
+      <div class="cgrp">
         <div class="gt">Advanced / EtherCAT tuning</div>
         <label class="frow"><span>Command sync cycles</span><input id="cf-cmdsync" type="number"></label>
         <label class="frow"><span>WKC valid. cycles</span><input id="cf-wkccyc" type="number"></label>
@@ -195,7 +202,7 @@
         <label class="frow"><span>Channels 2</span><input id="cf-audioch2" type="number" min="1" max="8" step="1"></label>
         <div class="fldtip" id="shakerStatus">Shakers off.</div>
       </div>
-      <div class="cgrp vw-op" id="axisGrp" style="grid-column:1/-1">
+      <div class="cgrp" id="axisGrp" style="grid-column:1/-1">
         <div class="gt">Per-axis configuration</div>
         <div class="frow"><span>Axis</span>
           <span style="display:flex;gap:6px;align-items:center">
@@ -210,7 +217,7 @@
       <!-- Button bindings. One row
            per bindable command; capture flow = click Bind, press the button.
            Saves hot-apply (buttons.json) - no restart, no re-init. -->
-      <div class="cgrp vw-setup" style="grid-column:1/-1">
+      <div class="cgrp" style="grid-column:1/-1">
         <div class="gt bind-head" id="bindHead"><span class="arrow" id="bindArrow">▸</span>
           Button bindings <span class="c">HID box → rig commands · saved separately, applies live</span></div>
         <div class="bind-body collapsed" id="bindBody">
@@ -227,7 +234,7 @@
       <!-- Sim channels for the numbered line: last, and folded by default.
            A SimHub setup never needs it, and its ~90 rows sat between the
            shaker settings and the button bindings. -->
-      <div class="cgrp vw-setup" style="grid-column:1/-1">
+      <div class="cgrp" style="grid-column:1/-1">
         <div class="gt bind-head" id="ncxHead"><span class="arrow" id="ncxArrow">▸</span>
           Sim channels (numbered line) <span class="c">FlyPT Mover, SimTools, your own feeder · not needed for SimHub</span></div>
         <div class="bind-body collapsed" id="ncxBody">
@@ -256,12 +263,12 @@
   </section>
 
   <!-- ===== drive provisioning reference (inline collapsible) ===== -->
-  <div class="sec sec-toggle vw-setup" id="provHead">
+  <div class="sec sec-toggle" id="provHead">
     <span class="arrow" id="provArrow">▸</span>
     <span class="t">Drive Provisioning</span><span class="c">panel reference</span>
     <span class="rule"></span>
   </div>
-  <section class="panel collapsed vw-setup" id="provPanel">
+  <section class="panel collapsed" id="provPanel">
     <div class="prov-body">
 
       <!-- Step 1: unlock + carrier, every drive, panel-only -->
@@ -358,12 +365,12 @@ sudo ./provision eth0 &lt;slave&gt; --verify    # confirm everything persisted</
   </section>
 
   <!-- ===== commissioning tests (inline collapsible) ===== -->
-  <div class="sec sec-toggle vw-setup" id="testHead">
+  <div class="sec sec-toggle" id="testHead">
     <span class="arrow" id="testArrow">▸</span>
     <span class="t">Commissioning Tests</span><span class="c">motion cycle · vibration · sweep · song</span>
     <span class="rule"></span>
   </div>
-  <section class="panel collapsed vw-setup" id="testPanel">
+  <section class="panel collapsed" id="testPanel">
     <div class="test-body">
       <div class="test-note">
         Runs only while the <b>loop is running</b> and the rig is
@@ -426,15 +433,19 @@ sudo ./provision eth0 &lt;slave&gt; --verify    # confirm everything persisted</
     </div>
   </section>
 
-  <!-- ===== activity log (inline collapsible) ===== -->
-  <div class="sec">
-    <span class="arrow" id="logArrow">▾</span>
-    <span class="t sec-toggle" id="logHead">Activity Log</span>
-    <span class="rule"></span>
-    <label class="log-tail-label"><input type="checkbox" id="chk-tail" checked> Auto-scroll</label>
-    <span class="act" id="btn-clear-log">Clear</span>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== save strip (step 2 fills it); log drawer; link-lost guard; action bar ===== -->
+  <div class="savebar" id="savebar"></div>
+
+  <div class="logd" id="logd">
+    <div class="logh"><span class="lab">Activity log</span><span class="sp"></span>
+      <label class="key sm latch on" id="tailKey"><input type="checkbox" id="chk-tail" checked hidden> Auto-scroll</label>
+      <button type="button" class="key sm nolamp" id="btn-clear-log">Clear</button></div>
+    <div class="log log-panel" id="log-panel"></div>
   </div>
-  <section class="panel vw-op" id="logPanelWrap"><div class="log-panel" id="log-panel"></div></section>
 
   <!-- link-lost guard: shown by app.js when the status poll goes dead (>=5s / 10 missed
        polls). All buttons grey with it, so a dead network path LOOKS dead instead of
@@ -445,26 +456,28 @@ sudo ./provision eth0 &lt;slave&gt; --verify    # confirm everything persisted</
     (direct cable / WiFi) - this clears automatically when data returns.
   </div>
 
-
-  <!-- Command-refusal line: server's reason for a click that did nothing. -->
-  <div id="cmdErr" class="cmd-err" hidden></div>
-
-  <!-- ===== sticky action bar ===== -->
-  <nav class="actionbar">
-    <button id="btn-init"    class="btn btn-start">Initialize EtherCAT</button>
-    <button id="btn-start"   class="btn btn-start"  disabled>Start Loop</button>
-    <button id="btn-stop"    class="btn btn-stop"   disabled>Stop Loop</button>
-    <button id="btn-home"    class="btn btn-action" disabled>Home All</button>
-    <button id="btn-park"    class="btn btn-action" disabled>Park All</button>
-    <!-- belt don/doff: only rendered when the config has torque axes (app.js) -->
-    <button id="btn-belts"   class="btn btn-action" disabled hidden>Slack Belts</button>
-    <button id="btn-fault"   class="btn btn-warn">Reset Fault</button>
-    <button id="btn-restart" class="btn btn-restart">Restart</button>
-    <button id="btn-shutdown" class="btn btn-warn">Shutdown</button>
-    <span class="spacer"></span>
-    <button id="btn-release" class="btn btn-release" disabled>Release</button>
-    <button id="btn-estop"   class="btn btn-estop">E-STOP</button>
-  </nav>
+  <footer class="ab" id="ab">
+    <div class="abg">
+      <button type="button" id="btn-init"    class="key">Initialize EtherCAT</button>
+      <button type="button" id="btn-start"   class="key" disabled>Start Loop</button>
+      <button type="button" id="btn-stop"    class="key" disabled>Stop Loop</button>
+      <button type="button" id="btn-home"    class="key" disabled>Home All</button>
+      <button type="button" id="btn-park"    class="key" disabled>Park All</button>
+      <!-- belt don/doff: only rendered when the config has torque axes (app.js) -->
+      <button type="button" id="btn-belts"   class="key" disabled hidden>Slack Belts</button>
+      <button type="button" id="btn-fault"   class="key amb">Reset Fault</button>
+    </div>
+    <!-- Command-refusal line: server's reason for a click that did nothing. -->
+    <div class="glass msg"><span class="vt bad" id="cmdErr" hidden></span></div>
+    <div class="abg">
+      <button type="button" id="btn-restart"  class="key nolamp quiet">Restart</button>
+      <button type="button" id="btn-shutdown" class="key nolamp quiet">Shutdown</button>
+      <span class="vsep"></span>
+      <button type="button" id="logKey" class="key latch">Log</button>
+      <button type="button" id="btn-release" class="key amb" disabled>Release</button>
+      <button type="button" id="btn-estop"   class="estop">E-STOP</button>
+    </div>
+  </footer>
 
   <script src="app.js"></script>
 </body>

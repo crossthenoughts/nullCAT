@@ -69,8 +69,8 @@ const THEME_KEY='nullcat-theme';
 function setView(v){
   document.body.dataset.view=v;
   const o=$('vwBtn-op'), s=$('vwBtn-setup');
-  if(o) o.classList.toggle('vw-on', v==='op');
-  if(s) s.classList.toggle('vw-on', v==='setup');
+  if(o) o.classList.toggle('on', v==='op');
+  if(s) s.classList.toggle('on', v==='setup');
   try{ localStorage.setItem('nullcat.view', v); }catch(_){}
 }
 { let v='op';
@@ -80,8 +80,15 @@ function setView(v){
   if(o) o.onclick=()=>setView('op');
   if(s) s.onclick=()=>setView('setup'); }
 
-function applyTheme(t){ document.documentElement.setAttribute('data-theme', t==='dark'?'dark':'light'); }
-let theme = localStorage.getItem(THEME_KEY)||'light'; applyTheme(theme);
+/* Three housings: a6 (the default), light, graphite. The storage key is
+   unchanged; a browser that stored the old "dark" gets graphite. */
+const THEME_NAMES={a6:'A6',light:'Light',graphite:'Graphite'};
+function applyTheme(t){ t = t==='dark'?'graphite':(THEME_NAMES[t]?t:'a6');
+  document.documentElement.setAttribute('data-theme', t); document.body.setAttribute('data-theme', t);
+  const k=$('thmK'); if(k) k.textContent='Theme · '+THEME_NAMES[t];
+  document.querySelectorAll('#thmMenu [data-t]').forEach(b=>b.classList.toggle('on', b.dataset.t===t));
+  return t; }
+let theme = applyTheme(localStorage.getItem(THEME_KEY)||'a6');
 
 /* ---- transport: poll-only. httplib has no WebSocket server, so the old
    /ws reconnect-every-3s just churned failing connections. Pure polling. ---- */
@@ -96,10 +103,10 @@ function applyState(s){
 
   setV(vLoop, running?'RUN':'STOP', running?'ok':'');
   setV(vEc, op?'OP':'OFF', op?'ok':'warn');
-  vRate.innerHTML = s.loopHz? s.loopHz.toFixed(0)+'<span class="u">Hz</span>' : ' - ';
-  vCyc.innerHTML  = s.loopHz? (1e6/s.loopHz).toFixed(0)+'<span class="u">µs</span>' : ' - ';
+  setSeg(vRate, s.loopHz? s.loopHz.toFixed(0) : '----');
+  setSeg(vCyc,  s.loopHz? (1e6/s.loopHz).toFixed(0) : '----');
   setV(vWkc, String(s.wkcErrors ?? 0), (s.wkcErrors>0)?'bad':'ok');
-  vSlv.textContent = (s.slavesFound ?? 0) + ' / ' + (s.numDrives ?? 0);
+  setSeg(vSlv, String(s.slavesFound ?? 0)); { const n=$('v-slvN'); if(n) n.textContent='/ '+(s.numDrives ?? 0); }
   // Telemetry indicator: RX (receiving) / idle (socket up, no packets) /
   // SOCKET FAILED (bind failed at startup - check telemetryBindAddr/port in
   // host.json; a fallback bind logs loudly in the journal).
@@ -107,7 +114,8 @@ function applyState(s){
   if(vTelemetry) vTelemetry.title=s.telemetryInit?'':"Telemetry socket failed to bind - check telemetryBindAddr (this machine's address or 0.0.0.0) and the port in host.json, then restart the service.";
   // UDP rate diagnostic: new/arrival Hz + hold% ( - when diag off / no window yet)
   if(vUdp){ const ua=+s.udpArrivalHz, un=+s.udpNewHz, uh=+s.udpHoldPct;
-    vUdp.innerHTML = (ua>=0)? `${un.toFixed(0)}/${ua.toFixed(0)}<span class="u">Hz</span> ${uh.toFixed(0)}%` : ' - '; }
+    vUdp.innerHTML = (ua>=0)? segHtml(un.toFixed(0),3)+'<span class="dl">/</span>'+segHtml(ua.toFixed(0),3)+'<span class="dl">Hz</span><span class="vt dim">'+uh.toFixed(0)+'%</span>'
+                            : '<span class="vt dim">-</span>'; }
   // Config-page hint: suggest a mode from the measured new-frame rate (inform, never auto-switch).
   { const e=$('cf-udphint'); if(e){ const un=+s.udpNewHz;
     e.textContent = (un<0) ? 'UDP rate: enable diagnostics to measure'
@@ -117,7 +125,7 @@ function applyState(s){
 
   const j=+s.maxJitterUs||0; jbuf[jhead]=j; jhead=(jhead+1)%SPARK_N; if(jfill<SPARK_N) jfill++;
   if(j>jpeak) jpeak=j;
-  vJit.textContent = j? j.toFixed(0):' - '; vJpk.textContent = jpeak? jpeak.toFixed(0):' - ';
+  setSeg(vJit, j? j.toFixed(0):'--'); setSeg(vJpk, jpeak? jpeak.toFixed(0):'--');
   renderSpark();
 
   buildDriveCards(s.drives||[], running);
@@ -129,7 +137,6 @@ function applyState(s){
   document.body.classList.toggle('estop-active', estop);
   // The trip banner: what stopped the rig, when, and the one way back.
   { const b=$('estopBanner'); if(b){ const t=!!s.estopTripped; b.hidden=!t;
-      if(t){ const mb=document.querySelector('.menubar'); b.style.top=((mb&&mb.offsetHeight)||96)+'px'; }
       if(t){ const ago=+s.estopTripAgoSec||0, src=s.estopSource||'e-stop';
         const when = ago<60 ? ago+' s ago' : ago<3600 ? Math.round(ago/60)+' min ago' : Math.round(ago/3600)+' h ago';
         const h=String(src).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -188,8 +195,30 @@ function applyState(s){
   // E-STOP and Release follow the input, so E-STOP can be pressed again
   // while tripped; the trip itself stays until Initialize.
   btn.estop.disabled=!!(s.estopInput ?? estop); btn.release.disabled=!(s.estopInput ?? estop);
+  // Key lamps: green marks the next useful step, amber a recovery action,
+  // the E-STOP key sits latched while its input is held. Derived from the
+  // enable states above only; the rules themselves are unchanged.
+  const faulted=(s.aggregate&&s.aggregate.state==='fault')||(s.drives||[]).some(d=>/fault|fatal/i.test(d.state||''));
+  btn.init.classList.toggle('lit', !btn.init.disabled && ecatMode==='init');
+  btn.start.classList.toggle('lit', !btn.start.disabled);
+  btn.park.classList.toggle('lit', !btn.park.disabled && parked);
+  btn.belts.classList.toggle('lit', !btn.belts.disabled && beltsSlack);
+  btn.fault.classList.toggle('lit', faulted && !btn.fault.disabled);
+  btn.release.classList.toggle('lit', !btn.release.disabled);
+  btn.estop.classList.toggle('on', !!(s.estopInput ?? estop));
+  { const ab=$('ab'); if(ab) ab.classList.toggle('alert', estop||faulted); }
 }
-function setV(el,t,c){ el.textContent=t; el.className='v'+(c?' '+c:''); }
+/* Status window writers. setV keeps its (el, text, cls) contract: the value
+   takes the display class (ok / warn / bad, else dim) and the lamp before
+   it takes the same colour. Segment readouts carry a ghost of unlit
+   segments behind the digits (data-g, padded to the field's width). */
+function segGhost(el,t){ const w=+(el.dataset.w||(el.dataset.w=(el.dataset.g||'').length)); el.dataset.g=String(t).replace(/[0-9A-Za-z]/g,'8').padStart(w,'8'); }
+function setV(el,t,c){ if(!el) return; el.textContent=t;
+  const seg=el.classList.contains('seg'); el.className=(seg?'seg':'vt')+(c?' '+c:(seg?'':' dim'));
+  if(seg) segGhost(el,t);
+  const l=el.previousElementSibling; if(l&&l.classList.contains('lamp')) l.className='lamp'+(c?' '+c:''); }
+function setSeg(el,t){ if(!el||el.textContent===t) return; el.textContent=t; segGhost(el,t); }
+function segHtml(t,w){ return '<span class="seg" data-g="'+String(t).replace(/[0-9]/g,'8').padStart(w,'8')+'">'+t+'</span>'; }
 function setLogo(c){ if(!elLogo) return; const f={'is-offline':'logo-offline.png','is-online':'logo-online.png','is-fault':'logo-fault.png','is-estop':'logo-estop.png'}[c]||'logo-offline.png';
   if(!(elLogo.getAttribute('src')||'').endsWith(f)) elLogo.setAttribute('src',f); elLogo.className='logo-badge '+c; }
 function renderSpark(){ let p=''; for(let k=0;k<jfill;k++){ const i=(jhead-jfill+k+SPARK_N)%SPARK_N; const v=jbuf[i];
@@ -340,11 +369,11 @@ function setLinkDown(d){ if(d===linkDown) return; linkDown=d;
   else ['fault','restart','shutdown'].forEach(k=>{ if(btn[k]) btn[k].disabled=false; });
 }
 function updateConn(){ const age=lastRecvMs?(Date.now()-lastRecvMs):Infinity;
-  if(age<1500){ elConn.textContent='Connected'; elConn.className='badge badge-on'; }
-  else if(age<5000){ elConn.textContent='Stale'; elConn.className='badge badge-stale'; }
-  else { elConn.textContent='Disconnected'; elConn.className='badge badge-off'; setLogo('is-offline'); setLinkDown(true); } }
+  if(age<1500) setV(elConn,'Connected','ok');
+  else if(age<5000) setV(elConn,'Stale','warn');
+  else { setV(elConn,'Disconnected','bad'); setLogo('is-offline'); setLinkDown(true); } }
 setInterval(updateConn,500);
-setInterval(()=>{ elClock.textContent=new Date().toTimeString().slice(0,8); },1000);
+setInterval(()=>{ setSeg(elClock,new Date().toTimeString().slice(0,8)); },1000);
 
 /* ---- commands ---- */
 /* Commands answer {"ok":false,"error":"..."} when the server refuses (already
@@ -395,8 +424,12 @@ $('testHead').onclick=()=>{ const was=$('testPanel').classList.contains('collaps
 // Sim channels (numbered line): folded by default too, below the shaker
 // settings and the bindings (a SimHub setup never opens it).
 { const h=$('ncxHead'); if(h) h.onclick=()=>toggle($('ncxBody'),$('ncxArrow')); }
-$('logHead').onclick=()=>toggle($('logPanelWrap'),$('logArrow'));
-$('logArrow').onclick=()=>toggle($('logPanelWrap'),$('logArrow'));
+/* The activity log is a drawer above the action bar, opened by the bar's
+   Log key; Auto-scroll is a latching key around the checkbox pollLogs reads. */
+{ const k=$('logKey'), d=$('logd'); if(k&&d) k.onclick=()=>{ const o=d.classList.toggle('open'); k.classList.toggle('on',o); };
+  const t=$('chk-tail'), tk=$('tailKey'); if(t&&tk) t.onchange=()=>tk.classList.toggle('on',t.checked); }
+/* The status window's System cell opens Setup. */
+{ const b=$('sysBtn'); if(b) b.onclick=()=>setView('setup'); }
 
 /* Persisted collapse for the Operate sections (fight the sprawl): the
    choice sticks per browser. Clicks on embedded actions (Reset peaks)
@@ -412,9 +445,10 @@ function wireCollapse(headId, arrowId, panelId, key){
 wireCollapse('drvHead','drvArrow','drive-grid','nullcat.sec.drives');
 wireCollapse('hapHead','hapArrow','hapPanel','nullcat.sec.haptics');
 
-/* ---- theme select ---- */
-const cfTheme=$('cf-theme');
-if(cfTheme){ cfTheme.value=theme; cfTheme.onchange=()=>{ theme=cfTheme.value; applyTheme(theme); localStorage.setItem(THEME_KEY,theme); }; }
+/* ---- theme menu (header) ---- */
+document.querySelectorAll('#thmMenu [data-t]').forEach(b=>{ b.onclick=()=>{ theme=applyTheme(b.dataset.t);
+  try{ localStorage.setItem(THEME_KEY,theme); }catch(_){} const m=$('thmMenu'); if(m) m.open=false; }; });
+document.addEventListener('click',(e)=>{ const m=$('thmMenu'); if(m&&m.open&&!m.contains(e.target)) m.open=false; },true);
 
 /* ---- config: split host.json (per-machine) + rig.json (portable).
    The web owns rig on every platform; host only when there is no native config
