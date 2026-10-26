@@ -99,6 +99,9 @@ and a SimHub plugin that finds AC EVO's kerbs.
   instead, and Setup is its own view.
 
 ### Fixed
+- A page left with an effect's editor open, or Motion on the rail, loads
+  again: it used to stop at load and sit on Disconnected with empty pages.
+  A page that does not finish loading now says so, with a Reload key.
 - The Motion rows no longer pile the accel readout down their left edge
   once a parked axis enables.
 - The header fits the window: its readouts drop out, least needed first

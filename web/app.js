@@ -431,7 +431,14 @@ function setLayout(mo,hp){
 }
 { const PNL={'mo-rail':()=>setLayout('rail',uiLayout.hp),'mo-full':()=>setLayout('full',uiLayout.hp),'hp-rail':()=>setLayout('full','rail'),'hp-mix':()=>setLayout(uiLayout.mo,'mix')};
   document.querySelectorAll('[data-pnl]').forEach(b=>{ b.onclick=()=>{ const f=PNL[b.dataset.pnl]; if(f) f(); }; });
-  setLayout(uiLayout.mo,uiLayout.hp); }
+  // At load the effects do not exist yet (hapInit builds them once the
+  // config arrives), and the effect state setLayout reads (hapSel,
+  // hapTiles) is declared further down: calling setLayout here threw on a
+  // stored "editor open" or "Motion on the rail" layout and stopped the
+  // whole page. Show the stored layout without the editor; the uiLayout
+  // kept as stored lets hapMixerBuild reopen the editor once the tiles exist.
+  { const ws=$('ws'); if(ws){ ws.dataset.mo=(uiLayout.hp==='rail')?'full':(uiLayout.mo==='rail'?'rail':'full');
+      ws.dataset.hp=(uiLayout.hp==='rail')?'rail':'mix'; } } }
 
 /* ---- connection (freshness) ---- */
 /* Link-lost guard: on Disconnected (>=5s = 10 missed polls) grey EVERY button and show the
@@ -440,7 +447,7 @@ function setLayout(mo,hp){
    fault/restart/shutdown are restored here (applyState never touches them); the rest are
    recomputed by applyState's own state logic every poll. */
 let linkDown=false;
-function setLinkDown(d){ if(d===linkDown) return; linkDown=d;
+function setLinkDown(d){ if(d===linkDown) return; linkDown=d; setTimeout(fitHeader,0);
   const b=$('linkBanner'); if(b) b.hidden=!d;
   if(d) Object.values(btn).forEach(x=>{ if(x) x.disabled=true; });
   else ['fault','restart','shutdown'].forEach(k=>{ if(btn[k]) btn[k].disabled=false; });
@@ -2448,7 +2455,8 @@ function hapMixerBuild(){
       r.innerHTML='<span class="lamp"></span><span class="rxn"></span>'; r.querySelector('.rxn').textContent=HAP_ABBR[k]||t.fx.label.slice(0,4).toUpperCase();
       r.onclick=()=>hapOpenFx(k); rail.appendChild(r); } }
   // an effect that was open stays open across the rebuild
-  if(hapSel&&hapTiles[hapSel]&&uiLayout.hp==='ed') hapOpenFx(hapSel,true); else if(uiLayout.hp==='ed') setLayout(uiLayout.mo,'mix');
+  if(hapSel&&hapTiles[hapSel]&&uiLayout.hp==='ed') hapOpenFx(hapSel,true);
+  else if(uiLayout.hp==='ed'||uiLayout.mo==='rail') setLayout(uiLayout.mo,'mix');   // (Motion on the rail opens the first effect)
 }
 function hapOpenFx(k,force){
   const t=hapTiles[k]; if(!t) return;
@@ -3151,3 +3159,5 @@ setInterval(pollTestStatus,1000);
 
 /* ---- boot ---- */
 updateConn(); pollStatus(); setInterval(pollStatus, 500); pollLogs();
+fitHeader();   // before the first status too: a page that never connects still fits
+window.__nullcatBooted=true;   // read by the safety net in index.html

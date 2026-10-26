@@ -550,5 +550,21 @@ sudo ./provision eth0 &lt;slave&gt; --verify    # confirm everything persisted</
   </footer>
 
   <script src="app.js"></script>
+  <!-- Safety net: app.js sets __nullcatBooted at the end of its start. A
+       script that did not load (the controller restarting) or stopped on an
+       error leaves the page on its defaults with nothing polling: say so on
+       the link banner and offer the reload, instead of a silent
+       "Disconnected" that never changes. -->
+  <script>
+    setTimeout(function(){
+      if (window.__nullcatBooted) return;
+      var b = document.getElementById('linkBanner');
+      if (!b) return;
+      b.innerHTML = '⚠ The page did not finish loading, so it is not talking to the controller. '
+        + '<button type="button" class="key sm nolamp" onclick="location.reload()">Reload</button>'
+        + ' The rig is unaffected and the <b>physical E-STOP still works</b>.';
+      b.hidden = false;
+    }, 6000);
+  </script>
 </body>
 </html>
