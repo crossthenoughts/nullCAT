@@ -93,9 +93,21 @@ let theme = applyTheme(localStorage.getItem(THEME_KEY)||'a6');
 /* ---- transport: poll-only. httplib has no WebSocket server, so the old
    /ws reconnect-every-3s just churned failing connections. Pure polling. ---- */
 async function pollStatus(){ try{ const r=await fetch(API+'/api/status');
-  if(r.ok){ const s=await r.json(); applyState(s); hapLive(s); } }catch(_){} }
+  if(r.ok){ const s=await r.json(); applyState(s); hapLive(s); fitHeader(); } }catch(_){} }
 
 /* ---- apply status ---- */
+/* The header's status window drops its cells while the header would run
+   past the window (the values' widths change with the rig, so a fixed
+   breakpoint cannot know): the least needed first, the link and its
+   clock last. */
+const FIT_ORDER=['v-cyc','v-wkc','v-telemetry','v-rate','v-udp','v-slv','conn-status'];
+function fitHeader(){
+  const top=document.querySelector('.top'); if(!top) return;
+  const cells=FIT_ORDER.map(id=>{ const e=$(id); return e&&e.closest('.c'); }).filter(Boolean);
+  for(const c of cells) c.classList.remove('fit-hide');
+  for(const c of cells){ if(top.scrollWidth<=top.clientWidth+1) break; c.classList.add('fit-hide'); }
+}
+window.addEventListener('resize',fitHeader);
 function applyState(s){
   lastRecvMs=Date.now(); lastStatus=s;
   setLinkDown(false);   // fresh data: clear the link-lost guard (button states recomputed below)
@@ -370,7 +382,9 @@ function buildDriveCards(drives, loopRunning){
     // have headroom -- so the ratio finally means something. Paired with the accel-clamp
     // clip rate, the braking-clamp bind rate, and peak following-error. All server-latched
     // since loop-start/soft-reset (drive, pause, then read -- motion pauses on focus-loss).
-    const accEl=card.querySelector('.acc'), bar=card.querySelector('.abar'), fill=card.querySelector('.fill');
+    // '.dv.acc', not '.acc': a parked axis's lamp carries the colour class acc
+    // and comes first in the row, and the readout used to land in it.
+    const accEl=card.querySelector('.dv.acc'), bar=card.querySelector('.abar'), fill=card.querySelector('.fill');
     const amax=(typeof d.maxAccel==='number' && d.maxAccel>0)? d.maxAccel : 0;
     const clip=(typeof d.accelClipPct==='number')? d.accelClipPct : 0;
     const brake=(typeof d.accelBindPct==='number')? d.accelBindPct : 0;
@@ -388,7 +402,7 @@ function buildDriveCards(drives, loopRunning){
     ferrEl.textContent = (typeof d.followErrPeak==='number')? d.followErrPeak.toFixed(3) : ' - ';
     // the rail's item: lamp, a bar of position (or torque for torque axes), a short name
     if(rx){ rx.querySelector('.lamp').className='lamp '+lampc; rx.querySelector('.rb i').style.height=(isTorque?trqPct:posPct).toFixed(1)+'%';
-      const nm=rx.querySelector('.rxn'); const sn=(d.name||('D'+i)).slice(0,4); if(nm.textContent!==sn) nm.textContent=sn; rx.title=d.name||''; }
+      const nm=rx.querySelector('.rxn'); const sn=(d.name||('D'+i)).slice(0,5); if(nm.textContent!==sn) nm.textContent=sn; rx.title=d.name||''; }
   });
   const ml=$('moLamp'); if(ml) ml.className='lamp '+(anyBad?'bad':loopRunning?'ok':'');
 }
@@ -510,6 +524,10 @@ function setupNavRefresh(){
   const nb=(btnMap.bindings||[]).length; sum('btn', nb+' of '+BINDABLE.length+' bound', nb?'ok':'');
   sum('sim', ((cfgObj&&cfgObj.ncxBindings)||[]).length+' slots · not for SimHub', '');
   const nd=cfgObj?devAxes().length:0; sum('dev', nd?nd+(nd>1?' devices':' device'):'none', nd?'ok':'');
+  { // force-feel devices run on the Raspberry Pi only: no page for them elsewhere
+    const b=document.querySelector('#sun [data-su="dev"]'), off=!!meta.platform&&meta.platform!=='linux';
+    if(b&&b.hidden!==off){ b.hidden=off; const g=b.previousElementSibling; if(g&&g.classList.contains('sung')) g.hidden=off;
+      if(off&&document.querySelector('#su .supg.on[data-pg="dev"]')) setupPage('axes'); } }
   sum('prov', 'A6-EC · params · role check', '');
   sum('test', tstActive?'running…':(tstLoopRunning?'ready':'needs the loop running'), tstActive?'warn':(tstLoopRunning?'ok':''));
   const au=$('cf-authen'); sum('sys', 'v'+(meta.version||'?')+(au&&!au.checked?' · web password off':''), au&&!au.checked?'warn':'');
@@ -1271,7 +1289,7 @@ let HAP_FX=[], HAP_DEF={};
 // The hover note on a setting the car table sets (tinted on the tile), and
 // the one it carries instead while the car has no entry and follow car put
 // these settings on their defaults (tinted pink).
-const HAP_CARKEY_TIP='Follows the car: a car\'s entry in the car table can set this (follow car, or pull), and "save for this car" keeps yours. Untinted settings are general: a new car leaves them as they are.';
+const HAP_CARKEY_TIP='Follows the car: a car\'s entry in the car table can set this (follow car, or re-apply), and "save as mine" keeps yours. Untinted settings are general: a new car leaves them as they are.';
 // ...and on a setting the type of car sets (a starting point: Road car, Cup
 // car, GT3, Open wheeler), tinted in its own colour.
 const HAP_TYPEKEY_TIP='Follows the type of car: applying a starting point on the Master tile (Road car, Cup car, GT3 / GT, Open wheeler) sets this. A new car leaves it as it is.';
@@ -1537,7 +1555,7 @@ function shakerStatus(s){
   // a card is not open) and one test button per shaker number.
   if(el._built!==(k.channels||0)+1){
     el._built=(k.channels||0)+1;
-    el.innerHTML='<div class="glass shl"><span id="shakerLine"></span></div> <button class="key sm nolamp" type="button" id="shakerReopen" hidden title="Open the sound cards again (a card unplugged and back, or the sound output moved)">Reopen</button> <div class="shm" id="shakerTests">'
+    el.innerHTML='<div class="glass shl"><span id="shakerLine"></span></div> <button class="key sm nolamp" type="button" id="shakerReopen" hidden title="Open the sound cards again (a card unplugged and back, or the sound output moved)">Reopen</button> <div class="shm" id="shakerTests" style="--n:'+Math.min(8,Math.max(1,k.channels||1))+'">'
       +Array.from({length:k.channels||0},(_,c)=>'<span class="shc"><span class="glass lvw"><i class="lvl" data-lv="'+c+'"></i></span><button class="key sm nolamp" type="button" data-shtest="'+c+'" title="Shaker '+(c+1)+': 40 Hz for a second on this channel">'+(c+1)+'</button></span>').join('')+'</div>';
     el.querySelectorAll('[data-shtest]').forEach(b=>{ b.onclick=async()=>{ try{ await fetch(API+'/api/shakers/test',{method:'POST',body:JSON.stringify({channel:+b.dataset.shtest})}); }catch(_){} }; });
     const ro=$('shakerReopen'); if(ro) ro.onclick=async()=>{ ro.disabled=true; try{ await postCmd('/api/shakers/reopen'); }finally{ ro.disabled=false; } };
@@ -1728,7 +1746,9 @@ function hapCarText(c){
   if(!c.source) return c.car+' · no entry'+(c.defaults?' · defaults in use':'');
   return (c.name||c.car)+' · '+(c.source==='user'?'yours':'stock')+(c.near?' · near match':'')+(c.applied?'':' · not applied');
 }
+let hapCarLast=null;   // the car row's last answer, for the session block
 function hapCarRow(c){
+  hapCarLast=c||null;
   hapCarDefaultMark(!!(c&&c.defaults));
   const now=$('hapCarNow');
   if(now){
@@ -2104,17 +2124,17 @@ function hapInit(){
       +'<button class="btn btn-sm" type="button" id="hapPresetApply" title="Set the slip, road, kerb, wheels and impacts settings for the chosen type of car. Routes, master gain, pos budget and the engine, limiter, driveline, ABS and TC stay as they are.">apply</button>'
       +'<span class="hk" id="hapPresetMsg"></span></div>'
       +'<div class="hsec" title="The car table: only the engine, limiter, driveline, ABS and TC tiles, per car. Routes, master gain, pos budget and the other tiles stay as you saved them.">car table: engine, limiter, driveline, ABS, TC</div>'
-      +'<div class="hr hap-game" title="The car table: how each car\'s engine, limiter, driveline, ABS and TC feel, shipped for the Assetto Corsa and Automobilista 2 rosters plus your own entries. Applying an entry moves those five tiles only; routes, master gain and every other tile stay yours."><span class="hk">car</span>'
+      +'<div class="hr hap-game" title="The car table: how each car\'s engine, limiter, driveline, ABS and TC feel, shipped for the Assetto Corsa and Automobilista 2 rosters plus your own entries. Applying an entry moves those five tiles only; routes, master gain and every other tile stay yours."><span class="hk">this car</span>'
       +'<span class="hk" id="hapCarNow">(none)</span>'
-      +'<button class="btn btn-sm" type="button" id="hapCarPull" title="Apply this car\'s entry to the engine, limiter, driveline, ABS and TC tiles">pull car preset</button>'
-      +'<button class="btn btn-sm" type="button" id="hapCarSave" title="File the SAVED engine, limiter, driveline, ABS and TC settings under this car in your own layer; it then wins over the shipped entry. Save the strip first if you have edits.">save for this car</button>'
-      +'<button class="btn btn-sm" type="button" id="hapCarForget" title="Drop your entry for this car; the shipped one (if any) is used again">forget</button>'
+      +'<button class="btn btn-sm" type="button" id="hapCarPull" title="Apply this car\'s entry again to the engine, limiter, driveline, ABS and TC tiles. With follow car on there is no need: it is applied by itself when the sim names the car.">re-apply</button>'
+      +'<button class="btn btn-sm" type="button" id="hapCarSave" title="File the SAVED engine, limiter, driveline, ABS and TC settings under this car as your own entry; it then wins over the shipped one. Save your edits first.">save as mine</button>'
+      +'<button class="btn btn-sm" type="button" id="hapCarForget" title="Drop your own entry for this car; the shipped one (if any) is used again">forget mine</button>'
       +'<span class="hk" id="hapCarMsg"></span></div>'
-      +'<div class="hr hap-game" title="Take the engine, limiter, driveline, ABS and TC settings from the car table whenever the sim names a car it knows. Routes, master gain and the other tiles never move. Off: the table only acts on pull car preset.">'
+      +'<div class="hr hap-game" title="Take the engine, limiter, driveline, ABS and TC settings from the car table whenever the sim names a car it knows. Routes, master gain and the other tiles never move. Off: the table only acts when you press re-apply or apply.">'
       +'<label class="hk"><input type="checkbox" id="hapFollowCar"'+(cfgObj.haptics.followCar!==false?' checked':'')+'> follow car</label></div>'
       +'<div class="hr hap-game" title="Ask the sim\'s sender for its direct telemetry where it has one: a faster feed straight from the game (Assetto Corsa\'s physics at about 333 a second instead of about 60). Takes effect at once, is remembered on the controller, and the sender is asked again whenever it reports otherwise. A sender that does not offer it is never asked.">'
       +'<label class="hk"><input type="checkbox" id="hapDirect"> direct telemetry</label><span class="hk" id="hapDirectState"></span></div>'
-      +'<div class="hr hap-game" title="Any entry in the table as a starting point: the nearest car when yours has none. Apply it, tune to taste, then save for this car."><span class="hk">preset</span>'
+      +'<div class="hr hap-game" title="Another car\'s entry: for a car the table does not know (pick the nearest: another GT3, the same engine in a different body), or to try another car\'s numbers. Apply it, tune to taste, then save as mine."><span class="hk">another car</span>'
       +'<span class="car-pick"><input type="text" id="hapCarPick" placeholder="search cars" autocomplete="off"><div id="hapCarSug" class="car-sug" hidden></div></span>'
       +'<button class="btn btn-sm" type="button" id="hapCarApply" title="Apply the picked entry to the engine, limiter, driveline, ABS and TC tiles">apply</button></div>'
       +'<div class="hsec" title="The coloured dot on each tile: grey = that game has never sent the channels, amber = channels arrive but the effect has never played, green = has played. Only a display; nothing here is saved or changes a setting.">sim dots</div>'
@@ -2489,7 +2509,19 @@ function hapEdDress(){
 function hapUiRefresh(){
   const panel=$('hapPanel'); if(!panel) return;
   if(panel.hidden){ if(uiLayout.hp==='ed') hapCloseEd(); return; }
-  const cg=$('hapSesCar'), gg=$('hapSesGame'); if(cg) cg.textContent=(($('hapCarNow')||{}).textContent||'-'); if(gg) gg.textContent=(($('hapGameNow')||{}).textContent||'-');
+  const cg=$('hapSesCar'), gg=$('hapSesGame'); if(gg) gg.textContent=(($('hapGameNow')||{}).textContent||'-');
+  if(cg){ // the name (it truncates) and what the car table has for it (it never does)
+    const c=hapCarLast, tags=[];
+    if(c&&c.car){
+      if(!c.source) tags.push(['no entry','w']);
+      else { tags.push([c.source==='user'?'yours':'stock','']); if(c.near) tags.push(['near match','w']); if(!c.applied) tags.push(['not applied','w']); }
+      if(c.defaults) tags.push(['defaults','w']);
+    }
+    const name=(c&&c.car)?(c.name||c.car):'(none)', key=name+'|'+tags.map(t=>t[0]).join('|');
+    if(cg._k!==key){ cg._k=key; cg.textContent='';
+      const n=document.createElement('span'); n.className='cn'; n.textContent=name; cg.appendChild(n);
+      for(const [t,w] of tags){ const e=document.createElement('span'); e.className='ctag'+(w?' w':''); e.textContent=t; cg.appendChild(e); } }
+    cg.title=(($('hapCarNow')||{}).title)||''; }
   const gi=$('hapMasterGain'), gf=$('hapGainFader'), gs=$('hapGainSeg');
   if(gi&&gf&&document.activeElement!==gf) gf.value=gi.value; if(gi&&gs) setSeg(gs,(+gi.value||0).toFixed(2));
   const mb=$('hapMuteBtn'); if(mb) mb.classList.toggle('on',hapMutedNow);

@@ -301,10 +301,12 @@ let go, the suspension, the kerbs, the wheels, the knocks) have a warm
 tint of their own. Everything untinted stays put when the car or the
 type changes.
 
-The **car** row on the Master tile shows the car the sim is naming and
-what the table has for it (`Mazda 787B · stock`, `· yours` for your own
-entry, `· no entry`). **Pull car preset** applies that entry to the five
-tiles. **Follow car** (on by default) does the same by itself whenever the
+The **this car** row (Haptics panel, under **Rig · car · sim**) shows the
+car the sim is naming and what the table has for it (`Mazda 787B · stock`,
+`· yours` for your own entry, `· no entry`); the car readout at the top of
+the panel shows the same, with the table's answer in small tags.
+**Re-apply** applies that entry to the five tiles again. **Follow car** (on
+by default) does it by itself whenever the
 sim names a car the table knows; untick it and the table only acts when
 asked. A profile bound to the car wins over the table. If the table (or a
 starting point, or a profile) moves the tiles while you have unsaved edits
@@ -312,15 +314,16 @@ on the strip, the page keeps your edits and says so; Save then refuses,
 reloads what the controller has, and asks you to make the edits again,
 rather than write your older copy over what was applied. A save of your
 own that moves a setting the car owns clears the car row's "applied" (the
-tiles are yours now, not the entry's) until you pull it again.
+tiles are yours now, not the entry's: the row says `· not applied`) until
+you re-apply it.
 
 A sim sometimes names a car with something after a name the table knows:
 a version letter or a year (Automobilista 2 has a `MINI Cooper S 1965 B`
 beside its `MINI Cooper S 1965`). When there is no entry under the exact
 name, nullCAT takes the entry the name starts with, the longest one, in
 whole words and at least two of them, and only from the same game, and the
-car row adds `· near match`. **Save for this car** then files your own
-under the sim's exact name.
+car row adds `· near match`. **Save as mine** then files your own under
+the sim's exact name.
 
 With follow car on, a car the table has no entry for at all, in a game the
 table covers (Assetto Corsa, Automobilista 2, or any game you have saved a
@@ -338,16 +341,16 @@ different car is a car change as ever. The car row of a car on the
 defaults reads
 `· no entry · defaults in use`, and the settings the car table owns are
 tinted pink instead of the usual faint tint (hover one to read why) until
-you pull a preset car or save for this car, or the next car comes on. The
-car still plays, just not as itself: give it a car like it from the preset
-box, or set the tiles by hand and save for this car.
+you apply a car or save as mine, or the next car comes on. The car still
+plays, just not as itself: give it a car like it from the **another car**
+box, or set the tiles by hand and save as mine.
 
-**Preset** is a search box over the whole table: when your car has no
+**Another car** is a search box over the whole table: when your car has no
 entry, pick the nearest one (another GT3, the same engine in a different
-body), **apply** it, tune to taste, then **save for this car**. That files
+body), **apply** it, tune to taste, then **save as mine**. That files
 the saved five tiles under the current car in your own layer
 (`cars.local.json` beside the rig config, kept across updates), which
-wins over the shipped entry from then on; **forget** drops it. The Engine
+wins over the shipped entry from then on; **forget mine** drops it. The Engine
 tile names the matched car and folds its notes under it: the real-world
 figures and reasoning behind the values, there to refer to when tuning.
 The shipped table is `cars.json` beside the program; every update replaces

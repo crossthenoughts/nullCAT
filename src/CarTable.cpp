@@ -170,7 +170,7 @@ bool CarTable::saveUser(const std::string& anchorPath) const
         for (const auto& kv : m_user.rows) cars[QString::fromStdString(kv.second.key)] = kv.second.entry;
     }
     root["_help"] = "nullCAT car table, your layer: how a car's engine, limiter, driveline, ABS and TC feel, "
-                    "saved from the Haptics strip with 'save for this car'. Wins over the shipped cars.json "
+                    "saved from the Haptics panel with 'save as mine'. Wins over the shipped cars.json "
                     "for the same car. Never carries routes.";
     root["cars"] = cars;
     QSaveFile f(userPath(anchorPath));
