@@ -7,9 +7,11 @@
 // shaped per surface class and smoothed by water from here).
 //
 //   stones   gravel, sand, dirt: stones struck by the tyre at random, so
-//            many per metre of travel (busier with speed), each a size of
-//            its own and now and then a big one: a sharp tick on a belt or
-//            shaker, a small bump through the tyre on a post;
+//            many per metre of travel (stonesPerM on gravel, the others in
+//            proportion; none under 2 km/h), each a size of its own, now
+//            and then a big one, and harder with speed (full from 40 km/h):
+//            a sharp tick on a belt or shaker, a small bump through the
+//            tyre on a post;
 //   crunch   snow compacting under the tread (and sand, and a lower mud
 //            squelch): granular noise, rising with speed;
 //   studs    ice and snow with studded tyres: the studs biting, a rough
@@ -39,9 +41,14 @@
 namespace haptics {
 
 namespace surface_k {
-    // Stones struck per metre of travel under one tyre, by class (tarmac,
-    // bumpy, kerb, gravel, grass, dirt, cobbles, snow, ice, sand, mud, water).
-    constexpr double kStonesPerM[SURFACE_CLASS_COUNT] = { 0.0, 0.05, 0.0, 2.0, 0.1, 0.4, 0.0, 0.0, 0.0, 0.6, 0.2, 0.0 };
+    // Stones by class, as a share of gravel's (stonesPerM sets gravel's:
+    // tarmac, bumpy, kerb, gravel, grass, dirt, cobbles, snow, ice, sand,
+    // mud, water).
+    constexpr double kStonesShare[SURFACE_CLASS_COUNT] = { 0.0, 0.025, 0.0, 1.0, 0.05, 0.2, 0.0, 0.0, 0.0, 0.3, 0.1, 0.0 };
+    // No stones struck under this road speed (a car parked: AC Rally sends
+    // 0.1 km/h standing still), and each one full strength from this one.
+    constexpr double kStoneMinMs  = 2.0 / 3.6;
+    constexpr double kStoneFullMs = 40.0 / 3.6;
     constexpr double kBigStoneShare = 0.12;   // one stone in eight is a big one...
     constexpr double kBigStoneK     = 2.5;    // ...this much bigger
     constexpr double kTickMinHz = 60.0, kTickMaxHz = 110.0;   // a stone's ring on the floor
@@ -125,12 +132,14 @@ public:
             const bool touching = w.groundF >= 0.5;
 
             // Stones: a Poisson stream, so many per metre.
-            const double rate = kStonesPerM[w.cls] * v;        // per second
+            const double perM = std::isfinite(q.stonesPerM) ? std::max(0.0, q.stonesPerM) : 0.0;
+            const double rate = (v >= kStoneMinMs) ? kStonesShare[w.cls] * perM * v : 0.0;   // per second
             if (touching && rate > 0.0 && q.stones > 0.0 && wavesynth::rand01(w.rng) < rate * dtSec)
             {
                 Stone& s = w.pool[w.next]; w.next = (w.next + 1) % kPool;
                 s.t = 0.0;
-                s.amp = (0.3 + 0.7 * wavesynth::rand01(w.rng)) * ((wavesynth::rand01(w.rng) < kBigStoneShare) ? kBigStoneK : 1.0);
+                s.amp = (0.3 + 0.7 * wavesynth::rand01(w.rng)) * ((wavesynth::rand01(w.rng) < kBigStoneShare) ? kBigStoneK : 1.0)
+                      * std::min(1.0, v / kStoneFullMs);
                 s.hz = kTickMinHz + (kTickMaxHz - kTickMinHz) * wavesynth::rand01(w.rng);
                 s.bumpSec = std::max(0.01, kBumpM / std::max(kMinSpeedMs, v));
                 s.live = true;

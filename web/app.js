@@ -2447,21 +2447,24 @@ function hapLive(s){
     if(sl&&Array.isArray(s.hapWheels)&&s.hapWheels.length>9){
       const g=s.hapWheels[6]||[], c=s.hapWheels[7]||[], wa=s.hapWheels[8]||[], fl=s.hapWheels[9]||[];
       const cells=sl.children;
-      // Only what the game says: with no surface type arriving the tile
-      // has no surface to read (tarmac is nullCAT's assumption, not data),
-      // and with no rain or wetness either it has nothing to play.
+      // What the game says, else the ground the tile assumes ("no surface
+      // sent"), marked so: gravel there plays all the time, tarmac plays
+      // nothing (the Road tile carries tarmac).
       const tokOn=(nm)=>{ const i=NCX_TOKENS.indexOf(nm); return i>=0&&Array.isArray(s.ncxHave)&&!!s.ncxHave[i]; };
       const corners=['FL','FR','RL','RR'];
       const surfIn=corners.every(n=>tokOn('surface'+n));
       const wetIn=tokOn('rain')||tokOn('wet')||corners.every(n=>tokOn('wet'+n));
+      const assumed=['tarmac','gravel','dirt','snow','sand'][Math.max(0,Math.min(4,Math.round(+t.dv.assume||0)))];
       corners.forEach((n,i)=>{ if(!cells[i]) return;
-        const what=surfIn?(HAP_SURF_NAMES[Math.round(+c[i])]||'tarmac'):'';
+        const what=surfIn?(HAP_SURF_NAMES[Math.round(+c[i])]||'tarmac'):(assumed+'*');
         const water=(+fl[i]>0.5)?'float':(+wa[i]>0.3)?'wet':'';
         const txt=(+g[i]<0.5)?'air':((what+' '+water).trim()||'-');
         cells[i].textContent=n+' '+txt; });
-      sl.title=(surfIn||wetIn)
+      sl.title=surfIn
         ?'What each tyre is on, as nullCAT reads it: the surface, wet or floating, or in the air'
-        :'This game sends no surface type and no rain or wetness: the Surface tile has nothing to play here (the Road tile treats it all as tarmac)';
+        :(assumed==='tarmac'
+          ?'* This game sends no surface type: the tile takes it as tarmac ("no surface sent"), which it has nothing to play on (the Road tile carries tarmac)'+(wetIn?'; puddles still play on a wet road':'')
+          :'* This game sends no surface type: the tile takes it as '+assumed+' ("no surface sent") and plays it all the time');
     }
     if(t.fx.transient){
       if(firedEdge&&t.dv.ampPct>0&&!t.anim){

@@ -230,7 +230,8 @@ Surface fields (`surface`; `freqHz` is kept but unused):
 
 | Field | Default | Notes |
 |---|---|---|
-| `stones` | `0.6` | 0 to 1: stones struck on gravel (2 per metre per tyre), sand (0.6), dirt (0.4), mud and grass (a few): a ring of 60 to 110 Hz dying in 8 ms on a belt or shaker, a bump of about 1 mm over 5 cm of road on a post; one in eight is 2.5 x bigger. |
+| `stones` | `0.6` | 0 to 1: how hard the stones strike on gravel, sand, dirt, mud and grass (how many: `stonesPerM`): a ring of 60 to 110 Hz dying in 8 ms on a belt or shaker, a bump of about 1 mm over 5 cm of road on a post; one in eight is 2.5 x bigger. Each is harder with speed, full from 40 km/h; none are struck under 2 km/h. |
+| `stonesPerM` | `0.35` | 0.05 to 2: stones a tyre strikes per metre of gravel; sand 0.3 x as many, dirt 0.2 x, mud 0.1 x, grass 0.05 x. Around 0.3 each stone is its own tick; past 1 they run together into a rumble at speed. |
 | `crunch` | `0.5` | 0 to 1: granular noise in 25 to 60 Hz (mud 12 to 30 Hz), full on snow, lighter on sand and mud, full by 60 km/h. |
 | `studs` | `0` | 0 off, 1 on: studded tyres on ice and snow, a rough buzz at speed over 0.25 m (20 to 100 Hz). |
 | `puddles` | `0.6` | 0 to 1: puddles laid out per side on a wet road (a 60 % x wet squared chance per 4 m, 1 to 3.5 m long): the tug entering (stronger with speed squared, full at 90 km/h) and the bite out of a float. |
@@ -379,7 +380,7 @@ each with:
 | `beltGFromG` | double | `0.05` | With `"g"`: below this many g (braking or acceleration, cornering and heave at their shares, added up) the tension stays at `torqueMinPct`. 0 to 2. |
 | `beltGFullG` | double | `1.5` | With `"g"`: the g (added up as for `beltGFromG`) that reaches `torqueMaxPct`. 0.2 to 6, at least 0.05 above `beltGFromG`. While the haptics `beltFullG` (the type of car's) is set, that one is used instead. |
 | `beltGCurve` | double | `1.0` | With `"g"`: the mapping's shape, tension share = (g share) to this power: 1 a straight line, above 1 softer at small g. 0.3 to 3. |
-| `beltGSmoothMs` | double | `30.0` | With `"g"`: first-order low-pass on the g before the mapping (the channel arrives about 60 times a second). 0 (off) to 250. |
+| `beltGSmoothMs` | double | `30.0` | With `"g"`: first-order low-pass on the g before the mapping (the channel arrives about 60 times a second). 0 (off) to 250. A teleport (a reset, a restart: the speed jumps more than 30 km/h from one value to the next, or the road under the car more than 2 m in height) holds the g off for a second with the belt at its minimum, so the g spike it brings never pulls; a crash, whose speed falls less than that in a frame, is felt. |
 
 `rotationCount` in old rig files is ignored on load and no longer saved.
 

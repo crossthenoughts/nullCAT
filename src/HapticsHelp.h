@@ -373,8 +373,12 @@ constexpr ParamHelp kHelp[] = {
 
     // ---- surface ----
     { "surface", "stones",
-      "Stones struck on gravel, sand and dirt, busier with speed, 0 to 1. 0.5 to 0.8 for most cars (rally: up "
-      "to 1)." },
+      "How hard the stones strike on gravel, sand and dirt, 0 to 1 (each one harder with speed, full from 40 "
+      "km/h). 0.5 to 0.8 for most cars (rally: up to 1)." },
+    { "surface", "stonesPerM",
+      "How many stones a tyre strikes per metre of gravel, 0.05 to 2 (sand and dirt fewer, in proportion). "
+      "Around 0.3 each stone is its own tick; past 1 they run together into a rumble at speed. None under 2 "
+      "km/h." },
     { "surface", "crunch", "Snow (and sand, mud) compacting under the tread, 0 to 1. 0.4 to 0.7." },
     { "surface", "studs", "Studded tyres buzzing on ice and snow. On only for rally cars on studs." },
     { "surface", "puddles",

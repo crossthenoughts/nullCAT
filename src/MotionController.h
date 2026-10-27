@@ -561,6 +561,20 @@ private:
             double sameSec = 0.0;
         };
         BeltGChan beltGCh[3];
+        // Belt from g: a teleport's hold-off (seconds left: the g is held
+        // off and the belt sits at minimum), and the sender's last speed
+        // and road height per wheel (once seen), for the jumps. Cleared
+        // with the g filters at tension-up (resetBeltTeleport).
+        double  beltTeleportSec  = 0.0;
+        double  beltLastSpeedKmh = 0.0;
+        double  beltLastRoadMm[4] = {};
+        bool    beltSpeedSeen    = false;
+        bool    beltRoadSeen[4]  = {};
+        void resetBeltTeleport()
+        {
+            beltTeleportSec = 0.0; beltSpeedSeen = false;
+            for (bool& s : beltRoadSeen) s = false;
+        }
         // Belt from g: the motion stream's staleness, which (not the
         // channels') lets the belt slacken by itself, with the posts.
         // Armed once a motion frame is seen this session.

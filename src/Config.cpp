@@ -282,7 +282,8 @@ constexpr FieldRow<KerbParams> kKerbFields[] = {
     { "fullMm", &KerbParams::fullMm }, { "detectMm", &KerbParams::detectMm },
 };
 constexpr FieldRow<SurfaceParams> kSurfaceFields[] = {
-    { "stones", &SurfaceParams::stones }, { "crunch", &SurfaceParams::crunch }, { "studs", &SurfaceParams::studs },
+    { "stones", &SurfaceParams::stones }, { "stonesPerM", &SurfaceParams::stonesPerM },
+    { "crunch", &SurfaceParams::crunch }, { "studs", &SurfaceParams::studs },
     { "puddles", &SurfaceParams::puddles }, { "aquaKmh", &SurfaceParams::aquaKmh }, { "smooth", &SurfaceParams::smooth },
     { "assume", &SurfaceParams::assume },
 };

@@ -1810,13 +1810,36 @@ int main()
                 if (force) force->push_back(m.outputFor(Part::FL).force);
             }
         };
-        const SurfaceParams q;   // stones 0.6, crunch 0.5, studs off, puddles 0.6, aqua 90, smooth 0.7
+        const SurfaceParams q;   // stones 0.6, 0.35 per m, crunch 0.5, studs off, puddles 0.6, aqua 90, smooth 0.7
 
-        // Stones: so many per metre, so more with speed; none on tarmac,
-        // none at a standstill or once the speed stops arriving.
+        // Stones: so many per metre (the setting), so more with speed; none
+        // on tarmac, none at a standstill or once the speed stops arriving.
         {
             SurfaceModel g; runS(g, SurfGravel, 0.0, 20.0, q, 8000, nullptr);       // 4 s at 20 m/s: 80 m
-            approx(static_cast<double>(g.stonesStruck(WheelFL)), 2.0 * 80.0, 40.0, "surface stones: two per metre of gravel under a tyre");
+            approx(static_cast<double>(g.stonesStruck(WheelFL)), 0.35 * 80.0, 12.0, "surface stones: 0.35 per metre of gravel under a tyre (the default)");
+            SurfaceParams q2 = q; q2.stonesPerM = 2.0;
+            SurfaceModel g2; runS(g2, SurfGravel, 0.0, 20.0, q2, 8000, nullptr);
+            approx(static_cast<double>(g2.stonesStruck(WheelFL)), 2.0 * 80.0, 40.0, "surface stones: stones per m 2, two per metre");
+            SurfaceModel sa; runS(sa, SurfSand, 0.0, 20.0, q2, 8000, nullptr);
+            approx(static_cast<double>(sa.stonesStruck(WheelFL)), 0.6 * 80.0, 22.0, "surface stones: sand in proportion (0.3 x gravel's)");
+            // Parked: AC Rally sends 0.1 km/h standing still. Under 2 km/h no
+            // stones at all; at 2.5 km/h a few.
+            SurfaceModel cr; runS(cr, SurfGravel, 0.0, 0.1 / 3.6, q2, 40000, nullptr);   // 20 s
+            CHECK(cr.stonesStruck(WheelFL) == 0, "surface stones: none while creeping at 0.1 km/h (a parked car)");
+            SurfaceModel cr2; runS(cr2, SurfGravel, 0.0, 1.9 / 3.6, q2, 40000, nullptr);
+            CHECK(cr2.stonesStruck(WheelFL) == 0, "surface stones: none under 2 km/h");
+            SurfaceModel sl; runS(sl, SurfGravel, 0.0, 2.5 / 3.6, q2, 40000, nullptr);
+            CHECK(sl.stonesStruck(WheelFL) > 5, "surface stones: rolling at 2.5 km/h, some");
+            // Each stone harder with speed, full from 40 km/h: the energy a
+            // stone carries at 5 m/s (18 km/h) about a fifth of one at 20 m/s.
+            auto perStone = [&](double speed) {
+                SurfaceModel m; std::vector<double> fv; runS(m, SurfGravel, 0.0, speed, q2, 40000, &fv);
+                double e = 0.0; for (double x : fv) e += x * x;
+                return e / std::max<uint64_t>(1, m.stonesStruck(WheelFL));
+            };
+            const double eSlow = perStone(5.0), eFast = perStone(20.0);
+            std::printf("  surface stones: energy per stone at 18 km/h %.2f of one at 72 km/h\n", eSlow / eFast);
+            CHECK(eSlow < 0.35 * eFast && eSlow > 0.08 * eFast, "surface stones: a stone at 18 km/h about a fifth the energy of one at 72 (strength rising to 40 km/h)");
             SurfaceModel s; runS(s, SurfGravel, 0.0, 5.0, q, 8000, nullptr);
             CHECK(s.stonesStruck(WheelFL) < g.stonesStruck(WheelFL) / 2, "surface stones: fewer at walking pace");
             SurfaceModel t; std::vector<double> ft; runS(t, SurfTarmac, 0.0, 20.0, q, 4000, &ft);
@@ -1932,7 +1955,7 @@ int main()
             CHECK(flAir < 0.05 * flGround, "road airborne: a tyre in the air has no road through its corner");
             CHECK(win(fr, 5500, 8000) > 0.5 * flGround, "road airborne: the corners on the ground carry on");
             CHECK(flBack > 0.5 * flGround, "road airborne: back on the ground the road returns");
-            CHECK(stonesAir == 0 && s.stonesStruck(WheelFR) > 100, "surface airborne: no stones under a tyre in the air");
+            CHECK(stonesAir == 0 && s.stonesStruck(WheelFR) > 20, "surface airborne: no stones under a tyre in the air (the grounded one strikes them)");
         }
     }
 

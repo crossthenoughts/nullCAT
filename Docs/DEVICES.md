@@ -784,10 +784,14 @@ and off.
 What the ground does under each tyre beyond the road's shape, per
 corner (route it with a part like Road).
 
-- **stones x** (0.6): on gravel, sand and dirt the tyres strike stones, a
-  couple per metre on gravel, so more of them the faster you go, each a
-  size of its own and now and then a big one: a sharp tick on a belt or
-  shaker, a small bump on a seat actuator.
+- **stones x** (0.6): on gravel, sand and dirt the tyres strike stones,
+  more of them the faster you go, each a size of its own and now and then
+  a big one, and harder with speed (full from 40 km/h; none under
+  2 km/h): a sharp tick on a belt or shaker, a small bump on a seat
+  actuator.
+- **stones per m** (0.35): how many a tyre strikes per metre of gravel
+  (sand and dirt fewer, in proportion). Around 0.3 each stone is its own
+  tick; past 1 they run together into a rumble at speed.
 - **crunch x** (0.5): snow compacting under the tread (sand lighter, mud
   a low squelch), rising with speed.
 - **studs**: tick it for studded tyres; on ice and snow the studs bite

@@ -19,6 +19,10 @@ a SimHub plugin that finds AC EVO's kerbs, and an EQ and a compressor on
 each shaker.
 
 ### Added
+- **stones per m** on the Surface tile: how many stones a tyre strikes per
+  metre of gravel (0.05 to 2, default 0.35; it was a fixed 2, which at
+  rally speeds ran together into a rumble). Sand, dirt, mud and grass
+  follow in proportion.
 - Each shaker has its own EQ and compressor, under Setup, Shakers / audio:
   five bands drawn as a curve you can drag, a compressor made for bass, a
   slow sweep and a band tone to find where a shaker rings, a hold to
@@ -107,6 +111,15 @@ each shaker.
   instead, and Setup is its own view.
 
 ### Fixed
+- A belt on the car's g no longer gives a hard tug when the car is reset or
+  a stage restarted: the g spike a teleport brings is held off for a second
+  with the belt at its minimum. A crash is still felt.
+- Stones on gravel no longer tick while the car is parked (AC Rally sends
+  0.1 km/h standing still), and each stone is harder with speed instead of
+  every one striking at full strength.
+- The Surface tile says what it plays when the sim sends no surface type:
+  its corners show the ground it assumes (marked *), and it no longer
+  reports the surface as a channel it is missing.
 - A page last left on Commissioning tests, with an effect's editor open, or
   with Motion on the rail, loads again: it used to stop at load and sit on
   Disconnected with empty pages. A page that does not finish loading now

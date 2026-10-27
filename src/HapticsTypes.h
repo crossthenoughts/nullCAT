@@ -210,6 +210,10 @@ struct SurfaceParams
     // type (AC Rally, AC EVO, plain AC): 0 tarmac, 1 gravel, 2 dirt, 3 snow,
     // 4 sand. A rally type of car sets it; tarmac for every other type.
     double assume  = 0.0;
+    // How many stones a tyre strikes per metre of gravel (the other loose
+    // grounds in proportion: sand 0.3 x, dirt 0.2 x). Few enough and each
+    // is its own tick; many and they run together into a rumble.
+    double stonesPerM = 0.35;
 };
 
 // The Wheels tile (WheelsModel.h): what each wheel does as it turns, through

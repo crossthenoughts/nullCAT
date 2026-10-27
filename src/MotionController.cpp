@@ -1146,6 +1146,7 @@ void MotionController::tensionBelts()
             rt.beltRelaxed      = false;
             rt.beltLastTripWhy  = 0;            // card guard flag clears on tension-up
             for (auto& c : rt.beltGCh) c.live = c.meanLive = false;   // the g filters start afresh (not from the last session's braking)
+            rt.resetBeltTeleport();   // ...and the teleport test (a speed from the last session is no jump)
             RT_LOG_INFO("MotionController: Axis %d (belt) tensioning -- blending in.", i + 1);
         }
     }
@@ -1749,6 +1750,34 @@ static constexpr double kBeltGFrozenSec = 0.5;
 // Heave is felt as its change from the steady part (gravity, a long
 // banking, a hill), taken as its mean over about this long.
 static constexpr double kBeltGHeaveMeanSec = 2.0;
+// A teleport (the sim puts the car somewhere else: a reset, a restart, a
+// recovery to the road) brings a g far past any car's that then decays
+// for about half a second (the sender's g is the slope of a velocity that
+// jumped). The junk limit drops the peak but lets the tail through:
+// several g, a full pull on the belt. A teleport shows as a speed jump no
+// car makes, or the road under the car jumping in height; either holds
+// the g off this long: the belt sits at minimum, the tail goes by, and
+// the g is taken afresh after it. A g past the junk limit alone is not a
+// sign: a car striking a rock or a tree pulls 10 to 60 g in the sim (AC
+// Rally, 2026-10-27), and that is felt.
+static constexpr double kBeltGTeleportHoldSec = 1.0;
+// The speed changing by more than this from one value the sender sends to
+// the next is a teleport (AC Rally 2026-10-27: resets 47 to 93 km/h in one
+// frame; the hardest crashes 21 km/h). However long between them: a game
+// paused resumes at the speed it stopped at, and a restart comes after
+// the stream paused to load it, or with the speed frozen meanwhile. (A
+// long dropout while the speed changes that much reads as one too: a
+// second at minimum, a release.)
+static constexpr double kBeltGTeleportKmh = 30.0;
+// The road's height under the car moving more than this on two wheels or
+// more at once, standing still (under kBeltGTeleportStillKmh), is a restart
+// in place (AC Rally: 36 to 438 m, the speed 0 before and after). Only
+// standing still: on the move the speed shows a reset, and a landing from
+// a jump can step the contact points. A wheel's height reading exactly 0
+// is no value (AC Rally drops one corner's contact point for a frame,
+// even at 123 km/h).
+static constexpr double kBeltGTeleportRoadMm   = 2000.0;
+static constexpr double kBeltGTeleportStillKmh = 10.0;
 
 // The belt's live tension demand this cycle from its source (Config.h
 // beltSource): the motion line's slot for this axis, or the car's g.
@@ -1778,6 +1807,55 @@ bool MotionController::beltDemand(int i, const TelemetryData& td, double& tensio
         anyUsable = anyUsable || usable[k];
     }
     const double dt = m_cycleTimeSec;
+    // A teleport: the speed or the road's height jumping from one value the
+    // sender sends to the next (kBeltGTeleport*).
+    bool teleport = false, anyPresent = false;
+    for (int k = 0; k < 3; ++k)
+        if (mode[k] != 0 && v.fresh && v.have[kTok[k]]) anyPresent = true;
+    if (v.fresh)
+    {
+        if (v.have[NcxValues::SpeedKmh] && std::isfinite(v.val[NcxValues::SpeedKmh]))
+        {
+            const double s = v.val[NcxValues::SpeedKmh];
+            if (s != rt.beltLastSpeedKmh)
+            {
+                if (rt.beltSpeedSeen && std::fabs(s - rt.beltLastSpeedKmh) > kBeltGTeleportKmh) teleport = true;
+                rt.beltLastSpeedKmh = s;
+                rt.beltSpeedSeen    = true;
+            }
+        }
+        // The road's height under each wheel: two or more jumping at once,
+        // standing still.
+        const bool still = v.have[NcxValues::SpeedKmh] && std::isfinite(v.val[NcxValues::SpeedKmh])
+                        && std::fabs(v.val[NcxValues::SpeedKmh]) < kBeltGTeleportStillKmh;
+        int jumped = 0;
+        for (int w = 0; w < 4; ++w)
+        {
+            const int tk = NcxValues::RoadHeightFL + w;
+            if (!v.have[tk] || !std::isfinite(v.val[tk]) || v.val[tk] == 0.0) continue;
+            const double h = v.val[tk];
+            if (h == rt.beltLastRoadMm[w]) continue;
+            if (rt.beltRoadSeen[w] && std::fabs(h - rt.beltLastRoadMm[w]) > kBeltGTeleportRoadMm) ++jumped;
+            rt.beltLastRoadMm[w] = h;
+            rt.beltRoadSeen[w]   = true;
+        }
+        if (still && jumped >= 2) teleport = true;
+    }
+    if (teleport)
+    {
+        if (rt.beltTeleportSec <= 0.0)
+            RT_LOG_INFO("MotionController: Axis %d belt: the car teleported (a speed or road-height jump): its g is held off for %.1f s",
+                        i + 1, kBeltGTeleportHoldSec);
+        rt.beltTeleportSec = kBeltGTeleportHoldSec;
+    }
+    if (rt.beltTeleportSec > 0.0)
+    {
+        rt.beltTeleportSec -= dt;
+        for (AxisRuntime::BeltGChan& c : rt.beltGCh) { c.live = false; c.meanLive = false; c.badSec = 0.0; }   // afresh after it
+        if (!anyPresent) return false;   // the stream gone as well: the standby, as ever
+        tension = beltGTension(i, 0.0);
+        return true;
+    }
     const double smoothA = (ac.beltGSmoothMs > 0.0) ? dt / (ac.beltGSmoothMs / 1000.0 + dt) : 1.0;
     double x = 0.0;
     for (int k = 0; k < 3; ++k)
@@ -2702,6 +2780,7 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
                 rt.beltRelaxed      = false;
                 rt.beltLastTripWhy  = 0;
                 for (auto& c : rt.beltGCh) c.live = c.meanLive = false;
+                rt.resetBeltTeleport();
 
                 state = AxisMotionState::BLENDING;
                 RT_LOG_INFO("MotionController: Axis %d BLENDING into live telemetry.", i + 1);

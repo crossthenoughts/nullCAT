@@ -214,6 +214,7 @@ constexpr ParamSpec kKerbParams[] = {           // kerb: the rumble strip under 
 constexpr ParamSpec kSurfaceParams[] = {        // surface: stones, crunch, studs, puddles
     { "ampPct",  "amp %",      0,   100, 1,    nullptr },
     { "stones",  "stones x",   0,   1,   0.05, nullptr },   // gravel, sand, dirt: stones struck
+    { "stonesPerM", "stones per m", 0.05, 2, 0.05, nullptr },   // how many a tyre strikes per metre of gravel
     { "crunch",  "crunch x",   0,   1,   0.05, nullptr },   // snow (sand, mud) underfoot
     { "studs",   "studs",      0,   1,   1,    "off|on" },  // studded tyres on ice and snow
     { "puddles", "puddle x",   0,   1,   0.05, nullptr },   // the tug into a puddle, the bite out
@@ -401,15 +402,16 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "Silent on a racing lap, as a healthy diff is. It needs per-wheel wheel speeds. Needs clutch, "
       "rpm and gear (speed and throttle make it exact).", nullptr, {} },
     { Effect::Surface,     "surface",     "Surface",      Kind::Surface, EventType::COUNT, FxType::Surface,
-      { "surface*", "speedKmh", "~rain|wet", nullptr }, { 0.0, 60.0, 0.0, 0.0 }, kSurfaceParams, static_cast<int>(std::size(kSurfaceParams)),
+      { "~surface*", "speedKmh", "~rain|wet", nullptr }, { 0.0, 60.0, 0.0, 0.0 }, kSurfaceParams, static_cast<int>(std::size(kSurfaceParams)),
       "What the ground does under each tyre beyond the road's shape, per corner (route with a part). Stones: "
       "on gravel, sand and dirt the tyres strike stones, more of them the faster you go, a sharp tick on a belt "
       "or shaker and a small bump on a post. Crunch: snow compacting under the tread (sand lighter, mud a low "
       "squelch). Studs: studded tyres biting on ice and snow, a rough buzz. Puddles: on a wet road, puddles "
       "laid out along it; the water drags at a tyre as it enters (stronger with speed), above aqua km/h in "
       "standing water the tyre floats and the road under it goes quiet, and it bites as it comes out. smooth x "
-      "is how far water fills the Road tile's texture. Needs the surface under each tyre (Automobilista 2, Le Mans Ultimate) "
-      "and the wetness or the rain.", nullptr, {} },
+      "is how far water fills the Road tile's texture. Plays the surface under each tyre the sim sends "
+      "(Automobilista 2, Le Mans Ultimate), else the ground set under no surface sent (gravel for a rally type of "
+      "car; tarmac, nothing to play, for the rest), and the wetness or the rain.", nullptr, {} },
     { Effect::Wheels,      "wheels",      "Wheels",       Kind::Wheels, EventType::COUNT, FxType::Wheels,
       { "speedKmh", "~slipRatio*|wheelSpeed*", "~brakePct", "~load*", "~deflated*" }, { 0.0, 12.0, 0.0, 0.0 }, kWheelsParams, static_cast<int>(std::size(kWheelsParams)),
       "What each wheel does as it turns, felt the way a car passes it on: through the corner's tyre, spring and "
