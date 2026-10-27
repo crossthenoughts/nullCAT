@@ -310,29 +310,36 @@ int main()
 
     // ---- SB-6 shaping by shaker number ----
     {
-        // A -18 dB bell at 40 Hz on shaker 3 (device 2's first channel),
-        // set before the cards open: a 0.5 tone there comes out near 0.06.
-        // Without the bank staging it on each card before it opens, a
-        // shaping set before open() reaches nothing and shaker 3 reads 0.5.
+        // An 18 dB cut on shaker 3 (device 2's first channel), set before
+        // the cards open: a 0.5 tone there comes out near 0.06. Without the
+        // bank staging it on each card before it opens, a shaping set before
+        // open() reaches nothing and shaker 3 reads 0.5. The cut is a high
+        // shelf at 10 Hz, so broadband: the null cards here underrun now and
+        // then (the producer is a sleeping test thread), and a narrow cut at
+        // 40 Hz lets the click of each underrun through to the peak meter.
         haptics::ShakerShape cut; cut.eqOn = true;
         for (haptics::ShapeBand& b : cut.band) b.on = false;
-        cut.band[1].on = true; cut.band[1].type = haptics::BandType::Bell; cut.band[1].hz = 40.0; cut.band[1].db = -18.0; cut.band[1].q = 0.7;
+        cut.band[4].on = true; cut.band[4].type = haptics::BandType::HighShelf; cut.band[4].hz = 10.0; cut.band[4].db = -18.0; cut.band[4].q = 0.71;
         std::array<haptics::ShakerShape, haptics::MAX_SHAKER_OUT> all{}; all[2] = cut;
         haptics::ShakerBank bank;
         bank.setShapes(all);
         bank.open({ { "null", 2 }, { "null", 4 } }, 2000.0);
         playTone(bank, 2, 0.5, 600);
         auto info = bank.info();
-        std::printf("  SB-6 a 0.5 tone on shaker 3 with a -18 dB bell set before open: %.3f\n", info[1].levels[0]);
+        std::printf("  SB-6 a 0.5 tone on shaker 3 with an 18 dB cut set before open: %.3f (underruns %llu)\n", info[1].levels[0], (unsigned long long)info[1].underruns);
         check(info[1].levels[0] > 0.03 && info[1].levels[0] < 0.1, "SB-6 shaping set before the cards open is on shaker 3 (device 2, channel 1)");
         playTone(bank, 0, 0.5, 600);
         info = bank.info();
         check(info[0].levels[0] > 0.4 && info[0].levels[0] < 0.6, "SB-6 ...and shaker 1, unshaped, plays at level");
-        bank.setShape(0, cut);
-        playTone(bank, 0, 0.5, 900);
+        // Set while running, on a shaker that has not played yet: its meter
+        // starts from silence, so the reading is the cut and not the tail
+        // of an earlier tone (the meter decays per frame the card renders,
+        // and an emulated CI card renders slowly).
+        bank.setShape(1, cut);
+        playTone(bank, 1, 0.5, 900);
         info = bank.info();
-        std::printf("  SB-6 shaker 1 after the same cut set while running: %.3f\n", info[0].levels[0]);
-        check(info[0].levels[0] > 0.03 && info[0].levels[0] < 0.1, "SB-6 set while running, by number: shaker 1 is cut too");
+        std::printf("  SB-6 shaker 2 after the same cut set while running: %.3f (underruns %llu)\n", info[0].levels[1], (unsigned long long)info[0].underruns);
+        check(info[0].levels[1] > 0.03 && info[0].levels[1] < 0.1, "SB-6 set while running, by number: shaker 2 (device 1, channel 2) is cut too");
         bank.close();
     }
 
