@@ -516,6 +516,11 @@ int main()
               && has(st, "\"hapWheels\":[[") && has(st, "\"hapWheelsPk\":[[")
               && has(st, "\"ncxVal\":[") && has(st, "\"ncxPk\":["),
               "GET /api/status carries the tile readouts (hapIn/Pk, hapWheels/Pk, ncxVal/Pk)");
+        // Each tile's triggers (none yet: 0, and -1 for the seconds since)
+        // and the road heights' rate, the whole still one JSON object.
+        check(has(st, "\"hapHeightsHz\":") && has(st, "\"hapCount\":[0,0,") && has(st, "\"hapAgo\":[-1.0,")
+              && QJsonDocument::fromJson(QByteArray::fromStdString(st)).isObject(),
+              "GET /api/status carries each tile's trigger count and seconds since (none yet) and the heights' rate, as valid JSON");
         check(has(post("/api/resetstats", "{}"), "\"ok\":true"), "POST /api/resetstats accepted (clears the haptic peaks too)");
         check(has(st, "\"hapLatSrc\":") && has(st, "\"hapLatLearned\":") && has(st, "\"hapAbs\":{") && has(st, "\"record\":{"),
               "GET /api/status carries the lateral source and baseline state, ABS's source and the recording");

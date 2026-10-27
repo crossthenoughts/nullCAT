@@ -876,6 +876,12 @@ void MotionController::publishHapticsStatusLocked()
         m_statusSnapshot.hapticsIn[i]      = m_haptics.fxLevel(i);         // driven
         m_statusSnapshot.hapticsInPk[i]    = m_hapInPk[i];
     }
+    for (int e = 0; e < haptics::EFFECT_COUNT; ++e)
+    {
+        m_statusSnapshot.hapticsCount[e]  = m_hapCount[e];
+        m_statusSnapshot.hapticsAgoSec[e] = m_hapCount[e] ? std::max(0.0, m_hapClockSec - m_hapLastSec[e]) : -1.0;
+    }
+    m_statusSnapshot.hapHeightsHz = m_hgtHz;
     for (int w = 0; w < 4; ++w)
     {
         m_statusSnapshot.hapticsWheel[0][w] = m_haptics.slipWheelLevel(haptics::FxType::Skid, w);
@@ -923,6 +929,7 @@ void MotionController::trackHapticPeaks()
         for (double& p : m_hapInPk) p = 0.0;
         for (auto& set : m_hapWheelPk) for (double& p : set) p = 0.0;
         for (double& p : m_ncxPk) p = 0.0;
+        for (uint32_t& n : m_hapCount) n = 0;   // the fires seen stay: a reset counts from now
     }
     // A Test preview drives its tile at full, which is no peak from the sim:
     // skip it, and the half second its level takes to fall away after.
@@ -937,6 +944,36 @@ void MotionController::trackHapticPeaks()
     const auto live = [&](haptics::FxType t) { return !testing[static_cast<int>(t)]; };
     for (int i = 0; i < haptics::FX_TYPE_COUNT; ++i)
         if (!testing[i]) m_hapInPk[i] = std::max(m_hapInPk[i], m_haptics.fxLevel(i));
+    // Each tile's triggers, for the car the sim names now (a different car
+    // starts them over): a transient's new fires (only a fire that plays
+    // counts; a Test's fire is taken off where it is fired), a continuous
+    // effect's episode starting when its level rises past kTrigOn having
+    // fallen under kTrigOff, the level it puts out (none while it is muted,
+    // at amp 0 or routed nowhere: what played, as for a transient).
+    constexpr double kTrigOn = 0.05, kTrigOff = 0.02;
+    m_hapClockSec += m_cycleTimeSec;
+    if (m_hapLaws.carGen != m_hapCarGen)
+    {
+        m_hapCarGen = m_hapLaws.carGen;
+        for (uint32_t& n : m_hapCount) n = 0;
+        for (bool& o : m_hapTrigOn) o = false;
+    }
+    for (int e = 0; e < haptics::EFFECT_COUNT; ++e)
+    {
+        const haptics::EffectInfo& info = haptics::effectInfo(e);
+        if (info.kind == haptics::Kind::Transient)
+        {
+            const uint64_t n = m_haptics.fireCount(info.event);
+            if (n > m_hapFiredSeen[e]) { m_hapCount[e] += static_cast<uint32_t>(n - m_hapFiredSeen[e]); m_hapLastSec[e] = m_hapClockSec; }
+            m_hapFiredSeen[e] = n;
+            continue;
+        }
+        const int f = static_cast<int>(info.fx);
+        if (f < 0 || f >= haptics::FX_TYPE_COUNT || testing[f]) { m_hapTrigOn[e] = false; continue; }
+        const double lv = m_haptics.fxOutputLevel(f);
+        if (!m_hapTrigOn[e] && lv > kTrigOn)       { m_hapTrigOn[e] = true; ++m_hapCount[e]; m_hapLastSec[e] = m_hapClockSec; }
+        else if (m_hapTrigOn[e] && lv < kTrigOff)  m_hapTrigOn[e] = false;
+    }
     for (int w = 0; w < 4; ++w)
     {
         using haptics::FxType;
@@ -976,6 +1013,26 @@ void MotionController::trackHapticPeaks()
     {
         if (!m_ncxHaveSnapshot[i] || (!moving && slipToken(i))) continue;
         m_ncxPk[i] = std::max(m_ncxPk[i], std::fabs(m_ncxValSnapshot[i]));
+    }
+    // The road heights' arrival rate: new values a second, over a second
+    // of moving (a parked car's height does not change). None arriving for
+    // half a second reads 0 (a single empty frame does not); stopped, the
+    // last rate stands.
+    if (!m_ncxHaveSnapshot[NcxValues::RoadHeightFL])
+    {
+        m_hgtGoneSec += m_cycleTimeSec;
+        if (m_hgtGoneSec >= 0.5) { m_hgtHz = 0.0; m_hgtWinSec = 0.0; m_hgtChanges = 0; }
+    }
+    else
+    {
+        m_hgtGoneSec = 0.0;
+        if (moving)
+        {
+            const double h = m_ncxValSnapshot[NcxValues::RoadHeightFL];
+            if (h != m_hgtLast) { ++m_hgtChanges; m_hgtLast = h; }
+            m_hgtWinSec += m_cycleTimeSec;
+            if (m_hgtWinSec >= 1.0) { m_hgtHz = m_hgtChanges / m_hgtWinSec; m_hgtWinSec = 0.0; m_hgtChanges = 0; }
+        }
     }
 }
 
@@ -2449,7 +2506,14 @@ void MotionController::applyStagedHaptics()
     {
         const haptics::EffectInfo& info = haptics::effectInfo(id);
         if (info.kind == haptics::Kind::Transient)
+        {
+            // The tile's trigger count leaves a Test out: what this fire
+            // added to the count (nothing when it could not play), so a
+            // real fire later in the cycle still counts.
+            const uint64_t before = m_haptics.fireCount(info.event);
             m_haptics.fire(info.event, 1.0);
+            m_hapFiredSeen[id] += m_haptics.fireCount(info.event) - before;
+        }
         else
             haptics::startPreview(m_hapLaws, info.fx);
     }

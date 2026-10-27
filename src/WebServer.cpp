@@ -505,6 +505,16 @@ std::string WebServer::buildStatusJson() const
         s += "],\"hapInPk\":[";
         for (int i = 0; i < haptics::FX_TYPE_COUNT; ++i)
             s += (i ? "," : "") + jsonDouble(ms.hapticsInPk[i], 3);
+        // The road heights' rate, then each tile's triggers since Reset
+        // peaks and the seconds since the last (-1: none), registry order
+        // (the next array's opening closes hapAgo).
+        s += "],\"hapHeightsHz\":" + jsonDouble(ms.hapHeightsHz, 1);
+        s += ",\"hapCount\":[";
+        for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+            s += (i ? "," : "") + std::to_string(ms.hapticsCount[i]);
+        s += "],\"hapAgo\":[";
+        for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
+            s += (i ? "," : "") + jsonDouble(ms.hapticsAgoSec[i], 1);
         s += "],\"hapWheels\":[";
         for (int k = 0; k < MotionStatus::HAP_WHEEL_SETS; ++k)
         {

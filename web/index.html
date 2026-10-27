@@ -91,10 +91,14 @@
               <section class="panel" id="hapPanel" hidden>
                 <!-- Session block: the Master tile's profile and follow-car rows
                      move up here (hapMixerBuild), with the car and game the sim
-                     names and a fader mirrored onto the master gain input. -->
+                     names, what is playing now and what needs a look, the type
+                     of car and the car table's rows (touched first), and a
+                     fader mirrored onto the master gain input. -->
                 <div class="ses" id="hapSes">
                   <div class="sr" id="hapSesProf"></div>
-                  <div class="glass sg"><span class="dl">Car</span><span class="vt" id="hapSesCar">-</span><span class="dl">Game</span><span class="vt" id="hapSesGame">-</span></div>
+                  <div class="glass sg"><span class="dl">Car</span><span class="vt" id="hapSesCar">-</span><span class="dl">Game</span><span class="vt" id="hapSesGame">-</span><span class="dl">Now</span><span class="vt dim" id="hapSesNow" title="How many effects are playing now, and the ones that need a look">-</span></div>
+                  <div class="sr" id="hapSesType"></div>
+                  <div class="sr" id="hapSesCarRow"></div>
                   <div class="sr" title="Master gain on every effect"><span class="lab">Gain</span><input type="range" id="hapGainFader" min="0" max="2" step="0.05" value="1"><span class="glass sv"><span class="seg" id="hapGainSeg" data-g="8.88">1.00</span></span></div>
                 </div>
                 <div class="hap-strip" id="hapStrip"></div>

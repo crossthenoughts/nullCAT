@@ -131,6 +131,7 @@ struct LawsState
     // redline, the tyres).
     char   lastCar[NCY_STR_LEN] = {};
     bool   carSeen = false;
+    uint32_t carGen = 0;   // bumped on every different car (the tiles' trigger counts start over)
     // Road speed glitches (a jump to the pits, a reset): the last speed the
     // sim sent, how long ago it changed, and how long the speed stays
     // untrusted after a jump no car can make.
@@ -182,6 +183,7 @@ inline void newCar(LawsState& st)
     std::memcpy(fresh.previewSec, st.previewSec, sizeof fresh.previewSec);
     std::memcpy(fresh.lastCar, st.lastCar, sizeof fresh.lastCar);
     fresh.carSeen      = st.carSeen;
+    fresh.carGen       = st.carGen;
     fresh.lastSpeedKmh = st.lastSpeedKmh; fresh.speedAgeSec = st.speedAgeSec; fresh.glitchSec = st.glitchSec;
     fresh.speedSeen    = st.speedSeen;
     fresh.lastPitch    = st.lastPitch;    fresh.lastRoll = st.lastRoll; fresh.anglesSeen = st.anglesSeen;
@@ -581,6 +583,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         {
             newCar(st);
             L.newCar();
+            ++st.carGen;
         }
         std::memcpy(st.lastCar, v.car, NCY_STR_LEN);
         st.lastCar[NCY_STR_LEN - 1] = '\0';

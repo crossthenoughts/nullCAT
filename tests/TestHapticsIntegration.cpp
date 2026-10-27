@@ -2124,6 +2124,109 @@ int main()
         check(ms.hapticsInPk[fx] > 0.3, "I-16: the sim's own slide still sets the peak");
     }
 
+    // ---- I-30: each tile's trigger count, and the road heights' rate ----
+    {
+        MotionController mc;
+        AppConfig cfg = makeBeltConfig(50.0, 1.0);   // 500 Hz: a cycle is 2 ms
+        haptics::EffectParams& gs = cfg.hapticsFx[static_cast<size_t>(haptics::Effect::GearShift)];
+        gs.ampPct = 50.0; gs.routes[0] = { 0, 1.0 };   // a fire only counts when it plays
+        mc.configure(cfg);
+        mc.setEmergencyStop(false);
+        tensionBelt(mc);
+        run(mc, frame(0.0, true), 400, 1);
+        mc.requestHapticPeakReset();
+        run(mc, frame(0.0, true), 10, 1);
+        const int skid = static_cast<int>(haptics::Effect::Skid), gear = static_cast<int>(haptics::Effect::GearShift);
+        MotionStatus ms = mc.getMotionStatus();
+        check(ms.hapticsCount[skid] == 0 && ms.hapticsAgoSec[skid] < 0.0, "I-30: no slide yet: none counted, none ago");
+        // Three slides, each followed by grip: three triggers, the last
+        // begun 1.8 s ago (its 0.6 s and the 1.2 s of grip after).
+        for (int k = 0; k < 3; ++k) { run(mc, frame(60.0, true), 300, 1); run(mc, frame(0.0, true), 600, 1); }
+        ms = mc.getMotionStatus();
+        check(ms.hapticsCount[skid] == 3, "I-30: three slides, three triggers");
+        check(ms.hapticsAgoSec[skid] > 1.6 && ms.hapticsAgoSec[skid] < 2.0, "I-30: the last slide began 1.8 s ago");
+        // A Test is no trigger: the continuous preview, and a transient's fire.
+        MotionCommand t; t.type = MotionCommand::Type::HapticsTest; t.intVal = skid;
+        mc.enqueueCommand(t);
+        run(mc, frame(0.0, true), 8000, 1);
+        t.intVal = gear; mc.enqueueCommand(t);
+        run(mc, frame(0.0, true), 50, 1);
+        ms = mc.getMotionStatus();
+        check(ms.hapticsCount[skid] == 3 && ms.hapticsCount[gear] == 0, "I-30: a Test (a preview, a fire) is no trigger");
+        // A transient's own fires count, each one.
+        auto& L = const_cast<haptics::Layer&>(mc.hapticsLayer());
+        L.fire(haptics::EventType::GearShift); run(mc, frame(0.0, true), 5, 1);
+        L.fire(haptics::EventType::GearShift); run(mc, frame(0.0, true), 5, 1);
+        ms = mc.getMotionStatus();
+        check(ms.hapticsCount[gear] == 2 && ms.hapticsAgoSec[gear] >= 0.0 && ms.hapticsAgoSec[gear] < 0.05, "I-30: two shifts, two triggers, the last just now");
+        // Reset peaks counts from then.
+        mc.requestHapticPeakReset();
+        run(mc, frame(0.0, true), 10, 1);
+        ms = mc.getMotionStatus();
+        check(ms.hapticsCount[skid] == 0 && ms.hapticsCount[gear] == 0 && ms.hapticsAgoSec[skid] < 0.0, "I-30: Reset peaks starts the counts over");
+        // Only what plays counts: a muted tile's slide is none (as a muted
+        // transient's fire is none), and once unmuted the next one counts.
+        auto muteFx = [&](int id, bool on) { MotionCommand m; m.type = MotionCommand::Type::HapticsMuteFx; m.intVal = id | (on ? 0x100 : 0); mc.enqueueCommand(m); };
+        muteFx(skid, true);
+        run(mc, frame(60.0, true), 300, 1); run(mc, frame(0.0, true), 600, 1);
+        check(mc.getMotionStatus().hapticsCount[skid] == 0, "I-30: a muted tile's slide is no trigger");
+        muteFx(skid, false);
+        run(mc, frame(60.0, true), 300, 1); run(mc, frame(0.0, true), 600, 1);
+        check(mc.getMotionStatus().hapticsCount[skid] == 1, "I-30: unmuted, the next slide counts");
+        // A Test that cannot play (its tile muted in the same cycle) takes
+        // nothing off: a real fire counted in that cycle still counts.
+        L.fire(haptics::EventType::GearShift);       // played: the tile is not muted yet
+        muteFx(gear, true);
+        t.intVal = gear; mc.enqueueCommand(t);       // the next cycle mutes it, then the Test cannot play
+        run(mc, frame(0.0, true), 5, 1);
+        muteFx(gear, false);
+        run(mc, frame(0.0, true), 5, 1);
+        check(mc.getMotionStatus().hapticsCount[gear] == 1, "I-30: a Test that could not play leaves a real fire in its cycle counted");
+        // Car A then car B: the counts are the car's, B starts at none.
+        TelemetryData ca = frame(60.0, true), ga = frame(0.0, true);
+        std::strcpy(ca.car, "Car A"); std::strcpy(ga.car, "Car A");
+        run(mc, ga, 50, 1);
+        for (int k = 0; k < 2; ++k) { run(mc, ca, 300, 1); run(mc, ga, 600, 1); }
+        check(mc.getMotionStatus().hapticsCount[skid] == 3, "I-30: car A's two slides count (on top of the last)");
+        TelemetryData cb = ca, gb = ga;
+        std::strcpy(cb.car, "Car B"); std::strcpy(gb.car, "Car B");
+        run(mc, gb, 50, 1);
+        ms = mc.getMotionStatus();
+        check(ms.hapticsCount[skid] == 0 && ms.hapticsAgoSec[skid] < 0.0, "I-30: car B starts with none counted");
+        run(mc, cb, 300, 1); run(mc, gb, 600, 1);
+        check(mc.getMotionStatus().hapticsCount[skid] == 1, "I-30: car B's own slide counts");
+
+        // The road heights' rate while moving: a new value every 9th cycle
+        // reads about 55 a second (SimHub's), every cycle 500; none sent, 0.
+        TelemetryData sd = frame(0.0, true);
+        for (int w = 0; w < 4; ++w) sd.ncyHave[NcxTok::RoadHeightFL + w] = true;
+        auto heights = [&](int every, int cycles)
+        {
+            for (int i = 0; i < cycles; ++i)
+            {
+                if (i % every == 0) for (int w = 0; w < 4; ++w) sd.ncy[NcxTok::RoadHeightFL + w] = 10000.0 + i;
+                MotionOutput out{}; mc.process(sd, out, nullptr, 0);
+            }
+            return mc.getMotionStatus().hapHeightsHz;
+        };
+        const double slow = heights(9, 1500);
+        check(std::fabs(slow - 500.0 / 9.0) < 3.0, "I-30: road heights arriving 55 a second read 55");
+        const double fast = heights(1, 1500);
+        check(std::fabs(fast - 500.0) < 5.0, "I-30: a new height every cycle reads 500");
+        // Stopped, the last rate stands (a parked car's height does not move).
+        sd.ncx[static_cast<int>(NcxValues::SpeedKmh)] = 0.0;
+        for (int i = 0; i < 1500; ++i) { MotionOutput out{}; mc.process(sd, out, nullptr, 0); }
+        check(std::fabs(mc.getMotionStatus().hapHeightsHz - 500.0) < 5.0, "I-30: stopped, the last rate stands");
+        sd.ncx[static_cast<int>(NcxValues::SpeedKmh)] = 80.0;
+        // One frame without heights is no stop; half a second without is.
+        for (int w = 0; w < 4; ++w) sd.ncyHave[NcxTok::RoadHeightFL + w] = false;
+        { MotionOutput out{}; mc.process(sd, out, nullptr, 0); }
+        check(std::fabs(mc.getMotionStatus().hapHeightsHz - 500.0) < 5.0, "I-30: a single frame without heights keeps the rate");
+        for (int i = 0; i < 300; ++i) { MotionOutput out{}; mc.process(sd, out, nullptr, 0); }
+        check(mc.getMotionStatus().hapHeightsHz == 0.0, "I-30: no heights for half a second reads 0");
+        std::printf("  I-30: heights %.1f / %.1f a second\n", slow, fast);
+    }
+
     // ---- I-15: what the sim sends that cannot be true ----
     {
         using haptics::FxType; using haptics::Part;

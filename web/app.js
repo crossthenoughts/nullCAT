@@ -2686,6 +2686,7 @@ function hapLive(s){
       const it=t.tile.querySelector('[data-in]'); if(it&&t.inText) it.textContent=t.inText;
     }
   }
+  hapStatesUpdate(s);
 }
 
 function hapInit(){
@@ -2893,7 +2894,7 @@ function hapInit(){
     const dv=cfgObj.haptics[fx.k];
     const tile=document.createElement('div');
     tile.className='hap-tile'+(dv.ampPct>0?' on':''); tile.title=fx.tip; tile.dataset.fx=fx.k;
-    let h='<div class="dh"><span class="dot"></span><span class="nm">'+fx.label+'</span><span class="sdot" data-sdot="1" title="Sim: no channels seen from this game yet"></span>'
+    let h='<div class="dh"><span class="lamp mxl"></span><span class="dot"></span><span class="nm">'+fx.label+'</span><span class="mxst" data-st="1"></span><span class="sdot" data-sdot="1" title="Sim: no channels seen from this game yet"></span>'
       +'<button class="hmute" type="button" data-mute="1" title="Mute this effect: it goes silent, its settings and readouts stay as they are, and no other tile changes. The master MUTE mutes every tile and UNMUTE unmutes them all: mute all, then unmute one tile to hear it on its own. Not saved: a restart unmutes.">M</button></div>';
     // The chip row is always present (empty for channel-less effects) so
     // the wave line lands at the same height on every tile.
@@ -2902,7 +2903,7 @@ function hapInit(){
       :'<div class="hk hchan"></div>';
     // The wave carries a source tag (live input vs Test) so a moving wave
     // with nothing felt reads as "live input, small", not as stuck.
-    h+='<div class="hap-wwrap"><svg class="hap-wave"></svg><span class="hap-wtag" data-wtag="1"></span></div>';
+    h+='<div class="hap-wwrap"><svg class="hap-wave"></svg><span class="hap-wtag" data-wtag="1"></span><span class="mxlv" title="What it puts out now, with the recent peak"><i></i><b></b></span></div>';
     // Per-wheel readout (slip severities 0..1, road travel mm): value and
     // session peak per corner. Test drives 1.00 on every wheel, so the
     // line is the direct comparison; the peak holds until Reset peaks.
@@ -3002,7 +3003,10 @@ function hapInit(){
    its tile into the editor pane, leaves a placeholder row, and brings the
    route drawer under it as the routing section; every lookup hapLive
    makes stays inside the tile, so it keeps updating wherever it sits. ---- */
-const HAP_CATS=[['Engine & driveline',['rpmVibe','limiter','gearShift','driveline','tc']],['Braking & tyres',['abs','slipLon','slipLat','wheels']],['Road & track',['road','kerb','surface','impacts']],['Controls',['detentClick']]];
+// The groups follow what sets them: the car table (pulled per car), the
+// type of car (a starting point), then the rest, the H-shifter's detent
+// click last.
+const HAP_CATS=[['Car',['rpmVibe','limiter','driveline','tc','abs']],['Type of car',['slipLon','slipLat','road','wheels','surface','kerb','impacts']],['Other',['gearShift','detentClick']]];
 const HAP_ABBR={rpmVibe:'ENG',limiter:'LIM',gearShift:'GEAR',driveline:'DRV',tc:'TC',abs:'ABS',slipLon:'LONG',slipLat:'LAT',wheels:'WHL',road:'ROAD',kerb:'KERB',surface:'SURF',impacts:'IMP',detentClick:'CLK'};
 const HAP_SEL_KEY='nullcat.ui.sel', HAP_FOLD_KEY='nullcat.ui.rigfold';
 let hapSel=null; try{ hapSel=localStorage.getItem(HAP_SEL_KEY)||null; }catch(_){}
@@ -3030,6 +3034,9 @@ function hapMixerBuild(){
   // groups, in the design's order; anything unlisted under Effects
   const byCat={}; for(const tile of tiles) (byCat[hapCatOf(tile.dataset.fx)]=byCat[hapCatOf(tile.dataset.fx)]||[]).push(tile);
   const order=HAP_CATS.map(c=>c[0]).concat(Object.keys(byCat).filter(c=>!HAP_CATS.some(x=>x[0]===c)));
+  // within a group, the order its list gives (not the registry's)
+  const rank=k=>{ for(const [,ks] of HAP_CATS){ const i=ks.indexOf(k); if(i>=0) return i; } return 99; };
+  for(const c in byCat) byCat[c].sort((a,b)=>rank(a.dataset.fx)-rank(b.dataset.fx));
   for(const cat of order){ if(!byCat[cat]) continue; const g=document.createElement('div'); g.className='mxg'; g.innerHTML='<span class="lab"></span>'; g.firstChild.textContent=cat; strip.appendChild(g); for(const tile of byCat[cat]) strip.appendChild(tile); }
   // the Master tile: its profile and follow-car rows up into the session
   // block, Mute and Rec into the panel head, the rest in a fold
@@ -3050,6 +3057,28 @@ function hapMixerBuild(){
       const fc=master.querySelector('#hapFollowCar'); const frow=fc&&fc.closest('.hr');
       if(frow){ const lab=fc.closest('label'); if(lab){ lab.className='key sm latch'+(fc.checked?' on':''); fc.hidden=true; fc.addEventListener('change',()=>lab.classList.toggle('on',fc.checked)); }
         if(prow) prow.appendChild(frow.firstElementChild===lab?lab:frow.querySelector('label')||frow); frow.remove(); } }
+    // The type of car and the car table's re-apply are what is touched
+    // first: up here under the car (the rest of their sections stay in the
+    // fold). The same elements, so the same handlers.
+    const tbox=$('hapSesType'), cbox=$('hapSesCarRow');
+    if(tbox){ tbox.innerHTML='';
+      const ts=master.querySelector('#hapPresetSel'), trow=ts&&ts.closest('.hr');
+      if(trow){ const lab=trow.querySelector('.hk'); if(lab) lab.textContent='Type';
+        const ap=trow.querySelector('#hapPresetApply'); if(ap){ ap.className='key sm nolamp'; ap.textContent='Apply'; }
+        tbox.appendChild(trow); } }
+    if(cbox){ cbox.innerHTML='';
+      const cp=master.querySelector('#hapCarPull'), crow=cp&&cp.closest('.hr');
+      if(crow){ const lab=crow.querySelector('.hk'); if(lab) lab.textContent='Car';
+        const now=crow.querySelector('#hapCarNow'); if(now) now.hidden=true;   // the glass above names it
+        cp.className='key sm nolamp'; cp.textContent='Re-apply';
+        const menu=document.createElement('details'); menu.className='menu';
+        menu.innerHTML='<summary class="key sm nolamp">More</summary><div class="mnu"></div>';
+        const mn=menu.querySelector('.mnu');
+        ['hapCarSave','hapCarForget'].forEach(id=>{ const b=crow.querySelector('#'+id); if(b){ b.className=''; mn.appendChild(b); } });
+        const msg=crow.querySelector('#hapCarMsg');
+        crow.appendChild(menu); if(msg) crow.appendChild(msg);
+        menu.addEventListener('click',e=>{ if(e.target.closest('.mnu button')) menu.open=false; });
+        cbox.appendChild(crow); } }
     const hk=$('hapHeadKeys'); if(hk){ hk.innerHTML=''; const rb=master.querySelector('#hapRecBtn'), mb=master.querySelector('#hapMuteBtn');
       if(rb){ rb.className='key sm latch red'; rb.textContent='Rec'; hk.appendChild(rb); }
       if(mb){ mb.className='key sm latch amb'; hk.appendChild(mb); } }
@@ -3166,12 +3195,100 @@ function hapUiRefresh(){
   let live=0, any=false;
   for(const k in hapTiles){ const t=hapTiles[k]; const routed=(t.dv.routes||[]).some(r=>r&&r.gain>0);
     const muted=t.tile.classList.contains('muted'); if(t.dv.ampPct>0&&routed&&!muted) live++; if(t.level>0.05&&!muted) any=true;
-    const rx=document.querySelector('#hpRail .rx[data-fx="'+k+'"]'); if(rx){ const sd=t.tile.querySelector('.sdot'); rx.querySelector('.lamp').className='lamp '+(muted?'':t.level>0.05?'ok':sd&&sd.classList.contains('d1')?'warn':''); } }
+    const rx=document.querySelector('#hpRail .rx[data-fx="'+k+'"]'); if(rx){ rx.querySelector('.lamp').className='lamp '+((t.st&&t.st.lamp)||''); if(t.st) rx.title=t.fx.label+': '+t.st.text; } }
   const pc=$('hpLive'); if(pc) pc.textContent=live+' live';
   const hl=$('hpLamp'); if(hl) hl.className='lamp '+(hapMutedNow?'warn':any?'ok':'');
   hapEdDress();
 }
 setInterval(hapUiRefresh,1000);
+
+/* Each tile's state, from the status twice a second: one word and a lamp
+   per tile (the mixer row, the editor's head and the rail), its trigger
+   count, a level bar under its wave, and the session glass's Now row.
+   Muted, off, routed nowhere, no game, no input (a channel it needs is not
+   sent), a low input rate (Kerb on road heights slower than its detector
+   needs), playing, or ready; an event that has not happened yet this
+   session (since Reset peaks or the loop start) is armed. */
+const HAP_EVENTS=['tc','abs','limiter','kerb','impacts','gearShift','detentClick'];
+const HAP_MTR={}; let hapMtrRaf=0, hapMtrT=0;
+function hapAgoText(sec){ return sec<60?Math.round(sec)+' s ago':sec<3600?Math.round(sec/60)+' min ago':Math.round(sec/3600)+' h ago'; }
+function hapTileState(t,s){
+  const id=t.fx.id, has=a=>Array.isArray(a)&&id!==undefined;
+  const routed=(t.dv.routes||[]).some(r=>r&&r.gain>0);
+  const muted=hapMutedNow||(has(s.hapMute)&&!!s.hapMute[id]);
+  const n=has(s.hapCount)?(+s.hapCount[id]||0):0, ago=has(s.hapAgo)?+s.hapAgo[id]:-1;
+  const ev=HAP_EVENTS.includes(t.fx.k), cnt=(ev&&n>0)?' · ×'+n:'';
+  if(muted) return {st:'muted',lamp:'',cls:'dim',text:'muted',tip:'Muted: silent until unmuted (its M, or the master UNMUTE). Its settings stay as they are.'};
+  if(!(+t.dv.ampPct>0)) return {st:'off',lamp:'',cls:'dim',text:'off',tip:'Off: amp 0.'};
+  if(!routed) return {st:'unrouted',lamp:'warn',cls:'warn',text:'unrouted',tip:'Turned up but routed nowhere: give it an axis or a shaker in its editor.'};
+  // Channels not arriving are unknown, not missing: no game, paused, or
+  // no channels from the sender, before anything is called not sent.
+  if(!s.telemetryReceiving&&!s.ncxRx) return {st:'nogame',lamp:'',cls:'dim',text:'no game'+cnt,tip:'No telemetry arriving: start the sim and its sender.'};
+  if(s.ncxFrozen) return {st:'paused',lamp:'',cls:'dim',text:'paused'+cnt,tip:'The game is paused: its channels are holding still.'};
+  if(!s.ncxRx) return {st:'nochan',lamp:'',cls:'dim',text:'no channels'+cnt,tip:'Motion arrives but no effect channels: the sender is not sending them (or they stopped).'};
+  const missing=[];
+  for(const e of (t.fx.chan||[])){ const sp=hapChanSpec(e); if(!sp.optional&&!sp.ok(s.ncxHave||[])) missing.push(sp.label); }
+  if(missing.length) return {st:'noinput',lamp:'warn',cls:'warn',text:'no input · needs '+missing[0],tip:'This game does not send what it needs: '+missing.join(', ')+'.'};
+  if(t.fx.k==='kerb'){
+    const on=nm=>{ const i=NCX_TOKENS.indexOf(nm); return i>=0&&Array.isArray(s.ncxHave)&&!!s.ncxHave[i]; };
+    // the height detector runs beside a kerbs channel (the stronger of the
+    // two), so a slow rate fires at random whatever the channel does
+    const viaHeights=!['FL','FR','RL','RR'].every(w=>on('surface'+w))&&+t.dv.detectMm>0, hz=+s.hapHeightsHz||0;
+    if(viaHeights&&hz>0&&hz<150) return {st:'lowrate',lamp:'warn',cls:'warn',text:'low rate · heights '+Math.round(hz)+'/s'+cnt,short:'low rate · '+Math.round(hz)+'/s',
+      tip:'Kerbs are found from the road heights, arriving '+Math.round(hz)+' times a second: too few for a rumble strip\'s ribs (about 110 a second at 100 km/h), so it fires at random. With the SimHub plugin, turn kunosDirectHeights on for the game\'s physics rate.'};
+  }
+  const playing=t.fx.transient?(ago>=0&&ago<1):((+t.level||0)>0.05);
+  if(playing) return {st:'playing',lamp:'ok',cls:'ok',text:'playing'+cnt,tip:'Playing now.'};
+  if(ev&&!n&&has(s.hapCount)) return {st:'armed',lamp:'',cls:'',text:'armed · none yet',tip:'Ready, and nothing has set it off yet for this car (since it was named, Reset peaks or the loop start).'};
+  const when=(ev&&ago>=0)?' · '+hapAgoText(ago):'';
+  return {st:'ready',lamp:'',cls:'',text:'ready'+cnt+when,short:(ev&&n>0)?'×'+n+when:'ready',tip:'Ready: fed, nothing to play right now.'};
+}
+function hapStatesUpdate(s){
+  let playing=0; const warn=[], armed=[];
+  for(const k in hapTiles){
+    const t=hapTiles[k], st=hapTileState(t,s); t.st=st;
+    const l=t.tile.querySelector('.mxl'); if(l) l.className='lamp mxl'+(st.lamp?' '+st.lamp:'');
+    const x=t.tile.querySelector('[data-st]');
+    if(x){ const tx=t.tile.classList.contains('ined')?st.text:(st.short||st.text);
+      if(x.textContent!==tx) x.textContent=tx; x.className='mxst'+(st.cls?' '+st.cls:''); x.title=st.text+'\n\n'+st.tip; }
+    // the level bar: a continuous effect's output, an event's flick
+    const m=HAP_MTR[k]||(HAP_MTR[k]={now:0,disp:0,pk:0,pkAt:0,n:-1});
+    const n=(Array.isArray(s.hapCount)&&t.fx.id!==undefined)?(+s.hapCount[t.fx.id]||0):0;
+    m.now=t.fx.transient?((m.n>=0&&n>m.n)?1:0):Math.max(0,Math.min(1,+t.level||0));
+    if(st.st==='muted'||st.st==='off') m.now=0;
+    m.n=n;
+    if(st.st==='playing') playing++;
+    else if(st.lamp==='warn') warn.push(t.fx.label+' '+st.text.split(' · ')[0]);
+    else if(st.st==='armed'&&(k==='abs'||k==='tc')) armed.push(t.fx.label.replace(/ pulse$/i,''));
+  }
+  hapMtrKick();
+  const ne=$('hapSesNow'); if(ne){
+    const live=!!(s.telemetryReceiving||s.ncxRx)&&!s.ncxFrozen;
+    const parts=live?[playing+' playing']:[s.ncxFrozen?'paused':'no game'];
+    if(live&&armed.length) parts.push(armed.join(', ')+' none yet');
+    parts.push(...warn);
+    const txt=parts.join(' · '); if(ne.textContent!==txt) ne.textContent=txt;
+    ne.className='vt'+(warn.length?' warn':live?'':' dim');
+  }
+}
+// The level bars between status readings: each falls with a 0.3 s release,
+// never below the newest reading, a peak tick held for 1.5 s.
+function hapMtrKick(){ if(!hapMtrRaf){ hapMtrT=0; hapMtrRaf=requestAnimationFrame(hapMtrTick); } }
+function hapMtrTick(now){
+  hapMtrRaf=0;
+  const dt=hapMtrT?Math.min(0.5,Math.max(0,(now-hapMtrT)/1000)):0, k=Math.exp(-dt/0.3); hapMtrT=now;
+  let busy=false;
+  for(const key in HAP_MTR){
+    const m=HAP_MTR[key], t=hapTiles[key]; if(!t) continue;
+    m.disp=Math.max(m.now,m.disp*k); if(m.disp<0.005) m.disp=m.now;
+    if(m.disp>=m.pk){ m.pk=m.disp; m.pkAt=now; }
+    else if(now-m.pkAt>1500){ m.pk=Math.max(m.disp,m.pk*k); if(m.pk<0.005) m.pk=m.disp; }
+    if(m.disp>m.now||m.pk>m.disp) busy=true;
+    const bar=t.tile.querySelector('.mxlv');
+    if(bar){ bar.firstChild.style.width=(m.disp*100).toFixed(1)+'%'; bar.lastChild.style.left=(m.pk*100).toFixed(1)+'%'; bar.lastChild.style.opacity=m.pk>0.01?'1':'0'; }
+  }
+  if(busy) hapMtrRaf=requestAnimationFrame(hapMtrTick);
+}
 
 function devInit(){
   const row=$('devShowRow'); if(row) row.hidden=(meta.platform!=='linux');

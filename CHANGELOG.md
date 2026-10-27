@@ -71,16 +71,24 @@ each shaker.
   grid (target, peaks, duty, speed, accel, guard) and an **Axis setup**
   key that opens that axis in Setup. Columns give way as the panel
   narrows.
-- Haptics is a mixer. The effects are rows under Engine & driveline,
-  Braking & tyres, Road & track and Controls, each with its sim lamp, a
-  mini scope, an amp fader and an M key. Click a name and the effect opens
-  in an editor beside the mixer: a large scope, banners for amp 0, not
-  routed and channels the sender is not sending, the sender's channels as
-  chips with lamps, every setting with its help text under the **?** key,
-  and the routing underneath. The profile, follow car, the car and game,
-  and the master gain sit at the top of the mixer; pos budget, axis delay,
-  the starting point, the car table and the sim dots fold under **Rig ·
-  car · sim**. Either panel minimises to a rail of lamps.
+- Haptics is a mixer. The effects are rows grouped by what sets them:
+  **Car** (the car table: engine, limiter, driveline, TC, ABS), **Type of
+  car** (the starting point: the slips, road, wheels, surface, kerb,
+  impacts) and **Other** (gear shift, then the detent click). Each row
+  says what the effect is doing under its name, with a lamp (playing,
+  ready, armed with none yet, no input and what it needs, low rate,
+  unrouted, off, muted, no game), how many times an event has gone off and
+  how long ago, a mini scope with a level bar and its recent peak, an amp
+  fader and an M key. A **Now** line in the car readout counts what is
+  playing and names what needs a look. Click a name and the effect opens
+  in an editor beside the mixer: its state, a scope with a level meter
+  under it, banners for amp 0, not routed and channels the sender is not
+  sending, the sender's channels as chips with lamps, every setting with
+  its help text under the **?** key, and the routing underneath. The
+  profile, follow car, the car and game, the type of car, the car table's
+  re-apply and the master gain sit at the top of the mixer; pos budget,
+  axis delay, another car's entry and the sim dots fold under **Rig · car ·
+  sim**. Either panel minimises to a rail of lamps.
 - The header is a status window: link, clock, loop, EtherCAT, rate,
   slaves, UDP and jitter as segment displays, and a **System** key that
   opens the System page. The action bar's keys carry lamps; the glass
@@ -115,6 +123,8 @@ each shaker.
   instead, and Setup is its own view.
 
 ### Fixed
+- Car table: the BMW M3 E46 GTR in Automobilista 2 has no ABS and no TC (its
+  entry had both on, so those tiles looked live and never played).
 - A belt on the car's g no longer gives a hard tug when the car is reset or
   a stage restarted: the g spike a teleport brings is held off for a second
   with the belt at its minimum. A crash is still felt.

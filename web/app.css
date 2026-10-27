@@ -500,32 +500,44 @@ body[data-view="setup"] .ws{display:none}body[data-view="setup"] .su{display:gri
 .ses .hap-game .hk:first-child{width:56px;flex:none;font:600 11px/1.2 var(--lab);letter-spacing:.14em;text-transform:uppercase;color:var(--silk)}
 .ses .hap-game #hapProfMsg{flex-basis:100%;width:auto;font:500 11px var(--mono);letter-spacing:0;text-transform:none}
 .ses .hap-game #hapProfMsg:empty{display:none}
-.ses .hap-game{flex-wrap:wrap}
+.ses .hap-game #hapPresetMsg,.ses .hap-game #hapCarMsg{flex-basis:100%;width:auto;padding-left:64px;font:500 11px var(--mono);letter-spacing:0;text-transform:none;color:var(--silk)}
+.ses .hap-game #hapPresetMsg:empty,.ses .hap-game #hapCarMsg:empty{display:none}
+.sg .vt.warn{color:var(--warn);text-shadow:0 0 6px rgba(255,176,46,.5)}
+#hapSesNow{white-space:normal;line-height:1.35}
+.ses .hap-game{flex-wrap:wrap;justify-content:flex-start}
 .mxg{display:flex;align-items:center;gap:10px;padding:14px 8px 5px}
 .mxg::after{content:'';flex:1;height:1px;background:var(--edge2);opacity:.45}
 /* a tile as a mixer row: sim dot · name · wave + amp · fader · M */
-.hap-strip>.hap-tile{display:grid;grid-template-columns:11px minmax(0,1fr) 92px 76px 30px;align-items:center;gap:9px;height:38px;padding:0 6px 0 9px;border-radius:3px;margin:0;background:none;box-shadow:none}
+.hap-strip>.hap-tile{display:grid;grid-template-columns:11px minmax(0,1fr) 92px 76px 30px;grid-template-rows:21px 15px;align-items:center;column-gap:9px;row-gap:0;height:44px;padding:0 6px 0 9px;border-radius:3px;margin:0;background:none;box-shadow:none}
 .hap-strip>.hap-tile:hover{background:var(--hov)}
 .hap-strip>.hap-tile.sel{background:var(--sel);box-shadow:inset 3px 0 0 var(--acc)}
 .hap-strip>.hap-tile>.dh{display:contents}
 .hap-strip>.hap-tile>:not(.dh):not(.hap-wwrap):not(.mxamp){display:none}
-.hap-strip>.hap-tile>.dh>.dot{display:none}
-.hap-strip>.hap-tile>.dh>.sdot{grid-column:1;grid-row:1;margin:0}
-.hap-strip>.hap-tile>.dh>.nm{grid-column:2;grid-row:1;min-width:0;padding:0;background:none;border:0;text-align:left;font:600 14.5px var(--lab);color:var(--ink);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0}
+.hap-strip>.hap-tile>.dh>.dot,.hap-strip>.hap-tile>.dh>.sdot{display:none}
+.hap-strip>.hap-tile>.dh>.mxl{grid-column:1;grid-row:1/3;margin:0}
+.hap-strip>.hap-tile>.dh>.nm{grid-column:2;grid-row:1;align-self:end;min-width:0;padding:0;background:none;border:0;text-align:left;font:600 14.5px/1.2 var(--lab);color:var(--ink);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0}
+/* the state line under the name: what it is doing (or why not), its count */
+.mxst{font:600 9px/15px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--silk);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.mxst.ok{color:var(--ok)}.mxst.warn{color:var(--warnInk)}.mxst.dim{color:var(--faint)}
+.hap-strip>.hap-tile>.dh>.mxst{grid-column:2;grid-row:2;align-self:start}
 .hap-strip>.hap-tile>.dh>.nm:hover{text-decoration:underline dotted var(--silk);text-underline-offset:4px}
 .hap-strip>.hap-tile:not(.on)>.dh>.nm,.hap-strip>.hap-tile.muted>.dh>.nm{color:var(--faint)}
-.hap-strip>.hap-tile>.hap-wwrap{grid-column:3;grid-row:1;display:grid;grid-template-columns:minmax(0,1fr) 28px;align-items:center;gap:6px;height:24px;padding:0 7px;background:var(--glass);border-radius:3px;box-shadow:inset 0 2px 5px rgba(0,0,0,.85),inset 0 0 0 1px rgba(0,0,0,.7),0 1px 0 var(--hi)}
+.hap-strip>.hap-tile>.hap-wwrap{position:relative;grid-column:3;grid-row:1/3;display:grid;grid-template-columns:minmax(0,1fr) 28px;align-items:center;gap:6px;height:26px;padding:0 7px 3px;background:var(--glass);border-radius:3px;box-shadow:inset 0 2px 5px rgba(0,0,0,.85),inset 0 0 0 1px rgba(0,0,0,.7),0 1px 0 var(--hi)}
+/* the level bar along the wave's foot: the output now and the recent peak */
+.mxlv{position:absolute;left:7px;right:41px;bottom:3px;height:2px;background:rgba(77,255,143,.1);pointer-events:none}
+.mxlv i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ok);box-shadow:0 0 4px rgba(77,255,143,.6)}
+.mxlv b{position:absolute;top:-1px;bottom:-1px;left:0;width:2px;margin-left:-1px;background:var(--ok);opacity:0}
 .hap-strip>.hap-tile>.hap-wwrap .hap-wave{height:18px;padding:0;border:0}
 .hap-strip>.hap-tile>.hap-wwrap .hap-wtag{display:none}
 .hap-strip>.hap-tile>.hap-wwrap .mxval{text-align:right;font-size:11px}
 .hap-strip>.hap-tile.muted .hap-wave{opacity:.25}
-.hap-strip>.hap-tile>.mxamp{grid-column:4;grid-row:1}
-.hap-strip>.hap-tile>.dh>.hmute{grid-column:5;grid-row:1;width:30px;height:26px;margin:0;padding:0;border:0;border-radius:3px;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;background:linear-gradient(180deg,var(--keyTop),var(--key) 88%);color:var(--keyInk);font:600 11px/1 var(--lab);cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 0 0 1px var(--kring),0 3px 0 var(--kdep);transition:transform .05s,box-shadow .05s}
+.hap-strip>.hap-tile>.mxamp{grid-column:4;grid-row:1/3}
+.hap-strip>.hap-tile>.dh>.hmute{grid-column:5;grid-row:1/3;width:30px;height:26px;margin:0;padding:0;border:0;border-radius:3px;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;background:linear-gradient(180deg,var(--keyTop),var(--key) 88%);color:var(--keyInk);font:600 11px/1 var(--lab);cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 0 0 1px var(--kring),0 3px 0 var(--kdep);transition:transform .05s,box-shadow .05s}
 .hap-strip>.hap-tile>.dh>.hmute::before{content:'';width:12px;height:2px;border-radius:1px;background:var(--lampOff);box-shadow:inset 0 0 0 1px rgba(0,0,0,.6)}
 .hap-strip>.hap-tile>.dh>.hmute.on{transform:translateY(2px);box-shadow:inset 0 2px 4px rgba(0,0,0,.3),0 0 0 1px var(--kring),0 1px 0 var(--kdep)}
 .hap-strip>.hap-tile>.dh>.hmute.on::before{background:var(--bad);box-shadow:0 0 6px var(--bad)}
 /* the placeholder left in the mixer while a tile is in the editor */
-.hap-strip>.mx-ph{display:grid;grid-template-columns:11px minmax(0,1fr) auto;gap:9px;align-items:center;height:38px;padding:0 6px 0 9px;border-radius:3px;background:var(--sel);box-shadow:inset 3px 0 0 var(--acc)}
+.hap-strip>.mx-ph{display:grid;grid-template-columns:11px minmax(0,1fr) auto;gap:9px;align-items:center;height:44px;padding:0 6px 0 9px;border-radius:3px;background:var(--sel);box-shadow:inset 3px 0 0 var(--acc)}
 .mx-ph .mn{min-width:0;padding:0;background:none;border:0;text-align:left;font:600 14.5px var(--lab);color:var(--ink);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mx-ph .hint{font-size:11px;padding-right:4px}
 /* the editor: the tile in full */
@@ -540,14 +552,19 @@ body[data-view="setup"] .ws{display:none}body[data-view="setup"] .su{display:gri
 .ined{display:flex;flex-direction:column;gap:8px;padding:0;background:none;box-shadow:none;margin:0}
 .ined>.dh{display:flex;align-items:center;gap:10px;min-height:30px}
 .ined>.dh>.dot,.ined>.dh>.nm{display:none}
+.ined>.dh>.mxst{font-size:10px;line-height:1.2;flex:0 1 auto}
 .ined>.dh>.sdot{width:11px;height:4px;border-radius:1px;margin:0;background:var(--lampOff);box-shadow:inset 0 0 0 1px rgba(0,0,0,.55)}
 .ined>.dh>.sdot.d1{background:var(--warn);box-shadow:0 0 6px var(--warn)}.ined>.dh>.sdot.d2{background:var(--ok);box-shadow:0 0 6px var(--ok)}
 .ined>.dh>.hmute{margin-left:auto}
-.ined>.hap-wwrap{position:relative;height:128px;background:var(--glass);border-radius:3px;box-shadow:inset 0 2px 5px rgba(0,0,0,.85),inset 0 0 0 1px rgba(0,0,0,.7),0 1px 0 var(--hi)}
-.ined>.hap-wwrap .hap-wave{position:absolute;inset:0;width:100%;height:100%;padding:0;border:0}
+/* the editor's wave: a strip, its level meter below it at the same width */
+.ined>.hap-wwrap{position:relative;height:66px;background:var(--glass);border-radius:3px;box-shadow:inset 0 2px 5px rgba(0,0,0,.85),inset 0 0 0 1px rgba(0,0,0,.7),0 1px 0 var(--hi)}
+.ined>.hap-wwrap .hap-wave{position:absolute;left:0;right:0;top:0;bottom:18px;width:100%;height:calc(100% - 18px);padding:0;border:0}
+.ined>.hap-wwrap .mxlv{left:10px;right:10px;bottom:7px;height:6px;background:repeating-linear-gradient(90deg,rgba(77,255,143,.11) 0 3px,transparent 3px 5px)}
+.ined>.hap-wwrap .mxlv i{background:repeating-linear-gradient(90deg,var(--ok) 0 3px,transparent 3px 5px);box-shadow:none;filter:drop-shadow(0 0 3px rgba(77,255,143,.5))}
+.ined>.hap-wwrap .mxlv b{top:-2px;bottom:-2px}
 .ined>.hap-wwrap .hap-wave polyline{stroke-width:1.2;filter:drop-shadow(0 0 4px var(--glow))}
 .ined>.hap-wwrap .hap-wtag{top:8px;left:10px;right:auto;font:600 9.5px var(--mono);letter-spacing:.14em;color:var(--dim)}
-.ined>.hap-wwrap .mxval{position:absolute;right:10px;bottom:7px;font:600 9.5px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+.ined>.hap-wwrap .mxval{position:absolute;right:10px;top:8px;font:600 9.5px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
 .ined>.hchan{display:none}   /* shown as chips above the tile (hapEdDress) */
 .ined>.hchan:empty{display:none}
 .ined>.hwheels{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px 12px;padding:6px 12px;margin:0;background:var(--glass);border-radius:3px;box-shadow:inset 0 2px 5px rgba(0,0,0,.85),inset 0 0 0 1px rgba(0,0,0,.7);font:600 11px var(--mono);letter-spacing:.06em;color:var(--disp);text-shadow:0 0 5px var(--glow)}

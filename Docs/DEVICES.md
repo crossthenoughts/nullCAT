@@ -140,6 +140,24 @@ says why: amplitude 0, no route, or nothing it routes to is live. The tile's wav
 effect is actually producing force, and its shape follows the amplitude
 and frequency you set.
 
+Each effect's row says what it is doing, under its name, with a lamp:
+**playing**; **ready** (fed, nothing to play right now); **armed · none
+yet** (an event that has not happened this session, such as ABS on a car
+you have not braked hard in, or one that has none); **no input** (this
+game does not send what the effect needs, named); **low rate** (Kerb
+working from road heights that arrive too slowly to find a kerb's ribs:
+see the Kerb tile); **unrouted** (turned up, routed nowhere); **off**
+(amplitude 0); **muted**; **no game** (no telemetry arriving). The
+events (TC, ABS, limiter, kerb, impacts, gear shift, detent click) also
+show how many times they have gone off and how long ago the last one was,
+counted since **Reset peaks** or the loop start. A bar under each wave
+shows how much the effect is putting out, with the recent peak. The
+**Now** line at the top of the panel counts what is playing and names
+anything that needs a look. The effects are grouped by what sets them:
+**Car** (the car table: engine, limiter, driveline, TC, ABS), **Type of
+car** (the starting point: the slips, road, wheels, surface, kerb and
+impacts), then **Other**.
+
 **Master** scales every effect at once. Each tile has an **M** button in
 its corner that mutes just that effect: it goes silent, but its settings
 and readouts stay as they are and no other tile changes. **Mute** on the
@@ -147,7 +165,7 @@ Master tile mutes every tile and **Unmute** brings them all back, so to
 hear one effect on its own, press Mute, then that tile's M. Mutes are not
 saved: a restart brings everything back.
 
-Each tile also carries a small **sim dot** on the right of its name.
+An effect's editor also carries a small **sim dot** beside its state.
 nullCAT remembers, for every game that has sent channels, whether each
 effect's channels have ever arrived and whether the effect has ever
 played: grey means that game has never sent what the effect needs,
@@ -300,7 +318,8 @@ manual only. Profiles live in `profiles.json` beside the rig config.
 
 A profile carries your routes, so it only fits your own rig. A starting
 point fits any rig: it sets only what depends on the type of car, and
-nullCAT ships four types, on the **type** row of the Master tile, each
+nullCAT ships four types, on the **Type** row at the top of the Haptics
+panel, each
 in two versions: one tuned on Assetto Corsa (also the one for other sims
 until they get their own) and one for Automobilista 2, marked **(AMS2)**.
 Automobilista 2's tyres reach their grip at larger slip angles, so its
@@ -351,11 +370,11 @@ let go, the suspension, the kerbs, the wheels, the knocks) have a warm
 tint of their own. Everything untinted stays put when the car or the
 type changes.
 
-The **this car** row (Haptics panel, under **Rig · car · sim**) shows the
-car the sim is naming and what the table has for it (`Mazda 787B · stock`,
-`· yours` for your own entry, `· no entry`); the car readout at the top of
-the panel shows the same, with the table's answer in small tags.
-**Re-apply** applies that entry to the five tiles again. **Follow car** (on
+The car readout at the top of the Haptics panel shows the car the sim is
+naming and what the table has for it in small tags (`stock`, `yours` for
+your own entry, `no entry`). The **Car** row under it has **Re-apply**,
+which applies that entry to the five tiles again, and **More** with
+**save as mine** and **forget mine**. **Follow car** (on
 by default) does it by itself whenever the
 sim names a car the table knows; untick it and the table only acts when
 asked. A profile bound to the car wins over the table. If the table (or a

@@ -147,6 +147,17 @@ try {
     // prompt) and its apply button.
     presetRow:    !!document.getElementById('hapPresetSel') && !!document.getElementById('hapPresetApply'),
     presetOpts:   (document.getElementById('hapPresetSel') || { options: [] }).options.length,
+    // Tile states: every effect row has a state line (from the status) and
+    // a level bar; the groups follow what sets them (the car table, the type
+    // of car, the rest), Engine first and the detent click last; the type
+    // and car table rows sit up in the session block; its glass has a Now
+    // row.
+    stateLines:   [...document.querySelectorAll('#hapStrip .hap-tile[data-fx] [data-st]')].filter(e => e.textContent.trim()).length,
+    levelBars:    document.querySelectorAll('#hapStrip .hap-tile[data-fx] .mxlv').length,
+    groups:       [...document.querySelectorAll('#hapStrip .mxg .lab')].map(e => e.textContent).join('|'),
+    firstLast:    (() => { const t = [...document.querySelectorAll('#hapStrip .hap-tile[data-fx]')]; return t.length ? t[0].dataset.fx + '|' + t[t.length - 1].dataset.fx : ''; })(),
+    sesRows:      !!document.querySelector('#hapSesType #hapPresetSel') && !!document.querySelector('#hapSesCarRow #hapCarPull'),
+    sesNow:       (document.getElementById('hapSesNow') || {}).textContent || '',
     carNotes:     !!document.querySelector('#hapStrip .hap-tile[data-fx="rpmVibe"] [data-car]'),
     carNotesHidden: (document.querySelector('#hapStrip .hap-tile[data-fx="rpmVibe"] [data-car]') || { hidden: true }).hidden,
   }));
@@ -296,15 +307,21 @@ try {
   if (st.waveTags !== nEffects) fails.push(`${st.waveTags} wave source tags, expected one per effect tile (${nEffects})`);
   if (st.peakTrims !== 4)       fails.push(`${st.peakTrims} peak % trims, expected 4 (two slip tiles, Kerb, Road)`);
   if (!/FL 0\.00\/0\.00/.test(st.wheelText)) fails.push(`Lateral slip per-wheel line reads "${st.wheelText}", expected now/peak per corner from the status`);
-  if (!st.carRow)               fails.push('car table row on the Master tile is incomplete (car line, pull, save, forget, follow, apply)');
+  if (!st.carRow)               fails.push('car table rows are incomplete (car line, re-apply, save, forget, follow, another car\'s apply)');
   if (st.carNow !== '(none)')   fails.push(`car line reads "${st.carNow}" with no sim, expected (none)`);
   if (!st.carFollow)            fails.push('follow car is not ticked by default');
   if (nCars < 450)              fails.push(`/api/cars/list carries ${nCars} entries, expected the shipped table (450+)`);
   if (st.carOpts !== nCars)     fails.push(`preset search holds ${st.carOpts} cars, expected ${nCars} from /api/cars/list`);
   if (!(st.carSug.rows > 0 && st.carSug.shown && st.carSug.game))
     fails.push(`preset search: typing "bmw m3" shows ${st.carSug.rows} rows (shown ${st.carSug.shown}, game "${st.carSug.game}"), expected matching cars with their game`);
-  if (!st.presetRow)            fails.push('no starting point row (type selector and apply) on the Master tile');
+  if (!st.presetRow)            fails.push('no starting point row (type selector and apply) at the top of the Haptics panel');
   if (st.presetOpts !== 11)     fails.push(`starting point selector has ${st.presetOpts} options, expected the 10 shipped starting points and the prompt`);
+  if (st.stateLines !== nEffects || st.levelBars !== nEffects)
+    fails.push(`tile states: ${st.stateLines} state lines and ${st.levelBars} level bars, expected one each per effect (${nEffects})`);
+  if (st.groups !== 'Car|Type of car|Other' || st.firstLast !== 'rpmVibe|detentClick')
+    fails.push(`mixer groups "${st.groups}", first|last "${st.firstLast}": expected Car|Type of car|Other, rpmVibe|detentClick`);
+  if (!st.sesRows)              fails.push('the type of car and car table rows are not up in the session block');
+  if (!st.sesNow || st.sesNow === '-') fails.push(`the session glass's Now row reads "${st.sesNow}" after a status`);
   if (!st.carNotes)             fails.push('no car notes block on the Engine tile');
   if (!st.carNotesHidden)       fails.push('car notes block is showing with no car named');
   if (!drawer.chip)             fails.push('no name key on the Lateral slip mixer row');

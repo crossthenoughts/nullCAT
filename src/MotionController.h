@@ -147,6 +147,15 @@ struct MotionStatus
     static constexpr int HAP_WHEEL_SETS = 14;
     double          hapticsIn     [haptics::FX_TYPE_COUNT] = {};
     double          hapticsInPk   [haptics::FX_TYPE_COUNT] = {};
+    // Each tile's triggers since Reset peaks, registry order: a transient's
+    // fires, a continuous effect's episodes (its driven level rising past
+    // a few percent after falling away); a Test counts none. With the
+    // seconds since the last one began (-1: none yet).
+    uint32_t        hapticsCount [haptics::EFFECT_COUNT] = {};
+    double          hapticsAgoSec[haptics::EFFECT_COUNT] = {};
+    // New road heights a second while moving (0: none arriving): the Kerb
+    // tile's detector needs the physics rate, not SimHub's ~55.
+    double          hapHeightsHz = 0.0;
     double          hapticsWheel  [HAP_WHEEL_SETS][4]      = {};
     double          hapticsWheelPk[HAP_WHEEL_SETS][4]      = {};
     double          ncxVal[NcxValues::TokenCount]          = {};
@@ -777,6 +786,19 @@ private:
     double           m_hapInPk   [haptics::FX_TYPE_COUNT]    = {};
     double           m_hapWheelPk[MotionStatus::HAP_WHEEL_SETS][4] = {};
     double           m_hapPreviewQuiet[haptics::FX_TYPE_COUNT] = {};   // a Test preview and its tail: no peaks
+    // Tile triggers (trackHapticPeaks): counts, when the last began (on
+    // the haptics clock), whether a continuous effect is in an episode,
+    // and the fire counts already taken.
+    uint32_t         m_hapCount    [haptics::EFFECT_COUNT] = {};
+    double           m_hapLastSec  [haptics::EFFECT_COUNT] = {};
+    bool             m_hapTrigOn   [haptics::EFFECT_COUNT] = {};
+    uint64_t         m_hapFiredSeen[haptics::EFFECT_COUNT] = {};
+    double           m_hapClockSec = 0.0;
+    uint32_t         m_hapCarGen = 0;   // the car the counts are for (LawsState::carGen)
+    // The road heights' arrival rate: changes counted over a window while
+    // moving, and the last rate.
+    double           m_hgtLast = 0.0, m_hgtWinSec = 0.0, m_hgtHz = 0.0, m_hgtGoneSec = 0.0;
+    int              m_hgtChanges = 0;
     std::atomic<bool> m_hapPeakReset{false};
     std::atomic<bool> m_hapLatRelearn{false};
     std::atomic<bool> m_hapFreshTyres{false};
