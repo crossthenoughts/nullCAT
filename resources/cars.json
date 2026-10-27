@@ -18825,14 +18825,14 @@
     "jitter": 0.2
    },
    "abs": {
-    "ampPct": 40,
+    "ampPct": 0,
     "freqHz": 12
    },
    "tc": {
-    "ampPct": 40,
+    "ampPct": 0,
     "freqHz": 15
    },
-   "notes": "2004 E46 GTR: P60 4.0 V8 at about 450 hp, 8000 rpm, six-speed sequential (the ALMS/Nürburgring car). ABS and TC on."
+   "notes": "2004 E46 GTR: P60 4.0 V8 at about 450 hp, 8000 rpm, six-speed sequential (the ALMS/Nürburgring car). No ABS, no TC in the game."
   },
   "ams2:Gillet Vertigo Streiff": {
    "name": "Gillet Vertigo Streiff",
