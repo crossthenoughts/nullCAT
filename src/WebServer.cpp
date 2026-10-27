@@ -512,9 +512,11 @@ std::string WebServer::buildStatusJson() const
         s += ",\"hapCount\":[";
         for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
             s += (i ? "," : "") + std::to_string(ms.hapticsCount[i]);
+        // None counted reads -1 here, not from the snapshot: before anything
+        // has stepped the haptics (no loop, no shakers) it holds 0, "just now".
         s += "],\"hapAgo\":[";
         for (int i = 0; i < haptics::EFFECT_COUNT; ++i)
-            s += (i ? "," : "") + jsonDouble(ms.hapticsAgoSec[i], 1);
+            s += (i ? "," : "") + (ms.hapticsCount[i] ? jsonDouble(ms.hapticsAgoSec[i], 1) : std::string("-1.0"));
         s += "],\"hapWheels\":[";
         for (int k = 0; k < MotionStatus::HAP_WHEEL_SETS; ++k)
         {
