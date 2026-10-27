@@ -145,6 +145,7 @@ Top level: `configVersion`, `numDrives` (1 to 10, must match `axes[]`),
 | `requireUserFaultReset` | bool | `false` | If true, faulted drives need a manual reset from the UI before motion resumes. Safety policy, so it travels with the rig. |
 | `ncxBindings` | array | all 86 tokens, slots 0 to 85 | NULLCATX channel bindings for the device and haptic effects. Each entry is `{"token", "slot", "scale", "offset"}`: the wire's numbered channel `slot` (0 to 95) maps onto the semantic `token`, with `value = raw * scale + offset`. Tokens: `rpm`, `speedKmh`, `gear`, `clutchPct` (0 = pedal up, 100 = floored), `throttlePct`, `brakePct`, `absActive`, `skid`, `lockup`, `roadNoise`, `limiter`, `tcActive`, `curbs`, `maxRpm`, and the per-wheel groups `slipAngleFL..RR`, `slipRatioFL..RR`, `wheelSpeedFL..RR`, `loadFL..RR`, `suspVelFL..RR`, `boost`, `pitLimiter`, `wheelSlipFL..RR`, `suspTravelFL..RR`, `roadHeightFL..RR`, `surfaceFL..RR`, `accHeave`, `pitchDeg`, `rollDeg`, `wheelbase`, `trackWidth`, `rain`, `wet`, `wetFL..RR`, `onGroundFL..RR`, `deflatedFL..RR`, `slipSpeedFL..RR`, `inPit`, `lap`, `tyreWearFL..RR`, `accSurge`, `accSway`, `yawRate`, `pitchRate` and `rollRate` (see Docs/PROTOCOL.md for units). Each token binds at most once. The default matches the SimHub plugin's channel order, so it needs no editing; the Sim channels section of the web Setup view edits it and can reset it. An unbound token leaves the effects that use it silent. Bindings only apply to NULLCATX; a NULLCATY line names its tokens directly in canonical units. |
 | `haptics` | object | all effects off | Haptic effect layer tuning, one entry per effect plus `masterGain` and `positionBudget`. See below; normally edited on the web Haptics strip. |
+| `shakerShaping` | array | `[]` | Each shaker's EQ and compressor, applied at the sound card. See `global.shakerShaping` below; normally edited on the web page's Shakers / audio page. Saves apply live, with no restart or re-initialize. |
 
 ### global.haptics
 
@@ -297,6 +298,38 @@ Engine-only fields (`rpmVibe`):
 | `pops` | `0` | Overrun pops (0 to 1): fuel-cut crackle on a shut throttle above 30 % of the redline. |
 | `foldback` | `0` | Firing thumps faster than the controller can play (half its loop rate: 250 a second on a 500 Hz PC, 1000 on a 2 kHz Pi). 0 wrap: as before, they fold back into a throb that falls as the revs climb. 1 stop: they fade out before that point and the buzz carries on. 2 keep rising: near that point every other firing takes over, then every fourth, so the felt pitch keeps climbing (an octave or two below the real firing rate up there). Yours: a car preset never changes it. |
 | `tcCut` | `0` | Traction control dropping firings (0 to 1): while the sim's TC cuts, bursts of dropped firings, deeper with throttle, x this. 0 = the engine ignores TC (a modern TC trims torque smoothly); toward 1 for an ignition-cut TC. |
+
+### global.shakerShaping
+
+One entry per shaker that is not flat and off, by its number:
+`{"shaker": <1 to 8>, "eq": {...}, "comp": {...}}`. A shaker with no
+entry plays as it would with no shaping at all; an entry for a shaker
+number the cards do not have is kept and does nothing. A save from the
+page outside the ranges below is refused with the shaker named; a hand
+edit outside them runs clamped, listed in the log at start.
+
+`eq`: `on` (bool, default `false`) and `bands`, five objects in order,
+each with:
+
+| Field | Default | Notes |
+|---|---|---|
+| `type` | `highpass`, `bell`, `bell`, `bell`, `lowpass` | `highpass`, `lowshelf`, `bell`, `highshelf` or `lowpass`. The pass types are 12 dB an octave. |
+| `on` | `false`, `true`, `true`, `true`, `false` | The band on or off. |
+| `hz` | `20`, `30`, `50`, `80`, `150` | The band's frequency, 10 to 300 Hz: a bell's centre, a shelf's or pass filter's corner. |
+| `db` | `0` | Gain, -24 to 12 dB (bells and shelves; the pass types ignore it). |
+| `q` | `1` (`0.71` at the ends) | 0.3 to 8: a bell's width (higher is narrower), a shelf's slope, a pass filter's peak at its corner (0.71 is none). |
+
+`comp`:
+
+| Field | Default | Notes |
+|---|---|---|
+| `on` | `false` | The compressor on or off. |
+| `thresholdDb` | `-18` | -48 to 0 dB (0 dB = full scale): above it the level is turned down. |
+| `ratio` | `3` | 1 to 20: how much. At 4, a level 12 dB over the threshold comes out 3 dB over it. |
+| `kneeDb` | `6` | 0 to 18 dB: how gently it starts around the threshold. |
+| `attackMs` | `10` | 1 to 100 ms: how fast it turns a rise down. |
+| `releaseMs` | `200` | 20 to 2000 ms: how fast it lets go. Keep it longer than a bass cycle (25 ms at 40 Hz) or it bends each wave. |
+| `makeupDb` | `0` | 0 to 18 dB of gain after it, to bring the level back up. |
 
 ### axes[] (one object per drive)
 

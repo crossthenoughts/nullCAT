@@ -48,6 +48,12 @@ public:
             s.base = base;
             s.want = std::max(1, std::min(MAX_SHAKER_OUT - base, sp.channels));
             s.spec = sp;
+            // The shaping set so far, staged before the card starts: its
+            // first callback takes it at once (no glide in from flat).
+            {
+                std::lock_guard<std::mutex> lk(m_shapeMx);
+                for (int c = 0; c < s.want; ++c) s.out->stageShape(c, m_shapes[base + c], false);
+            }
             s.ok   = s.out->open(sp.device, s.want, controlHz);
             base  += s.want;
             m_slots.push_back(std::move(s));
@@ -67,6 +73,33 @@ public:
     {
         for (Slot& s : m_slots)
             if (s.out) s.out->push(samples + s.base, std::max(0, std::min(s.want, n - s.base)));
+    }
+
+    // Web/main thread: one shaker's shaping (bypass = the editor's compare,
+    // never saved), or every shaker's from the config. A shaker past the
+    // cards' channels is ignored. Lock-free toward the audio side (each
+    // card stages it); the slot list is only rebuilt by open()/close().
+    // Set before open(), the shaping is kept and staged on each card before
+    // it starts. The kept copy is guarded (the web server runs requests on
+    // several threads); the audio side never sees this lock.
+    void setShape(int shaker, const ShakerShape& s, bool bypass = false)
+    {
+        if (shaker < 0 || shaker >= MAX_SHAKER_OUT) return;
+        { std::lock_guard<std::mutex> lk(m_shapeMx); m_shapes[shaker] = s; }
+        for (Slot& sl : m_slots)
+            if (sl.out && shaker >= sl.base && shaker < sl.base + sl.want) { sl.out->stageShape(shaker - sl.base, s, bypass); return; }
+    }
+    template <class Shapes> void setShapes(const Shapes& all)
+    {
+        for (int c = 0; c < MAX_SHAKER_OUT && c < static_cast<int>(all.size()); ++c) setShape(c, all[c], false);
+    }
+    // Web thread: an editor test signal (ShakerDsp::TestKind) on a shaker;
+    // false when no card carries that shaker.
+    bool startTest(int shaker, int kind, double hz)
+    {
+        for (Slot& sl : m_slots)
+            if (sl.out && shaker >= sl.base && shaker < sl.base + sl.want) { sl.out->startTest(shaker - sl.base, kind, hz); return true; }
+        return false;
     }
 
     // Any device open?
@@ -109,6 +142,8 @@ public:
         uint32_t volumeResets = 0;   // Windows: the card turned down while open and put back to full
         int    fill = 0;
         std::vector<float> levels;
+        std::vector<float> gr;       // the compressor's gain reduction per channel, dB
+        std::vector<float> testHz;   // the editor test signal per channel, Hz (0 = none)
     };
     std::vector<Info> info() const
     {
@@ -125,7 +160,13 @@ public:
                 i.name = s.out->deviceName(); i.error = s.out->error();
                 i.sampleRate = s.out->sampleRate(); i.bufferMs = s.out->bufferMs(); i.latencyMs = s.out->latencyMs();
                 i.underruns = s.out->underruns(); i.fill = s.out->fill(); i.volumeResets = s.out->volumeResets();
-                for (int c = 0; c < s.want; ++c) i.levels.push_back((i.open && c < i.channels) ? s.out->level(c) : 0.0f);
+                for (int c = 0; c < s.want; ++c)
+                {
+                    const bool live = i.open && c < i.channels;
+                    i.levels.push_back(live ? s.out->level(c) : 0.0f);
+                    i.gr.push_back(live ? s.out->gainReductionDb(c) : 0.0f);
+                    i.testHz.push_back(live ? s.out->testHz(c) : 0.0f);
+                }
             }
             out.push_back(i);
         }
@@ -161,6 +202,8 @@ private:
     };
     std::vector<Slot> m_slots;
     int m_total = 0;
+    std::mutex  m_shapeMx;
+    ShakerShape m_shapes[MAX_SHAKER_OUT];
 };
 
 } // namespace haptics

@@ -217,6 +217,7 @@ int main(int argc, char* argv[])
     {
         std::vector<haptics::ShakerDeviceSpec> specs;
         for (const AppConfig::AudioDevice& d : cfg.shakerDevices()) specs.push_back({ d.device, d.channels });
+        shakers.setShapes(cfg.shakerShaping);   // each shaker's EQ and compressor (rig.json), staged before the cards start
         shakers.open(specs, cfg.controlLoopHz);
         for (const haptics::ShakerBank::Info& i : shakers.info())
         {

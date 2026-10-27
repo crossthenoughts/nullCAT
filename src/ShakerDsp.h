@@ -14,6 +14,21 @@
 // a tanh soft clip, and a per-channel gain. A peak meter per channel for
 // the status line.
 //
+// Shaping (ShakerShape.h): each channel's EQ and compressor sit after the
+// DC block and before the gain and soft clip. Their settings and the
+// editor's test signals are staged by the web thread under m_stageMx and
+// taken at the top of render() with a try-lock: the audio thread never
+// waits, and a stage it misses is taken on the next callback (a few ms).
+// The stage survives configure() (a card opened again): the channels pick
+// their shaping up again, at once rather than gliding.
+//
+// Test signals (the editor's sweep and band tone) are made here at the
+// card's rate, not in the haptics layer at the loop rate: a 150 Hz tone
+// fed at the PC's 500 Hz would be three samples a cycle. They go in ahead
+// of the low-pass, so they pass through the channel's shaping like any
+// effect. The 40 Hz test burst stays in the haptics layer: it checks the
+// whole path from the control loop.
+//
 // Underrun (the RT loop stalled, or the loop stopped and the idle clock
 // has not taken over): the last frame is held and faded over a few
 // milliseconds, a pause rather than a click. Overrun (the audio side
@@ -26,10 +41,12 @@
 // chain is unit-tested without a device (ShakerOutput owns the device).
 // ============================================================
 
+#include "ShakerShape.h"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <mutex>
 
 namespace haptics {
 
@@ -84,7 +101,48 @@ public:
         m_dcR = 1.0 - 2.0 * 3.14159265358979 * shaker_k::kDcHz / m_outHz;
         m_fadeStep = 1.0 / (shaker_k::kFadeSec * m_outHz);
         m_meterR = std::exp(-1.0 / (shaker_k::kMeterReleaseSec * m_outHz));
+        // Shaping and test signals at this rate. The staged settings are
+        // kept (a card opened again keeps its shaping; ShakerBank stages a
+        // new card's before it opens) and taken on the first render,
+        // snapped: there is nothing to glide from.
+        for (int c = 0; c < MAX_SHAKERS; ++c)
+        {
+            m_shaper[c].reset(m_outHz); m_test[c] = TestGen{};
+            m_gr[c].store(0.0f, std::memory_order_relaxed); m_testHz[c].store(0.0f, std::memory_order_relaxed);
+        }
+        m_testFadeStep = 1.0 / (shape_k::kTestFadeSec * m_outHz);
+        m_sweepMul     = std::exp(std::log(shape_k::kSweepToHz / shape_k::kSweepFromHz) / (shape_k::kSweepSec * m_outHz));
+        m_toneGlide    = 1.0 - std::exp(-1.0 / (shape_k::kToneGlideSec * m_outHz));
+        m_snapNext = true;
+        m_stageDirty.store(true, std::memory_order_release);
         retarget();
+    }
+
+    // Web thread: channel c's shaping (sanitised here), and the page's
+    // compare (bypass: EQ and compressor fade out while it is held).
+    void stageShape(int c, const ShakerShape& shape, bool bypass)
+    {
+        if (c < 0 || c >= MAX_SHAKERS) return;
+        ShakerShape s = shape; sanitize(s);
+        std::lock_guard<std::mutex> lk(m_stageMx);
+        m_stagedShape[c] = s; m_stagedBypass[c] = bypass;
+        m_stageDirty.store(true, std::memory_order_release);
+    }
+    // Web thread: an editor test signal on channel c. kind: TestStop,
+    // TestSweep (kSweepFromHz to kSweepToHz over kSweepSec) or TestTone
+    // (hz for kToneSec; asked again while it plays, it glides to the new
+    // hz and plays on from there).
+    enum TestKind { TestStop = 0, TestSweep = 1, TestTone = 2 };
+    void startTest(int c, int kind, double hz)
+    {
+        if (c < 0 || c >= MAX_SHAKERS) return;
+        if (!std::isfinite(hz)) hz = 40.0;
+        std::lock_guard<std::mutex> lk(m_stageMx);
+        TestReq& r = m_stagedTest[c];
+        r.kind = (kind == TestSweep || kind == TestTone) ? kind : TestStop;
+        r.hz   = std::max(shape_k::kHzMin, std::min(shape_k::kHzMax, hz));
+        ++r.seq;
+        m_stageDirty.store(true, std::memory_order_release);
     }
     // The device's period, frames per callback (0 = unknown): the ring is
     // held at least kTargetPeriods of them.
@@ -105,6 +163,7 @@ public:
         using namespace shaker_k;
         const int ch = m_channels;
         Read& rd = m_read;
+        takeStage();
         // Woken after a stall to a full ring: the newest frames, at the
         // target, not ones a stall old (only this side moves the read
         // position, so no slot is ever written while it is read).
@@ -133,6 +192,7 @@ public:
                 double x;
                 if (feeding) { x = a[c] + (b[c] - a[c]) * rd.frac; s.held = static_cast<float>(x); }
                 else         x = s.held * rd.fade;
+                if (m_test[c].kind != TestStop) x += testSample(m_test[c]);
                 // Biquad LPF (direct form II transposed).
                 const double y = m_b0 * x + s.z1;
                 s.z1 = m_b1 * x - m_a1 * y + s.z2;
@@ -140,8 +200,15 @@ public:
                 // DC block.
                 const double d = y - s.dcX + m_dcR * s.dcY;
                 s.dcX = y; s.dcY = d;
+                // The channel's EQ and compressor (the identity when off).
+                const double sh = m_shaper[c].process(d);
+                if (!m_shaper[c].idle() || s.grPeak > 0.0)
+                {
+                    s.grPeak = std::max(m_shaper[c].grDb(), s.grPeak * m_meterR);
+                    if (s.grPeak < 1e-4) s.grPeak = 0.0;   // settles at 0, not in ever smaller numbers
+                }
                 // Gain, then the soft clip.
-                const double g = d * m_gain[c];
+                const double g = sh * m_gain[c];
                 const double m = std::fabs(g);
                 const double v = (m <= kClipKnee) ? g
                                : std::copysign(kClipKnee + (1.0 - kClipKnee) * std::tanh((m - kClipKnee) / (1.0 - kClipKnee)), g);
@@ -155,7 +222,12 @@ public:
                 if (rd.frac >= 1.0) rd.frac = 0.999;
             }
         }
-        for (int c = 0; c < ch; ++c) m_meter[c].store(static_cast<float>(m_st[c].peak), std::memory_order_relaxed);
+        for (int c = 0; c < ch; ++c)
+        {
+            m_meter[c].store(static_cast<float>(m_st[c].peak), std::memory_order_relaxed);
+            m_gr[c].store(static_cast<float>(m_st[c].grPeak < 1e-3 ? 0.0 : m_st[c].grPeak), std::memory_order_relaxed);
+            m_testHz[c].store(m_test[c].kind != TestStop ? static_cast<float>(m_test[c].hz) : 0.0f, std::memory_order_relaxed);
+        }
     }
 
     // Diagnostics.
@@ -164,8 +236,66 @@ public:
     double   trim() const           { return m_trim; }
     // Output level of a channel, 0..1: its recent peak (any thread).
     float    level(int c) const     { return (c >= 0 && c < MAX_SHAKERS) ? m_meter[c].load(std::memory_order_relaxed) : 0.0f; }
+    // The compressor's gain reduction on a channel, dB (0 or more): its
+    // recent peak, released like the level meter (any thread).
+    float    gainReductionDb(int c) const { return (c >= 0 && c < MAX_SHAKERS) ? m_gr[c].load(std::memory_order_relaxed) : 0.0f; }
+    // The test signal playing on a channel, Hz (0 = none; any thread).
+    float    testHz(int c) const    { return (c >= 0 && c < MAX_SHAKERS) ? m_testHz[c].load(std::memory_order_relaxed) : 0.0f; }
 
 private:
+    struct TestGen
+    {
+        int    kind = TestStop;
+        double hz = 0.0, hzTgt = 0.0, phase = 0.0, fade = 0.0, left = 0.0;
+        bool   stopping = false;
+    };
+    struct TestReq { int kind = TestStop; double hz = 40.0; uint32_t seq = 0; };
+    // Audio side, top of render(): the web thread's latest settings and
+    // test requests, if it is not writing them this instant.
+    void takeStage()
+    {
+        if (!m_stageDirty.load(std::memory_order_acquire)) return;
+        std::unique_lock<std::mutex> lk(m_stageMx, std::try_to_lock);
+        if (!lk.owns_lock()) return;   // being written: the next callback takes it
+        m_stageDirty.store(false, std::memory_order_relaxed);
+        for (int c = 0; c < MAX_SHAKERS; ++c)
+        {
+            m_shaper[c].setTarget(m_stagedShape[c], m_stagedBypass[c], m_snapNext);
+            const TestReq& r = m_stagedTest[c];
+            if (r.seq == m_testSeen[c]) continue;
+            m_testSeen[c] = r.seq;
+            if (m_snapNext) continue;   // a request from before the card opened is old news
+            TestGen& g = m_test[c];
+            if (r.kind == TestStop) { if (g.kind != TestStop) g.stopping = true; }
+            else if (r.kind == TestTone && g.kind == TestTone && !g.stopping) { g.hzTgt = r.hz; g.left = shape_k::kToneSec; }
+            else
+            {
+                const bool playing = (g.kind != TestStop);
+                g.kind = r.kind; g.stopping = false;
+                g.hz = g.hzTgt = (r.kind == TestSweep) ? shape_k::kSweepFromHz : r.hz;
+                g.left = (r.kind == TestSweep) ? shape_k::kSweepSec : shape_k::kToneSec;
+                if (!playing) { g.phase = 0.0; g.fade = 0.0; }
+            }
+        }
+        m_snapNext = false;
+    }
+    // One frame of a channel's test signal; fades in and out over
+    // kTestFadeSec, phase-continuous through a glide.
+    double testSample(TestGen& g)
+    {
+        if (g.kind == TestSweep) g.hz = std::min(shape_k::kSweepToHz, g.hz * m_sweepMul);
+        else                     g.hz += m_toneGlide * (g.hzTgt - g.hz);
+        const bool ending = g.stopping || g.left <= shape_k::kTestFadeSec;
+        g.fade = ending ? std::max(0.0, g.fade - m_testFadeStep) : std::min(1.0, g.fade + m_testFadeStep);
+        const double twoPi = 6.283185307179586;
+        g.phase += twoPi * g.hz / m_outHz;
+        if (g.phase >= twoPi) g.phase -= twoPi;
+        const double v = shape_k::kTestLevel * g.fade * std::sin(g.phase);
+        g.left -= 1.0 / m_outHz;
+        if (ending && g.fade <= 0.0) g = TestGen{};
+        return v;
+    }
+
     void retarget()
     {
         using namespace shaker_k;
@@ -225,6 +355,7 @@ private:
         double z1 = 0.0, z2 = 0.0;    // biquad
         double dcX = 0.0, dcY = 0.0;  // DC block
         double peak = 0.0;            // meter (audio thread)
+        double grPeak = 0.0;          // gain-reduction meter, dB (audio thread)
     };
 
     double m_controlHz = 2000.0, m_outHz = 48000.0, m_stepNom = 2000.0 / 48000.0;
@@ -238,6 +369,19 @@ private:
     State  m_st[MAX_SHAKERS];
     std::atomic<float> m_meter[MAX_SHAKERS] = {};
     std::atomic<uint64_t> m_underruns{0};
+    // Shaping and test signals: the audio side's working state ...
+    ShakerShaper m_shaper[MAX_SHAKERS];
+    TestGen      m_test[MAX_SHAKERS];
+    uint32_t     m_testSeen[MAX_SHAKERS] = {};
+    bool         m_snapNext = true;
+    double       m_testFadeStep = 0.002, m_sweepMul = 1.0, m_toneGlide = 0.001;
+    std::atomic<float> m_gr[MAX_SHAKERS] = {}, m_testHz[MAX_SHAKERS] = {};
+    // ... and the web thread's stage (m_stageMx; the audio side try-locks).
+    std::mutex   m_stageMx;
+    ShakerShape  m_stagedShape[MAX_SHAKERS];
+    bool         m_stagedBypass[MAX_SHAKERS] = {};
+    TestReq      m_stagedTest[MAX_SHAKERS];
+    std::atomic<bool> m_stageDirty{false};
 };
 
 } // namespace haptics

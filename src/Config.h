@@ -19,6 +19,7 @@
 #include <string>
 #include <vector>
 #include "HapticsRegistry.h"   // haptics::EffectParams / EngineParams + the effect table
+#include "ShakerShape.h"       // haptics::ShakerShape (per-shaker EQ + compressor)
 #include "NcxTokens.h"         // the sim channel token registry
 #include <array>
 class QJsonObject;             // the haptics-object statics below; only Qt-linked callers use them
@@ -350,6 +351,11 @@ struct AppConfig
     // A belt's g at max, its own (DriveConfig::beltGFullG) or the type of
     // car's: the one range (the web page holds the same).
     static constexpr double kBeltFullGMin = 0.2, kBeltFullGMax = 6.0;
+    // Each shaker's EQ and compressor (rig.json global.shakerShaping), by
+    // shaker number: the transducers belong to the rig, the cards to the
+    // host. Applied at the sound card, live on save; the default is flat
+    // and off. Limits in ShakerShape.h (shape_k).
+    std::array<haptics::ShakerShape, haptics::MAX_SHAKER_OUT> shakerShaping{};
     // Follow the car: when the sim names a car the car table (CarTable.h)
     // knows, take its engine, limiter, driveline, ABS and TC settings.
     // Routes and the rest of the strip never move. Off = the table only
@@ -570,6 +576,13 @@ public:
     // readHapticsObject + saveRig and saving one is writeHapticsObject.
     static QJsonObject writeHapticsObject(const AppConfig& c);
     static void        readHapticsObject(const QJsonObject& h, AppConfig& c);
+    // One shaker's shaping as rig.json and the web API carry it, both ways.
+    // Reading: a missing key keeps what s has; a band type that is not one
+    // of the names is set out of range and the answer is false (sanitize()
+    // then puts the band's own type back, and validate() refuses it);
+    // values are taken as they are (sanitize() or validate() judge them).
+    static QJsonObject shapeToJson(const haptics::ShakerShape& s);
+    static bool        shapeFromJson(const QJsonObject& o, haptics::ShakerShape& s);
     // The field that holds a tile's setting, by its config key (registry
     // order index, ParamSpec key or one of the keys every tile carries:
     // ampPct, freqHz, durMs, jitter, peakPct); nullptr when the tile has no

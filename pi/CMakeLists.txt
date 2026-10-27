@@ -268,6 +268,7 @@ add_test(NAME TestTelemetryParse COMMAND TestTelemetryParse)
 # header-only and deterministic: no device, no miniaudio.
 add_executable(TestShakerDsp ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestShakerDsp.cpp)
 target_include_directories(TestShakerDsp PRIVATE ${SRC})
+target_link_libraries(TestShakerDsp PRIVATE Threads::Threads)   # S-17 stages from a second thread
 add_test(NAME TestShakerDsp COMMAND TestShakerDsp)
 
 # The panel e-stop input's level filter: header-only, no GPIO.

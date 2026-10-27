@@ -706,6 +706,38 @@ int main()
         check(bare.status == 200 && has(bare.body, "\"ok\":true") && has(compact(get("/api/rig")), "\"masterGain\":0.8"),
               "POST /api/rig without the header (a script) is taken as is");
     }
+    // Shaker shaping: the schema comes from ShakerShape.h; the live preview
+    // refuses with a reason while shakers are off; a save that changes only
+    // global.shakerShaping applies live (no Initialize asked for) and the
+    // file carries it; one out of range is refused, naming the shaker.
+    // Taking shakerShaping out of rigDiffIsLiveOnly's strip fails the live
+    // check here (and the belt block's first check below).
+    {
+        const std::string sc = get("/api/shakers/schema");
+        check(has(sc, "\"bands\":5") && has(sc, "\"types\":[\"highpass\",\"lowshelf\",\"bell\",\"highshelf\",\"lowpass\"]") && has(sc, "\"default\":{"),
+              "GET /api/shakers/schema: five bands, the band types, the flat default");
+        check(has(post("/api/shakers/shape", "{\"channel\":0,\"shape\":{}}"), "Shakers are off"),
+              "POST /api/shakers/shape refuses with a reason when shakers are off");
+        const auto withShaping = [](const std::string& b, double ratio)
+        {
+            QJsonObject root = QJsonDocument::fromJson(QByteArray::fromStdString(b)).object();
+            QJsonObject g = root.value("global").toObject();
+            QJsonObject comp; comp["on"] = true; comp["ratio"] = ratio;
+            QJsonObject e; e["shaker"] = 1; e["comp"] = comp;
+            QJsonArray arr; arr.append(e); g["shakerShaping"] = arr; root["global"] = g;
+            return QJsonDocument(root).toJson().toStdString();
+        };
+        std::string body; int gen = -1;
+        check(getRig(body, gen), "GET /api/rig for the shaping edits");
+        const Reply bad = postHdr("/api/rig", withShaping(body, 99.0), {{"X-Nullcat-Gen", std::to_string(gen)}});
+        check(bad.status == 400 && has(bad.body, "shakerShaping for shaker 1"),
+              "a save with shaping out of range is refused, naming the shaker");
+        const Reply ok = postHdr("/api/rig", withShaping(body, 4.0), {{"X-Nullcat-Gen", std::to_string(gen)}});
+        check(ok.status == 200 && has(ok.body, "\"changed\":true") && has(ok.body, "\"needsInit\":false")
+              && has(get("/api/meta"), "\"rigPendingRestart\":false"),
+              "a save that changes only the shaker shaping applies live: no Initialize asked for");
+        check(has(compact(get("/api/rig")), "\"shakerShaping\":[{"), "...and rig.json carries it");
+    }
     // A belt's g shape applies live on save (staged with the motion
     // controller); its torque range still waits for an Initialize. Taking
     // the beltG keys out of the live set makes the first row fail.

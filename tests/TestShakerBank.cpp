@@ -20,12 +20,16 @@
 //   SB-5 a push already past the gate when the card is reopened (a card
 //        lost, Reopen on the dashboard): the reopen waits for it before it
 //        resets the DSP, so the ring is never reset under a push.
+//   SB-6 shaping by shaker number: set before the cards open (as the mains
+//        do) it is on the right card and channel from the start; set while
+//        they run, by number, it lands there too.
 //
 //   ctest -R ShakerBank
 // ============================================================
 #include "ShakerBank.h"
 #include "BoundedCall.h"
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -302,6 +306,34 @@ int main()
         check(reopened, "SB-5 the card reopens with a push held inside");
         check(outFirst, "SB-5 ...and the reopen waited for that push before it reset the DSP");
         out.close();
+    }
+
+    // ---- SB-6 shaping by shaker number ----
+    {
+        // A -18 dB bell at 40 Hz on shaker 3 (device 2's first channel),
+        // set before the cards open: a 0.5 tone there comes out near 0.06.
+        // Without the bank staging it on each card before it opens, a
+        // shaping set before open() reaches nothing and shaker 3 reads 0.5.
+        haptics::ShakerShape cut; cut.eqOn = true;
+        for (haptics::ShapeBand& b : cut.band) b.on = false;
+        cut.band[1].on = true; cut.band[1].type = haptics::BandType::Bell; cut.band[1].hz = 40.0; cut.band[1].db = -18.0; cut.band[1].q = 0.7;
+        std::array<haptics::ShakerShape, haptics::MAX_SHAKER_OUT> all{}; all[2] = cut;
+        haptics::ShakerBank bank;
+        bank.setShapes(all);
+        bank.open({ { "null", 2 }, { "null", 4 } }, 2000.0);
+        playTone(bank, 2, 0.5, 600);
+        auto info = bank.info();
+        std::printf("  SB-6 a 0.5 tone on shaker 3 with a -18 dB bell set before open: %.3f\n", info[1].levels[0]);
+        check(info[1].levels[0] > 0.03 && info[1].levels[0] < 0.1, "SB-6 shaping set before the cards open is on shaker 3 (device 2, channel 1)");
+        playTone(bank, 0, 0.5, 600);
+        info = bank.info();
+        check(info[0].levels[0] > 0.4 && info[0].levels[0] < 0.6, "SB-6 ...and shaker 1, unshaped, plays at level");
+        bank.setShape(0, cut);
+        playTone(bank, 0, 0.5, 900);
+        info = bank.info();
+        std::printf("  SB-6 shaker 1 after the same cut set while running: %.3f\n", info[0].levels[0]);
+        check(info[0].levels[0] > 0.03 && info[0].levels[0] < 0.1, "SB-6 set while running, by number: shaker 1 is cut too");
+        bank.close();
     }
 
     std::printf("\nTestShakerBank: %d passed, %d failed\n", g_pass, g_fail);

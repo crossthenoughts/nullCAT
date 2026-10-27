@@ -193,9 +193,57 @@
               <label class="frow"><span>Channels 2</span><input id="cf-audioch2" type="number" min="1" max="8" step="1"></label>
               <div class="fldtip">Device and channel changes apply after a restart. Effects reach the shakers through each effect's routing in Haptics.</div>
             </div>
-            <div class="cgrp">
-              <div class="gt">Status · live level</div>
+            <div class="cgrp shkch">
+              <div class="gt">Channels · level, compression, shaping</div>
               <div class="fldtip" id="shakerStatus">Shakers off.</div>
+              <!-- One shaker's EQ or compressor, opened from its strip's EQ or
+                   CMP key. Edits play on the shaker as they are made; Save
+                   keeps them (rig.json), leaving without saving puts the
+                   saved shaping back. -->
+              <div class="shed" id="shkEd" hidden>
+                <div class="shed-hd">
+                  <span class="shed-t">Shaker <b id="shkEdN">1</b></span>
+                  <button class="key sm nolamp ico" type="button" id="shkEdPrev" title="Previous shaker">&lsaquo;</button>
+                  <button class="key sm nolamp ico" type="button" id="shkEdNext" title="Next shaker">&rsaquo;</button>
+                  <span class="shed-tabs">
+                    <button class="key sm latch" type="button" data-shtab="eq">EQ</button>
+                    <button class="key sm latch" type="button" data-shtab="comp">Compressor</button>
+                  </span>
+                  <label class="key sm latch" id="shkEdOnKey" title="This shaker's EQ (or compressor) on or off"><input type="checkbox" id="shkEdOn" hidden> On</label>
+                  <span class="ftag live" title="Plays on the shaker as you change it; Save keeps it. No restart or re-initialize.">live</span>
+                  <span class="shed-sp"></span>
+                  <button class="key sm nolamp" type="button" id="shkEdBypass" title="Hold to feel this shaker without its EQ and compressor (a compare; nothing is changed)">Hold to bypass</button>
+                  <button class="key sm nolamp" type="button" id="shkEdCopy" title="Copy this shaker's EQ and compressor to other shakers">Copy to&hellip;</button>
+                  <button class="key sm nolamp" type="button" id="shkEdReset" title="Put this page back to flat and off">Reset</button>
+                  <button class="key sm nolamp ico" type="button" id="shkEdClose" title="Close">&times;</button>
+                </div>
+                <div class="shed-copy" id="shkEdCopyRow" hidden>
+                  <span class="hk">Copy shaker <b id="shkEdCopyFrom">1</b>'s EQ and compressor to</span>
+                  <span id="shkEdCopyTo"></span>
+                  <button class="key sm nolamp" type="button" id="shkEdCopyAll">All</button>
+                  <button class="key sm nolamp" type="button" id="shkEdCopyGo">Copy</button>
+                  <button class="key sm nolamp quiet" type="button" id="shkEdCopyCancel">Cancel</button>
+                </div>
+                <div class="shed-eq" id="shkEdEq">
+                  <svg class="shed-plot glass" id="shkEqSvg" viewBox="0 0 640 200" preserveAspectRatio="none" aria-label="EQ curve: drag a numbered point to move its band, the wheel changes its width"></svg>
+                  <div class="shed-bands" id="shkEqBands"></div>
+                </div>
+                <div class="shed-comp" id="shkEdComp" hidden>
+                  <svg class="shed-plot glass" id="shkCompSvg" viewBox="0 0 200 200" aria-label="Compressor curve: level in against level out"></svg>
+                  <div class="shed-crows" id="shkCompRows"></div>
+                </div>
+                <div class="shed-test">
+                  <span class="hk">Test</span>
+                  <button class="key sm nolamp" type="button" data-shkt="burst" title="40 Hz for a second, through the whole path">40 Hz burst</button>
+                  <button class="key sm nolamp" type="button" data-shkt="sweep" title="A slow sweep from 10 to 200 Hz: feel where this shaker rings, then put a band there">Sweep 10-200 Hz</button>
+                  <button class="key sm nolamp" type="button" data-shkt="tone" title="A tone at the selected band's frequency; it follows the band while you drag it">Band tone</button>
+                  <button class="key sm nolamp" type="button" data-shkt="stop">Stop</button>
+                  <span class="shed-now" id="shkTestNow"></span>
+                  <span class="shed-sp"></span>
+                  <span class="shed-dirty" id="shkEdDirty" hidden>playing live, not saved</span>
+                  <button class="key sm" type="button" id="shkEdSave" hidden title="Save every unsaved change on this page (rig.json)">Save</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

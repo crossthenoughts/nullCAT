@@ -160,9 +160,9 @@ static const char* const kBeltGLiveKeys[] = { "beltGMode", "beltGSway", "beltGSw
                                               "beltGFromG", "beltGFullG", "beltGCurve", "beltGSmoothMs" };
 
 // True when two rig bodies differ ONLY in the parts the running process
-// applies live on save (haptics tuning, per-device feel, a belt's g shape),
-// i.e. nothing that needs an Initialize changed. Unparseable bodies count
-// as "needs init".
+// applies live on save (haptics tuning, per-device feel, a belt's g shape,
+// the shakers' EQ and compressor), i.e. nothing that needs an Initialize
+// changed. Unparseable bodies count as "needs init".
 static bool rigDiffIsLiveOnly(const std::string& oldBody, const std::string& newBody)
 {
     auto strip = [](const std::string& s, QJsonObject& out) -> bool
@@ -172,6 +172,7 @@ static bool rigDiffIsLiveOnly(const std::string& oldBody, const std::string& new
         out = d.object();
         QJsonObject g = out.value("global").toObject();
         g.remove("haptics");
+        g.remove("shakerShaping");
         out.insert("global", g);
         QJsonArray axes = out.value("axes").toArray();
         for (int i = 0; i < axes.size(); ++i)
@@ -580,6 +581,12 @@ std::string WebServer::buildStatusJson() const
                     s += "\"levels\":[";
                     for (size_t c = 0; c < i.levels.size(); ++c)
                         s += (c ? "," : "") + jsonDouble(std::fabs(i.levels[c]), 3);
+                    s += "],\"gr\":[";
+                    for (size_t c = 0; c < i.gr.size(); ++c)
+                        s += (c ? "," : "") + jsonDouble(std::isfinite(i.gr[c]) ? i.gr[c] : 0.0, 1);
+                    s += "],\"testHz\":[";
+                    for (size_t c = 0; c < i.testHz.size(); ++c)
+                        s += (c ? "," : "") + jsonDouble(std::isfinite(i.testHz[c]) ? i.testHz[c] : 0.0, 1);
                     s += "]}";
                 }
                 s += "]";
@@ -1439,6 +1446,10 @@ bool WebServer::start()
             // longer carry the car's entry (or the defaults), so the car
             // row stops saying they do.
             if (carOwnedKeysChanged(oldBody, req.body)) setCarFlags(false, false);
+            // The file as just written, through the one parser: the haptics
+            // and the shaker shaping below are applied from it.
+            Config fresh;
+            const bool freshOk = fresh.load(m_configPath);
             // Device live-apply: stage each device axis's fresh params with
             // the motion controller - they land the moment that device is
             // (or next becomes) limp. Feel tuning never needs a restart.
@@ -1464,10 +1475,14 @@ bool WebServer::start()
                 // disk and stage its haptics tuning - amp/frequency/routing
                 // edits take effect immediately, no re-initialize. (A save
                 // is rare; the disk round-trip keeps one parser as truth.)
-                Config fresh;
-                if (fresh.load(m_configPath))
+                if (freshOk)
                     m_motion->stageHaptics(fresh.get());
             }
+            // Shaker shaping, every save, mixed or not: the cards are not the
+            // loop's, and the page has been playing the edit live while it
+            // was made. The saved shaping replaces the preview, and a held
+            // compare lets go.
+            if (m_shakers && freshOk) m_shakers->setShapes(fresh.get().shakerShaping);
             res.set_content(std::string("{\"ok\":true,\"changed\":true,\"needsInit\":")
                             + (m_rigNeedsInit.load() ? "true" : "false") + ",\"gen\":" + jsonInt(gen) + "}", "application/json");
         });
@@ -2170,16 +2185,93 @@ bool WebServer::start()
             QJsonObject root; root["devices"] = devs;
             res.set_content(QJsonDocument(root).toJson(QJsonDocument::Compact).toStdString(), "application/json");
         });
+        // The shaping editor's limits and the default shaping, so the page
+        // holds no copy of either (ShakerShape.h is the one place).
+        svr.Get("/api/shakers/schema", [](const httplib::Request&, httplib::Response& res)
+        {
+            using namespace haptics::shape_k;
+            auto range = [](double lo, double hi) { QJsonArray a; a.append(lo); a.append(hi); return a; };
+            QJsonObject lim;
+            lim["hz"] = range(kHzMin, kHzMax);             lim["db"] = range(kDbMin, kDbMax);
+            lim["q"] = range(kQMin, kQMax);                lim["thresholdDb"] = range(kThrMin, kThrMax);
+            lim["ratio"] = range(kRatioMin, kRatioMax);    lim["kneeDb"] = range(kKneeMin, kKneeMax);
+            lim["attackMs"] = range(kAttackMin, kAttackMax); lim["releaseMs"] = range(kReleaseMin, kReleaseMax);
+            lim["makeupDb"] = range(kMakeupMin, kMakeupMax);
+            QJsonArray types;
+            for (int t = 0; t < haptics::BAND_TYPES; ++t) types.append(QString::fromLatin1(haptics::bandTypeName(static_cast<haptics::BandType>(t))));
+            QJsonObject sweep; sweep["fromHz"] = kSweepFromHz; sweep["toHz"] = kSweepToHz; sweep["sec"] = kSweepSec;
+            QJsonObject root;
+            root["bands"] = haptics::SHAPE_BANDS; root["types"] = types; root["limits"] = lim;
+            root["default"] = Config::shapeToJson(haptics::ShakerShape{});
+            root["sweep"] = sweep; root["toneSec"] = kToneSec;
+            res.set_content(QJsonDocument(root).toJson(QJsonDocument::Compact).toStdString(), "application/json");
+        });
+        // POST /api/shakers/shape - the shaping editor's live preview, never
+        // saved: {"channel":n (0-based),"shape":{eq, comp},"bypass":bool}
+        // plays that shaping on shaker n now (bypass: the compare key held,
+        // EQ and compressor faded out). {"revert":true} puts every shaker
+        // back on the saved shaping (the page left with an edit unsaved).
+        // A save (POST /api/rig) applies the saved shaping too. Values out
+        // of range are clamped here, as on load.
+        postCmd("/api/shakers/shape", [this, okResp, errResp](const httplib::Request& req, httplib::Response& res)
+        {
+            if (!m_shakers || !(m_config && m_config->shakersEnabled))
+            { errResp(res, "Shakers are off: enable them in the host settings and restart."); return; }
+            const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(req.body));
+            if (!doc.isObject()) { errResp(res, "Malformed body: expected a JSON object."); return; }
+            const QJsonObject o = doc.object();
+            if (o.value("revert").toBool(false))
+            {
+                // The rig.json writers' lock: a revert racing a save (the page
+                // closed right after Save) applies either the file before the
+                // save, then the save applies the new one, or the new one.
+                std::lock_guard<std::mutex> io(m_profilesIo);
+                Config fresh;
+                if (m_configPath.empty() || !fresh.load(m_configPath)) { errResp(res, "The saved settings could not be read."); return; }
+                m_shakers->setShapes(fresh.get().shakerShaping);
+                okResp(res);
+                return;
+            }
+            const int ch = o.value("channel").toInt(-1);
+            if (ch < 0 || ch >= m_shakers->totalChannels()) { errResp(res, "Channel out of range."); return; }
+            if (!o.value("shape").isObject()) { errResp(res, "Malformed body: no shape object."); return; }
+            haptics::ShakerShape s;
+            if (!Config::shapeFromJson(o.value("shape").toObject(), s)) { errResp(res, "Unknown band type."); return; }
+            haptics::sanitize(s);
+            m_shakers->setShape(ch, s, o.value("bypass").toBool(false));
+            okResp(res);
+        });
+        // POST /api/shakers/test - {"channel":n} plays the 40 Hz test burst
+        // through the haptics layer (the whole path from the control loop).
+        // "kind":"sweep" (10 to 200 Hz, 10 s), "tone" with "hz" (3 s; asked
+        // again while it plays, it moves there and plays on) and "stop" are
+        // the shaping editor's, made at the card.
         postCmd("/api/shakers/test", [this, okResp, errResp](const httplib::Request& req, httplib::Response& res)
         {
-            if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
             if (!m_shakers || !m_shakers->anyOpen())
             { errResp(res, "No shaker output is open: enable shakers in the host settings and restart."); return; }
             const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(req.body));
-            const int ch = doc.isObject() ? doc.object().value("channel").toInt(-1) : -1;
+            if (!doc.isObject()) { errResp(res, "Malformed body: expected a JSON object."); return; }
+            const QJsonObject o = doc.object();
+            const int ch = o.value("channel").toInt(-1);
             if (ch < 0 || ch >= m_shakers->totalChannels()) { errResp(res, "Channel out of range."); return; }
             if (!m_shakers->channelLive(ch)) { errResp(res, "That channel's device is not open."); return; }
-            m_motion->requestShakerTone(ch);
+            const QString kind = o.value("kind").toString("burst");
+            if (kind == "burst")
+            {
+                if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
+                m_motion->requestShakerTone(ch);
+            }
+            else
+            {
+                const int k = (kind == "sweep") ? haptics::ShakerDsp::TestSweep
+                            : (kind == "tone")  ? haptics::ShakerDsp::TestTone
+                            : (kind == "stop")  ? haptics::ShakerDsp::TestStop : -1;
+                if (k < 0) { errResp(res, "Unknown test kind: burst, sweep, tone or stop."); return; }
+                const double hz = o.value("hz").toDouble(40.0);
+                if (k == haptics::ShakerDsp::TestTone && !std::isfinite(hz)) { errResp(res, "A tone needs its hz."); return; }
+                m_shakers->startTest(ch, k, hz);
+            }
             okResp(res);
         });
         // Open every shaker card again with the same request: a card

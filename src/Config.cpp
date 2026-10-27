@@ -219,6 +219,19 @@ static void writeRigGlobal(const AppConfig& c, QJsonObject& obj)
     // Haptic effects (HapticsRegistry.h). Same always-write rule as
     // ncxBindings: schema merge would make a deleted route immortal.
     obj["haptics"] = Config::writeHapticsObject(c);
+    // Shaker shaping: the shakers that are not flat and off, by number.
+    // Always written (empty included), for the same reason.
+    {
+        QJsonArray arr;
+        for (size_t i = 0; i < c.shakerShaping.size(); ++i)
+        {
+            if (c.shakerShaping[i].isDefault()) continue;
+            QJsonObject o = Config::shapeToJson(c.shakerShaping[i]);
+            o["shaker"] = static_cast<int>(i + 1);
+            arr.append(o);
+        }
+        obj["shakerShaping"] = arr;
+    }
 }
 
 // ---- haptics settings: one map from config key to field ------------------
@@ -382,6 +395,70 @@ QJsonObject Config::writeHapticsObject(const AppConfig& c)
     return h;
 }
 
+// ---- shaker shaping ------------------------------------------------------
+QJsonObject Config::shapeToJson(const haptics::ShakerShape& s)
+{
+    QJsonArray bands;
+    const haptics::ShakerShape flat;
+    for (int i = 0; i < haptics::SHAPE_BANDS; ++i)
+    {
+        const haptics::ShapeBand& b = s.band[i];
+        // A type read from a name this build does not know is out of range
+        // until sanitize() runs; a save before that (a load not for a run,
+        // then saveRig) writes the band's own type, the one that runs.
+        const int t = static_cast<int>(b.type);
+        const haptics::BandType type = (t >= 0 && t < haptics::BAND_TYPES) ? b.type : flat.band[i].type;
+        QJsonObject o;
+        o["on"]   = b.on;
+        o["type"] = QString::fromLatin1(haptics::bandTypeName(type));
+        o["hz"]   = b.hz;
+        o["db"]   = b.db;
+        o["q"]    = b.q;
+        bands.append(o);
+    }
+    QJsonObject eq;   eq["on"] = s.eqOn; eq["bands"] = bands;
+    QJsonObject comp;
+    comp["on"]          = s.comp.on;
+    comp["thresholdDb"] = s.comp.thresholdDb;
+    comp["ratio"]       = s.comp.ratio;
+    comp["kneeDb"]      = s.comp.kneeDb;
+    comp["attackMs"]    = s.comp.attackMs;
+    comp["releaseMs"]   = s.comp.releaseMs;
+    comp["makeupDb"]    = s.comp.makeupDb;
+    QJsonObject o; o["eq"] = eq; o["comp"] = comp;
+    return o;
+}
+
+bool Config::shapeFromJson(const QJsonObject& o, haptics::ShakerShape& s)
+{
+    bool ok = true;
+    auto num = [](const QJsonObject& j, const char* k, double& v) { if (j.value(k).isDouble()) v = j.value(k).toDouble(); };
+    auto flag = [](const QJsonObject& j, const char* k, bool& v) { if (j.value(k).isBool()) v = j.value(k).toBool(); };
+    const QJsonObject eq = o.value("eq").toObject();
+    flag(eq, "on", s.eqOn);
+    const QJsonArray bands = eq.value("bands").toArray();
+    for (int i = 0; i < haptics::SHAPE_BANDS && i < bands.size(); ++i)
+    {
+        const QJsonObject b = bands.at(i).toObject();
+        haptics::ShapeBand& sb = s.band[i];
+        flag(b, "on", sb.on);
+        if (b.contains("type"))
+        {
+            const QByteArray t = b.value("type").toString().toLatin1();
+            // Not one of the names: marked out of range, so sanitize()
+            // finds it (the load warns and puts the band's own type back,
+            // a web save is refused) rather than passing for a default.
+            if (!haptics::bandTypeFromName(t.constData(), sb.type)) { sb.type = static_cast<haptics::BandType>(-1); ok = false; }
+        }
+        num(b, "hz", sb.hz); num(b, "db", sb.db); num(b, "q", sb.q);
+    }
+    const QJsonObject c = o.value("comp").toObject();
+    flag(c, "on", s.comp.on);
+    num(c, "thresholdDb", s.comp.thresholdDb); num(c, "ratio", s.comp.ratio); num(c, "kneeDb", s.comp.kneeDb);
+    num(c, "attackMs", s.comp.attackMs); num(c, "releaseMs", s.comp.releaseMs); num(c, "makeupDb", s.comp.makeupDb);
+    return ok;
+}
+
 static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
 {
     if (obj.contains("conditioningMode"))         c.conditioningMode         = obj.value("conditioningMode").toString("bypass").toStdString();
@@ -404,6 +481,20 @@ static void readRigGlobal(const QJsonObject& obj, AppConfig& c)
     }
     if (obj.contains("haptics"))
         Config::readHapticsObject(obj.value("haptics").toObject(), c);
+    // Shaker shaping: the entries name their shaker (1-based); a shaker
+    // with no entry is flat and off. An entry for a shaker number out of
+    // range is dropped.
+    if (obj.contains("shakerShaping"))
+    {
+        c.shakerShaping.fill(haptics::ShakerShape{});
+        for (const QJsonValue& v : obj.value("shakerShaping").toArray())
+        {
+            const QJsonObject o = v.toObject();
+            const int n = o.value("shaker").toInt(0);
+            if (n < 1 || n > haptics::MAX_SHAKER_OUT) continue;
+            Config::shapeFromJson(o, c.shakerShaping[static_cast<size_t>(n - 1)]);
+        }
+    }
 }
 
 // Read a haptics object (rig.json's, or a profile's) into the config.
@@ -953,6 +1044,13 @@ void Config::clampHaptics(AppConfig& c, std::vector<std::string>& warnings)
     // 0 = each belt's own; below 0 (a hand edit) means the same.
     if (!(c.hapticsBeltFullG > 0.0)) { if (c.hapticsBeltFullG != 0.0) clampD(c.hapticsBeltFullG, 0.0, 0.0, "haptics.beltFullG"); }
     else clampD(c.hapticsBeltFullG, AppConfig::kBeltFullGMin, AppConfig::kBeltFullGMax, "haptics.beltFullG");
+    // Shaker shaping: every value into its range (a value that is not a
+    // number takes the default's).
+    for (size_t i = 0; i < c.shakerShaping.size(); ++i)
+        if (haptics::sanitize(c.shakerShaping[i]))
+            warnings.push_back("rig.json: shakerShaping for shaker " + std::to_string(i + 1)
+                               + " had a value outside its range, not a number, or a band type it does not know:"
+                                 " running with it clamped");
 }
 
 // Which file a validate() error belongs to, for the warning that reports
@@ -1598,6 +1696,14 @@ std::vector<std::string> AppConfig::validate() const
             errors.push_back("haptics.beltFullG must be 0 (each belt's own) or in [0.2, 6]");
         if (hapticsAxisDelayMs < 0.0 || hapticsAxisDelayMs > 60.0)
             errors.push_back("haptics.axisDelayMs out of range [0, 60]");
+        for (size_t i = 0; i < shakerShaping.size(); ++i)
+        {
+            haptics::ShakerShape s = shakerShaping[i];
+            if (haptics::sanitize(s))
+                errors.push_back("shakerShaping for shaker " + std::to_string(i + 1)
+                                 + ": a value is outside its range or not a number, or a band type is not one of "
+                                   "highpass, lowshelf, bell, highshelf, lowpass");
+        }
         if (audioChannels < 1 || audioChannels > haptics::MAX_SHAKER_OUT)
             errors.push_back("audioChannels out of range [1, 8]");
         {

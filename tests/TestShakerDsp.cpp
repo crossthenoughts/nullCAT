@@ -22,9 +22,33 @@
 //   S-9  after an audio stall that filled the ring, the next callback
 //        skips to the newest frames: the latency is back at once;
 //   S-10 a NaN or inf sample from the producer never poisons the filters.
+// Shaping (ShakerShape.h), measured as gain against the same chain unshaped:
+//   S-11 a shaker with no shaping, or shaping switched off, plays exactly
+//        what the chain played before shaping existed (bit for bit);
+//   S-12 each band type does what it says: a bell's gain at its centre, a
+//        shelf's gain well past its corner, a pass filter's -3 dB at its
+//        corner and 24 dB down two octaves out, the far side untouched;
+//   S-13 the compressor: a steady tone 12 dB over a 4:1 threshold comes
+//        out 9 dB down (the meter says 9 dB), makeup adds on top; attack
+//        and release take their time, not none;
+//   S-14 moves glide: a band's gain raised 12 dB, a band changing type,
+//        the EQ switched on and off, all while a tone plays, never step
+//        the output (a step through a bass shaker is a thump);
+//   S-15 a card opened again keeps its shaping;
+//   S-16 the editor's test signals: the sweep climbs 10 to 200 Hz on its
+//        log schedule and ends, a band tone plays its frequency, follows
+//        a new one without a gap, and stops on request;
+//   S-17 a stage written from another thread while the card renders (the
+//        page dragging a band): never a non-finite sample, the last stage
+//        wins; bad values (NaN, out of range) are clamped, never played.
+//   S-18 the cost: eight channels with every band and the compressor on,
+//        timed against the same eight unshaped (printed; checked only to
+//        render well inside real time).
 #include "../src/ShakerDsp.h"
+#include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <thread>
 #include <vector>
 
 static int g_pass = 0, g_fail = 0;
@@ -409,6 +433,260 @@ int main()
         approx(peak(v1), 0.5, 0.03, "S-10 the channel that took the inf plays its tone at level too");
         approx(hzOf(v0, 48000.0), 40.0, 1.0, "S-10 ...at the right frequency");
         check(h.dsp.level(0) > 0.45 && h.dsp.level(0) < 0.55, "S-10 the level meter reads the tone, not NaN");
+    }
+
+    // ================= shaping =================
+    using haptics::ShakerShape; using haptics::BandType;
+    // A shape with only band b set (EQ on), the other bands flat.
+    auto oneBand = [](int b, BandType t, double hz, double db, double q)
+    {
+        ShakerShape s; s.eqOn = true;
+        for (int i = 0; i < haptics::SHAPE_BANDS; ++i) { s.band[i].on = false; }
+        s.band[b].on = true; s.band[b].type = t; s.band[b].hz = hz; s.band[b].db = db; s.band[b].q = q;
+        return s;
+    };
+    // Gain (dB) a shape gives a tone: the shaped chain against the plain one,
+    // RMS over the second half of a second (settled).
+    auto gainAt = [&](const ShakerShape& s, double toneHz, double amp)
+    {
+        Harness plain(2000.0, 48000.0, 1), shaped(2000.0, 48000.0, 1);
+        prime(plain); prime(shaped);
+        shaped.dsp.stageShape(0, s, false);
+        auto tone = [toneHz, amp](double t, double* v) { v[0] = amp * std::sin(2 * kPi * toneHz * t); };
+        plain.run(48000, tone); shaped.run(48000, tone);
+        return 20.0 * std::log10(rms(shaped.chan(0, 24000, 48000)) / rms(plain.chan(0, 24000, 48000)));
+    };
+
+    // ---- S-11 ----
+    {
+        // Same input through three chains: never staged, staged the default
+        // (all off), and staged a full shape then switched off (glided out).
+        Harness a(2000.0, 48000.0, 2), b(2000.0, 48000.0, 2), c(2000.0, 48000.0, 2);
+        prime(a); prime(b); prime(c);
+        b.dsp.stageShape(0, ShakerShape{}, false); b.dsp.stageShape(1, ShakerShape{}, false);
+        ShakerShape on = oneBand(1, BandType::Bell, 40.0, 6.0, 1.0); on.comp.on = true;
+        c.dsp.stageShape(0, on, false);
+        auto gen = [](double t, double* v) { v[0] = 0.4 * std::sin(2 * kPi * 40.0 * t) + 0.1 * std::sin(2 * kPi * 7.0 * t); v[1] = 0.3 * std::sin(2 * kPi * 55.0 * t); };
+        a.run(24000, gen); b.run(24000, gen); c.run(24000, gen);
+        c.dsp.stageShape(0, ShakerShape{}, false);    // off again: glides out
+        a.run(48000, gen); b.run(48000, gen); c.run(48000, gen);
+        bool same = a.out.size() == b.out.size();
+        for (size_t i = 0; same && i < a.out.size(); ++i) same = (a.out[i] == b.out[i]);
+        check(same, "S-11 a shaker staged the default shaping plays exactly what an unshaped one plays (every sample)");
+        bool sameAfter = true;
+        for (size_t i = 60000 * 2; i < a.out.size(); ++i) sameAfter = sameAfter && (a.out[i] == c.out[i]);
+        check(sameAfter, "S-11 shaping switched off: once it has faded out, the output is the unshaped chain's again, bit for bit");
+    }
+
+    // ---- S-12 ----
+    {
+        const double bell = gainAt(oneBand(1, BandType::Bell, 40.0, 6.0, 1.0), 40.0, 0.2);
+        const double bellFar = gainAt(oneBand(1, BandType::Bell, 40.0, 6.0, 2.0), 160.0, 0.2);
+        const double bellCut = gainAt(oneBand(2, BandType::Bell, 50.0, -12.0, 2.0), 50.0, 0.2);
+        std::printf("  S-12 bell +6 @40: %.2f dB at 40 Hz, %.2f at 160 Hz; bell -12 @50: %.2f dB\n", bell, bellFar, bellCut);
+        approx(bell, 6.0, 0.25, "S-12 a +6 dB bell at 40 Hz gives a 40 Hz tone +6 dB");
+        approx(bellFar, 0.0, 0.4, "S-12 ...and leaves a tone two octaves away alone (Q 2)");
+        approx(bellCut, -12.0, 0.4, "S-12 a -12 dB bell cuts its centre 12 dB (a shaker's resonance notched)");
+        const double lsLow = gainAt(oneBand(0, BandType::LowShelf, 60.0, 6.0, 0.71), 10.0, 0.2);
+        const double lsHigh = gainAt(oneBand(0, BandType::LowShelf, 60.0, 6.0, 0.71), 250.0, 0.2);
+        const double hsHigh = gainAt(oneBand(4, BandType::HighShelf, 40.0, -6.0, 0.71), 200.0, 0.2);
+        const double hsLow = gainAt(oneBand(4, BandType::HighShelf, 40.0, -6.0, 0.71), 10.0, 0.2);
+        std::printf("  S-12 low shelf +6 @60: %.2f dB at 10 Hz, %.2f at 250; high shelf -6 @40: %.2f at 200, %.2f at 10\n", lsLow, lsHigh, hsHigh, hsLow);
+        approx(lsLow, 6.0, 0.7, "S-12 a +6 dB low shelf at 60 Hz lifts 10 Hz by 6 dB");
+        approx(lsHigh, 0.0, 0.7, "S-12 ...and leaves 250 Hz alone");
+        approx(hsHigh, -6.0, 0.7, "S-12 a -6 dB high shelf at 40 Hz takes 6 dB off 200 Hz");
+        approx(hsLow, 0.0, 0.7, "S-12 ...and leaves 10 Hz alone");
+        const double hpCorner = gainAt(oneBand(0, BandType::HighPass, 40.0, 0.0, 0.7071), 40.0, 0.2);
+        const double hpBelow = gainAt(oneBand(0, BandType::HighPass, 40.0, 0.0, 0.7071), 10.0, 0.2);
+        const double hpAbove = gainAt(oneBand(0, BandType::HighPass, 40.0, 0.0, 0.7071), 200.0, 0.2);
+        const double lpCorner = gainAt(oneBand(4, BandType::LowPass, 60.0, 0.0, 0.7071), 60.0, 0.2);
+        const double lpAbove = gainAt(oneBand(4, BandType::LowPass, 60.0, 0.0, 0.7071), 240.0, 0.2);
+        std::printf("  S-12 high-pass 40: %.2f dB at 40, %.2f at 10, %.2f at 200; low-pass 60: %.2f at 60, %.2f at 240\n", hpCorner, hpBelow, hpAbove, lpCorner, lpAbove);
+        approx(hpCorner, -3.0, 0.3, "S-12 a high-pass at 40 Hz is 3 dB down at 40 Hz");
+        approx(hpBelow, -24.0, 1.5, "S-12 ...and 24 dB down two octaves below (12 dB an octave)");
+        approx(hpAbove, 0.0, 0.3, "S-12 ...and passes 200 Hz");
+        approx(lpCorner, -3.0, 0.3, "S-12 a low-pass at 60 Hz is 3 dB down at 60 Hz");
+        approx(lpAbove, -24.0, 1.5, "S-12 ...and 24 dB down two octaves above");
+    }
+
+    // ---- S-13 ----
+    {
+        ShakerShape s; s.comp.on = true; s.comp.thresholdDb = -18.0; s.comp.ratio = 4.0; s.comp.kneeDb = 0.0;
+        s.comp.attackMs = 5.0; s.comp.releaseMs = 300.0; s.comp.makeupDb = 0.0;
+        // A 40 Hz tone at 0.5 (-6 dBFS): 12 dB over, 4:1 -> 3 dB over, out at -15 dBFS.
+        Harness h(2000.0, 48000.0, 1); prime(h); h.dsp.stageShape(0, s, false);
+        auto loud = [](double t, double* v) { v[0] = 0.5 * std::sin(2 * kPi * 40.0 * t); };
+        h.run(48000, loud);
+        const double outDb = 20.0 * std::log10(peak(h.chan(0, 24000, 48000)));
+        std::printf("  S-13 4:1 at -18: a -6 dBFS tone comes out at %.2f dBFS, meter %.2f dB\n", outDb, h.dsp.gainReductionDb(0));
+        approx(outDb, -15.0, 0.6, "S-13 a tone 12 dB over a 4:1 threshold comes out 3 dB over it");
+        approx(h.dsp.gainReductionDb(0), 9.0, 0.6, "S-13 ...and the gain-reduction meter reads the 9 dB taken off");
+        ShakerShape mk = s; mk.comp.makeupDb = 6.0;
+        Harness m(2000.0, 48000.0, 1); prime(m); m.dsp.stageShape(0, mk, false);
+        m.run(48000, loud);
+        approx(20.0 * std::log10(peak(m.chan(0, 24000, 48000))), -9.0, 0.6, "S-13 6 dB of makeup puts it back up 6 dB");
+        ShakerShape quiet = s;
+        Harness q(2000.0, 48000.0, 1), qp(2000.0, 48000.0, 1); prime(q); prime(qp); q.dsp.stageShape(0, quiet, false);
+        auto soft = [](double t, double* v) { v[0] = 0.05 * std::sin(2 * kPi * 40.0 * t); };   // -26 dBFS, under
+        q.run(48000, soft); qp.run(48000, soft);
+        approx(peak(q.chan(0, 24000, 48000)) / peak(qp.chan(0, 24000, 48000)), 1.0, 0.01, "S-13 a tone under the threshold passes untouched");
+
+        // Timing: quiet, then loud (attack 10 ms), then quiet again (release 200 ms).
+        ShakerShape tm = s; tm.comp.attackMs = 10.0; tm.comp.releaseMs = 200.0;
+        Harness t(2000.0, 48000.0, 1); prime(t); t.dsp.stageShape(0, tm, false);
+        auto stepTone = [](double tt, double* v) { const double a = (tt >= 1.0 && tt < 2.0) ? 0.5 : 0.05; v[0] = a * std::sin(2 * kPi * 40.0 * tt); };
+        t.run(48000 * 3, stepTone);
+        // Where the producer's t = 1.0 lands in the output: the ring's delay.
+        size_t edge = 0; { const auto v = t.chan(0, 40000, 60000); for (size_t i = 0; i < v.size(); ++i) if (std::fabs(v[i]) > 0.1) { edge = 40000 + i; break; } }
+        const double firstCycle  = peak(t.chan(0, edge, edge + 1200));          // the first 25 ms of loud
+        const double settledLoud = peak(t.chan(0, edge + 24000, edge + 36000));
+        // Right after the loud passage the quiet tone comes in with the DC
+        // block still settling from the drop, so it is measured against the
+        // unshaped chain at the same moment, not against its settled level.
+        Harness pl(2000.0, 48000.0, 1); prime(pl); pl.run(48000 * 3, stepTone);
+        const double justAfter   = peak(t.chan(0, edge + 48000 + 600, edge + 48000 + 1800));    // 12-37 ms into quiet
+        const double plainAfter  = peak(pl.chan(0, edge + 48000 + 600, edge + 48000 + 1800));
+        const double settledQuiet = peak(t.chan(0, edge + 48000 + 36000, edge + 48000 + 48000));
+        std::printf("  S-13 timing: loud first 25 ms %.3f, settled %.3f; quiet just after %.4f (unshaped %.4f), settled %.4f\n", firstCycle, settledLoud, justAfter, plainAfter, settledQuiet);
+        check(edge > 0, "S-13 the loud passage found in the output");
+        check(firstCycle > 1.3 * settledLoud, "S-13 attack takes time: the first cycle of a loud passage gets through above the settled level");
+        check(justAfter < 0.6 * plainAfter, "S-13 release takes time: right after the loud passage the quiet tone is still held down (more than 4 dB)");
+        approx(settledQuiet, 0.05, 0.005, "S-13 ...and after the release the quiet tone is back at its own level");
+    }
+
+    // ---- S-14 ----
+    {
+        // A 40 Hz tone at 0.1; moves made mid-run. A smooth 40 Hz sine at
+        // amplitude A steps at most 2 pi 40 A / 48000 per frame; a move that
+        // jumped would step by a large share of A at once.
+        auto worstStepRatio = [&](const ShakerShape& before, const ShakerShape& after, double settledAmp)
+        {
+            Harness h(2000.0, 48000.0, 1); prime(h); h.dsp.stageShape(0, before, false);
+            auto tone = [](double t, double* v) { v[0] = 0.1 * std::sin(2 * kPi * 40.0 * t); };
+            h.run(24000, tone);
+            h.dsp.stageShape(0, after, false);
+            h.run(24000, tone);
+            const double smooth = 2 * kPi * 40.0 * settledAmp / 48000.0;
+            return maxStep(h.chan(0, 23000, 48000)) / smooth;
+        };
+        ShakerShape flat = oneBand(1, BandType::Bell, 40.0, 0.0, 1.0);
+        ShakerShape up12 = oneBand(1, BandType::Bell, 40.0, 12.0, 1.0);
+        const double rGain = worstStepRatio(flat, up12, 0.1 * 3.98);
+        ShakerShape hp = oneBand(1, BandType::HighPass, 30.0, 0.0, 0.71);
+        const double rType = worstStepRatio(up12, hp, 0.1 * 3.98);
+        ShakerShape off = up12; off.eqOn = false;
+        const double rOn  = worstStepRatio(off, up12, 0.1 * 3.98);
+        const double rOff = worstStepRatio(up12, off, 0.1 * 3.98);
+        std::printf("  S-14 worst step vs a smooth sine: gain +12 %.2f, type swap %.2f, EQ on %.2f, EQ off %.2f\n", rGain, rType, rOn, rOff);
+        check(rGain < 1.3, "S-14 a band raised 12 dB while a tone plays glides: no step in the output");
+        check(rType < 1.3, "S-14 a band changing type fades out and back in: no step");
+        check(rOn < 1.3 && rOff < 1.3, "S-14 the EQ switched on, and off, cross-fades: no step");
+        // The same move without the glide is what the check is for: snapped
+        // (a card opened with the shape already staged), the gain jumps.
+        Harness j(2000.0, 48000.0, 1); prime(j); j.dsp.stageShape(0, flat, false);
+        auto tone = [](double t, double* v) { v[0] = 0.1 * std::sin(2 * kPi * 40.0 * t); };
+        j.run(24000, tone);
+        j.dsp.stageShape(0, up12, false); j.dsp.configure(2000.0, 48000.0, 1); prime(j);
+        j.run(24000, tone);
+        approx(peak(j.chan(0, 36000, 48000)), 0.1 * 3.98, 0.03, "S-14 (a snapped shape lands at its full gain at once)");
+    }
+
+    // ---- S-15 ----
+    {
+        ShakerShape s = oneBand(1, BandType::Bell, 40.0, 6.0, 1.0);
+        Harness h(2000.0, 48000.0, 1); prime(h); h.dsp.stageShape(0, s, false);
+        auto tone = [](double t, double* v) { v[0] = 0.1 * std::sin(2 * kPi * 40.0 * t); };
+        h.run(24000, tone);
+        h.dsp.configure(2000.0, 44100.0, 1); h.outHz = 44100.0; prime(h);   // opened again, at another rate
+        h.out.clear();
+        h.run(44100, tone);
+        approx(peak(h.chan(0, 22050, 44100)), 0.1 * 2.0, 0.01, "S-15 a card opened again (at another rate) keeps its shaping: +6 dB still");
+    }
+
+    // ---- S-16 ----
+    {
+        Harness h(2000.0, 48000.0, 1); prime(h);
+        auto silent = [](double, double* v) { v[0] = 0.0; };
+        h.run(4800, silent);
+        h.dsp.startTest(0, ShakerDsp::TestSweep, 0.0);
+        h.run(48000 * 5, silent);
+        const double hzAt5 = h.dsp.testHz(0);
+        const double want5 = 10.0 * std::pow(20.0, 0.5);
+        const double measured = hzOf(h.chan(0, 4800 + 48000 * 5 - 9600, 4800 + 48000 * 5), 48000.0);
+        std::printf("  S-16 sweep at 5 s: %.1f Hz reported, %.1f measured (log schedule %.1f)\n", hzAt5, measured, want5);
+        approx(hzAt5, want5, 1.0, "S-16 halfway through the sweep it is at the geometric middle of 10-200 Hz");
+        approx(measured, want5, 3.0, "S-16 ...and that is what plays");
+        approx(peak(h.chan(0, 4800 + 48000 * 4, 4800 + 48000 * 5)), 0.5, 0.05, "S-16 at the test burst's level");
+        h.run(48000 * 6, silent);
+        check(h.dsp.testHz(0) == 0.0f, "S-16 the sweep ends by itself");
+        check(peak(h.chan(0, h.out.size() - 4800, h.out.size())) < 1e-3, "S-16 ...in silence");
+
+        Harness t(2000.0, 48000.0, 1); prime(t);
+        t.run(4800, silent);
+        t.dsp.startTest(0, ShakerDsp::TestTone, 60.0);
+        t.run(48000, silent);
+        approx(hzOf(t.chan(0, 4800 + 24000, 4800 + 48000), 48000.0), 60.0, 1.0, "S-16 a band tone plays the band's frequency");
+        t.dsp.startTest(0, ShakerDsp::TestTone, 80.0);   // the band dragged
+        t.run(48000, silent);
+        approx(hzOf(t.chan(0, 4800 + 48000 + 24000, 4800 + 96000), 48000.0), 80.0, 1.0, "S-16 ...follows the band when it moves");
+        check(maxStep(t.chan(0, 4800 + 47000, 4800 + 52000)) < 1.3 * 2 * kPi * 80.0 * 0.5 / 48000.0, "S-16 ...without a jump (one tone gliding, not a restart)");
+        t.dsp.startTest(0, ShakerDsp::TestTone, 80.0);   // again at 2 s: it plays on past its first 3 s
+        t.run(48000 * 5 / 2, silent);
+        check(t.dsp.testHz(0) > 0.0f, "S-16 asked again, the tone plays on past its first three seconds");
+        t.dsp.startTest(0, ShakerDsp::TestStop, 0.0);
+        t.run(960, silent);
+        check(peak(t.chan(0, t.out.size() - 240, t.out.size())) < 0.01 && t.dsp.testHz(0) == 0.0f, "S-16 stop fades it out within 20 ms (34 dB down; what is left is the DC block settling)");
+    }
+
+    // ---- S-17 ----
+    {
+        Harness h(2000.0, 48000.0, 2); prime(h);
+        auto tone = [](double t, double* v) { v[0] = 0.2 * std::sin(2 * kPi * 40.0 * t); v[1] = 0.2 * std::sin(2 * kPi * 40.0 * t); };
+        std::atomic<bool> go{true};
+        std::thread page([&h, &go, oneBand]()
+        {
+            int i = 0;
+            while (go.load()) { h.dsp.stageShape(0, oneBand(1, BandType::Bell, 30.0 + (i % 50), (i % 13) - 6.0, 1.0), (i % 7) == 0); ++i; }
+        });
+        h.run(48000 * 2, tone);
+        go.store(false); page.join();
+        h.dsp.stageShape(0, oneBand(1, BandType::Bell, 40.0, 6.0, 1.0), false);
+        h.out.clear();
+        h.run(48000, tone);
+        bool finite = true; for (float v : h.out) finite = finite && std::isfinite(v);
+        check(finite, "S-17 a stage written from another thread while the card renders: every sample finite");
+        approx(peak(h.chan(0, 24000, 48000)), 0.4, 0.02, "S-17 ...and the last stage is what plays");
+        ShakerShape bad; bad.eqOn = true; bad.band[1].hz = std::nan(""); bad.band[1].db = 1e9; bad.band[2].q = -3.0;
+        bad.comp.on = true; bad.comp.ratio = INFINITY; bad.comp.attackMs = 0.0;
+        ShakerShape clean = bad; check(haptics::sanitize(clean), "S-17 out-of-range and non-finite values are found");
+        check(clean.band[1].hz == ShakerShape{}.band[1].hz && clean.band[1].db == haptics::shape_k::kDbMax && clean.band[2].q == haptics::shape_k::kQMin
+              && clean.comp.ratio == ShakerShape{}.comp.ratio && clean.comp.attackMs == haptics::shape_k::kAttackMin,
+              "S-17 ...and clamped (NaN takes the default, the rest the nearest limit)");
+        Harness b(2000.0, 48000.0, 1); prime(b); b.dsp.stageShape(0, bad, false);
+        b.run(48000, tone);
+        bool fin2 = true; for (float v : b.out) fin2 = fin2 && std::isfinite(v);
+        check(fin2 && peak(b.chan(0, 24000, 48000)) <= 1.0, "S-17 a shape with bad values staged straight to the card plays finite and bounded");
+    }
+
+    // ---- S-18 ----
+    {
+        ShakerShape full; full.eqOn = true;
+        for (int i = 0; i < haptics::SHAPE_BANDS; ++i) full.band[i].on = true;
+        full.band[1].db = -6.0; full.band[2].db = 3.0; full.band[3].db = -3.0;
+        full.comp.on = true; full.comp.thresholdDb = -24.0;
+        auto timeIt = [&](bool shaped)
+        {
+            Harness h(2000.0, 48000.0, 8); prime(h);
+            if (shaped) for (int c = 0; c < 8; ++c) h.dsp.stageShape(c, full, false);
+            auto gen = [](double t, double* v) { for (int c = 0; c < 8; ++c) v[c] = 0.4 * std::sin(2 * kPi * (30.0 + 5 * c) * t); };
+            const auto t0 = std::chrono::steady_clock::now();
+            h.run(48000 * 10, gen, true, false);   // ten seconds of audio, not kept
+            return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        };
+        const double plain = timeIt(false), shaped = timeIt(true);
+        std::printf("  S-18 ten seconds of eight channels: %.1f ms unshaped, %.1f ms fully shaped (%.2f %% of a core for the shaping)\n",
+                    plain * 1000.0, shaped * 1000.0, (shaped - plain) / 10.0 * 100.0);
+        check(shaped < 10.0, "S-18 eight fully shaped channels render faster than real time");
     }
 
     std::printf("\nTestShakerDsp: %d passed, %d failed\n", g_pass, g_fail);

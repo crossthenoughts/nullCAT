@@ -84,6 +84,11 @@ public:
         m_pushesInFlight.fetch_sub(1, std::memory_order_release);
     }
     void setGain(int channel, double g) { m_dsp.setGain(channel, g); }
+    // Web/main thread: a channel's shaping and the editor's test signals
+    // (ShakerDsp stages them; the audio thread never waits). Kept across a
+    // reopen.
+    void stageShape(int channel, const ShakerShape& s, bool bypass) { m_dsp.stageShape(channel, s, bypass); }
+    void startTest(int channel, int kind, double hz)                { m_dsp.startTest(channel, kind, hz); }
 
     // The card gone quiet: no audio callback for this long while open
     // means it is no longer pulling data (unplugged, or the backend's
@@ -109,6 +114,8 @@ public:
     uint64_t pushes() const        { return m_pushes.load(std::memory_order_relaxed); }
     int      fill() const          { return m_dsp.fill(0); }
     float    level(int channel) const { return m_dsp.level(channel); }
+    float    gainReductionDb(int channel) const { return m_dsp.gainReductionDb(channel); }
+    float    testHz(int channel) const { return m_dsp.testHz(channel); }
     // Latency the backend reports for its buffering, ms (0 when unknown).
     double   bufferMs() const      { return m_bufferMs; }
     // The whole delay from the control loop to the card's output, ms: the

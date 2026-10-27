@@ -233,6 +233,49 @@ shakers on it stay silent; the other cards play on. Once the card is
 back, press **reopen** on the status line (it shows while a card is not
 open) to open every card again with the same settings, no restart.
 
+#### Shaping each shaker
+
+Each shaker has its own EQ and compressor, in the web page under
+**Setup**, **Shakers / audio**. Every shaker has a strip there: its
+level, the gain its compressor is taking off beside it (amber, filling
+from the top), its 40 Hz test, and an **EQ** and a **CMP** key. A key's
+lamp is lit while that one is on; pressing it opens the editor for that
+shaker below the strips, and the arrows step to the next shaker.
+
+- **EQ**: five bands, drawn as one curve. Drag a numbered point to move
+  its band (across for the frequency, up and down for the gain), roll the
+  wheel over the curve to make the selected band narrower or wider,
+  double-click a point to switch its band on or off, or type in the table
+  under the curve. A band is a bell, a low or high shelf, or a high-pass
+  or low-pass (12 dB an octave). A flat EQ starts with the two end bands
+  off and three bells at 0 dB.
+- **Compressor**: threshold, ratio, knee, attack, release and makeup,
+  with its curve and the gain it is taking off now. It is made for bass:
+  its release (200 ms to start with) is longer than a bass cycle, so it
+  turns a passage down rather than bending each wave.
+- **Test**: the 40 Hz burst, a slow sweep from 10 to 200 Hz over ten
+  seconds, and a tone at the selected band's frequency that follows the
+  band while you drag it. They play through the shaker's EQ and
+  compressor, so you feel what you set, and a mark on the curve shows
+  where the sweep or the tone is.
+
+A way to start: play the sweep, note where the shaker rings or booms,
+put a bell there and cut it until the sweep feels even. A high-pass just
+under the lowest frequency the shaker plays well keeps it from flapping
+on what it cannot play. Then the compressor brings the small effects up
+against the big hits (a lower threshold and some makeup), or just keeps
+the big hits from bottoming the shaker.
+
+Changes play on the shaker as you make them, and **Save** keeps them,
+with no restart or re-initialize. Leaving the page, or reloading it,
+with changes unsaved puts the saved settings back. **Hold to bypass**
+plays the shaker without its EQ and compressor while you hold it, to
+compare. **Copy to** copies one shaker's EQ and compressor to others (a
+pair of seat shakers, say). The settings belong to the rig, by shaker
+number, and the PC sets them in the web page too. On the PC, with its
+500 Hz loop, nothing above 250 Hz reaches the shakers: the curve shades
+that part.
+
 ### Profiles
 
 A profile is a named copy of everything on the strip: every tile's

@@ -315,6 +315,48 @@ try {
     if (drawer.partOpts !== 7)  fails.push(`part selector has ${drawer.partOpts} options, expected 7 (all, front, rear, 4 corners)`);
   }
 
+  // Shaker shaping: a strip's EQ key opens the editor; an edit plays at
+  // once (the band tone reads back from the card at the band's frequency),
+  // lights the strip's lamp and marks the page unsaved; Save writes it to
+  // rig.json; an edit left unsaved goes back when the settings are read
+  // again. The null card is real here: the tone is the controller's.
+  {
+    const before = pageErrors.length;
+    await page.evaluate(() => { setView('setup'); setupPage('shk'); });
+    await sleep(1200);   // a status poll builds the strips
+    const opened = await page.evaluate(() => {
+      const k = document.querySelector('[data-sheq="0"]'); if (k) k.click();
+      const ed = document.getElementById('shkEd');
+      return { strips: document.querySelectorAll('[data-sheq]').length, open: !!ed && !ed.hidden,
+               rows: document.querySelectorAll('#shkEqBands [data-bk="hz"]').length,
+               points: document.querySelectorAll('#shkEqSvg .hd').length };
+    });
+    await page.evaluate(() => {
+      const g = document.querySelector('#shkEqBands [data-bk="db"][data-b="1"]'); g.value = '-9'; g.dispatchEvent(new Event('input', { bubbles: true }));
+      document.getElementById('shkEdOnKey').click();
+      document.querySelector('[data-shkt="tone"]').click();
+    });
+    await sleep(1500);
+    const st1 = await (await fetch(`http://127.0.0.1:${PORT}/api/status`)).json();
+    const toneHz = (((st1.shakers || {}).devices || [])[0] || {}).testHz || [];
+    const unsaved = await page.evaluate(() => ({ dirty: dirtyState().shk, save: !document.getElementById('shkEdSave').hidden,
+      lit: document.querySelector('[data-sheq="0"]').classList.contains('lit') }));
+    await page.evaluate(() => { document.querySelector('[data-shkt="stop"]').click(); return saveConfig(); });
+    await sleep(800);
+    const saved = ((await (await fetch(`http://127.0.0.1:${PORT}/api/rig`)).json()).global || {}).shakerShaping || [];
+    const afterSave = await page.evaluate(() => ({ dirty: dirtyState().shk, previewed: SHK.previewed }));
+    await page.evaluate(async () => { const g = document.querySelector('#shkEqBands [data-bk="db"][data-b="1"]'); g.value = '3'; g.dispatchEvent(new Event('input', { bubbles: true })); await loadConfig(); });
+    const reread = await page.evaluate(() => ({ previewed: SHK.previewed, db: SHK.shapes[0].eq.bands[1].db, dirty: dirtyState().shk }));
+    if (pageErrors.length > before) fails.push('shaker shaping: page errors ' + pageErrors.slice(before).join(' | '));
+    if (!(opened.strips === 2 && opened.open && opened.rows === 5 && opened.points === 5)) fails.push('shaker shaping: the EQ key did not open the editor ' + JSON.stringify(opened));
+    if (!(Math.abs((toneHz[0] || 0) - 30) < 1)) fails.push(`shaker shaping: the band tone reads ${JSON.stringify(toneHz)} Hz on the card, expected band 2's 30 Hz on shaker 1`);
+    if (!(unsaved.dirty && unsaved.save && unsaved.lit)) fails.push('shaker shaping: an edit did not mark the page unsaved or light the strip lamp ' + JSON.stringify(unsaved));
+    const s1 = saved.find(e => e.shaker === 1);
+    if (!(s1 && s1.eq && s1.eq.on === true && s1.eq.bands[1].db === -9)) fails.push('shaker shaping: Save did not write shaker 1 EQ to rig.json ' + JSON.stringify(saved));
+    if (afterSave.dirty || afterSave.previewed) fails.push('shaker shaping: still unsaved after Save ' + JSON.stringify(afterSave));
+    if (reread.previewed || reread.db !== -9 || reread.dirty) fails.push('shaker shaping: an unsaved edit was not put back when the settings were read again ' + JSON.stringify(reread));
+  }
+
   // A page left on the tests page, with an effect's editor open and Motion
   // on the rail loads again: each stored choice used to stop the script at
   // load (state read before it was declared), leaving "Disconnected" for good.

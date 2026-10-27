@@ -320,6 +320,69 @@ body[data-view="setup"] .ws{display:none}body[data-view="setup"] .su{display:gri
 .lvw::before{content:'';position:absolute;left:5px;right:5px;top:4px;bottom:4px;background:repeating-linear-gradient(0deg,var(--ghost) 0 3px,transparent 3px 5px)}
 .lvl{position:absolute;left:5px;right:5px;bottom:4px;height:0;background:repeating-linear-gradient(0deg,#4dff8f 0 3px,transparent 3px 5px);filter:drop-shadow(0 0 3px rgba(77,255,143,.6));transition:height .1s linear}
 .shc .key{min-width:0;padding:0}
+/* each shaker: its level and the compressor's gain reduction (amber, from
+   the top) side by side, then its test, EQ and CMP keys (a lit lamp: that
+   one is on; pressed: open below) */
+.cbody>.shkch{grid-column:1/-1}   /* the strips and the editor want the page's width */
+.shkch .lvw{height:96px}
+.shmt{display:flex;justify-content:center;gap:3px}
+.shmt .lvw{margin:0}
+.grw{position:relative;flex:none;width:12px;height:96px;overflow:hidden}
+.grw::before{content:'';position:absolute;left:3px;right:3px;top:4px;bottom:4px;background:repeating-linear-gradient(180deg,var(--ghost) 0 3px,transparent 3px 5px)}
+.grl{position:absolute;left:3px;right:3px;top:4px;height:0;max-height:calc(100% - 8px);background:repeating-linear-gradient(180deg,var(--warn) 0 3px,transparent 3px 5px);filter:drop-shadow(0 0 3px rgba(255,176,46,.6));transition:height .1s linear}
+.shc .key.sm{height:24px;font-size:10.5px;gap:5px}
+@media(max-width:640px){.shm{grid-template-columns:repeat(var(--nn,4),minmax(0,1fr))}}
+/* the shaping editor */
+.shed{align-self:stretch;margin-top:10px;padding:10px;display:flex;flex-direction:column;gap:10px;background:var(--pnl);border-radius:4px;box-shadow:inset 0 1px 0 var(--hi),0 0 0 1px var(--edge)}
+.shed[hidden]{display:none}
+.shed-hd,.shed-test,.shed-copy{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.shed-copy[hidden]{display:none}
+.shed-t{display:inline-flex;align-items:baseline;gap:6px;margin-right:4px;font:600 11px var(--lab);letter-spacing:.14em;text-transform:uppercase;color:var(--silk)}
+.shed-t b{font:700 16px var(--seg);letter-spacing:0;color:var(--disp);text-shadow:0 0 7px var(--glow)}
+.shed-tabs{display:inline-flex;gap:4px;margin:0 6px}
+.shed-sp{flex:1 1 auto}
+.shed .ftag{display:inline-block;padding:0 4px;border-radius:2px;font:600 8.5px/14px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ok);box-shadow:inset 0 0 0 1px currentColor}
+.shed .hk{font:500 12.5px var(--lab);color:var(--ink2)}
+.shed .hk i{font-style:normal;color:var(--faint)}
+.shed-copy{padding:6px 8px;background:var(--pnl2);border-radius:3px}
+.shed-plot{display:block;width:100%;height:200px;border-radius:3px;touch-action:none;user-select:none;-webkit-user-select:none}
+.shed-plot .gl{stroke:var(--ghost);stroke-width:1}
+.shed-plot .gl.g0{stroke:var(--dim)}
+.shed-plot .gl.g1{stroke:var(--dim);stroke-dasharray:3 4}
+.shed-plot .gt{fill:var(--dim);font:500 9.5px var(--mono)}
+.shed-plot .shade{fill:var(--ghost);opacity:.5}
+.shed-plot .cv{fill:none;stroke:var(--disp);stroke-width:2;filter:drop-shadow(0 0 3px var(--glow))}
+.shed-plot .cv.off{stroke:var(--dim);stroke-dasharray:5 5;filter:none}
+.shed-plot .thr{stroke:var(--warn);stroke-width:1;stroke-dasharray:2 3}
+.shed-plot .tm{stroke:var(--warn);stroke-width:1.5}
+.shed-plot .hd{cursor:grab}
+.shed-plot .hd circle{fill:var(--glass);stroke:var(--dim);stroke-width:1.5}
+.shed-plot .hd.on circle{stroke:var(--disp)}
+.shed-plot .hd.sel circle{fill:var(--ghost);stroke-width:2.5}
+.shed-plot .hd text{fill:var(--disp);font:700 10px var(--mono);text-anchor:middle;pointer-events:none}
+.shed-plot .hd:not(.on) text{fill:var(--dim)}
+.shed-eq[hidden],.shed-comp[hidden]{display:none}
+.shed-eq{display:flex;flex-direction:column;gap:10px}
+.shed-bands{display:grid;grid-template-columns:22px 30px minmax(96px,130px) repeat(3,minmax(60px,84px));gap:5px 8px;align-items:center;justify-content:start}
+.shed-bands .bh{font:600 10px var(--lab);letter-spacing:.12em;text-transform:uppercase;color:var(--silk)}
+.shed-bands .bn{font:700 14px var(--seg);color:var(--dim);cursor:pointer;text-align:center}
+.shed-bands .bn.sel{color:var(--disp);text-shadow:0 0 6px var(--glow)}
+.shed-bands input[type=number],.shed-bands select{width:100%;min-width:0;height:26px}
+.shed-bands input.sel,.shed-bands select.sel{box-shadow:0 0 0 1px var(--acc)}
+.shed-bands.off .bn,.shed-bands.off select,.shed-bands.off input{opacity:.55}
+.shed-comp{display:grid;grid-template-columns:200px minmax(0,1fr);gap:14px;align-items:start}
+.shed-comp .shed-plot{width:200px;height:200px}
+.shed-crows{display:flex;flex-direction:column;gap:2px}
+.shed-crows .pr{display:grid;grid-template-columns:minmax(0,120px) minmax(60px,1fr) 70px;gap:10px;align-items:center;min-height:32px}
+.shed-crows input[type=number]{width:70px;height:26px}
+.shed-crows.off .pr:not(.shed-gr){opacity:.55}
+.shed-grbar{position:relative;height:12px;overflow:hidden}
+.shed-grbar i{position:absolute;left:3px;top:3px;bottom:3px;width:0;max-width:calc(100% - 6px);background:repeating-linear-gradient(90deg,var(--warn) 0 3px,transparent 3px 5px);filter:drop-shadow(0 0 3px rgba(255,176,46,.6));transition:width .1s linear}
+.shed-grtxt{font:500 12px var(--mono);color:var(--warnInk);text-align:right}
+.shed-now{min-width:6em;font:500 12px var(--mono);color:var(--acc)}
+.shed-dirty{font:500 12px var(--lab);color:var(--warnInk)}
+.shed-dirty[hidden]{display:none}
+@media(max-width:640px){.shed-comp{grid-template-columns:1fr}.shed-bands{gap:4px;grid-template-columns:16px 28px minmax(56px,1fr) repeat(3,minmax(50px,1fr))}.shed-bands input[type=number],.shed-bands select{padding:0 4px;font-size:12px}}
 /* provisioning reference */
 .prov-body{padding:4px 0 10px;display:flex;flex-direction:column;gap:14px}
 .prov-callout{background:var(--pnl2);border-radius:4px;border-left:3px solid var(--warn);padding:.8rem 1rem;box-shadow:0 0 0 1px var(--edge)}

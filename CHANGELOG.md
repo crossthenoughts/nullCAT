@@ -15,9 +15,17 @@ back to 0.9.9 brings the old page back, without the additions below.
 
 With it: a belt on the car's g whose g settings apply on Save with the loop
 running and whose g at max follows the type of car, two rally types of car,
-and a SimHub plugin that finds AC EVO's kerbs.
+a SimHub plugin that finds AC EVO's kerbs, and an EQ and a compressor on
+each shaker.
 
 ### Added
+- Each shaker has its own EQ and compressor, under Setup, Shakers / audio:
+  five bands drawn as a curve you can drag, a compressor made for bass, a
+  slow sweep and a band tone to find where a shaker rings, a hold to
+  bypass to compare, and a copy to other shakers. Edits play on the
+  shaker as you make them and Save keeps them, with no restart or
+  re-initialize. The shaker strips are bigger and show the compressor's
+  gain reduction beside each level.
 - A belt on the car's g follows the type of car: each starting point sets
   **belt g at max** (about 1 for a road car, 1.4 for a cup car, 2 for a
   GT3, 2.5 for an open wheeler), shown under the type on the Haptics

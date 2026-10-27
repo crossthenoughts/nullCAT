@@ -1331,6 +1331,105 @@ private slots:
         }
         QVERIFY2(missed.isEmpty(), qPrintable("values the validator let through: " + missed.join("; ")));
     }
+
+    // Shaker shaping lives in rig.json (global.shakerShaping), by shaker
+    // number, and only for shakers that are not flat and off. Every field
+    // round-trips, host.json never carries it, and a shaker put back to
+    // flat leaves the file (the key is always written, so the merge on
+    // save cannot keep a stale entry alive). Dropping the shakerShaping
+    // block from writeRigGlobal or readRigGlobal fails the first QCOMPARE.
+    void shakerShaping_roundTripsInRigOnly()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        Config cfg; QVERIFY(cfg.load(anchor(dir).toStdString()));
+        haptics::ShakerShape s;
+        s.eqOn = true;
+        s.band[0].on = true; s.band[0].hz = 18.0; s.band[0].q = 0.9;
+        s.band[2].type = haptics::BandType::LowShelf; s.band[2].hz = 45.0; s.band[2].db = -7.5; s.band[2].q = 1.3;
+        s.band[4].type = haptics::BandType::Bell; s.band[4].on = true; s.band[4].hz = 120.0; s.band[4].db = 3.0;
+        s.comp.on = true; s.comp.thresholdDb = -21.0; s.comp.ratio = 5.5; s.comp.kneeDb = 4.0;
+        s.comp.attackMs = 7.0; s.comp.releaseMs = 350.0; s.comp.makeupDb = 2.5;
+        cfg.get().shakerShaping[2] = s;
+        QVERIFY(cfg.saveRig(anchor(dir).toStdString()));
+
+        const QJsonArray arr = readObj(dir.path() + "/rig.json").value("global").toObject().value("shakerShaping").toArray();
+        QCOMPARE(arr.size(), 1);                                   // only the shaped shaker
+        QCOMPARE(arr.at(0).toObject().value("shaker").toInt(), 3); // by its number, 1-based
+        QCOMPARE(arr.at(0).toObject().value("eq").toObject().value("bands").toArray().at(2).toObject().value("type").toString(), QString("lowshelf"));
+        QVERIFY2(!readObj(dir.path() + "/host.json").contains("shakerShaping"), "shaping is the rig's, never host.json's");
+
+        Config back; QVERIFY(back.load(anchor(dir).toStdString()));
+        QVERIFY2(back.get().shakerShaping[2] == s, "every shaping field round-trips through rig.json");
+        for (size_t i = 0; i < back.get().shakerShaping.size(); ++i)
+            if (i != 2) QVERIFY(back.get().shakerShaping[i].isDefault());
+        QVERIFY(back.loadWarnings().empty());
+
+        back.get().shakerShaping[2] = haptics::ShakerShape{};
+        QVERIFY(back.saveRig(anchor(dir).toStdString()));
+        const QJsonObject g = readObj(dir.path() + "/rig.json").value("global").toObject();
+        QVERIFY2(g.value("shakerShaping").isArray() && g.value("shakerShaping").toArray().isEmpty(),
+                 "a shaker put back to flat leaves the file (the key stays, empty)");
+        Config again; QVERIFY(again.load(anchor(dir).toStdString()));
+        QVERIFY(again.get().shakerShaping[2].isDefault());
+    }
+
+    // A hand-edited rig.json with shaping out of range runs clamped, with a
+    // warning naming the shaker; a web save carrying the same is refused
+    // (validateRigBody), naming it too. An entry for shaker 9 is dropped.
+    void shakerShaping_clampedOnLoadRefusedOnSave()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        Config seed; QVERIFY(seed.load(anchor(dir).toStdString()));
+        QJsonObject rig = readObj(dir.path() + "/rig.json");
+        QJsonObject g = rig.value("global").toObject();
+        QJsonObject eq; eq["on"] = true;
+        QJsonArray bands; QJsonObject b0; b0["type"] = "highpass"; b0["hz"] = 5000.0; b0["on"] = true; bands.append(b0);
+        eq["bands"] = bands;
+        QJsonObject comp; comp["on"] = true; comp["ratio"] = 99.0;
+        QJsonObject e; e["shaker"] = 2; e["eq"] = eq; e["comp"] = comp;
+        QJsonObject ninth; ninth["shaker"] = 9; ninth["comp"] = comp;   // (not "far": a Windows macro)
+        // Shaker 3: only a band type the build does not know, on band 1
+        // (a high-pass by default, so writing it back as a bell shows).
+        QJsonObject eq3; QJsonArray b3; QJsonObject notch; notch["type"] = "notch"; b3.append(notch); eq3["bands"] = b3;
+        QJsonObject e3; e3["shaker"] = 3; e3["eq"] = eq3;
+        QJsonArray arr; arr.append(e); arr.append(ninth); arr.append(e3);
+        g["shakerShaping"] = arr; rig["global"] = g;
+        writeText(dir.path() + "/rig.json", QJsonDocument(rig).toJson());
+
+        const QString body = QString::fromUtf8(QJsonDocument(rig).toJson());
+        bool named = false;
+        for (const std::string& err : Config::validateRigBody(anchor(dir).toStdString(), body.toStdString()))
+            named = named || QString::fromStdString(err).contains("shakerShaping for shaker 2");
+        QVERIFY2(named, "a web save with shaping out of range is refused, naming the shaker");
+        bool typeNamed = false;
+        for (const std::string& err : Config::validateRigBody(anchor(dir).toStdString(), body.toStdString()))
+            typeNamed = typeNamed || QString::fromStdString(err).contains("shakerShaping for shaker 3");
+        QVERIFY2(typeNamed, "a web save with a band type the build does not know is refused, naming the shaker");
+
+        Config cfg; QVERIFY(cfg.load(anchor(dir).toStdString()));
+        const haptics::ShakerShape& s = cfg.get().shakerShaping[1];
+        QCOMPARE(s.band[0].hz, haptics::shape_k::kHzMax);
+        QCOMPARE(s.comp.ratio, haptics::shape_k::kRatioMax);
+        QVERIFY(s.eqOn && s.comp.on);
+        bool warned = false;
+        for (const std::string& w : cfg.loadWarnings()) warned = warned || QString::fromStdString(w).contains("shakerShaping for shaker 2");
+        QVERIFY2(warned, "the clamp on load says which shaker");
+        bool typeWarned = false;
+        for (const std::string& w : cfg.loadWarnings()) typeWarned = typeWarned || QString::fromStdString(w).contains("shakerShaping for shaker 3");
+        QVERIFY2(typeWarned, "a band type the build does not know is in the load warnings, naming the shaker");
+        QVERIFY(cfg.get().shakerShaping[2].band[0].type == haptics::BandType::HighPass);   // the band's own type back
+        // A load not for a run (the server's own applies, the Pi's start)
+        // saved straight back writes the band's own type too, not a bell.
+        Config raw; QVERIFY(raw.load(anchor(dir).toStdString(), false));
+        QVERIFY(raw.saveRig(anchor(dir).toStdString()));
+        QString written;
+        for (const QJsonValue& v : readObj(dir.path() + "/rig.json").value("global").toObject().value("shakerShaping").toArray())
+            if (v.toObject().value("shaker").toInt() == 3)
+                written = v.toObject().value("eq").toObject().value("bands").toArray().at(0).toObject().value("type").toString();
+        QVERIFY2(written.isEmpty() || written == "highpass", qPrintable("an unknown band type saved back as " + written));
+        for (size_t i = 0; i < cfg.get().shakerShaping.size(); ++i)
+            if (i != 1) QVERIFY(cfg.get().shakerShaping[i].isDefault());
+    }
 };
 
 QTEST_MAIN(TestConfigTwoFile)
