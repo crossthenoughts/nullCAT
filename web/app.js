@@ -512,6 +512,7 @@ function setupPage(id,atLoad){
   document.querySelectorAll('#su .supg').forEach(p=>{ const on=p.dataset.pg===id; p.classList.toggle('on',on); if(p.id==='testPanel') p.classList.toggle('collapsed',!on); });
   document.querySelectorAll('#sun [data-su]').forEach(b=>b.classList.toggle('on',b.dataset.su===id));
   const [k,t]=SETUP_PAGES[id]; const kk=$('suKick'), tt=$('suTitle'); if(kk) kk.textContent=k; if(tt) tt.textContent=t;
+  { const sh=$('shkHead'); if(sh) sh.hidden=id!=='shk'; }   // the Shakers key lives in that page's head
   if(id==='test'&&!atLoad){ buildTestAxes(); pollTestStatus(); }
 }
 document.querySelectorAll('#sun [data-su]').forEach(b=>{ b.onclick=()=>setupPage(b.dataset.su); });
@@ -531,6 +532,7 @@ function setupNavRefresh(){
   sum('blend', (cm&&cm.selectedIndex>=0?cm.options[cm.selectedIndex].text:'-')+(bt&&bt.value!==''?' · '+bt.value+' s':''), '');
   const sk=$('cf-shakers'), nsh=hapShakerCount(); sum('shk', sk&&sk.checked?(nsh+' ch'):'off', sk&&sk.checked?'ok':'');
   { const key=$('shkKey'); if(key&&sk) key.classList.toggle('on',sk.checked); }
+  shkMapSync();
   const nb=(btnMap.bindings||[]).length; sum('btn', nb+' of '+BINDABLE.length+' bound', nb?'ok':'');
   sum('sim', ((cfgObj&&cfgObj.ncxBindings)||[]).length+' slots · not for SimHub', '');
   const nd=cfgObj?devAxes().length:0; sum('dev', nd?nd+(nd>1?' devices':' device'):'none', nd?'ok':'');
@@ -621,8 +623,9 @@ let cfgGenLoaded=null;
 /* Shaker shaping state (the editor lives with shakerStatus below). Declared
    up here because loadConfig, called at start-up further down, reads it
    (shkSchemaLoad) before the script reaches that section. */
-const SHK={ schema:null, shapes:[], n:0, sel:-1, tab:'eq', band:1, built:'', previewed:false, bypass:false, editGen:0,
-            send:{}, tone:{busy:false,again:false}, toneCh:-1, testKind:[], testHz:[], gr:[], copy:new Set(), drag:null };
+const SHK={ schema:null, shapes:[], n:0, sel:-1, band:1, built:'', previewed:false, bypass:false, editGen:0,
+            send:{}, tone:{busy:false,again:false}, toneCh:-1, testKind:[], testT0:[], testHz:[], gr:[], lv:[],
+            copying:false, copy:new Set(), drag:null };
 function fieldVal(el){ return el.type==='checkbox'?el.checked:el.value; }
 function snapshotCfg(){
   const f={}; for(const id of CFG_WATCH_IDS){ const el=$(id); if(el) f[id]=fieldVal(el); }
@@ -835,6 +838,7 @@ async function loadConfig(){
     setField('cf-condmode',rig.conditioningMode||'bypass'); updateCondNote();
     setField('cf-reqreset',rig.requireUserFaultReset);
     applyHostOwnership();
+    shkMapSync();
     devInit();
     hapInit();
     ncxInit();
@@ -1576,65 +1580,90 @@ async function shakerDevicesLoad(){
   try{ const r=await fetch(API+'/api/shakers/devices'); if(!r.ok) return; const j=await r.json();
     dl.innerHTML=(j.devices||[]).map(d=>'<option value="'+String(d.name).replace(/"/g,'&quot;')+'">'+(d.default?'(default) ':'')+'</option>').join('')+'<option value="null">no hardware</option>'; }catch(_){}
 }
-// Status line under the host settings, and one strip per shaker: its level
-// and the compressor's gain reduction, the 40 Hz test key, and the EQ and
-// CMP keys that open its shaping below (lamp lit = that one is on).
+// The sound cards' status, one line per card in the glass (its lamp, name,
+// the shakers it carries, rate, latency, the card's own buffer, underruns;
+// a card not open: its error), Reopen beside it while a card is not open;
+// then one strip per shaker (shkStripsBuild). Twice a second.
 function shakerStatus(s){
-  const el=$('shakerStatus'); if(!el||!s) return;
-  const k=s.shakers||{};
-  if(!k.enabled){ el._built=0; el.textContent='Shakers off.'; SHK.n=0; if(SHK.sel>=0) shkClose(); return; }
-  // Built once per channel count: the line, the reopen button (shown while
-  // a card is not open) and the strips.
-  if(el._built!==(k.channels||0)+1){
-    el._built=(k.channels||0)+1;
-    const n=Math.min(8,Math.max(1,k.channels||1));
-    el.innerHTML='<div class="glass shl"><span id="shakerLine"></span></div> <button class="key sm nolamp" type="button" id="shakerReopen" hidden title="Open the sound cards again (a card unplugged and back, or the sound output moved)">Reopen</button> <div class="shm" id="shakerTests" style="--n:'+n+';--nn:'+Math.min(4,n)+'">'
-      +Array.from({length:k.channels||0},(_,c)=>'<span class="shc"><span class="shmt"><span class="glass lvw" title="Shaker '+(c+1)+': level"><i class="lvl" data-lv="'+c+'"></i></span>'
-        +'<span class="glass grw" title="Shaker '+(c+1)+': gain the compressor is taking off"><i class="grl" data-gr="'+c+'"></i></span></span>'
-        +'<button class="key sm nolamp" type="button" data-shtest="'+c+'" title="Shaker '+(c+1)+': 40 Hz for a second on this channel">'+(c+1)+'</button>'
-        +'<button class="key sm" type="button" data-sheq="'+c+'" title="Shaker '+(c+1)+': EQ">EQ</button>'
-        +'<button class="key sm" type="button" data-shcmp="'+c+'" title="Shaker '+(c+1)+': compressor">CMP</button></span>').join('')+'</div>';
-    el.querySelectorAll('[data-shtest]').forEach(b=>{ b.onclick=async()=>{ try{ await fetch(API+'/api/shakers/test',{method:'POST',body:JSON.stringify({channel:+b.dataset.shtest})}); }catch(_){} }; });
-    el.querySelectorAll('[data-sheq]').forEach(b=>{ b.onclick=()=>shkOpen(+b.dataset.sheq,'eq'); });
-    el.querySelectorAll('[data-shcmp]').forEach(b=>{ b.onclick=()=>shkOpen(+b.dataset.shcmp,'comp'); });
-    const ro=$('shakerReopen'); if(ro) ro.onclick=async()=>{ ro.disabled=true; try{ await postCmd('/api/shakers/reopen'); }finally{ ro.disabled=false; } };
-    SHK.n=k.channels||0;
-    if(SHK.sel>=SHK.n) shkClose(); else shkRender();
+  const line=$('shakerLine'); if(!line||!s) return;
+  const k=s.shakers||{}, ro=$('shakerReopen');
+  const put=h=>{ if(line._h!==h){ line._h=h; line.innerHTML=h; } };
+  if(!k.enabled){
+    put('<div class="sk-dv"><span class="lamp"></span><span class="vt dim">shakers off</span></div>');
+    if(ro) ro.hidden=true;
+    for(let c=0;c<8;c++){ SHK.lv[c]=0; SHK.gr[c]=0; SHK.testHz[c]=0; }
+    shkStripsBuild(0); return;
   }
   const devs=k.devices||[];
+  const kv=(l,v,cls)=>'<span class="sk-kv">'+(l?'<span class="dl">'+l+'</span>':'')+'<span class="vt'+(cls?' '+cls:'')+'">'+v+'</span></span>';
   // A card with fewer channels than asked for: the shakers past its own
-  // are silent, and the line says which.
-  const devText=d=>{
-    if(!d.open) return (d.name||'(default)')+': '+(d.error||'not open');
-    const want=d.channelsWanted||d.channels;
-    const short=d.channels<want?', '+d.channels+' of '+want+' channels: shakers '+(d.first+d.channels+1)+'-'+(d.first+want)+' silent':'';
-    return d.name+' ('+(d.first+1)+'-'+(d.first+d.channels)+short+') '+d.rate+' Hz, latency '+(d.latencyMs!=null?d.latencyMs:d.bufferMs)+' ms (card '+d.bufferMs+' ms), underruns '+d.underruns+(d.volumeResets>0?', turned down '+d.volumeResets+'x by something else (put back to full)':'')+', levels '+(d.levels||[]).map(v=>(+v).toFixed(2)).join(' ');
-  };
-  const line=$('shakerLine'); if(line) line.textContent='Shakers: '+(k.open?'':'not open: ')+devs.map(devText).join(' | ')+'.';
-  const ro=$('shakerReopen'); if(ro) ro.hidden=!devs.some(d=>!d.open);
-  // The strips stay (their shaping can be edited with no card open); the
-  // test keys need a card.
-  el.querySelectorAll('[data-shtest]').forEach(b=>{ b.disabled=!k.open; });
-  // the meters: one per shaker, from each card's levels (0..1) and gain
-  // reduction (dB, the bar full at 24 dB)
+  // are silent, and its line says which.
+  put(devs.length?devs.map(d=>{
+    const name=esc(d.name||'(default)'), f=d.first|0;
+    if(!d.open) return '<div class="sk-dv"><span class="lamp bad"></span><span class="vt">'+name+'</span>'+kv('not open',esc(d.error||'not open'),'bad')+'</div>';
+    const want=d.channelsWanted||d.channels, short=d.channels<want;
+    let h='<div class="sk-dv"><span class="lamp '+(short?'warn':'ok')+'"></span><span class="vt">'+name+'</span>'
+      +kv(d.channels>1?'shakers':'shaker',d.channels>1?(f+1)+'-'+(f+d.channels):String(f+1));
+    if(short) h+=kv('',d.channels+' of '+want+' channels: '+(want-d.channels>1?'shakers '+(f+d.channels+1)+'-'+(f+want):'shaker '+(f+want))+' silent','warn');
+    h+=kv('rate',d.rate+' Hz')+kv('latency',(d.latencyMs!=null?d.latencyMs:d.bufferMs)+' ms')+kv('card',d.bufferMs+' ms')
+      +kv('underruns',d.underruns|0,d.underruns>0?'warn':'');
+    if(d.volumeResets>0) h+=kv('volume','turned down '+d.volumeResets+'x by something else, put back to full','warn');
+    return h+'</div>';
+  }).join(''):'<div class="sk-dv"><span class="lamp'+(k.open?' ok':' bad')+'"></span><span class="vt">'+(k.open?'open':'not open')+'</span></div>');
+  if(ro) ro.hidden=!devs.some(d=>!d.open);
+  // The meters, from each card's levels (0..1, the output's peak), gain
+  // reduction (dB) and test tone (Hz); a shaker on a card not open reads 0.
+  for(let c=0;c<8;c++){ SHK.lv[c]=0; SHK.gr[c]=0; SHK.testHz[c]=0; }
   for(const d of devs){
     const f=d.first|0;
-    (d.levels||[]).forEach((v,i)=>{ const m=el.querySelector('.lvl[data-lv="'+(f+i)+'"]'); if(m) m.style.height=Math.round(Math.max(0,Math.min(1,+v||0))*100)+'%'; });
-    (d.gr||[]).forEach((v,i)=>{ SHK.gr[f+i]=+v||0; const m=el.querySelector('.grl[data-gr="'+(f+i)+'"]'); if(m) m.style.height=Math.round(Math.max(0,Math.min(1,(+v||0)/24))*100)+'%'; });
-    (d.testHz||[]).forEach((v,i)=>{ SHK.testHz[f+i]=+v||0; });
+    (d.levels||[]).forEach((v,i)=>{ if(f+i<8) SHK.lv[f+i]=+v||0; });
+    (d.gr||[]).forEach((v,i)=>{ if(f+i<8) SHK.gr[f+i]=+v||0; });
+    (d.testHz||[]).forEach((v,i)=>{ if(f+i<8) SHK.testHz[f+i]=+v||0; });
   }
+  shkStripsBuild(k.channels||0);
+  // The strips stay (their shaping can be edited with no card open); the
+  // test keys need a card.
+  document.querySelectorAll('#shakerTests [data-shtest]').forEach(b=>{ b.disabled=!k.open; });
+  shkMetersDraw();
+  shkStripsSync();   // a strip's test tag
   shkLive();
+}
+// The sound card rows: the shakers each card's channels become (from the
+// fields, so what a restart will give), and the quick picks follow the
+// fields' ownership (the desktop app owns them on the PC).
+function shkMapSync(){
+  const d1=$('cf-audiodev'), d2=$('cf-audiodev2'); if(!d1) return;
+  const ch=id=>Math.max(1,Math.min(8,+($(id)||{}).value||2));
+  const n1=ch('cf-audioch'), has2=!!d2&&!!(d2.value.trim()||d2._present), n2=has2?ch('cf-audioch2'):0;
+  const rng=(a,b)=>a>8?'→ none (8 shakers at most)':(Math.min(8,b)>a?'→ shakers '+a+'-'+Math.min(8,b):'→ shaker '+a);
+  const m0=$('shkMap0'), m1=$('shkMap1');
+  if(m0) m0.textContent=rng(1,n1);
+  if(m1) m1.textContent=has2?rng(n1+1,n1+n2):'';
+  document.querySelectorAll('[data-shq]').forEach(b=>{ b.disabled=d1.disabled; b.classList.toggle('on',d1.value.trim()===b.dataset.shq); });
+  const hint=d1.disabled?'the sound cards are set in the desktop app':'device and channel changes apply after a restart';
+  for(const id of ['shkHeadHint','shkCardsHint']){ const e=$(id); if(e) e.textContent=hint; }
+  const sk=$('cf-shakers'), t=$('shkKeyT'); if(sk&&t) t.textContent=sk.checked?'Shakers on':'Shakers off';
+}
+{ document.querySelectorAll('[data-shq]').forEach(b=>{ b.onclick=()=>{ const d=$('cf-audiodev'); if(!d||d.disabled) return;
+    d.value=b.dataset.shq; d.dispatchEvent(new Event('input',{bubbles:true})); }; });
+  for(const id of ['cf-audiodev','cf-audioch','cf-audiodev2','cf-audioch2']){ const e=$(id); if(e) e.addEventListener('input',shkMapSync); }
+  // The Shakers key sits in the page head, outside the settings panel.
+  const sk=$('cf-shakers'); if(sk) sk.addEventListener('change',()=>{ shkMapSync(); refreshDirtyUI(); });
+  // Open every card again with the same request (shown while one is down).
+  const ro=$('shakerReopen'); if(ro) ro.onclick=async()=>{ ro.disabled=true; try{ await postCmd('/api/shakers/reopen'); }finally{ ro.disabled=false; } };
 }
 
 /* ---- Shaker shaping: each shaker's EQ and compressor, played at the sound
-   card (ShakerShape.h on the controller). A strip's EQ or CMP key opens one
-   editor below the strips. Every edit plays on the shaker at once (POST
-   /api/shakers/shape: a preview, never saved) and marks the page unsaved;
-   Save writes rig.json's global.shakerShaping and the controller applies
-   the saved shaping; this page left with an edit unsaved (reloaded,
-   closed, or its settings read again) puts the saved shaping back. The
-   limits, band types and the flat default come from /api/shakers/schema,
-   the curves from the same formulas the controller runs. ---- */
+   card (ShakerShape.h on the controller). Each shaker's strip carries its
+   EQ curve and EQ and CMP keys (in or out); clicking the strip opens its
+   editor below the strips, the EQ and the compressor side by side. Every
+   edit plays on the shaker at once (POST /api/shakers/shape: a preview,
+   never saved) and marks the page unsaved; Save writes rig.json's
+   global.shakerShaping and the controller applies the saved shaping; this
+   page left with an edit unsaved (reloaded, closed, or its settings read
+   again) puts the saved shaping back. The limits, band types and the flat
+   default come from /api/shakers/schema, the curves from the same formulas
+   the controller runs. ---- */
 const SHK_TYPE_LABEL={highpass:'High-pass',lowshelf:'Low shelf',bell:'Bell',highshelf:'High shelf',lowpass:'Low-pass'};
 const shkClone=o=>JSON.parse(JSON.stringify(o));
 const shkHasGain=t=>t==='bell'||t==='lowshelf'||t==='highshelf';
@@ -1681,7 +1710,6 @@ window.addEventListener('pagehide',()=>{ if(SHK.previewed||SHK.bypass){ SHK.bypa
 window.addEventListener('pageshow',e=>{
   if(!e.persisted||!SHK.schema||!cfgBaseline) return;
   if(dirtyState().shk){ SHK.previewed=true; for(let c=0;c<SHK.n;c++) shkSend(c); }
-  const bp=$('shkEdBypass'); if(bp) bp.classList.remove('on');
   shkRender();
 });
 // One shaker's shaping to the card, the newest edit always last (one
@@ -1705,25 +1733,113 @@ function shkEdited(c){
   if(SHK.toneCh===c&&(SHK.testHz[c]||0)>0) shkToneFollow();   // the band tone follows its band
   shkRender();
 }
-function shkOpen(c,tab,keep){
+// A strip's EQ or CMP key: that one in or out (the editor's In/Out).
+function shkToggle(c,part){
+  const s=SHK.shapes[c]; if(!s) return;
+  s[part].on=!s[part].on; shkEdited(c);
+}
+
+/* The strips: built once per channel count; shkStripsSync draws their
+   state (selected, bypassed, copy picks, the EQ curve and keys),
+   shkMetersDraw their meters. */
+function shkStripsBuild(n){
+  const bank=$('shakerTests'), none=$('shakerNone'); if(!bank) return;
+  n=Math.max(0,Math.min(8,n|0));
+  if(none) none.hidden=n>0;
+  bank.hidden=!n;
+  if(bank._n===n) return;
+  bank._n=n; SHK.n=n;
+  for(const c of [...SHK.copy]) if(c>=n) SHK.copy.delete(c);   // a pick past the shakers there are now
+  bank.style.setProperty('--n',Math.max(1,n));
+  bank.innerHTML=Array.from({length:n},(_,c)=>{ const N=c+1;
+    return '<div class="sk-st" data-skst="'+c+'" tabindex="0" role="button" title="Shaker '+N+': click to tune its EQ and compressor">'
+      +'<div class="sk-h"><span class="lamp" data-skl="'+c+'"></span><span class="glass sk-num"><span class="seg" data-g="8">'+N+'</span></span>'
+      +'<span class="sk-tag" data-sktag="'+c+'"></span><span class="sp"></span>'
+      +'<button class="key sm nolamp ico" type="button" data-shtest="'+c+'" title="Shaker '+N+': 40 Hz for a second on this channel">&#9654;</button></div>'
+      +'<div class="glass sk-m"><span class="sk-lv" title="Shaker '+N+': level"><i data-lv="'+c+'"></i></span>'
+      +'<span class="sk-gr" title="Shaker '+N+': gain the compressor is taking off (full: 24 dB)"><i data-gr="'+c+'"></i></span>'
+      +'<span class="sk-rd"><span class="seg" data-skdb="'+c+'" data-g="-88">--</span><span class="dl">dBFS</span><span class="dl sk-grv" data-skgrv="'+c+'">GR 0.0</span></span></div>'
+      +'<div class="glass sk-th" data-skthw="'+c+'" title="Shaker '+N+': its EQ curve"><svg viewBox="0 0 100 30" preserveAspectRatio="none"><line class="z" x1="0" x2="100"/><polyline data-skth="'+c+'"/></svg></div>'
+      +'<div class="sk-k"><button class="key sm latch" type="button" data-sheq="'+c+'" title="Shaker '+N+': EQ in or out">EQ</button>'
+      +'<button class="key sm latch" type="button" data-shcmp="'+c+'" title="Shaker '+N+': compressor in or out">CMP</button></div></div>'; }).join('');
+  if(SHK.sel>=n) shkClose(); else shkRender();
+  shkMetersDraw();
+}
+// A strip's EQ curve, 100 x 30, over the editor's range.
+function shkThumb(eq){
+  const L=SHK.schema.limits, f0=L.hz[0], f1=L.hz[1], top=L.db[1], bot=L.db[0];
+  const Y=db=>((top-Math.max(bot,Math.min(top,db)))/(top-bot)*30).toFixed(2), pts=[];
+  for(let i=0;i<=60;i++){ const f=f0*Math.pow(f1/f0,i/60); let db=0; for(const b of eq.bands) if(b.on) db+=shkBandResp(b,f,SHK_FS); pts.push((i/60*100).toFixed(2)+','+Y(db)); }
+  return { z:Y(0), pts:pts.join(' ') };
+}
+function shkStripsSync(){
+  const bank=$('shakerTests'); if(!bank) return;
+  const open=SHK.sel>=0, cm=open&&SHK.copying;
+  bank.classList.toggle('cm',cm);
+  bank.querySelectorAll('[data-skst]').forEach(st=>{
+    const c=+st.dataset.skst, s=SHK.shapes[c], sel=open&&c===SHK.sel, tgt=cm&&SHK.copy.has(c);
+    st.classList.toggle('sel',sel); st.classList.toggle('byp',sel&&SHK.bypass);
+    st.classList.toggle('src',cm&&sel); st.classList.toggle('tgt',tgt);
+    st.title=cm?(sel?'Copying from this shaker':'Shaker '+(c+1)+': click to copy to it (again: not)'):'Shaker '+(c+1)+': click to tune its EQ and compressor';
+    const tag=st.querySelector('[data-sktag]'); if(tag) tag.textContent=cm?(sel?'from':tgt?'copy':''):(sel&&SHK.bypass?'bypass':shkTestPlaying(c)?'test':'');
+    const eq=st.querySelector('[data-sheq]'), cp=st.querySelector('[data-shcmp]');
+    if(eq){ eq.classList.toggle('on',!!(s&&s.eq.on)); eq.disabled=!s; }
+    if(cp){ cp.classList.toggle('on',!!(s&&s.comp.on)); cp.disabled=!s; }
+    const w=st.querySelector('[data-skthw]'); if(w) w.classList.toggle('off',!(s&&s.eq.on));
+    const pl=st.querySelector('[data-skth]');
+    if(pl&&s&&SHK.schema){ const key=JSON.stringify(s.eq.bands); if(pl._k!==key){ pl._k=key; const t=shkThumb(s.eq);
+      pl.setAttribute('points',t.pts); const z=st.querySelector('.sk-th .z'); if(z){ z.setAttribute('y1',t.z); z.setAttribute('y2',t.z); } } }
+  });
+}
+// Level as dBFS (the output's peak; the ladder spans -48 to 0) and the
+// compressor's gain reduction (the ladder full at 24 dB).
+function shkMetersDraw(){
+  const bank=$('shakerTests'); if(!bank) return;
+  for(let c=0;c<SHK.n;c++){
+    const v=SHK.lv[c]||0, db=v>1e-5?20*Math.log10(v):-120, gr=SHK.gr[c]||0;
+    const lv=bank.querySelector('[data-lv="'+c+'"]'); if(!lv) continue;
+    lv.style.height=Math.round(Math.max(0,Math.min(1,(db+48)/48))*100)+'%';
+    const g=bank.querySelector('[data-gr="'+c+'"]'); if(g) g.style.height=Math.round(Math.max(0,Math.min(1,gr/24))*100)+'%';
+    const r=bank.querySelector('[data-skdb="'+c+'"]'); if(r){ const t=db>-48?String(Math.round(db)):'--'; if(r.textContent!==t) r.textContent=t; }
+    const gv=bank.querySelector('[data-skgrv="'+c+'"]'); if(gv){ gv.textContent='GR '+gr.toFixed(1); gv.classList.toggle('on',gr>0.2); }
+    const l=bank.querySelector('[data-skl="'+c+'"]'); if(l) l.className='lamp'+(db>-1?' bad':db>-42?' ok':'');
+  }
+}
+{ const bank=$('shakerTests');
+  if(bank){
+    const pick=c=>{
+      if(SHK.sel>=0&&SHK.copying){ if(c!==SHK.sel){ if(SHK.copy.has(c)) SHK.copy.delete(c); else SHK.copy.add(c); shkCopySync(); } return; }
+      if(!(SHK.sel===c&&!$('shkEd').hidden)) shkOpen(c);
+    };
+    bank.addEventListener('click',e=>{
+      const t=e.target, st=t.closest('[data-skst]'); let b;
+      if(st&&SHK.sel>=0&&SHK.copying){ pick(+st.dataset.skst); return; }   // copying: the whole strip picks it
+      if((b=t.closest('[data-shtest]'))){ shkTest('burst',+b.dataset.shtest); return; }
+      if((b=t.closest('[data-sheq]'))){ shkToggle(+b.dataset.sheq,'eq'); return; }
+      if((b=t.closest('[data-shcmp]'))){ shkToggle(+b.dataset.shcmp,'comp'); return; }
+      if(st) pick(+st.dataset.skst);
+    });
+    bank.addEventListener('keydown',e=>{
+      if((e.key!=='Enter'&&e.key!==' ')||!e.target.matches('[data-skst]')) return;
+      e.preventDefault(); pick(+e.target.dataset.skst);
+    });
+  }
+}
+
+/* The editor. */
+function shkOpen(c){
   if(!SHK.schema||!SHK.shapes[c]) return;
   const ed=$('shkEd'); if(!ed) return;
-  if(!keep&&SHK.sel===c&&SHK.tab===tab&&!ed.hidden){ shkClose(); return; }
   if(SHK.bypass&&SHK.sel!==c){ SHK.bypass=false; shkSend(SHK.sel); }
-  if(SHK.sel!==c){ SHK.copy.clear(); const cr=$('shkEdCopyRow'); if(cr) cr.hidden=true; }
-  SHK.sel=c; SHK.tab=tab; ed.hidden=false; SHK.built='';
+  if(SHK.sel!==c) shkCopyEnd();
+  SHK.sel=c; ed.hidden=false;
   shkRender();
 }
 function shkClose(){
   if(SHK.bypass){ SHK.bypass=false; if(SHK.sel>=0) shkSend(SHK.sel); }
+  shkCopyEnd();
   SHK.sel=-1; const ed=$('shkEd'); if(ed) ed.hidden=true;
   shkStripsSync();
-}
-function shkStripsSync(){
-  document.querySelectorAll('#shakerTests [data-sheq]').forEach(b=>{ const c=+b.dataset.sheq, s=SHK.shapes[c];
-    b.classList.toggle('lit',!!(s&&s.eq.on)); b.classList.toggle('on',SHK.sel===c&&SHK.tab==='eq'); b.disabled=!s; });
-  document.querySelectorAll('#shakerTests [data-shcmp]').forEach(b=>{ const c=+b.dataset.shcmp, s=SHK.shapes[c];
-    b.classList.toggle('lit',!!(s&&s.comp.on)); b.classList.toggle('on',SHK.sel===c&&SHK.tab==='comp'); b.disabled=!s; });
 }
 function shkRender(){
   shkStripsSync();
@@ -1731,35 +1847,46 @@ function shkRender(){
   const c=SHK.sel, s=SHK.shapes[c];
   $('shkEdN').textContent=c+1;
   $('shkEdPrev').disabled=c<=0; $('shkEdNext').disabled=c>=SHK.n-1;
-  ed.querySelectorAll('[data-shtab]').forEach(b=>b.classList.toggle('on',b.dataset.shtab===SHK.tab));
-  $('shkEdOn').checked=(SHK.tab==='eq')?!!s.eq.on:!!s.comp.on;
-  $('shkEdOnKey').title=(SHK.tab==='eq')?'This shaker\'s EQ on or off':'This shaker\'s compressor on or off';
-  $('shkEdReset').title=(SHK.tab==='eq')?'Put this shaker\'s EQ back to flat and off':'Put this shaker\'s compressor back to its defaults, off';
-  $('shkEdEq').hidden=SHK.tab!=='eq'; $('shkEdComp').hidden=SHK.tab!=='comp';
-  const key=c+':'+SHK.tab;
-  if(SHK.built!==key){ SHK.built=key; if(SHK.tab==='eq') shkBandsBuild(); else shkCompBuild(); }
-  if(SHK.tab==='eq'){ shkBandsSync(); shkEqDraw(); } else { shkCompSync(); shkCompDraw(); }
-  const cr=$('shkEdCopyRow'); if(cr&&!cr.hidden) shkCopyBuild();
+  ed.classList.toggle('byp',SHK.bypass);
+  const bp=$('shkEdBypass'); if(bp) bp.classList.toggle('on',SHK.bypass);
+  const io=(id,tid,v)=>{ const e=$(id); if(e) e.checked=v; const t=$(tid); if(t) t.textContent=v?'In':'Out'; };
+  io('shkEdOn','shkEdOnT',!!s.eq.on); io('shkEdCompOn','shkEdCompOnT',!!s.comp.on);
+  if(!SHK.built){ SHK.built='1'; shkBandsBuild(); shkCompBuild(); }
+  shkBandsSync(); shkEqDraw(); shkCompSync(); shkCompDraw();
+  shkCopySync();
   shkLive();
 }
-// Twice a second from the status: the gain-reduction bar, the test readout
-// and its marker on the curve.
+// The test playing on a shaker: the burst for its second, the sweep or
+// the tone while the card reports its frequency (and for a moment after
+// the key, before the status shows it).
+function shkTestPlaying(c){
+  const k=SHK.testKind[c]||'', age=Date.now()-(SHK.testT0[c]||0);
+  if(k==='burst') return age<1000?'burst':'';
+  if(k==='sweep'||k==='tone') return ((SHK.testHz[c]||0)>0||age<800)?k:'';
+  return '';
+}
+// Twice a second from the status: the gain reduction, the test keys and
+// readout, its cursor on the curve and the compressor's dot.
 function shkLive(){
-  const ed=$('shkEd'); if(!ed||ed.hidden||SHK.sel<0) return;
+  const ed=$('shkEd'); if(!ed||ed.hidden||SHK.sel<0||!SHK.shapes[SHK.sel]) return;
   const c=SHK.sel, gr=SHK.gr[c]||0;
   const gf=$('shkGrFill'), gt=$('shkGrTxt');
-  if(gf) gf.style.width=Math.round(Math.max(0,Math.min(1,gr/24))*100)+'%';
+  if(gf) gf.style.height=Math.round(Math.max(0,Math.min(1,gr/24))*100)+'%';
   if(gt) gt.textContent=gr.toFixed(1)+' dB';
-  const th=SHK.testHz[c]||0, now=$('shkTestNow');
-  if(now) now.textContent=th>0?((SHK.testKind[c]==='sweep'?'sweep ':SHK.testKind[c]==='tone'?'tone ':'')+Math.round(th)+' Hz'):'';
-  if(SHK.tab==='eq'&&(th>0||SHK._marked)){ SHK._marked=th>0; shkEqDraw(); }
+  const kind=shkTestPlaying(c), th=SHK.testHz[c]||0, hz=th>0?' · '+Math.round(th)+' Hz':'';
+  document.querySelectorAll('[data-shkt]').forEach(b=>{ if(b.dataset.shkt!=='stop') b.classList.toggle('on',b.dataset.shkt===kind); });
+  const now=$('shkTestNow');
+  if(now){ now.textContent=kind==='burst'?'burst · 40 Hz':kind==='sweep'?'sweep'+hz:kind==='tone'?'tone'+hz+' · band '+(SHK.band+1):'idle';
+    now.className='vt'+(kind?' ok':' dim'); }
+  if(th>0||SHK._marked){ SHK._marked=th>0; shkEqDraw(); }
+  shkCompDot();
 }
 function shkDirtyUI(d){
   const m=$('shkEdDirty'), b=$('shkEdSave');
-  if(m) m.hidden=!d.shk; if(b) b.hidden=!d.shk;
+  if(m) m.hidden=!d.shk; if(b) b.disabled=!d.count;
 }
 
-/* EQ: the curve, the numbered band points and the band table. */
+/* EQ: the curve, the numbered band points and the five band cards. */
 // One band's gain at f, dB: the controller's filter (ShakerShape.h
 // bandCoeffs) evaluated on the unit circle.
 function shkBandResp(b,f,fs){
@@ -1784,9 +1911,9 @@ function shkBandResp(b,f,fs){
 const SHK_FS=48000;
 function shkEqGeom(){
   const svg=$('shkEqSvg'), L=SHK.schema.limits;
-  const W=Math.max(200,Math.round((svg&&svg.clientWidth)||640)), H=200, f0=L.hz[0], f1=L.hz[1], top=L.db[1], bot=L.db[0];
+  const W=Math.max(200,Math.round((svg&&svg.clientWidth)||640)), H=216, f0=L.hz[0], f1=L.hz[1], top=L.db[1], bot=L.db[0];
   // Inset so a point at a limit (10 or 300 Hz, the top or bottom gain) stays whole.
-  const px=12, pt=10, pb=16, w=W-2*px, h=H-pt-pb;
+  const px=14, pt=14, pb=20, w=W-2*px, h=H-pt-pb;
   return { W, H, f0, f1, top, bot,
     X:f=>px+Math.log(f/f0)/Math.log(f1/f0)*w,
     Y:db=>pt+(top-Math.max(bot,Math.min(top,db)))/(top-bot)*h,
@@ -1802,32 +1929,42 @@ function shkEqDraw(){
   // Above half the loop's rate nothing reaches the shakers on this machine.
   const nyq=(+(cfgObj&&cfgObj.controlLoopHz)||0)/2;
   if(nyq>g.f0&&nyq<g.f1) h+='<rect class="shade" x="'+g.X(nyq).toFixed(1)+'" y="0" width="'+(g.W-g.X(nyq)).toFixed(1)+'" height="'+g.H+'"><title>Nothing above '+Math.round(nyq)+' Hz reaches the shakers on this machine (half its loop rate)</title></rect>';
-  for(const f of [20,30,50,100,200]) h+='<line class="gl" x1="'+g.X(f).toFixed(1)+'" x2="'+g.X(f).toFixed(1)+'" y1="0" y2="'+g.H+'"/><text class="gt" x="'+(g.X(f)+3).toFixed(1)+'" y="'+(g.H-4)+'">'+f+'</text>';
+  for(const f of [20,30,50,100,200]) h+='<line class="gv" x1="'+g.X(f).toFixed(1)+'" x2="'+g.X(f).toFixed(1)+'" y1="0" y2="'+g.H+'"/><text class="gt" x="'+g.X(f).toFixed(1)+'" y="'+(g.H-6)+'" text-anchor="middle">'+f+'</text>';
   for(let d=Math.ceil(g.bot/6)*6; d<=g.top; d+=6)
-    h+='<line class="gl'+(d===0?' g0':'')+'" x1="0" x2="'+g.W+'" y1="'+g.Y(d).toFixed(1)+'" y2="'+g.Y(d).toFixed(1)+'"/>'
-      +(d>g.bot&&d<g.top?'<text class="gt" x="14" y="'+(g.Y(d)-3).toFixed(1)+'">'+(d>0?'+':'')+d+'</text>':'');
+    h+='<line class="gh'+(d===0?' z':'')+'" x1="0" x2="'+g.W+'" y1="'+g.Y(d).toFixed(1)+'" y2="'+g.Y(d).toFixed(1)+'"/>'
+      +(d>g.bot&&d<g.top?'<text class="gt" x="7" y="'+(g.Y(d)-4).toFixed(1)+'">'+(d>0?'+':'')+d+'</text>':'');
+  h+='<text class="gt" x="'+(g.W-8)+'" y="12" text-anchor="end">Hz · dB</text>';
+  const N=160, fAt=i=>g.f0*Math.pow(g.f1/g.f0,i/N);
+  // The selected band's own part, filled from 0 dB.
+  const sb=bands[SHK.band];
+  if(sb&&sb.on){ const z=g.Y(0).toFixed(1), p=[g.X(g.f0).toFixed(1)+','+z];
+    for(let i=0;i<=N;i++){ const f=fAt(i); p.push(g.X(f).toFixed(1)+','+g.Y(shkBandResp(sb,f,SHK_FS)).toFixed(1)); }
+    p.push(g.X(g.f1).toFixed(1)+','+z); h+='<polygon class="bf" points="'+p.join(' ')+'"/>'; }
   const pts=[];
-  for(let i=0;i<=160;i++){ const f=g.f0*Math.pow(g.f1/g.f0,i/160); let db=0; for(const b of bands) if(b.on) db+=shkBandResp(b,f,SHK_FS); pts.push(g.X(f).toFixed(1)+','+g.Y(db).toFixed(1)); }
+  for(let i=0;i<=N;i++){ const f=fAt(i); let db=0; for(const b of bands) if(b.on) db+=shkBandResp(b,f,SHK_FS); pts.push(g.X(f).toFixed(1)+','+g.Y(db).toFixed(1)); }
   h+='<polyline class="cv'+(s.eq.on?'':' off')+'" points="'+pts.join(' ')+'"/>';
   const th=SHK.testHz[SHK.sel]||0;
   if(th>=g.f0&&th<=g.f1) h+='<line class="tm" x1="'+g.X(th).toFixed(1)+'" x2="'+g.X(th).toFixed(1)+'" y1="0" y2="'+g.H+'"/>';
   bands.forEach((b,i)=>{ const x=g.X(+b.hz).toFixed(1), y=shkHandleY(g,b);
-    h+='<g class="hd'+(b.on?' on':'')+(i===SHK.band?' sel':'')+'"><circle cx="'+x+'" cy="'+y.toFixed(1)+'" r="9"/><text x="'+x+'" y="'+(y+3.5).toFixed(1)+'">'+(i+1)+'</text></g>'; });
+    h+='<g class="hd'+(b.on?' on':'')+(i===SHK.band?' sel':'')+'"><circle cx="'+x+'" cy="'+y.toFixed(1)+'" r="11"/><text x="'+x+'" y="'+(y+4).toFixed(1)+'">'+(i+1)+'</text></g>'; });
   svg.innerHTML=h;
 }
 function shkBandsBuild(){
   const host=$('shkEqBands'); if(!host) return;
-  const L=SHK.schema.limits;
-  let h='<span class="bh"></span><span class="bh">On</span><span class="bh">Type</span><span class="bh">Freq Hz</span><span class="bh">Gain dB</span><span class="bh">Q</span>';
+  const L=SHK.schema.limits, types=SHK.schema.types.map(t=>'<option value="'+t+'">'+(SHK_TYPE_LABEL[t]||t)+'</option>').join('');
+  let h='';
   for(let i=0;i<SHK.schema.bands;i++){
-    h+='<span class="bn" data-b="'+i+'" title="Band '+(i+1)+': select (the band tone plays it)">'+(i+1)+'</span>'
-      +'<label class="key sm latch ico" data-b="'+i+'" title="Band '+(i+1)+' on or off"><input type="checkbox" hidden data-bk="on" data-b="'+i+'"></label>'
-      +'<select data-bk="type" data-b="'+i+'">'+SHK.schema.types.map(t=>'<option value="'+t+'">'+(SHK_TYPE_LABEL[t]||t)+'</option>').join('')+'</select>'
-      +'<input type="number" data-bk="hz" data-b="'+i+'" min="'+L.hz[0]+'" max="'+L.hz[1]+'" step="1">'
-      +'<input type="number" data-bk="db" data-b="'+i+'" min="'+L.db[0]+'" max="'+L.db[1]+'" step="0.5">'
-      +'<input type="number" data-bk="q" data-b="'+i+'" min="'+L.q[0]+'" max="'+L.q[1]+'" step="0.05">';
+    const N=i+1, num=(k,st)=>'<input class="inp" type="number" data-bk="'+k+'" data-b="'+i+'" min="'+L[k][0]+'" max="'+L[k][1]+'" step="'+st+'">';
+    h+='<div class="sk-b" data-b="'+i+'">'
+      +'<div class="sk-bh"><button class="sk-bn" type="button" data-b="'+i+'" title="Band '+N+': select (the band tone plays it)">'+N+'</button>'
+      +'<select data-bk="type" data-b="'+i+'" title="Band '+N+': its kind">'+types+'</select>'
+      +'<label class="key sm latch ico" title="Band '+N+' on or off"><input type="checkbox" hidden data-bk="on" data-b="'+i+'"></label></div>'
+      +'<div class="sk-bf"><span>Hz</span>'+num('hz',1)+'</div>'
+      +'<div class="sk-bf"><span>dB</span>'+num('db',0.5)+'</div>'
+      +'<div class="sk-bf"><span>Q</span>'+num('q',0.05)+'</div></div>';
   }
   host.innerHTML=h;
+  const pick=b=>{ if(SHK.band===b) return; SHK.band=b; shkBandsSync(); shkEqDraw(); if(SHK.toneCh===SHK.sel&&(SHK.testHz[SHK.sel]||0)>0) shkToneFollow(); };
   host.querySelectorAll('[data-bk]').forEach(el=>{
     const ev=(el.type==='checkbox'||el.tagName==='SELECT')?'change':'input';
     el.addEventListener(ev,()=>{
@@ -1838,9 +1975,10 @@ function shkBandsBuild(){
       else { if(el.value==='') return; const v=+el.value; if(!isFinite(v)) return; const lim=SHK.schema.limits[k]; band[k]=Math.max(lim[0],Math.min(lim[1],v)); }
       SHK.band=b; shkEdited(SHK.sel);
     });
-    el.addEventListener('focus',()=>{ SHK.band=+el.dataset.b; shkBandsSync(); shkEqDraw(); });
+    el.addEventListener('focus',()=>pick(+el.dataset.b));
   });
-  host.querySelectorAll('.bn').forEach(el=>{ el.onclick=()=>{ SHK.band=+el.dataset.b; shkBandsSync(); shkEqDraw(); }; });
+  // The card itself (not its fields) or its number: select the band.
+  host.querySelectorAll('.sk-b').forEach(el=>{ el.addEventListener('click',e=>{ if(!e.target.closest('input,select,label')) pick(+el.dataset.b); }); });
 }
 function shkBandsSync(){
   const host=$('shkEqBands'); if(!host||SHK.sel<0) return;
@@ -1853,7 +1991,7 @@ function shkBandsSync(){
     else if(k==='type') el.value=band.type;
     else el.value=(k==='hz')?(Math.round(+band.hz*10)/10):(k==='db')?(+band.db).toFixed(1):(+band.q).toFixed(2);
   });
-  host.querySelectorAll('[data-b]').forEach(el=>el.classList.toggle('sel',+el.dataset.b===SHK.band));
+  host.querySelectorAll('.sk-b').forEach(el=>{ const b=+el.dataset.b; el.classList.toggle('sel',b===SHK.band); el.classList.toggle('on',!!s.eq.bands[b].on); });
   host.classList.toggle('off',!s.eq.on);
 }
 // Drag a numbered point: frequency across, gain up and down (bells and
@@ -1892,12 +2030,13 @@ function shkBandsSync(){
       const b=nearest(at(e)); if(b<0) return;
       const band=SHK.shapes[SHK.sel].eq.bands[b]; band.on=!band.on; SHK.band=b; shkEdited(SHK.sel);
     });
-    if(window.ResizeObserver) new ResizeObserver(()=>{ if(SHK.sel>=0&&SHK.tab==='eq') shkEqDraw(); }).observe(svg);
+    if(window.ResizeObserver) new ResizeObserver(()=>{ if(SHK.sel>=0) shkEqDraw(); }).observe(svg);
   }
 }
 
-/* Compressor: the curve (level in against level out) and its six settings,
-   a slider and a number each (attack, release and ratio on a log slider). */
+/* Compressor: the curve (level in against level out, the dot where it is
+   working now) and its six settings, a slider and a number each (attack,
+   release and ratio on a log slider). */
 const SHK_COMP=[['thresholdDb','Threshold','dB',0.5,false],['ratio','Ratio',':1',0.1,true],['kneeDb','Knee','dB',0.5,false],
                 ['attackMs','Attack','ms',0.5,true],['releaseMs','Release','ms',5,true],['makeupDb','Makeup','dB',0.5,false]];
 function shkCompGain(lv,thr,ratio,knee){
@@ -1916,8 +2055,7 @@ function shkCompBuild(){
   const L=SHK.schema.limits;
   host.innerHTML=SHK_COMP.map(([k,lab,u,st])=>'<div class="pr"><span class="hk">'+lab+' <i>'+u+'</i></span>'
       +'<input type="range" min="0" max="1000" step="1" data-ck="'+k+'">'
-      +'<input type="number" data-cn="'+k+'" min="'+L[k][0]+'" max="'+L[k][1]+'" step="'+st+'"></div>').join('')
-    +'<div class="pr shed-gr" title="What the compressor is taking off this shaker now"><span class="hk">Reduction</span><span class="glass shed-grbar"><i id="shkGrFill"></i></span><span class="shed-grtxt" id="shkGrTxt">0.0 dB</span></div>';
+      +'<input class="inp" type="number" data-cn="'+k+'" min="'+L[k][0]+'" max="'+L[k][1]+'" step="'+st+'"></div>').join('');
   const put=(k,v)=>{ if(SHK.sel<0) return; const L2=SHK.schema.limits[k], st=SHK_COMP.find(r=>r[0]===k)[3];
     const dec=st<1?String(st).split('.')[1].length:0;
     SHK.shapes[SHK.sel].comp[k]=Math.max(L2[0],Math.min(L2[1],+(Math.round(v/st)*st).toFixed(dec))); shkEdited(SHK.sel); };
@@ -1931,38 +2069,64 @@ function shkCompSync(){
   host.querySelectorAll('[data-cn]').forEach(el=>{ if(document.activeElement!==el){ const k=el.dataset.cn, v=+c[k]; el.value=(k==='releaseMs')?Math.round(v):(Math.round(v*10)/10); } });
   host.classList.toggle('off',!c.on);
 }
+// The plot's scale: level -lo..0 dBFS both ways over 200.
+function shkCompGeom(){
+  const lo=SHK.schema.limits.thresholdDb[0], S=200;
+  return { lo, S, P:db=>(db-lo)/(0-lo)*S, Q:db=>S-(Math.max(lo,Math.min(0,db))-lo)/(0-lo)*S };
+}
 function shkCompDraw(){
   const svg=$('shkCompSvg'); if(!svg||SHK.sel<0) return;
-  const c=SHK.shapes[SHK.sel].comp, lo=SHK.schema.limits.thresholdDb[0], S=200;
-  const P=db=>(db-lo)/(0-lo)*S, Q=db=>S-(Math.max(lo,Math.min(0,db))-lo)/(0-lo)*S;
+  const c=SHK.shapes[SHK.sel].comp, {lo,S,P,Q}=shkCompGeom();
   let h='';
-  for(let d=lo; d<=0; d+=12) h+='<line class="gl" x1="'+P(d).toFixed(1)+'" x2="'+P(d).toFixed(1)+'" y1="0" y2="'+S+'"/><line class="gl" x1="0" x2="'+S+'" y1="'+Q(d).toFixed(1)+'" y2="'+Q(d).toFixed(1)+'"/>'
-    +(d<0&&d>lo?'<text class="gt" x="'+(P(d)+3).toFixed(1)+'" y="'+(S-4)+'">'+d+'</text>':'');
-  h+='<line class="gl g1" x1="0" y1="'+S+'" x2="'+S+'" y2="0"/>';
+  for(let d=lo; d<=0; d+=12) h+='<line class="gv" x1="'+P(d).toFixed(1)+'" x2="'+P(d).toFixed(1)+'" y1="0" y2="'+S+'"/><line class="gh" x1="0" x2="'+S+'" y1="'+Q(d).toFixed(1)+'" y2="'+Q(d).toFixed(1)+'"/>'
+    +(d<0&&d>lo?'<text class="gt" x="'+P(d).toFixed(1)+'" y="'+(S-5)+'" text-anchor="middle">'+d+'</text>':'');
+  h+='<line class="un" x1="0" y1="'+S+'" x2="'+S+'" y2="0"/>';
   h+='<line class="thr" x1="'+P(c.thresholdDb).toFixed(1)+'" x2="'+P(c.thresholdDb).toFixed(1)+'" y1="0" y2="'+S+'"/>';
   const pts=[]; for(let i=0;i<=100;i++){ const lv=lo+(0-lo)*i/100; pts.push(P(lv).toFixed(1)+','+Q(lv+shkCompGain(lv,c.thresholdDb,c.ratio,c.kneeDb)+c.makeupDb).toFixed(1)); }
   h+='<polyline class="cv'+(c.on?'':' off')+'" points="'+pts.join(' ')+'"/>';
+  h+='<circle class="dot" id="shkCompDot" r="5" cx="0" cy="0" style="display:none"/>';
   svg.innerHTML=h;
+  shkCompDot();
+}
+// The dot: where on the curve the compressor works now, from the gain it
+// reports taking off (the level in that takes that much off). Nothing
+// taken off: no dot (anywhere under the knee looks the same).
+function shkCompDot(){
+  const dot=$('shkCompDot'); if(!dot||SHK.sel<0||!SHK.schema) return;
+  const c=SHK.shapes[SHK.sel].comp, gr=SHK.gr[SHK.sel]||0;
+  if(!c.on||SHK.bypass||gr<0.05){ dot.style.display='none'; return; }
+  const {P,Q}=shkCompGeom(), off=x=>-shkCompGain(x,c.thresholdDb,c.ratio,c.kneeDb);
+  let a=c.thresholdDb-c.kneeDb/2, b=0, x=0;
+  if(off(b)>gr){ for(let i=0;i<30;i++){ const m=(a+b)/2; if(off(m)<gr) a=m; else b=m; } x=(a+b)/2; }
+  dot.setAttribute('cx',P(x).toFixed(1)); dot.setAttribute('cy',Q(x-off(x)+c.makeupDb).toFixed(1));
+  dot.style.display='';
 }
 
-/* The header, the copy row and the test keys. */
-function shkCopyBuild(){
-  const host=$('shkEdCopyTo'); if(!host) return;
-  $('shkEdCopyFrom').textContent=SHK.sel+1;
-  host.innerHTML=Array.from({length:SHK.n},(_,c)=>c===SHK.sel?'':'<button class="key sm'+(SHK.copy.has(c)?' lit on':'')+'" type="button" data-cpto="'+c+'">'+(c+1)+'</button>').join('');
-  host.querySelectorAll('[data-cpto]').forEach(b=>{ b.onclick=()=>{ const c=+b.dataset.cpto; if(SHK.copy.has(c)) SHK.copy.delete(c); else SHK.copy.add(c); shkCopyBuild(); }; });
-  $('shkEdCopyGo').disabled=!SHK.copy.size;
+/* Copy: the targets are picked on the strips. */
+function shkCopyEnd(){ SHK.copying=false; SHK.copy.clear(); shkCopySync(); }
+function shkCopySync(){
+  const row=$('shkEdCopyRow'), on=SHK.copying&&SHK.sel>=0;
+  const k=$('shkEdCopy'); if(k) k.classList.toggle('on',on);
+  if(row) row.hidden=!on;
+  if(on){
+    $('shkEdCopyFrom').textContent=SHK.sel+1;
+    const to=[...SHK.copy].filter(c=>c!==SHK.sel&&c<SHK.n).sort((a,b)=>a-b), t=$('shkEdCopyTo');
+    if(t){ t.textContent=to.length?to.map(c=>c+1).join(' · '):'none picked'; t.className='vt'+(to.length?'':' dim'); }
+    const go=$('shkEdCopyGo'); if(go){ go.disabled=!to.length; go.classList.toggle('lit',!!to.length); }
+  }
+  shkStripsSync();
 }
-async function shkTest(kind){
-  const c=SHK.sel; if(c<0) return;
+async function shkTest(kind,ch){
+  const c=(ch!=null)?ch:SHK.sel; if(c<0) return;
   const body={channel:c};
   if(kind!=='burst') body.kind=kind;
   if(kind==='tone'){ body.hz=+SHK.shapes[c].eq.bands[SHK.band].hz; SHK.toneCh=c; }
   else if(kind==='sweep'||kind==='stop') SHK.toneCh=-1;
-  if(kind!=='burst') SHK.testKind[c]=kind;
+  SHK.testKind[c]=kind; SHK.testT0[c]=Date.now();
+  shkLive();
   try{
     const r=await fetch(API+'/api/shakers/test',{method:'POST',body:JSON.stringify(body)});
-    if(!r.ok){ let j=null; try{ j=await r.json(); }catch(_){} showCmdErr((j&&j.error)||('HTTP '+r.status)); }
+    if(!r.ok){ let j=null; try{ j=await r.json(); }catch(_){} SHK.testKind[c]=''; shkLive(); showCmdErr((j&&j.error)||('HTTP '+r.status)); }
   }catch(_){ showCmdErr('no response from the controller'); }
 }
 // The band tone after its band, one request in flight.
@@ -1976,36 +2140,37 @@ async function shkToneFollow(){
   }catch(_){}finally{ st.busy=false; }
 }
 { const on=(id,f)=>{ const e=$(id); if(e) e.onclick=f; };
-  on('shkEdPrev',()=>{ if(SHK.sel>0) shkOpen(SHK.sel-1,SHK.tab,true); });
-  on('shkEdNext',()=>{ if(SHK.sel<SHK.n-1) shkOpen(SHK.sel+1,SHK.tab,true); });
+  on('shkEdPrev',()=>{ if(SHK.sel>0) shkOpen(SHK.sel-1); });
+  on('shkEdNext',()=>{ if(SHK.sel<SHK.n-1) shkOpen(SHK.sel+1); });
   on('shkEdClose',()=>shkClose());
-  document.querySelectorAll('[data-shtab]').forEach(b=>{ b.onclick=()=>{ if(SHK.sel>=0) shkOpen(SHK.sel,b.dataset.shtab,true); }; });
-  const onEl=$('shkEdOn');
-  if(onEl) onEl.onchange=()=>{ if(SHK.sel<0) return; const s=SHK.shapes[SHK.sel]; if(SHK.tab==='eq') s.eq.on=onEl.checked; else s.comp.on=onEl.checked; shkEdited(SHK.sel); };
-  on('shkEdReset',()=>{ if(SHK.sel<0) return; const s=SHK.shapes[SHK.sel], d=SHK.schema.default;
-    if(SHK.tab==='eq') s.eq=shkClone(d.eq); else s.comp=shkClone(d.comp); SHK.built=''; shkEdited(SHK.sel); });
+  const io=(id,part)=>{ const e=$(id); if(e) e.onchange=()=>{ if(SHK.sel<0) return; SHK.shapes[SHK.sel][part].on=e.checked; shkEdited(SHK.sel); }; };
+  io('shkEdOn','eq'); io('shkEdCompOn','comp');
+  on('shkEdReset',()=>{ if(SHK.sel<0) return; SHK.shapes[SHK.sel].eq=shkClone(SHK.schema.default.eq); shkEdited(SHK.sel); });
+  on('shkEdCompReset',()=>{ if(SHK.sel<0) return; SHK.shapes[SHK.sel].comp=shkClone(SHK.schema.default.comp); shkEdited(SHK.sel); });
   // Hold to bypass: the shaker without its EQ and compressor while held.
   const bp=$('shkEdBypass');
   if(bp){
-    const set=v=>{ if(SHK.sel<0||SHK.bypass===v) return; SHK.bypass=v; bp.classList.toggle('on',v); shkSend(SHK.sel); };
+    const set=v=>{ if(SHK.sel<0||SHK.bypass===v) return; SHK.bypass=v; shkSend(SHK.sel); shkRender(); };
     bp.addEventListener('pointerdown',e=>{ e.preventDefault(); try{ bp.setPointerCapture(e.pointerId); }catch(_){} set(true); });
     for(const ev of ['pointerup','pointercancel','lostpointercapture']) bp.addEventListener(ev,()=>set(false));
     bp.addEventListener('keydown',e=>{ if((e.key===' '||e.key==='Enter')&&!e.repeat){ e.preventDefault(); set(true); } });
     bp.addEventListener('keyup',e=>{ if(e.key===' '||e.key==='Enter') set(false); });
     bp.addEventListener('blur',()=>set(false));
   }
-  on('shkEdCopy',()=>{ const r=$('shkEdCopyRow'); if(!r) return; r.hidden=!r.hidden; if(!r.hidden) shkCopyBuild(); });
-  on('shkEdCopyCancel',()=>{ const r=$('shkEdCopyRow'); if(r) r.hidden=true; SHK.copy.clear(); });
+  on('shkEdCopy',()=>{ if(SHK.sel<0) return; if(SHK.copying) shkCopyEnd(); else { SHK.copying=true; SHK.copy.clear(); shkCopySync(); } });
+  on('shkEdCopyCancel',()=>shkCopyEnd());
   on('shkEdCopyAll',()=>{ const others=Array.from({length:SHK.n},(_,c)=>c).filter(c=>c!==SHK.sel);
-    if(others.every(c=>SHK.copy.has(c))) SHK.copy.clear(); else others.forEach(c=>SHK.copy.add(c)); shkCopyBuild(); });
+    if(others.every(c=>SHK.copy.has(c))) SHK.copy.clear(); else others.forEach(c=>SHK.copy.add(c)); shkCopySync(); });
   on('shkEdCopyGo',()=>{ if(SHK.sel<0) return;
-    for(const c of SHK.copy) if(c!==SHK.sel&&SHK.shapes[c]){ SHK.shapes[c]=shkClone(SHK.shapes[SHK.sel]); shkSend(c); }
-    SHK.copy.clear(); const r=$('shkEdCopyRow'); if(r) r.hidden=true; shkEdited(SHK.sel); });
+    for(const c of SHK.copy) if(c!==SHK.sel&&c<SHK.n&&SHK.shapes[c]){ SHK.shapes[c]=shkClone(SHK.shapes[SHK.sel]); shkSend(c); }
+    shkCopyEnd(); shkEdited(SHK.sel); });
   document.querySelectorAll('[data-shkt]').forEach(b=>{ b.onclick=()=>shkTest(b.dataset.shkt); });
   on('shkEdSave',()=>saveConfig());
-  document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&SHK.sel>=0&&document.body.dataset.view==='setup'&&!e.target.closest('input,select')) shkClose(); });
+  document.addEventListener('keydown',e=>{
+    if(e.key!=='Escape'||SHK.sel<0||document.body.dataset.view!=='setup'||(e.target.closest&&e.target.closest('input,select'))) return;
+    if(SHK.copying) shkCopyEnd(); else shkClose();
+  });
 }
-
 let hapOpenDrawer=null;
 // Tiles whose shaker output is a modelled signal with no single carrier
 // (the order selector would do nothing there).

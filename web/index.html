@@ -141,6 +141,7 @@
       <div class="ph suh">
         <div class="eht"><span class="lab" id="suKick">Rig</span><h2 id="suTitle">Axes</h2></div>
         <span class="sp"></span>
+        <span class="suh-x" id="shkHead" hidden><span class="hint" id="shkHeadHint">device and channel changes apply after a restart</span><label class="key sm latch" id="shkKey" title="Drive bass shakers or other tactile transducers from a USB sound card: the haptic effects route to its channels like to any axis. Takes effect after a restart."><input id="cf-shakers" type="checkbox" hidden><span id="shkKeyT">Shakers off</span></label></span>
         <span class="pill-pending" id="cfgPending" style="display:none"></span>
         <span class="cfg-note" id="cfgStatus"></span>
       </div>
@@ -181,68 +182,106 @@
           </div>
         </div>
 
-        <!-- Outputs · Shakers / audio -->
+        <!-- Outputs · Shakers / audio: the sound cards (host settings, applied
+             at a restart), then one strip per shaker (its level, the
+             compressor's gain reduction, its EQ curve, EQ and CMP in or out)
+             and, for the strip clicked, its EQ and compressor side by side.
+             Shaping edits play on the shaker as they are made; Save keeps
+             them (rig.json), leaving without saving puts the saved shaping
+             back. -->
         <div class="supg" data-pg="shk">
-          <div class="cbody">
-            <div class="cgrp">
-              <div class="gt">Sound cards</div>
-              <label class="frow" title="Drive bass shakers or other tactile transducers from a USB sound card: the haptic effects route to its channels like to any axis. Takes effect after a restart."><span>Shakers</span><span class="key sm latch" id="shkKey"><input id="cf-shakers" type="checkbox" hidden> Shakers</span></label>
-              <label class="frow" title="Which playback device: part of its name (case does not matter), empty for the system default, or null for no hardware (a bench with no card)."><span>Audio device</span><input id="cf-audiodev" type="text" list="audioDevList" placeholder="(default)"><datalist id="audioDevList"></datalist></label>
-              <label class="frow" title="How many of the card's outputs are shakers (1 to 8). A stereo USB dongle is 2; an 8-channel box is 8."><span>Shaker channels</span><input id="cf-audioch" type="number" min="1" max="8" step="1"></label>
-              <label class="frow" title="A second card, for example a second stereo dongle: its channels follow the first card's in the shaker numbering. Empty = none."><span>Audio device 2</span><input id="cf-audiodev2" type="text" list="audioDevList" placeholder="(none)"></label>
-              <label class="frow"><span>Channels 2</span><input id="cf-audioch2" type="number" min="1" max="8" step="1"></label>
-              <div class="fldtip">Device and channel changes apply after a restart. Effects reach the shakers through each effect's routing in Haptics.</div>
+          <div class="shkp">
+            <div class="cgrp sk-cards">
+              <div class="gt">Sound cards <span class="c sk-gth" id="shkCardsHint"></span></div>
+              <div class="sk-cr">
+                <span class="lab">Card 1</span>
+                <input class="inp" id="cf-audiodev" type="text" list="audioDevList" placeholder="(default)" title="The sound card the shakers are on: part of its name (case does not matter), empty for the system default, or null for no hardware (a bench with no card).">
+                <datalist id="audioDevList"></datalist>
+                <span class="row"><button class="key sm nolamp" type="button" data-shq="" title="The system's default playback device">(default)</button><button class="key sm nolamp" type="button" data-shq="null" title="No card: the shakers run with nothing attached (a bench)">no hardware</button></span>
+                <span class="ni" title="How many of the card's outputs are shakers (1 to 8). A stereo USB dongle is 2; an 8-channel box is 8."><input class="inp" id="cf-audioch" type="number" min="1" max="8" step="1"><span class="u">ch</span></span>
+                <span class="sk-map" id="shkMap0"></span>
+              </div>
+              <div class="sk-cr">
+                <span class="lab">Card 2</span>
+                <input class="inp" id="cf-audiodev2" type="text" list="audioDevList" placeholder="(none)" title="A second card, for example a second stereo dongle: its channels follow the first card's in the shaker numbering. Empty = none.">
+                <span class="row"></span>
+                <span class="ni" title="How many of the second card's outputs are shakers (1 to 8)."><input class="inp" id="cf-audioch2" type="number" min="1" max="8" step="1"><span class="u">ch</span></span>
+                <span class="sk-map" id="shkMap1"></span>
+              </div>
+              <div class="sk-stat" id="shakerStatus">
+                <div class="glass sk-sg" id="shakerLine"><div class="sk-dv"><span class="lamp"></span><span class="vt dim">shakers off</span></div></div>
+                <button class="key sm nolamp" type="button" id="shakerReopen" hidden title="Open the sound cards again (a card unplugged and back, or the sound output moved)">Reopen</button>
+              </div>
             </div>
-            <div class="cgrp shkch">
-              <div class="gt">Channels · level, compression, shaping</div>
-              <div class="fldtip" id="shakerStatus">Shakers off.</div>
-              <!-- One shaker's EQ or compressor, opened from its strip's EQ or
-                   CMP key. Edits play on the shaker as they are made; Save
-                   keeps them (rig.json), leaving without saving puts the
-                   saved shaping back. -->
-              <div class="shed" id="shkEd" hidden>
-                <div class="shed-hd">
-                  <span class="shed-t">Shaker <b id="shkEdN">1</b></span>
-                  <button class="key sm nolamp ico" type="button" id="shkEdPrev" title="Previous shaker">&lsaquo;</button>
-                  <button class="key sm nolamp ico" type="button" id="shkEdNext" title="Next shaker">&rsaquo;</button>
-                  <span class="shed-tabs">
-                    <button class="key sm latch" type="button" data-shtab="eq">EQ</button>
-                    <button class="key sm latch" type="button" data-shtab="comp">Compressor</button>
-                  </span>
-                  <label class="key sm latch" id="shkEdOnKey" title="This shaker's EQ (or compressor) on or off"><input type="checkbox" id="shkEdOn" hidden> On</label>
-                  <span class="ftag live" title="Plays on the shaker as you change it; Save keeps it. No restart or re-initialize.">live</span>
-                  <span class="shed-sp"></span>
-                  <button class="key sm nolamp" type="button" id="shkEdBypass" title="Hold to feel this shaker without its EQ and compressor (a compare; nothing is changed)">Hold to bypass</button>
-                  <button class="key sm nolamp" type="button" id="shkEdCopy" title="Copy this shaker's EQ and compressor to other shakers">Copy to&hellip;</button>
-                  <button class="key sm nolamp" type="button" id="shkEdReset" title="Put this page back to flat and off">Reset</button>
-                  <button class="key sm nolamp ico" type="button" id="shkEdClose" title="Close">&times;</button>
-                </div>
-                <div class="shed-copy" id="shkEdCopyRow" hidden>
-                  <span class="hk">Copy shaker <b id="shkEdCopyFrom">1</b>'s EQ and compressor to</span>
-                  <span id="shkEdCopyTo"></span>
-                  <button class="key sm nolamp" type="button" id="shkEdCopyAll">All</button>
-                  <button class="key sm nolamp" type="button" id="shkEdCopyGo">Copy</button>
-                  <button class="key sm nolamp quiet" type="button" id="shkEdCopyCancel">Cancel</button>
-                </div>
-                <div class="shed-eq" id="shkEdEq">
-                  <svg class="shed-plot glass" id="shkEqSvg" viewBox="0 0 640 200" preserveAspectRatio="none" aria-label="EQ curve: drag a numbered point to move its band, the wheel changes its width"></svg>
-                  <div class="shed-bands" id="shkEqBands"></div>
-                </div>
-                <div class="shed-comp" id="shkEdComp" hidden>
-                  <svg class="shed-plot glass" id="shkCompSvg" viewBox="0 0 200 200" aria-label="Compressor curve: level in against level out"></svg>
-                  <div class="shed-crows" id="shkCompRows"></div>
-                </div>
-                <div class="shed-test">
-                  <span class="hk">Test</span>
-                  <button class="key sm nolamp" type="button" data-shkt="burst" title="40 Hz for a second, through the whole path">40 Hz burst</button>
-                  <button class="key sm nolamp" type="button" data-shkt="sweep" title="A slow sweep from 10 to 200 Hz: feel where this shaker rings, then put a band there">Sweep 10-200 Hz</button>
-                  <button class="key sm nolamp" type="button" data-shkt="tone" title="A tone at the selected band's frequency; it follows the band while you drag it">Band tone</button>
-                  <button class="key sm nolamp" type="button" data-shkt="stop">Stop</button>
-                  <span class="shed-now" id="shkTestNow"></span>
-                  <span class="shed-sp"></span>
-                  <span class="shed-dirty" id="shkEdDirty" hidden>playing live, not saved</span>
-                  <button class="key sm" type="button" id="shkEdSave" hidden title="Save every unsaved change on this page (rig.json)">Save</button>
-                </div>
+            <div class="sk-sec">
+              <div class="sk-sth"><span class="lab">Channels</span><span class="hint">click a shaker to tune it · &#9654; plays 40 Hz on that channel · effects reach these through each effect's routing in Haptics</span></div>
+              <div class="sk-bank" id="shakerTests" style="--n:1"></div>
+              <div class="ban sk-none" id="shakerNone"><span class="lamp"></span><span>No shaker channels: turn Shakers on (top right), set the card's channels and restart.</span></div>
+            </div>
+            <!-- The shaker clicked: its EQ and compressor. -->
+            <div class="sk-ed" id="shkEd" hidden>
+              <div class="sk-eh">
+                <span class="lab">Shaker</span>
+                <span class="glass sk-num big"><span class="seg" data-g="8" id="shkEdN">1</span></span>
+                <button class="key sm nolamp ico" type="button" id="shkEdPrev" title="Previous shaker">&lsaquo;</button>
+                <button class="key sm nolamp ico" type="button" id="shkEdNext" title="Next shaker">&rsaquo;</button>
+                <span class="sk-lt" title="Plays on the shaker as you change it; Save keeps it. No restart or re-initialize.">live</span>
+                <span class="sk-lt byt">bypassed</span>
+                <span class="hint sk-hh">plays as you change it · Save keeps it</span>
+                <span class="sp"></span>
+                <button class="key sm nolamp" type="button" id="shkEdBypass" title="Hold to feel this shaker without its EQ and compressor (a compare; nothing is changed)">Hold to bypass</button>
+                <button class="key sm latch" type="button" id="shkEdCopy" title="Copy this shaker's EQ and compressor to other shakers: click them in the strips above">Copy to&hellip;</button>
+                <button class="key sm nolamp ico" type="button" id="shkEdClose" title="Close (Esc)">&times;</button>
+              </div>
+              <div class="sk-cb" id="shkEdCopyRow" hidden>
+                <span class="lamp acc"></span>
+                <span>Copy shaker <b id="shkEdCopyFrom">1</b>'s EQ and compressor to: click shakers above</span>
+                <span class="glass sk-cbn"><span class="vt dim" id="shkEdCopyTo">none picked</span></span>
+                <span class="sp"></span>
+                <button class="key sm nolamp" type="button" id="shkEdCopyAll" title="Every other shaker (again: none)">All</button>
+                <button class="key sm" type="button" id="shkEdCopyGo" disabled>Copy</button>
+                <button class="key sm nolamp quiet" type="button" id="shkEdCopyCancel">Cancel</button>
+              </div>
+              <div class="sk-eb">
+                <section class="sk-eq" id="shkEdEq">
+                  <div class="sk-sh">
+                    <span class="lab">EQ</span>
+                    <label class="key sm latch" id="shkEdOnKey" title="This shaker's EQ in or out"><input type="checkbox" id="shkEdOn" hidden><span id="shkEdOnT">Out</span></label>
+                    <span class="hint sk-hh">drag a point to move its band · the wheel on it: width · double-click: on or off</span>
+                    <span class="sp"></span>
+                    <button class="key sm nolamp" type="button" id="shkEdReset" title="Put this shaker's EQ back to flat and out">Reset EQ</button>
+                  </div>
+                  <div class="glass sk-plot"><svg id="shkEqSvg" viewBox="0 0 640 216" preserveAspectRatio="none" aria-label="EQ curve: drag a numbered point to move its band, the wheel changes its width"></svg></div>
+                  <div class="sk-bands" id="shkEqBands"></div>
+                </section>
+                <section class="sk-cp" id="shkEdComp">
+                  <div class="sk-sh">
+                    <span class="lab">Compressor</span>
+                    <label class="key sm latch" id="shkEdCompOnKey" title="This shaker's compressor in or out"><input type="checkbox" id="shkEdCompOn" hidden><span id="shkEdCompOnT">Out</span></label>
+                    <span class="sp"></span>
+                    <button class="key sm nolamp" type="button" id="shkEdCompReset" title="Put this shaker's compressor back to its defaults, out">Reset compressor</button>
+                  </div>
+                  <div class="sk-cpv">
+                    <div class="glass sk-tf">
+                      <svg id="shkCompSvg" viewBox="0 0 200 200" aria-label="Compressor curve: level in against level out; the dot is where it is working now"></svg>
+                      <span class="sk-grt" title="What the compressor is taking off this shaker now"><span class="dl">GR</span> <span class="mono" id="shkGrTxt">0.0 dB</span></span>
+                      <span class="dl sk-ax y">out</span><span class="dl sk-ax x">in · dBFS</span>
+                    </div>
+                    <span class="glass sk-grb" title="What the compressor is taking off this shaker now (full: 24 dB)"><i id="shkGrFill"></i></span>
+                  </div>
+                  <div class="sk-crows" id="shkCompRows"></div>
+                </section>
+              </div>
+              <div class="sk-ft">
+                <span class="lab">Test</span>
+                <button class="key sm latch" type="button" data-shkt="burst" title="40 Hz for a second, through the whole path">40 Hz burst</button>
+                <button class="key sm latch" type="button" data-shkt="sweep" title="A slow sweep from 10 to 200 Hz: feel where this shaker rings, then put a band there">Sweep 10-200 Hz</button>
+                <button class="key sm latch" type="button" data-shkt="tone" title="A tone at the selected band's frequency; it follows the band while you drag it">Band tone</button>
+                <button class="key sm nolamp" type="button" data-shkt="stop">Stop</button>
+                <span class="glass sk-now"><span class="vt dim" id="shkTestNow">idle</span></span>
+                <span class="sp"></span>
+                <span class="sk-dirty" id="shkEdDirty" hidden><span class="lamp warn"></span>playing live, not saved</span>
+                <button class="key sm lit" type="button" id="shkEdSave" disabled title="Save every unsaved change on this page (rig.json)">Save</button>
               </div>
             </div>
           </div>

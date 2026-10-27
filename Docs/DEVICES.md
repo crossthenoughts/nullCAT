@@ -162,19 +162,20 @@ remembered as an unnamed sender.
 ### Shakers
 
 Bass shakers and other tactile transducers hang off a USB sound card and
-take the same effects as the axes. On the Pi, in the web page's host
-settings tick **Shakers**, name the **Audio device** (part of its name;
-empty for the system default; `null` for a bench with no card) and how
-many of its outputs are **Shaker channels**; a second card (a second
-stereo dongle is the usual way to four shakers) goes in **Audio device
-2**, its channels numbered after the first card's. On the PC the same
-settings are in the desktop app's **Application Settings**, under
-**Shakers**: pick each card from the list (the sound outputs Windows
-has, by name, so a headset and a shaker card are told apart) and its
-channel count. Restart nullCAT, and the shaker line in the web page's
-settings names each card with its sample rate, buffer and underrun
-count, with a **test** button per channel (40 Hz for a second) to check
-which shaker is which.
+take the same effects as the axes. On the Pi, in the web page under
+**Setup**, **Shakers / audio**, press **Shakers** (top right) so it reads
+on, name **Card 1** (part of its name; **(default)** for the system
+default; **no hardware** for a bench with no card) and how many of its
+outputs are shakers (**ch**); a second card (a second stereo dongle is
+the usual way to four shakers) goes in **Card 2**, its channels numbered
+after the first card's. Each row shows the shakers its channels become.
+On the PC the same settings are in the desktop app's **Application
+Settings**, under **Shakers**: pick each card from the list (the sound
+outputs Windows has, by name, so a headset and a shaker card are told
+apart) and its channel count. Restart nullCAT, and the status under the
+cards names each one with its sample rate, latency, buffer and underrun
+count, and every shaker's strip has a play key (40 Hz for a second) to
+check which shaker is which.
 
 On Windows nullCAT takes each shaker card for itself (exclusive mode):
 no Windows mixer, no app volume, nothing else playing through it, and a
@@ -230,27 +231,30 @@ says so) and stay silent rather than playing into shakers 1 and 2. If a
 card goes away while nullCAT runs (unplugged, disabled, or the system
 output moved to another device), the status line says so and the
 shakers on it stay silent; the other cards play on. Once the card is
-back, press **reopen** on the status line (it shows while a card is not
-open) to open every card again with the same settings, no restart.
+back, press **Reopen** beside the cards' status (it shows while a card is
+not open) to open every card again with the same settings, no restart.
 
 #### Shaping each shaker
 
 Each shaker has its own EQ and compressor, in the web page under
 **Setup**, **Shakers / audio**. Every shaker has a strip there: its
-level, the gain its compressor is taking off beside it (amber, filling
-from the top), its 40 Hz test, and an **EQ** and a **CMP** key. A key's
-lamp is lit while that one is on; pressing it opens the editor for that
-shaker below the strips, and the arrows step to the next shaker.
+level in dBFS, the gain its compressor is taking off beside it (amber,
+filling from the top), its EQ curve, its 40 Hz test (the play key), and
+an **EQ** and a **CMP** key that put its EQ or its compressor in or out
+(lamp lit: in). Click a strip to open that shaker's editor below the
+strips, the EQ and the compressor side by side (one above the other on a
+narrow screen); the arrows step to the next shaker.
 
 - **EQ**: five bands, drawn as one curve. Drag a numbered point to move
   its band (across for the frequency, up and down for the gain), roll the
   wheel over the curve to make the selected band narrower or wider,
-  double-click a point to switch its band on or off, or type in the table
-  under the curve. A band is a bell, a low or high shelf, or a high-pass
-  or low-pass (12 dB an octave). A flat EQ starts with the two end bands
+  double-click a point to switch its band on or off, or type in the
+  band's card under the curve. A band is a bell, a low or high shelf, or
+  a high-pass or low-pass (12 dB an octave). A flat EQ starts with the two end bands
   off and three bells at 0 dB.
 - **Compressor**: threshold, ratio, knee, attack, release and makeup,
-  with its curve and the gain it is taking off now. It is made for bass:
+  with its curve, a dot on it where it is working now and the gain it is
+  taking off. It is made for bass:
   its release (200 ms to start with) is longer than a bass cycle, so it
   turns a passage down rather than bending each wave.
 - **Test**: the 40 Hz burst, a slow sweep from 10 to 200 Hz over ten
@@ -270,9 +274,12 @@ Changes play on the shaker as you make them, and **Save** keeps them,
 with no restart or re-initialize. Leaving the page, or reloading it,
 with changes unsaved puts the saved settings back. **Hold to bypass**
 plays the shaker without its EQ and compressor while you hold it, to
-compare. **Copy to** copies one shaker's EQ and compressor to others (a
-pair of seat shakers, say). The settings belong to the rig, by shaker
-number, and the PC sets them in the web page too. On the PC, with its
+compare. **Reset EQ** and **Reset compressor** put each back to where it
+starts, out. **Copy to** copies one shaker's EQ and compressor to others
+(a pair of seat shakers, say): click the shakers to copy to in the
+strips, then **Copy**. The settings belong to the rig, by shaker number,
+and the PC sets them in the web page too (its sound cards are set in the
+desktop app; the web page shows them). On the PC, with its
 500 Hz loop, nothing above 250 Hz reaches the shakers: the curve shades
 that part.
 

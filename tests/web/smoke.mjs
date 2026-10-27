@@ -237,6 +237,7 @@ try {
     shakerStatus({ shakers: { enabled: true, open: false, channels: 4,
       devices: [{ name: 'USB Audio', open: false, error: 'card gone', first: 0, channels: 4, channelsWanted: 4 }] } });
     const downReopen = vis('shakerReopen');
+    document.getElementById('shakerReopen').click();
     shakerStatus({ shakers: { enabled: true, open: true, channels: 4,
       devices: [{ name: 'USB Audio', open: true, error: '', first: 0, channels: 2, channelsWanted: 4, rate: 48000, latencyMs: 20, bufferMs: 15, underruns: 0, levels: [0, 0, 0, 0] }] } });
     return { downReopen, upReopen: vis('shakerReopen'), tests: vis('shakerTests'),
@@ -267,6 +268,8 @@ try {
   if (!shakerLine.includes('card gone') || !shakerLine.includes('USB Audio'))
     fails.push(`shaker line reads "${shakerLine}" for a card that failed to open, expected the card and its error`);
   if (!shakerBack.downReopen)   fails.push('shaker card down: the reopen button is not shown');
+  await sleep(300);
+  if (!posts.some(p => p.url.endsWith('/api/shakers/reopen'))) fails.push('shaker card down: Reopen did not ask the controller to open the cards again');
   if (shakerBack.upReopen)      fails.push('shaker card back: the reopen button is still shown');
   if (!shakerBack.tests)        fails.push('shaker card back: the test buttons are hidden');
   if (!shakerBack.line.includes('2 of 4 channels') || !shakerBack.line.includes('shakers 3-4 silent'))
@@ -315,46 +318,64 @@ try {
     if (drawer.partOpts !== 7)  fails.push(`part selector has ${drawer.partOpts} options, expected 7 (all, front, rear, 4 corners)`);
   }
 
-  // Shaker shaping: a strip's EQ key opens the editor; an edit plays at
-  // once (the band tone reads back from the card at the band's frequency),
-  // lights the strip's lamp and marks the page unsaved; Save writes it to
-  // rig.json; an edit left unsaved goes back when the settings are read
-  // again. The null card is real here: the tone is the controller's.
+  // Shaker shaping: clicking a shaker's strip opens its editor; the
+  // strip's EQ and CMP keys put that one in or out; an edit plays at once
+  // (the band tone reads back from the card at the band's frequency),
+  // lights the strip's EQ key and marks the page unsaved; Save writes it
+  // to rig.json; a copy picked on the strips copies the whole shaping; an
+  // edit left unsaved goes back when the settings are read again. The null
+  // card is real here: the tone is the controller's.
   {
     const before = pageErrors.length;
     await page.evaluate(() => { setView('setup'); setupPage('shk'); });
     await sleep(1200);   // a status poll builds the strips
+    const keys = await page.evaluate(() => {
+      const k = document.querySelector('[data-shcmp="1"]'); k.click();
+      const inOut = { on: SHK.shapes[1].comp.on === true && k.classList.contains('on'), closed: document.getElementById('shkEd').hidden, dirty: dirtyState().shk };
+      k.click();
+      return Object.assign(inOut, { off: SHK.shapes[1].comp.on === false && !k.classList.contains('on'), clean: !dirtyState().shk });
+    });
     const opened = await page.evaluate(() => {
-      const k = document.querySelector('[data-sheq="0"]'); if (k) k.click();
+      const st = document.querySelector('[data-skst="0"]'); if (st) st.click();
       const ed = document.getElementById('shkEd');
-      return { strips: document.querySelectorAll('[data-sheq]').length, open: !!ed && !ed.hidden,
+      return { strips: document.querySelectorAll('[data-skst]').length, open: !!ed && !ed.hidden && SHK.sel === 0,
                rows: document.querySelectorAll('#shkEqBands [data-bk="hz"]').length,
                points: document.querySelectorAll('#shkEqSvg .hd').length };
     });
     await page.evaluate(() => {
-      const g = document.querySelector('#shkEqBands [data-bk="db"][data-b="1"]'); g.value = '-9'; g.dispatchEvent(new Event('input', { bubbles: true }));
+      const g = document.querySelector('#shkEqBands [data-bk="db"][data-b="1"]'); if (!g) return; g.value = '-9'; g.dispatchEvent(new Event('input', { bubbles: true }));
       document.getElementById('shkEdOnKey').click();
       document.querySelector('[data-shkt="tone"]').click();
     });
     await sleep(1500);
     const st1 = await (await fetch(`http://127.0.0.1:${PORT}/api/status`)).json();
     const toneHz = (((st1.shakers || {}).devices || [])[0] || {}).testHz || [];
-    const unsaved = await page.evaluate(() => ({ dirty: dirtyState().shk, save: !document.getElementById('shkEdSave').hidden,
-      lit: document.querySelector('[data-sheq="0"]').classList.contains('lit') }));
+    const unsaved = await page.evaluate(() => ({ dirty: dirtyState().shk, save: !document.getElementById('shkEdSave').disabled,
+      lit: document.querySelector('[data-sheq="0"]').classList.contains('on') }));
     await page.evaluate(() => { document.querySelector('[data-shkt="stop"]').click(); return saveConfig(); });
     await sleep(800);
     const saved = ((await (await fetch(`http://127.0.0.1:${PORT}/api/rig`)).json()).global || {}).shakerShaping || [];
     const afterSave = await page.evaluate(() => ({ dirty: dirtyState().shk, previewed: SHK.previewed }));
-    await page.evaluate(async () => { const g = document.querySelector('#shkEqBands [data-bk="db"][data-b="1"]'); g.value = '3'; g.dispatchEvent(new Event('input', { bubbles: true })); await loadConfig(); });
-    const reread = await page.evaluate(() => ({ previewed: SHK.previewed, db: SHK.shapes[0].eq.bands[1].db, dirty: dirtyState().shk }));
+    const copied = await page.evaluate(() => {
+      document.getElementById('shkEdCopy').click();
+      document.querySelector('[data-skst="1"]').click();
+      const picked = SHK.sel === 0 && SHK.copy.has(1);
+      document.getElementById('shkEdCopyGo').click();
+      return { picked, same: JSON.stringify(SHK.shapes[1]) === JSON.stringify(SHK.shapes[0]), dirty: dirtyState().shk };
+    });
+    await page.evaluate(async () => { const g = document.querySelector('#shkEqBands [data-bk="db"][data-b="1"]'); if (g) { g.value = '3'; g.dispatchEvent(new Event('input', { bubbles: true })); } await loadConfig(); });
+    const reread = await page.evaluate(() => ({ previewed: SHK.previewed, db: SHK.shapes[0].eq.bands[1].db, dirty: dirtyState().shk,
+      second: JSON.stringify(SHK.shapes[1]) === JSON.stringify(SHK.schema.default) }));
     if (pageErrors.length > before) fails.push('shaker shaping: page errors ' + pageErrors.slice(before).join(' | '));
-    if (!(opened.strips === 2 && opened.open && opened.rows === 5 && opened.points === 5)) fails.push('shaker shaping: the EQ key did not open the editor ' + JSON.stringify(opened));
+    if (!(keys.on && keys.closed && keys.dirty && keys.off && keys.clean)) fails.push('shaker shaping: a strip\'s CMP key did not put the compressor in and out ' + JSON.stringify(keys));
+    if (!(opened.strips === 2 && opened.open && opened.rows === 5 && opened.points === 5)) fails.push('shaker shaping: clicking the strip did not open the editor ' + JSON.stringify(opened));
     if (!(Math.abs((toneHz[0] || 0) - 30) < 1)) fails.push(`shaker shaping: the band tone reads ${JSON.stringify(toneHz)} Hz on the card, expected band 2's 30 Hz on shaker 1`);
-    if (!(unsaved.dirty && unsaved.save && unsaved.lit)) fails.push('shaker shaping: an edit did not mark the page unsaved or light the strip lamp ' + JSON.stringify(unsaved));
+    if (!(unsaved.dirty && unsaved.save && unsaved.lit)) fails.push('shaker shaping: an edit did not mark the page unsaved or light the strip\'s EQ key ' + JSON.stringify(unsaved));
     const s1 = saved.find(e => e.shaker === 1);
     if (!(s1 && s1.eq && s1.eq.on === true && s1.eq.bands[1].db === -9)) fails.push('shaker shaping: Save did not write shaker 1 EQ to rig.json ' + JSON.stringify(saved));
     if (afterSave.dirty || afterSave.previewed) fails.push('shaker shaping: still unsaved after Save ' + JSON.stringify(afterSave));
-    if (reread.previewed || reread.db !== -9 || reread.dirty) fails.push('shaker shaping: an unsaved edit was not put back when the settings were read again ' + JSON.stringify(reread));
+    if (!(copied.picked && copied.same && copied.dirty)) fails.push('shaker shaping: a copy picked on the strips did not copy shaker 1 to 2 ' + JSON.stringify(copied));
+    if (reread.previewed || reread.db !== -9 || reread.dirty || !reread.second) fails.push('shaker shaping: an unsaved edit was not put back when the settings were read again ' + JSON.stringify(reread));
   }
 
   // A page left on the tests page, with an effect's editor open and Motion

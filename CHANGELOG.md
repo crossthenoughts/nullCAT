@@ -28,8 +28,12 @@ each shaker.
   slow sweep and a band tone to find where a shaker rings, a hold to
   bypass to compare, and a copy to other shakers. Edits play on the
   shaker as you make them and Save keeps them, with no restart or
-  re-initialize. The shaker strips are bigger and show the compressor's
-  gain reduction beside each level.
+  re-initialize. Each shaker's strip shows its level, the compressor's
+  gain reduction and its EQ curve, with EQ and CMP keys to put each in or
+  out; click a strip to open its editor, the EQ and the compressor side by
+  side. The sound cards sit in rows above, each with the shakers its
+  channels become, and their status reads as fields (rate, latency,
+  underruns).
 - A belt on the car's g follows the type of car: each starting point sets
   **belt g at max** (about 1 for a road car, 1.4 for a cup car, 2 for a
   GT3, 2.5 for an open wheeler), shown under the type on the Haptics
