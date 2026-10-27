@@ -348,9 +348,9 @@ body[data-view="setup"] .ws{display:none}body[data-view="setup"] .su{display:gri
 .sk-m{display:grid;grid-template-columns:12px 7px minmax(0,1fr);gap:6px;height:88px;padding:6px 8px 6px 7px}
 .sk-lv,.sk-gr{position:relative;display:block;height:100%;overflow:hidden}
 .sk-lv{background:repeating-linear-gradient(0deg,rgba(77,255,143,.11) 0 3px,transparent 3px 5px)}
-.sk-lv i{position:absolute;left:0;right:0;bottom:0;height:0;background:repeating-linear-gradient(0deg,var(--ok) 0 3px,transparent 3px 5px);filter:drop-shadow(0 0 3px rgba(77,255,143,.5));transition:height .1s linear}
+.sk-lv i{position:absolute;left:0;right:0;bottom:0;height:0;background:repeating-linear-gradient(0deg,var(--ok) 0 3px,transparent 3px 5px);filter:drop-shadow(0 0 3px rgba(77,255,143,.5))}
 .sk-gr{background:repeating-linear-gradient(180deg,rgba(255,176,46,.12) 0 3px,transparent 3px 5px)}
-.sk-gr i,.sk-grb i{position:absolute;left:0;right:0;top:0;height:0;background:repeating-linear-gradient(180deg,var(--trq) 0 3px,transparent 3px 5px);filter:drop-shadow(0 0 3px rgba(255,176,46,.5));transition:height .1s linear}
+.sk-gr i,.sk-grb i{position:absolute;left:0;right:0;top:0;height:0;background:repeating-linear-gradient(180deg,var(--trq) 0 3px,transparent 3px 5px);filter:drop-shadow(0 0 3px rgba(255,176,46,.5))}
 .sk-rd{display:flex;flex-direction:column;align-items:flex-end;justify-content:flex-end;gap:3px;min-width:0}
 .sk-rd .seg{font-size:17px}.sk-grv.on{color:var(--trq);text-shadow:0 0 5px rgba(255,176,46,.5)}
 .sk-th{height:34px;padding:4px 5px}

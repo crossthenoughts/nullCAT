@@ -624,7 +624,7 @@ let cfgGenLoaded=null;
    up here because loadConfig, called at start-up further down, reads it
    (shkSchemaLoad) before the script reaches that section. */
 const SHK={ schema:null, shapes:[], n:0, sel:-1, band:1, built:'', previewed:false, bypass:false, editGen:0,
-            send:{}, tone:{busy:false,again:false}, toneCh:-1, testKind:[], testT0:[], testHz:[], gr:[], lv:[],
+            send:{}, tone:{busy:false,again:false}, toneCh:-1, testKind:[], testT0:[], testHz:[], gr:[], lv:[], grD:[], lvD:[], raf:0, mT:0,
             copying:false, copy:new Set(), drag:null };
 function fieldVal(el){ return el.type==='checkbox'?el.checked:el.value; }
 function snapshotCfg(){
@@ -1624,7 +1624,7 @@ function shakerStatus(s){
   // The strips stay (their shaping can be edited with no card open); the
   // test keys need a card.
   document.querySelectorAll('#shakerTests [data-shtest]').forEach(b=>{ b.disabled=!k.open; });
-  shkMetersDraw();
+  shkMetersKick();
   shkStripsSync();   // a strip's test tag
   shkLive();
 }
@@ -1791,12 +1791,32 @@ function shkStripsSync(){
       pl.setAttribute('points',t.pts); const z=st.querySelector('.sk-th .z'); if(z){ z.setAttribute('y1',t.z); z.setAttribute('y2',t.z); } } }
   });
 }
+// The meters between status readings (twice a second): each falls the way
+// the card's own meter does (ShakerDsp.h kMeterReleaseSec, 0.3 s), never
+// below the newest reading, and shows a higher one at once. Only the
+// drawing: the readings are the card's. Runs while something is falling.
+const SHK_METER_REL_SEC=0.3;
+function shkMetersKick(){ if(!SHK.raf){ SHK.mT=0; SHK.raf=requestAnimationFrame(shkMetersTick); } }
+function shkMetersTick(now){
+  SHK.raf=0;
+  const dt=SHK.mT?Math.min(0.5,Math.max(0,(now-SHK.mT)/1000)):0, k=Math.exp(-dt/SHK_METER_REL_SEC); SHK.mT=now;
+  let falling=false;
+  for(let c=0;c<8;c++){
+    const lv=SHK.lv[c]||0, gr=SHK.gr[c]||0;
+    let l=Math.max(lv,(SHK.lvD[c]||0)*k), g=Math.max(gr,(SHK.grD[c]||0)*k);
+    if(l<0.004) l=lv; if(g<0.05) g=gr;   // under the ladders (-48 dB, GR 0.0): down to the reading
+    SHK.lvD[c]=l; SHK.grD[c]=g;
+    if(l>lv||g>gr) falling=true;
+  }
+  shkMetersDraw(); shkGrDraw();
+  if(falling) SHK.raf=requestAnimationFrame(shkMetersTick);
+}
 // Level as dBFS (the output's peak; the ladder spans -48 to 0) and the
-// compressor's gain reduction (the ladder full at 24 dB).
+// compressor's gain reduction (the ladder full at 24 dB), as drawn.
 function shkMetersDraw(){
   const bank=$('shakerTests'); if(!bank) return;
   for(let c=0;c<SHK.n;c++){
-    const v=SHK.lv[c]||0, db=v>1e-5?20*Math.log10(v):-120, gr=SHK.gr[c]||0;
+    const v=SHK.lvD[c]||0, db=v>1e-5?20*Math.log10(v):-120, gr=SHK.grD[c]||0;
     const lv=bank.querySelector('[data-lv="'+c+'"]'); if(!lv) continue;
     lv.style.height=Math.round(Math.max(0,Math.min(1,(db+48)/48))*100)+'%';
     const g=bank.querySelector('[data-gr="'+c+'"]'); if(g) g.style.height=Math.round(Math.max(0,Math.min(1,gr/24))*100)+'%';
@@ -1865,21 +1885,27 @@ function shkTestPlaying(c){
   if(k==='sweep'||k==='tone') return ((SHK.testHz[c]||0)>0||age<800)?k:'';
   return '';
 }
+// The editor's gain reduction (its ladder, the number and the curve's
+// dot), as drawn (shkMetersTick).
+function shkGrDraw(){
+  const ed=$('shkEd'); if(!ed||ed.hidden||SHK.sel<0||!SHK.shapes[SHK.sel]) return;
+  const gr=SHK.grD[SHK.sel]||0, gf=$('shkGrFill'), gt=$('shkGrTxt');
+  if(gf) gf.style.height=Math.round(Math.max(0,Math.min(1,gr/24))*100)+'%';
+  if(gt) gt.textContent=gr.toFixed(1)+' dB';
+  shkCompDot();
+}
 // Twice a second from the status: the gain reduction, the test keys and
 // readout, its cursor on the curve and the compressor's dot.
 function shkLive(){
   const ed=$('shkEd'); if(!ed||ed.hidden||SHK.sel<0||!SHK.shapes[SHK.sel]) return;
-  const c=SHK.sel, gr=SHK.gr[c]||0;
-  const gf=$('shkGrFill'), gt=$('shkGrTxt');
-  if(gf) gf.style.height=Math.round(Math.max(0,Math.min(1,gr/24))*100)+'%';
-  if(gt) gt.textContent=gr.toFixed(1)+' dB';
+  const c=SHK.sel;
+  shkGrDraw();
   const kind=shkTestPlaying(c), th=SHK.testHz[c]||0, hz=th>0?' · '+Math.round(th)+' Hz':'';
   document.querySelectorAll('[data-shkt]').forEach(b=>{ if(b.dataset.shkt!=='stop') b.classList.toggle('on',b.dataset.shkt===kind); });
   const now=$('shkTestNow');
   if(now){ now.textContent=kind==='burst'?'burst · 40 Hz':kind==='sweep'?'sweep'+hz:kind==='tone'?'tone'+hz+' · band '+(SHK.band+1):'idle';
     now.className='vt'+(kind?' ok':' dim'); }
   if(th>0||SHK._marked){ SHK._marked=th>0; shkEqDraw(); }
-  shkCompDot();
 }
 function shkDirtyUI(d){
   const m=$('shkEdDirty'), b=$('shkEdSave');
@@ -2093,7 +2119,7 @@ function shkCompDraw(){
 // taken off: no dot (anywhere under the knee looks the same).
 function shkCompDot(){
   const dot=$('shkCompDot'); if(!dot||SHK.sel<0||!SHK.schema) return;
-  const c=SHK.shapes[SHK.sel].comp, gr=SHK.gr[SHK.sel]||0;
+  const c=SHK.shapes[SHK.sel].comp, gr=SHK.grD[SHK.sel]||0;
   if(!c.on||SHK.bypass||gr<0.05){ dot.style.display='none'; return; }
   const {P,Q}=shkCompGeom(), off=x=>-shkCompGain(x,c.thresholdDb,c.ratio,c.kneeDb);
   let a=c.thresholdDb-c.kneeDb/2, b=0, x=0;
