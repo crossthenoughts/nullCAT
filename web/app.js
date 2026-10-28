@@ -2483,15 +2483,21 @@ function hapLive(s){
   hapRecRender(s);
   const panel=$('hapPanel'); if(!panel||panel.hidden) return;
   // Direct telemetry: the rig's choice, else what the sender does; the
-  // note says what the sender reports (or that it is being asked).
+  // note says what the sender reports (or that it is being asked), and
+  // when another sender's channels are set aside for it. A sender that is
+  // only direct (a game's own) cannot switch and is never asked.
   { const cb=$('hapDirect'), st=$('hapDirectState'); if(cb&&st){
       const said=s.directSender||'', want=s.directWant||'';
-      if(document.activeElement!==cb) cb.checked = want ? want==='on' : said==='on';
+      const aside=s.directSetAside?', another sender set aside':'';
+      cb.disabled = said==='only';   // nothing to switch: a tick here would only carry to the next game
+      if(document.activeElement!==cb) cb.checked = said==='only' ? true : want ? want==='on' : said==='on';
       st.textContent = !s.ncxRx ? '(no sender)'
         : said==='' ? '(the sender does not offer it)'
         : said==='none' ? '(none in this game)'
+        : said==='only' ? '(always on with this sender'+aside+')'
         : (want && (want==='on')!==(said==='on')) ? '(asking the sender)'
-        : (said==='on' ? '(on)' : '(off)'); } }
+        : said==='on' ? '(on'+aside+')'
+        : '(off)'; } }
   hapMutedNow=!!s.hapMuted;
   const mb=$('hapMuteBtn'), mst=$('hapMuteState');
   if(mb) mb.textContent=hapMutedNow?'UNMUTE':'MUTE';

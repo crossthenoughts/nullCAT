@@ -397,6 +397,86 @@ int main()
               "the same car name with another id is a car change: every named token clears");
     }
 
+    // ---- two channel senders: the one that says direct=on is the source ----
+    // BeamNG's nullCAT mod (direct=on) and the SimHub plugin reading the
+    // same game (direct=none) both send channel lines, with different game
+    // and car names: mixed, every identity line would clear the other's
+    // values and flip the car. While the direct sender sends, the others'
+    // NULLCATX/NULLCATY lines are set aside (motion lines never are); it
+    // lets go kDirectHoldMs after its last line, or when it says off. The
+    // clock is the test's. Breaks with admitChannelLine always admitting,
+    // with the hold measured from the claim instead of the last line, or
+    // with motion lines set aside.
+    {
+        TelemetryInput ti;
+        const uint64_t mod = (uint64_t(1) << 48) | 0x0101A8C00001ull, plugin = (uint64_t(1) << 48) | 0x0101A8C00002ull,
+                       other = (uint64_t(1) << 48) | 0x0101A8C00003ull;
+        int64_t now = 1000;
+        auto send = [&](uint64_t from, const char* line) {
+            TelemetryData p; TelemetryInput::parsePacket(line, (int)std::strlen(line), p);
+            const bool in = ti.admitChannelLine(p, from, now);
+            if (in) ti.ingest(p);
+            return in; };
+        const int64_t hold = TelemetryInput::kDirectHoldMs;
+        check(send(plugin, "NULLCATY,game=BeamNgDrive,car=scintilla,direct=none") && send(plugin, "NULLCATY,rpm=4000")
+              && send(plugin, "NULLCATX,4000,120,3,0,50,0,0,0,0,0,1"),
+              "arbitration: one sender with no direct source: its lines are used");
+        check(ti.getLatestData().numNcx == 11, "arbitration: ...its positional slots are in the store");
+        {
+            TelemetryData p; TelemetryInput::parsePacket("NULLCATY,direct=only", 20, p);
+            check(p.direct == 'o', "direct=only parses (a direct source that cannot switch)");
+        }
+        check(send(mod, "NULLCATY,game=BeamNG.drive,car=scintilla race,carId=scintilla/race,direct=only"),
+              "arbitration: the direct sender's identity line is used (direct=only claims as on does)");
+        {
+            const TelemetryData c = ti.getLatestData();
+            check(c.numNcx == 0 && !c.ncyHave[NcxTok::Rpm] && c.direct == 'o',
+                  "arbitration: the claim starts the store clean: the other sender's positional slots (its limiter) do not play on");
+        }
+        check(send(mod, "NULLCATY,rpm=5000,speedKmh=120"), "arbitration: ...and its channel lines");
+        check(!send(plugin, "NULLCATY,rpm=4100,brakePct=50") && !send(plugin, "NULLCATX,4100,121,3")
+              && !send(plugin, "NULLCATY,game=BeamNgDrive,car=scintilla,direct=none"),
+              "arbitration: the other sender's NULLCATY, NULLCATX and identity lines are set aside");
+        check(send(plugin, "NULLCAT,10.5,-5.2,0.0,22.1"), "arbitration: its motion lines are not");
+        TelemetryData s = ti.getLatestData();
+        check(s.ncy[NcxTok::Rpm] == 5000.0 && !s.ncyHave[NcxTok::BrakePct] && s.numNcx == 0
+              && std::string(s.car) == "scintilla race" && s.direct == 'o',
+              "arbitration: the store holds the direct sender's values and car alone");
+        now += hold - 1;
+        check(send(mod, "NULLCATY,rpm=5100"), "arbitration: the direct sender carries on");
+        now += hold - 1;   // within the hold of its last line (not of its claim)
+        check(!send(plugin, "NULLCATY,rpm=4200"), "arbitration: the hold runs from the direct sender's last line");
+        now += hold + 1000;   // a long pause, nobody else sending
+        check(send(mod, "NULLCATY,rpm=5200") && !send(plugin, "NULLCATY,rpm=4200"),
+              "arbitration: after a gap longer than the hold the direct sender's own line keeps it the source");
+        now += hold;          // the direct sender quiet for the whole hold: the game closed
+        check(send(plugin, "NULLCATY,rpm=4200"), "arbitration: the direct sender quiet for the hold: the others are used again");
+        check(send(mod, "NULLCATY,game=BeamNG.drive,car=scintilla race,carId=scintilla/race,direct=only") && !send(plugin, "NULLCATY,rpm=4300"),
+              "arbitration: a direct sender back claims again");
+        check(send(mod, "NULLCATY,speedKmh=150") && send(mod, "NULLCATY,game=BeamNG.drive,car=scintilla race,carId=scintilla/race,direct=off")
+              && send(plugin, "NULLCATY,rpm=4300"),
+              "arbitration: the direct sender saying off lets go at once");
+        check(!ti.getLatestData().ncyHave[NcxTok::SpeedKmh], "arbitration: ...and its values do not play on under the others'");
+        check(send(mod, "NULLCATY,game=BeamNG.drive,car=scintilla race,carId=scintilla/race,direct=on")
+              && send(other, "NULLCATY,game=AssettoCorsa,car=x,direct=on") && !send(mod, "NULLCATY,rpm=1")
+              && send(other, "NULLCATY,rpm=2"),
+              "arbitration: another sender saying direct=on takes over");
+        check(!send(0, "NULLCATY,game=g,car=c,direct=on") && send(other, "NULLCATY,rpm=3"),
+              "arbitration: a line with no sender address never claims (the direct sender keeps it)");
+    }
+    // One sender that says direct=on (the SimHub plugin's Assetto Corsa
+    // read): everything it sends is used, nothing is set aside.
+    {
+        TelemetryInput ti;
+        const uint64_t plugin = (uint64_t(1) << 48) | 0x0101A8C00002ull;
+        auto send = [&](const char* line) {
+            TelemetryData p; TelemetryInput::parsePacket(line, (int)std::strlen(line), p);
+            return ti.admitChannelLine(p, plugin, 1000); };
+        check(send("NULLCATY,game=AssettoCorsa,car=x,direct=on") && send("NULLCATY,accSurge=1,accSway=0,accHeave=0")
+              && send("NULLCATX,5000,100,3") && send("NULLCATY,rpm=5000"),
+              "arbitration: a single direct sender's every line is used");
+    }
+
     // ---- frozen-stream guard: OFF by default ----
     // An idling car at a standstill sends exactly the same numbers for as
     // long as it idles (integer idle rpm, zero speed, zero pedals), so the

@@ -312,6 +312,18 @@ int main()
         for (int i = 0; i < 2000; ++i) mc.hapticsIdleTick(td);
         ms = mc.getMotionStatus();
         check(ms.gearRatioPrevSeq == 1, "I-5c: driving the new car does not step the finished count again");
+        // Its id arriving late is the same car; the same name with another
+        // id (another config of the vehicle) finishes car_b too. Breaks
+        // with the id left out of the learner's car check.
+        std::snprintf(td.carId, NCY_STR_LEN, "car_b/race");
+        for (int i = 0; i < 50; ++i) mc.hapticsIdleTick(td);
+        ms = mc.getMotionStatus();
+        check(ms.gearRatioPrevSeq == 1, "I-5c: car_b's id arriving late is no car change");
+        std::snprintf(td.carId, NCY_STR_LEN, "car_b/rally");
+        for (int i = 0; i < 50; ++i) mc.hapticsIdleTick(td);
+        ms = mc.getMotionStatus();
+        check(ms.gearRatioPrevSeq == 2 && ms.gearRatioPrevConfident[4],
+              "I-5c: the same name with another id finishes the car (its 4th published, the count at 2)");
     }
 
     // ---- I-5d: a car driven earlier in the session (A, then B, then A
@@ -2700,6 +2712,40 @@ int main()
         v.val[NcxValues::SpeedKmh] = 0.0;
         haptics::driveLaws(L, st, v, dt); L.step(dt);
         check(st.glitchSec > 0.0, "I-22b: car B in the pits in the same sample: the speed jump is a glitch");
+    }
+
+    // ---- I-22c: one name with another id is another car (BeamNG names
+    // the vehicle and its config; another config or build of the same
+    // vehicle carries another id). The same name and id named again keeps
+    // what was learned. Breaks with the id left out of otherCar (the laws
+    // compared names only) ----
+    {
+        const double dt = 0.002;
+        haptics::Layer L; haptics::LawsState st;
+        NcxValues v{}; v.fresh = true;
+        auto set = [&](NcxValues::Token t, double x) { v.have[t] = true; v.val[t] = x; };
+        auto run = [&](double secs) { for (int i = 0; i < static_cast<int>(secs / dt); ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); } };
+        std::strncpy(v.car, "scintilla", NCY_STR_LEN - 1);   // the id comes a moment later
+        set(NcxValues::Rpm, 5000.0); set(NcxValues::Gear, 4.0); set(NcxValues::ThrottlePct, 20.0);
+        set(NcxValues::SpeedKmh, 120.0); set(NcxValues::ClutchPct, 0.0); set(NcxValues::BrakePct, 0.0);
+        for (int w = 0; w < 4; ++w) set(static_cast<NcxValues::Token>(NcxValues::WheelSpeedFL + w), 120.0 / 3.6 / 0.33);
+        run(3.0);
+        std::strncpy(v.carId, "scintilla/race", NCY_STR_LEN - 1);
+        run(3.0);
+        const uint32_t gen = st.carGen;
+        check(st.rollKnown[WheelFL] && gen == 0,
+              "I-22c: the scintilla's race config learned its wheel sizes (its id arriving late was no car change)");
+        run(1.0);
+        check(st.rollKnown[WheelFL] && st.carGen == gen, "I-22c: the same name and id again: nothing starts over");
+        std::strncpy(v.carId, "scintilla/drift", NCY_STR_LEN - 1);
+        run(0.1);
+        check(!st.rollKnown[WheelFL] && st.carGen == gen + 1, "I-22c: the same name with another id: a new car, the learning starts over");
+        // A frame with no id between two ids keeps the car's own to compare
+        // with: drift, none, then race is still a change.
+        v.carId[0] = '\0'; run(0.1);
+        check(st.carGen == gen + 1, "I-22c: a frame without an id is no car change");
+        std::strncpy(v.carId, "scintilla/race", NCY_STR_LEN - 1); run(0.1);
+        check(st.carGen == gen + 2, "I-22c: ...and the id after it is compared with the car's own: race after drift is a new car");
     }
 
     // ---- I-23: a reset's jump plays no road pop and no impact knock ----

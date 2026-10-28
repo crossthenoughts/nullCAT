@@ -15,10 +15,25 @@ back to 0.9.9 brings the old page back, without the additions below.
 
 With it: a belt on the car's g whose g settings apply on Save with the loop
 running and whose g at max follows the type of car, two rally types of car,
-a SimHub plugin that finds AC EVO's kerbs, and an EQ and a compressor on
-each shaker.
+a SimHub plugin that finds AC EVO's kerbs, an EQ and a compressor on
+each shaker, and BeamNG.drive straight from the game.
 
 ### Added
+- **BeamNG.drive**: a mod for the game that sends its telemetry straight
+  to nullCAT, for the haptics and the belt from the car's g: the engine,
+  ABS and TC, the car's g, and per tyre its speed, load, slide, surface,
+  suspension, the road under it and punctures. It ships in the Windows
+  zip's `beamng` folder (sending to this PC) and as
+  `nullCAT-v<version>-beamng-pi.zip` for a Pi rig; its README says how to
+  install it. Motion stays with your motion software.
+- SimHub and a game's own sender side by side: while a sender says it
+  sends direct telemetry (the BeamNG mod does), nullCAT takes the haptic
+  channels from it and sets the others' aside, so the SimHub plugin can
+  stay on for BeamNG; motion is never touched. When that sender stops,
+  the others are used again a few seconds later. The Haptics strip says
+  *another sender set aside* while it happens, and *always on with this
+  sender* for a sender like the mod, which the direct telemetry switch
+  cannot turn off.
 - **stones per m** on the Surface tile: how many stones a tyre strikes per
   metre of gravel (0.05 to 2, default 0.35; it was a fixed 2, which at
   rally speeds ran together into a rumble). Sand, dirt, mud and grass
@@ -60,6 +75,9 @@ each shaker.
   the kerb detection (15 mm).
 
 ### Changed
+- A car the sim gives a new id under the same name (another build or
+  config of it, as BeamNG's are) is a new car: its redline, gear ratios,
+  tyres and trigger counts start over, as for any other car change.
 - Two views in place of one long page. **Operate** has Motion on the left
   and Haptics on the right; **Setup** has a page for each area in a left
   nav (Axes, Blend & conditioning, Shakers / audio, Button box, Sim

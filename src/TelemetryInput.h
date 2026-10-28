@@ -68,7 +68,8 @@ struct TelemetryData
     char            car[NCY_STR_LEN]            = {};    // the car as the sim shows it (SimHub CarModel)
     char            carId[NCY_STR_LEN]          = {};    // its stable id (SimHub CarId: the content folder for AC); "" from an older plugin
     // The sender's direct source, from its identity line (protocol 1.9):
-    // 'y' on, 'n' off, '-' none for this game, 0 never said.
+    // 'y' on, 'n' off, '-' none for this game, 'o' only (on, and it cannot
+    // switch: a game's own sender), 0 never said.
     char            direct                      = 0;
 };
 static_assert(std::is_trivially_copyable<TelemetryData>::value, "TelemetryData is copied with memcpy by the snapshot reader");
@@ -163,7 +164,7 @@ public:
     void shutdown();
 
     // Direct telemetry (protocol 1.9). What the channel sender last said
-    // about its direct source ('y', 'n', '-', or 0 when it never said; it
+    // about its direct source ('y', 'n', '-', 'o', or 0 when it never said; it
     // is cleared when the stream comes back after a gap, so read it with
     // hasRecentNcx()), and a line back to it: NULLCATC,... sent from
     // this socket (the telemetry port, its answer path through a firewall)
@@ -171,6 +172,33 @@ public:
     // loop; false when no sender is known or the socket is closed.
     char channelSenderDirect() const { return m_senderDirect.load(std::memory_order_acquire); }
     bool sendToChannelSender(const char* line) const;
+
+    // More than one channel sender (protocol 1.9 `direct`): a sender whose
+    // identity line says direct=on (or only) is the channel source while
+    // it keeps sending, and every other sender's NULLCATX and NULLCATY
+    // lines are set aside (motion lines never are), so two senders for one
+    // game (a game's own nullCAT mod and the SimHub plugin) never mix their
+    // values or flip the car between their names. Its own lines keep it the
+    // source after any gap; it lets go when it says off or none, or when
+    // another sender's line comes kDirectHoldMs after its last (the game
+    // closed, the mod switched off): the others are used again. Another
+    // sender saying direct=on takes over. Each change of source starts the
+    // store clean, positional slots included. sender = where the line came
+    // from (the m_ncySender encoding), nowMs the time it arrived. True:
+    // hand the line on; false: set aside. Receive path only (receive()
+    // asks before anything is stored or recorded; public for tests, with
+    // their own senders and clock).
+    static constexpr int64_t kDirectHoldMs = 5000;
+    bool admitChannelLine(const TelemetryData& parsed, uint64_t sender, int64_t nowMs);
+    // Any thread: another sender's channel line was set aside in the last
+    // 1.5 s (the status says so beside direct telemetry).
+    bool channelLinesSetAside() const
+    {
+        auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        const int64_t last = m_setAsideMs.load(std::memory_order_acquire);
+        return last != 0 && (now - last) < 1500;
+    }
 
     // UDP telemetry-rate diagnostic. Measured on the receive path, ACTIVE ONLY
     // WHEN DIAGNOSTICS ARE ENABLED (zero cost otherwise). Returns -1 when off or
@@ -273,6 +301,14 @@ private:
     // order) above its port (network order). Written by the receive path.
     std::atomic<uint64_t> m_ncySender{0};
     std::atomic<char>     m_senderDirect{0};
+    // admitChannelLine: the direct sender (0 = none), its last channel
+    // line, and a change of source for the next ingest to start the store
+    // clean on (receive path only); when a line was last set aside.
+    uint64_t              m_directSender   = 0;
+    int64_t               m_directLastMs   = 0;
+    bool                  m_setAsideLogged = false;
+    bool                  m_sourceChanged  = false;
+    std::atomic<int64_t>  m_setAsideMs{0};
     std::atomic<int64_t> m_lastNcxChangeMs{0};   // last packet whose numbers differed
     std::atomic<int64_t> m_frozenMs{0};          // guard window, 0 = off
     mutable std::atomic<int> m_ncxStreamState{0}; // 0 stopped, 1 live, 2 frozen (getLatestData, any thread)

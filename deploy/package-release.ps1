@@ -10,7 +10,9 @@
 # ships in the zip's simhub folder (DLL, annotated settings, README; host
 # 127.0.0.1), and also as dist\nullCAT-v<version>-simhub-plugin-pi.zip for Pi
 # rigs (host 192.168.50.1, the Pi's telemetry port). Building it needs the
-# .NET SDK and SimHub installed (its DLLs are the references).
+# .NET SDK and SimHub installed (its DLLs are the references). The BeamNG.drive
+# mod ships the same way: in the zip's beamng folder (sending to 127.0.0.1)
+# and as dist\nullCAT-v<version>-beamng-pi.zip (sending to 192.168.50.1).
 #
 # Usage (from a "x64 Native Tools Command Prompt for VS 2022" PowerShell, or any
 # shell where cmake + your Qt install are reachable):
@@ -42,6 +44,60 @@ function Invoke-Tool([string]$What, [string]$CommandLine) {
     Write-Host "-- $What" -ForegroundColor DarkCyan
     cmd /c "$CommandLine 2>&1"
     if ($LASTEXITCODE -ne 0) { throw "$What failed (exit $LASTEXITCODE)" }
+}
+
+# Zips. NOT Compress-Archive: on Windows PowerShell it writes BACKSLASH path
+# separators, which the ZIP spec (APPNOTE 4.4.17) forbids -- forward slashes
+# are required. Windows Explorer and 7-Zip cope, but some non-Windows tools
+# create files with literal backslashes in the name instead of directories.
+# ZipFile::CreateFromDirectory writes conformant entries.
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+# Entry names are written explicitly with '/'. Neither Compress-Archive nor
+# ZipFile::CreateFromDirectory can be trusted here: on .NET Framework (which
+# is what Windows PowerShell 5.1 runs) both use Path.DirectorySeparatorChar,
+# so both emit backslashes. Only .NET Core+ normalises them.
+function Write-ConformantZip([string]$From, [string]$To) {
+    if (Test-Path $To) { Remove-Item -Force $To }
+    $fs = [IO.File]::Open($To, [IO.FileMode]::Create)
+    try {
+        $archive = New-Object IO.Compression.ZipArchive($fs, [IO.Compression.ZipArchiveMode]::Create)
+        try {
+            foreach ($f in (Get-ChildItem $From -Recurse -File)) {
+                $rel = $f.FullName.Substring($From.Length + 1).Replace('\', '/')
+                $entry  = $archive.CreateEntry($rel, [IO.Compression.CompressionLevel]::Optimal)
+                $out    = $entry.Open()
+                $in     = [IO.File]::OpenRead($f.FullName)
+                try { $in.CopyTo($out) } finally { $in.Dispose(); $out.Dispose() }
+            }
+        } finally { $archive.Dispose() }
+    } finally { $fs.Dispose() }
+    # Fail the build rather than ship a non-conformant archive.
+    $zf = [IO.Compression.ZipFile]::OpenRead($To)
+    $bad = @($zf.Entries | Where-Object { $_.FullName -match '\\' }).Count
+    $entries = $zf.Entries.Count
+    $zf.Dispose()
+    if ($bad -gt 0) { throw "$bad zip entries use backslash separators (ZIP spec requires '/')" }
+    Write-Host "-- archive $(Split-Path -Leaf $To): $entries entries, all separators conformant"
+}
+
+# The BeamNG.drive mod: the zip a player drops into BeamNG's mods folder
+# (its protocol file at lua/vehicle/protocols/), sending to $Address.
+# The source sends to 127.0.0.1 (nullCAT on the game PC); a Pi rig's copy
+# is pointed at the Pi (192.168.50.1).
+$beamngDir = Join-Path $repo "integrations\beamng"
+function Write-BeamNGMod([string]$Address, [string]$To) {
+    $src  = Join-Path $beamngDir "nullcat_beamng\lua\vehicle\protocols\nullcat_zerowerks.lua"
+    $line = 'local ADDRESS  = "127.0.0.1"'
+    $text = [IO.File]::ReadAllText($src)
+    if (-not $text.Contains($line)) { throw "BeamNG mod: the default address line has changed; update Write-BeamNGMod" }
+    $tmp = Join-Path $dist "beamng-mod-stage"
+    if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
+    $dst = Join-Path $tmp "lua\vehicle\protocols"
+    New-Item -ItemType Directory -Force $dst | Out-Null
+    [IO.File]::WriteAllText((Join-Path $dst "nullcat_zerowerks.lua"), $text.Replace($line, "local ADDRESS  = `"$Address`""), (New-Object Text.UTF8Encoding($false)))
+    Write-ConformantZip $tmp $To
+    Remove-Item -Recurse -Force $tmp
 }
 
 Write-Host "== nullCAT release packaging v$Version ==" -ForegroundColor Cyan
@@ -106,6 +162,10 @@ Copy-Item "$repo\Docs\*.md"                    (Join-Path $stage "docs")
 Copy-Item "$repo\Docs\media\simhub-*.png"      (Join-Path $stage "docs\media")
 New-Item -ItemType Directory -Force (Join-Path $stage "simhub") | Out-Null
 foreach ($f in $plugFiles) { Copy-Item $f (Join-Path $stage "simhub") }
+# The BeamNG.drive mod, sending to nullCAT on this PC, and its README.
+New-Item -ItemType Directory -Force (Join-Path $stage "beamng") | Out-Null
+Write-BeamNGMod "127.0.0.1" (Join-Path $stage "beamng\nullcat_beamng.zip")
+Copy-Item (Join-Path $beamngDir "README.md") (Join-Path $stage "beamng")
 
 # ---- 4. Qt runtime via windeployqt (into the STAGE dir, release-only) ----
 Invoke-Tool "windeployqt" ("`"$QtDir\bin\windeployqt.exe`" --release --no-translations " +
@@ -123,46 +183,13 @@ $mustHave = @("nullCAT.exe", "nullCATWatchdog.exe", "LICENSE.txt", "SAFETY.md",
               "cars.json", "presets.json", "KNOWN_LIMITATIONS.md", "docs\FIRST_SETUP_WINDOWS.md",
               "docs\media\simhub-update-command.png", "docs\CONFIG_REFERENCE.md",
               "simhub\NullcatChannelExporter.dll", "simhub\NullcatChannelExporter.json", "simhub\README.md",
+              "beamng\nullcat_beamng.zip", "beamng\README.md",
               "support-bundle.ps1", "support-bundle.cmd")
 foreach ($f in $mustHave) {
     if (-not (Test-Path (Join-Path $stage $f))) { throw "Missing from stage: $f" }
 }
 
-# ---- 6. Zip ----
-# NOT Compress-Archive: on Windows PowerShell it writes BACKSLASH path
-# separators, which the ZIP spec (APPNOTE 4.4.17) forbids -- forward slashes
-# are required. Windows Explorer and 7-Zip cope, but some non-Windows tools
-# create files with literal backslashes in the name instead of directories.
-# ZipFile::CreateFromDirectory writes conformant entries.
-Add-Type -AssemblyName System.IO.Compression
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-# Entry names are written explicitly with '/'. Neither Compress-Archive nor
-# ZipFile::CreateFromDirectory can be trusted here: on .NET Framework (which
-# is what Windows PowerShell 5.1 runs) both use Path.DirectorySeparatorChar,
-# so both emit backslashes. Only .NET Core+ normalises them.
-function Write-ConformantZip([string]$From, [string]$To) {
-    if (Test-Path $To) { Remove-Item -Force $To }
-    $fs = [IO.File]::Open($To, [IO.FileMode]::Create)
-    try {
-        $archive = New-Object IO.Compression.ZipArchive($fs, [IO.Compression.ZipArchiveMode]::Create)
-        try {
-            foreach ($f in (Get-ChildItem $From -Recurse -File)) {
-                $rel = $f.FullName.Substring($From.Length + 1).Replace('\', '/')
-                $entry  = $archive.CreateEntry($rel, [IO.Compression.CompressionLevel]::Optimal)
-                $out    = $entry.Open()
-                $in     = [IO.File]::OpenRead($f.FullName)
-                try { $in.CopyTo($out) } finally { $in.Dispose(); $out.Dispose() }
-            }
-        } finally { $archive.Dispose() }
-    } finally { $fs.Dispose() }
-    # Fail the build rather than ship a non-conformant archive.
-    $zf = [IO.Compression.ZipFile]::OpenRead($To)
-    $bad = @($zf.Entries | Where-Object { $_.FullName -match '\\' }).Count
-    $entries = $zf.Entries.Count
-    $zf.Dispose()
-    if ($bad -gt 0) { throw "$bad zip entries use backslash separators (ZIP spec requires '/')" }
-    Write-Host "-- archive $(Split-Path -Leaf $To): $entries entries, all separators conformant"
-}
+# ---- 6. Zip (Write-ConformantZip, above) ----
 Write-ConformantZip $stage $zip
 
 # The SimHub plugin on its own for a Pi rig (the DLL, its annotated settings,
@@ -180,8 +207,19 @@ if (-not $jsonText.Contains('"host": "127.0.0.1"')) { throw "SimHub plugin setti
 $plugZip = "$plugStage.zip"
 Write-ConformantZip $plugStage $plugZip
 
+# The BeamNG.drive mod for a Pi rig (BeamNG runs on the game PC): the mod
+# zip sending to the Pi (192.168.50.1) and its README.
+$bngStage = Join-Path $dist "nullCAT-v$Version-beamng-pi"
+if (Test-Path $bngStage) { Remove-Item -Recurse -Force $bngStage }
+New-Item -ItemType Directory -Force $bngStage | Out-Null
+Write-BeamNGMod "192.168.50.1" (Join-Path $bngStage "nullcat_beamng.zip")
+Copy-Item (Join-Path $beamngDir "README.md") $bngStage
+$bngZip = "$bngStage.zip"
+Write-ConformantZip $bngStage $bngZip
+
 $size = [math]::Round((Get-Item $zip).Length / 1MB, 1)
 Write-Host "== DONE: $zip ($size MB) ==" -ForegroundColor Green
 Write-Host "== DONE: $plugZip (the SimHub plugin for a Pi rig, host 192.168.50.1) ==" -ForegroundColor Green
+Write-Host "== DONE: $bngZip (the BeamNG.drive mod for a Pi rig, sending to 192.168.50.1) ==" -ForegroundColor Green
 Write-Host "Contents staged in $stage for inspection."
 Write-Host "Reminder: Npcap is a user-installed prerequisite (cannot ship in the zip)."

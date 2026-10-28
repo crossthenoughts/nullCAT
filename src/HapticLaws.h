@@ -126,10 +126,11 @@ struct LawsState
     // in the air (with hysteresis).
     double loadRef = 0.0;
     bool   air[WHEEL_COUNT] = {};
-    // The car the sim last named: a different one starts the per-car
-    // learning over (rolling factor, usual load, kerb detector, the engine's
-    // redline, the tyres).
+    // The car the sim last named, and its id: a different one (either
+    // differs) starts the per-car learning over (rolling factor, usual
+    // load, kerb detector, the engine's redline, the tyres).
     char   lastCar[NCY_STR_LEN] = {};
+    char   lastCarId[NCY_STR_LEN] = {};
     bool   carSeen = false;
     uint32_t carGen = 0;   // bumped on every different car (the tiles' trigger counts start over)
     // Road speed glitches (a jump to the pits, a reset): the last speed the
@@ -182,6 +183,7 @@ inline void newCar(LawsState& st)
     LawsState fresh;
     std::memcpy(fresh.previewSec, st.previewSec, sizeof fresh.previewSec);
     std::memcpy(fresh.lastCar, st.lastCar, sizeof fresh.lastCar);
+    std::memcpy(fresh.lastCarId, st.lastCarId, sizeof fresh.lastCarId);
     fresh.carSeen      = st.carSeen;
     fresh.carGen       = st.carGen;
     fresh.lastSpeedKmh = st.lastSpeedKmh; fresh.speedAgeSec = st.speedAgeSec; fresh.glitchSec = st.glitchSec;
@@ -498,7 +500,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         st.rpmAgeSec += dtSec;
         // A different car this frame: its first rpm owes nothing to the last
         // car's (the per-car reset below runs after this).
-        if (!live || (v.car[0] != '\0' && st.carSeen && std::strncmp(v.car, st.lastCar, NCY_STR_LEN) != 0))
+        if (!live || (v.car[0] != '\0' && st.carSeen && otherCar(v, st.lastCar, st.lastCarId)))
             st.rpmSeen = false;
         if (live && v.have[NcxValues::Rpm])
         {
@@ -579,7 +581,10 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
     // A different car: what was learned about the last one starts over.
     if (live && v.car[0] != '\0')
     {
-        if (st.carSeen && std::strncmp(v.car, st.lastCar, NCY_STR_LEN) != 0)
+        // The id is kept while the name stays and a frame has none: the
+        // next id is still compared with the car's own.
+        const bool sameName = st.carSeen && std::strncmp(v.car, st.lastCar, NCY_STR_LEN) == 0;
+        if (st.carSeen && otherCar(v, st.lastCar, st.lastCarId))
         {
             newCar(st);
             L.newCar();
@@ -587,6 +592,11 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         }
         std::memcpy(st.lastCar, v.car, NCY_STR_LEN);
         st.lastCar[NCY_STR_LEN - 1] = '\0';
+        if (!sameName || v.carId[0] != '\0')
+        {
+            std::memcpy(st.lastCarId, v.carId, NCY_STR_LEN);
+            st.lastCarId[NCY_STR_LEN - 1] = '\0';
+        }
         st.carSeen = true;
     }
     // The sim's own max rpm seeds the learned redline (once per car), once

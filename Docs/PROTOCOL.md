@@ -5,7 +5,7 @@ the nullCAT exporter plugin, or any tool that can emit a text line) and the
 nullCAT controller (the **receiver**). This document is the contract: the
 wire only ever changes here, version-bumped, and senders adapt to it.
 
-**Protocol version: 1.9** (nullCAT 0.9.9). History at the bottom.
+**Protocol version: 1.10** (nullCAT 0.9.10). History at the bottom.
 
 nullCAT does not depend on any particular sender. SimHub with the nullCAT
 plugin, FlyPT Mover, SimTools, a custom feeder reading the game's shared
@@ -24,6 +24,9 @@ motion software owns the game; nullCAT owns the rig.
   that never says so never receives it.
 - Three line types share the port. Each runs without the others, at its
   own rate.
+- A datagram that starts with a space (padding with nothing on it, from a
+  sender that fills a fixed-size packet whatever it has to say) is ignored.
+  A line may be padded with spaces after its last field.
 
 ## Line type 1: motion
 
@@ -93,8 +96,8 @@ string keys ride on the same line type:
 |---|---|
 | `game` | the running sim's name, free text (up to 47 characters) |
 | `car` | the current car as the sim shows it, free text (up to 47 characters) |
-| `carId` | optional: the car's stable id in that sim (Assetto Corsa: the content folder, e.g. `ks_mazda_787b`), up to 47 characters. nullCAT's car table is keyed by it where a sim has one; without it the table matches on `car` |
-| `direct` | optional: whether the sender is sending from a direct source of its own for this game (a faster feed straight from the sim, as the SimHub plugin's Assetto Corsa read): `on`, `off`, or `none` (it has none for this game). Send it with the identity. A sender that sends it can be asked to switch (line type 4) *(since 1.9)* |
+| `carId` | optional: the car's stable id in that sim (Assetto Corsa: the content folder, e.g. `ks_mazda_787b`), up to 47 characters. nullCAT's car table is keyed by it where a sim has one; without it the table matches on `car`. A different `carId` under the same `car` is a different car (another build or config of it): what nullCAT learned about the car starts over. An id first sent late, or left off a line, under the same `car` is the same car *(since 1.10)* |
+| `direct` | optional: whether the sender is sending from a direct source of its own for this game (a faster feed straight from the sim, as the SimHub plugin's Assetto Corsa read): `on`, `off`, `none` (it has none for this game), or `only` (it is a direct source and has no other, so it cannot switch: a game's own nullCAT mod). Send it with the identity. A sender that says `on` or `off` can be asked to switch (line type 4); one that says `only` or `none` never is. While a sender says `on` or `only` and keeps sending, nullCAT takes the channel lines (line types 2 and 3) from it alone and sets every other sender's aside (motion lines are never set aside), starting its store clean on each change of source; when it says `off` or `none`, or another sender's line comes five seconds after its last, the others are used again. So a game's own sender and the SimHub plugin can run side by side *(since 1.9; `only` and the setting aside since 1.10)* |
 
 Unknown keys, keys without `=`, and non-numeric values for a numeric
 token (`NaN` and `inf` included) are skipped; the rest of the line still
@@ -230,6 +233,13 @@ Unknown keys on the line are ignored *(since 1.9)*.
 
 ## Version history
 
+- **1.10** (nullCAT 0.9.10): added `direct=only`, a direct source that
+  cannot switch (a game's own nullCAT mod, such as BeamNG's). A sender
+  saying `direct=on` or `only` is the channel source while it sends, and
+  the other senders' channel lines are set aside meanwhile. A different
+  `carId` under the same `car` is a different car. A datagram that starts
+  with a space is ignored. An older receiver reads `only` as not said;
+  every 1.9 sender remains fully compatible.
 - **1.9** (nullCAT 0.9.9): added the `direct` identity key and line
   type 4 (`NULLCATC,direct=on|off`, receiver to sender), nullCAT's
   direct telemetry switch. Added `inPit`, `lap` and `tyreWearFL` ..

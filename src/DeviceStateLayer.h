@@ -47,7 +47,20 @@ struct NcxValues : NcxTok
     double val[TokenCount]  = {};
     char   game[NCY_STR_LEN] = {};    // NULLCATY identity, empty when unsent
     char   car[NCY_STR_LEN]  = {};
+    char   carId[NCY_STR_LEN] = {};   // the sender's stable id for the car, empty when it sends none
 };
+
+// The car named this frame is not the one known: its name differs, or
+// both have an id and the ids differ (one name with a new id is another
+// car: another build or config of it, as BeamNG's are). An id arriving or
+// going under the same name (a sender filling it in late, an older one
+// with none) is the same car, as the channel store reads it. Call with a
+// named frame (car not empty).
+inline bool otherCar(const NcxValues& v, const char* knownCar, const char* knownId)
+{
+    if (std::strncmp(v.car, knownCar, NCY_STR_LEN) != 0) return true;
+    return v.carId[0] != '\0' && knownId[0] != '\0' && std::strncmp(v.carId, knownId, NCY_STR_LEN) != 0;
+}
 
 // Gear ratios (rpm per km/h), index 1..8; produced by GearRatioLearner,
 // consumed here for the revmatch let-in. known = usable now (learned this
@@ -98,6 +111,7 @@ public:
             if (td.ncyHave[t]) { v.have[t] = true; v.val[t] = td.ncy[t]; }
         std::memcpy(v.game, td.game, NCY_STR_LEN);
         std::memcpy(v.car,  td.car,  NCY_STR_LEN);
+        std::memcpy(v.carId, td.carId, NCY_STR_LEN);
         return v;
     }
 

@@ -40,6 +40,7 @@
   static inline int WSAGetLastError()  { return errno; }
 #endif
 
+#include <cstdio>
 #include <cstring>
 #include <cstdlib>
 #include <cctype>
@@ -283,12 +284,18 @@ bool TelemetryInput::receive()
 
     // Null-terminate the received data
     m_recvBuf[bytes] = '\0';
-    // A recording takes a copy as it arrived (lock-free, RT-safe; off = one load).
-    m_recorder.push(m_recvBuf, bytes);
+    // A datagram of padding with nothing on it (a sender filling a
+    // fixed-size packet while it has nothing to say: BeamNG's mod for a car
+    // nobody sits in) is dropped unread: no line starts with a space.
+    if (m_recvBuf[0] == ' ' || m_recvBuf[0] == '\0') return true;
 
+    // A recording takes a copy of each datagram as it arrived (lock-free,
+    // RT-safe; off = one load), except a channel line set aside for a
+    // direct sender: the file replays what nullCAT used.
     TelemetryData parsed;
     if (!parsePacket(m_recvBuf, bytes, parsed))
     {
+        m_recorder.push(m_recvBuf, bytes);
         // RT thread: no strf/heap, and rate-limited (first, then every 100th)
         // so a stray sender aimed at this port cannot flood the log ring.
         if (m_parseFailCount++ % 100 == 0)
@@ -303,12 +310,81 @@ bool TelemetryInput::receive()
         return false;
     }
     m_parseFailCount = 0;
+    const uint64_t sender = (senderAddr.sin_family == AF_INET)
+        ? ((uint64_t(1) << 48) | (uint64_t(static_cast<uint32_t>(senderAddr.sin_addr.s_addr)) << 16)
+           | uint64_t(senderAddr.sin_port))
+        : 0;
+    // Another sender's channel line while a direct one sends: set aside
+    // (consumed, so the drain goes on).
+    if (!admitChannelLine(parsed, sender, std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count()))
+        return true;
+    m_recorder.push(m_recvBuf, bytes);
     // Where the channel sender is: a reply (direct telemetry) goes there.
-    if (parsed.packetType == TelemetryPacketType::Ncy && senderAddr.sin_family == AF_INET)
-        m_ncySender.store((uint64_t(1) << 48)
-                          | (uint64_t(static_cast<uint32_t>(senderAddr.sin_addr.s_addr)) << 16)
-                          | uint64_t(senderAddr.sin_port), std::memory_order_release);
+    if (parsed.packetType == TelemetryPacketType::Ncy && sender != 0)
+        m_ncySender.store(sender, std::memory_order_release);
     return ingest(parsed);
+}
+
+// The sender for printing: a.b.c.d:port (both in network order in the key).
+static void senderText(uint64_t s, char (&out)[24])
+{
+    const uint32_t a = static_cast<uint32_t>((s >> 16) & 0xFFFFFFFFu);
+    const uint16_t p = static_cast<uint16_t>(s & 0xFFFFu);
+    const unsigned char* b = reinterpret_cast<const unsigned char*>(&a);
+    std::snprintf(out, sizeof out, "%u.%u.%u.%u:%u", b[0], b[1], b[2], b[3], static_cast<unsigned>(ntohs(p)));
+}
+
+bool TelemetryInput::admitChannelLine(const TelemetryData& parsed, uint64_t sender, int64_t nowMs)
+{
+    if (parsed.packetType != TelemetryPacketType::Ncx && parsed.packetType != TelemetryPacketType::Ncy) return true;
+    char who[24];
+    const char said = (parsed.packetType == TelemetryPacketType::Ncy) ? parsed.direct : 0;
+    // A change of source starts the store clean (ingest): the last
+    // source's values, its positional slots too, never play on under the
+    // new one's.
+    if ((said == 'y' || said == 'o') && sender != 0)
+    {
+        if (sender != m_directSender)
+        {
+            senderText(sender, who);
+            RT_LOG_INFO("TelemetryInput: %s sends direct telemetry: other senders' channel lines are set aside while it does (their motion lines are not).", who);
+            m_setAsideLogged = false;
+            m_sourceChanged  = true;
+        }
+        m_directSender = sender;
+        m_directLastMs = nowMs;
+        return true;
+    }
+    if (m_directSender != 0 && sender == m_directSender)
+    {
+        // Its own line keeps it the source, after any gap.
+        m_directLastMs = nowMs;
+        if (said != 0)   // off or none: its own source, no longer direct
+        {
+            senderText(sender, who);
+            RT_LOG_INFO("TelemetryInput: %s no longer sends direct telemetry: the other senders' channel lines are used again.", who);
+            m_directSender  = 0;
+            m_sourceChanged = true;
+        }
+        return true;
+    }
+    if (m_directSender != 0 && nowMs - m_directLastMs >= kDirectHoldMs)
+    {
+        senderText(m_directSender, who);
+        RT_LOG_INFO("TelemetryInput: %s has stopped sending: the other senders' channel lines are used again.", who);
+        m_directSender  = 0;
+        m_sourceChanged = true;
+    }
+    if (m_directSender == 0) return true;
+    m_setAsideMs.store(nowMs, std::memory_order_release);
+    if (!m_setAsideLogged)
+    {
+        m_setAsideLogged = true;
+        senderText(sender, who);
+        RT_LOG_INFO("TelemetryInput: channel lines from %s set aside (another sender sends direct telemetry).", who);
+    }
+    return false;
 }
 
 bool TelemetryInput::sendToChannelSender(const char* line) const
@@ -349,6 +425,20 @@ bool TelemetryInput::ingest(const TelemetryData& parsed)
             if (last != 0 && (nowMs - last) >= 500)
             {
                 for (bool& h : st.ncyHave) h = false;
+                st.game[0] = st.car[0] = st.carId[0] = '\0';
+                st.direct = 0;
+                m_senderDirect.store(0, std::memory_order_release);
+            }
+            // A new channel source (a direct sender taking over or letting
+            // go, admitChannelLine) starts clean too: the last source's
+            // named values and positional slots never play on under the
+            // new one's.
+            if (m_sourceChanged)
+            {
+                m_sourceChanged = false;
+                for (bool& h : st.ncyHave) h = false;
+                st.ncxCount = 0;
+                for (bool& h : st.ncxHave) h = false;
                 st.game[0] = st.car[0] = st.carId[0] = '\0';
                 st.direct = 0;
                 m_senderDirect.store(0, std::memory_order_release);
@@ -746,10 +836,11 @@ bool TelemetryInput::parsePacket(const char* buf, int len, TelemetryData& out)
                 if (keyIs("direct"))
                 {
                     // The sender's direct source (protocol 1.9): on, off,
-                    // or none for this game; anything else is not said.
+                    // none for this game, or only (on, and it has no other:
+                    // it cannot switch); anything else is not said.
                     const auto valIs = [&](const char* ref)
                     { return static_cast<int>(std::strlen(ref)) == vlen && std::memcmp(ref, va, static_cast<size_t>(vlen)) == 0; };
-                    out.direct = valIs("on") ? 'y' : valIs("off") ? 'n' : valIs("none") ? '-' : 0;
+                    out.direct = valIs("on") ? 'y' : valIs("off") ? 'n' : valIs("none") ? '-' : valIs("only") ? 'o' : 0;
                     if (out.direct) ++landed;
                 }
                 else if (keyIs("game") || keyIs("car") || keyIs("carId"))

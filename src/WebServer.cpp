@@ -476,12 +476,16 @@ std::string WebServer::buildStatusJson() const
     s += "\"ncxRx\":"              + jsonBool(m_telemetry && m_telemetry->hasRecentNcx()) + ",";
     {
         // Direct telemetry: what the channel sender says it does ("" when
-        // it never said, "none" when it has no direct source for the game)
-        // and what the rig asks of it ("" when it leaves it to the sender).
+        // it never said, "none" when it has no direct source for the game,
+        // "only" when it is one and cannot switch: it is never asked) and
+        // what the rig asks of it ("" when it leaves it to the sender).
         const char said = (m_telemetry && m_telemetry->hasRecentNcx()) ? m_telemetry->channelSenderDirect() : 0;
         const int  want = m_directWant.load();
-        s += std::string("\"directSender\":\"") + (said == 'y' ? "on" : said == 'n' ? "off" : said == '-' ? "none" : "") + "\",";
+        s += std::string("\"directSender\":\"") + (said == 'y' ? "on" : said == 'n' ? "off" : said == '-' ? "none"
+                                                  : said == 'o' ? "only" : "") + "\",";
         s += std::string("\"directWant\":\"")   + (want == 1 ? "on" : want == 0 ? "off" : "") + "\",";
+        // Another sender's channel lines set aside while the direct one sends.
+        s += "\"directSetAside\":" + jsonBool(m_telemetry && m_telemetry->channelLinesSetAside()) + ",";
     }
     {
         // Haptics surface: fired counter, mute, live fx levels, and which

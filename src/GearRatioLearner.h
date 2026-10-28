@@ -93,15 +93,23 @@ public:
     void step(const NcxValues& v, double dtSec)
     {
         if (!v.fresh || dtSec <= 0.0) { m_steadyOk = false; m_heldSec = 0.0; return; }
-        // The sim naming a different car: this car's ratios are finished
-        // with (stashed for the cache) and the slots start over. Without
-        // that, every gear the new car had not yet driven kept the old
-        // car's ratio as known, and revmatch and the clutch judder read it.
+        // The sim naming a different car (its name or its id): this car's
+        // ratios are finished with (stashed for the cache) and the slots
+        // start over. Without that, every gear the new car had not yet
+        // driven kept the old car's ratio as known, and revmatch and the
+        // clutch judder read it.
         if (v.car[0] != '\0')
         {
-            if (m_carSeen && std::strncmp(v.car, m_car, NCY_STR_LEN) != 0) finishCar();
+            // The id is kept while the name stays and a frame has none.
+            const bool sameName = m_carSeen && std::strncmp(v.car, m_car, NCY_STR_LEN) == 0;
+            if (m_carSeen && otherCar(v, m_car, m_carId)) finishCar();
             std::memcpy(m_car, v.car, NCY_STR_LEN);
             m_car[NCY_STR_LEN - 1] = '\0';
+            if (!sameName || v.carId[0] != '\0')
+            {
+                std::memcpy(m_carId, v.carId, NCY_STR_LEN);
+                m_carId[NCY_STR_LEN - 1] = '\0';
+            }
             m_carSeen = true;
         }
         if (!v.have[NcxValues::Rpm] || !v.have[NcxValues::SpeedKmh] ||
@@ -307,6 +315,7 @@ private:
     double     m_steady      = 0.0;
     bool       m_steadyOk    = false;
     char       m_car[NCY_STR_LEN] = {};
+    char       m_carId[NCY_STR_LEN] = {};
     bool       m_carSeen     = false;
     CachedCar  m_prev{};
     bool       m_prevDirty   = false;

@@ -1063,6 +1063,7 @@ int main()
           && has(get("/api/status"), "\"directWant\":\"off\""),
           "direct telemetry off: reads back");
     check(has(get("/api/status"), "\"directSender\":\""), "status carries what the sender says");
+    check(has(get("/api/status"), "\"directSetAside\":false"), "status carries whether another sender is set aside (none here)");
 
     // ---- e-stop; tension ACCEPTED but silently refused (contract fact #1/#2) ----
     check(has(post("/api/estop"), "\"ok\":true"), "POST /api/estop accepted");
@@ -1318,10 +1319,30 @@ int main()
                 check(has(get("/api/status"), "\"directSender\":\"off\""), "status: what the sender says");
                 asksOver("on", 700, last);   // it switched: any ask still in flight lands here
                 check(asksOver("on", 2000, last) == 0, "the sender reporting on (as asked): never asked");
+                // A second sender's channel line while this one says on:
+                // set aside, and the status says so (it reads false before).
+                {
+                    check(has(get("/api/status"), "\"directSetAside\":false"), "status: no sender set aside yet");
+                    const int c2 = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+                    bind(c2, reinterpret_cast<sockaddr*>(&me), sizeof(me));
+                    const std::string l = "NULLCATY,game=BeamNgDrive,car=scintilla,rpm=1234,direct=none";
+                    sendto(c2, l.data(), l.size(), 0, reinterpret_cast<sockaddr*>(&to), sizeof(to));
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                    while (telemetry.receive()) {}
+                    check(has(get("/api/status"), "\"directSetAside\":true") && has(get("/api/status"), "\"directSender\":\"on\""),
+                          "status: another sender's line set aside while the direct one sends, and the direct one still reported");
+                    close(c2);
+                }
                 check(asksOver("none", 2000, last) == 0, "a sender with no direct source for the game: never asked");
                 check(has(post("/api/telemetry/direct", "{\"on\":false}"), "\"direct\":\"off\""), "direct telemetry off (end to end)");
                 check(asksOver("on", 2000, last) >= 1 && last == "NULLCATC,direct=off\n",
                       "the sender reporting on is asked for off");
+                // A sender that is only direct (a game's own mod) cannot
+                // switch: the switch off never asks it, and the status says
+                // what it is.
+                asksOver("only", 700, last);   // an ask still in flight lands here
+                check(asksOver("only", 2000, last) == 0 && has(get("/api/status"), "\"directSender\":\"only\""),
+                      "a sender saying only is never asked, with the switch off; the status reads only");
                 close(c);
             }
             web2.stop();
