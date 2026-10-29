@@ -252,7 +252,11 @@ private:
     // id first, then the name, and a saved entry files under the id.
     // defaults: the car has no entry and follow car put its tiles on the
     // defaults (until the next car, or a pull, save or profile load).
-    struct CarState { CarTable::Match match; std::string car, carId, game; bool applied = false; bool defaults = false; };
+    // described / typed: what the sender says about such a car, its engine
+    // (protocol 1.11 eng*) and its type of car (carType), has been put on
+    // top of the defaults, once per car.
+    struct CarState { CarTable::Match match; std::string car, carId, game; bool applied = false; bool defaults = false;
+                      bool described = false; bool typed = false; };
     CarState          m_carState;            // guarded by m_carMx
     mutable std::mutex m_carMx;              // mutable: read by the const status builder
     // Bumps on every rewrite of the live haptics set: the server's own (a
@@ -275,9 +279,13 @@ private:
     // same car keeps its tiles as they are (tuned by hand since, perhaps),
     // whether it got an entry or the defaults, and the car row reads the
     // same. Guarded by m_carMx; written outside it.
-    struct CarMemory { std::string ident; bool applied = false; bool defaults = false; };
+    struct CarMemory { std::string ident; bool applied = false; bool defaults = false;
+                       bool described = false; bool typed = false; };
     CarMemory         m_carMem;
     void loadCarMemory();                       // start(): carstate.json, else the older cardefaults.txt
+    // A car on the defaults: the sender's engine description and type of
+    // car on top, once per car (status thread, after carIdentity).
+    void senderCarFacts(const TelemetryData& td);
     // Direct telemetry (protocol 1.9): the rig's choice for the channel
     // sender's direct source, -1 = left to the sender, 0 off, 1 on. Kept
     // in senderstate.json beside the rig config (machine state, so a page

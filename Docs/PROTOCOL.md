@@ -5,7 +5,7 @@ the nullCAT exporter plugin, or any tool that can emit a text line) and the
 nullCAT controller (the **receiver**). This document is the contract: the
 wire only ever changes here, version-bumped, and senders adapt to it.
 
-**Protocol version: 1.10** (nullCAT 0.9.10). History at the bottom.
+**Protocol version: 1.11** (nullCAT 0.9.10). History at the bottom.
 
 nullCAT does not depend on any particular sender. SimHub with the nullCAT
 plugin, FlyPT Mover, SimTools, a custom feeder reading the game's shared
@@ -162,6 +162,8 @@ NULLCATY,rpm=11480,speedKmh=212.4,gear=5,throttlePct=100,brakePct=0,slipRatioRL=
 | 77..80 | `tyreWearFL` .. `tyreWearRR` | tread worn per tyre, **0..1** (0 new, 1 worn out), where the sim has it. One falling by more than 0.2 and staying there for three quarters of a second is new tyres at a stop: fresh tyres *(since 1.9)* |
 | 81, 82 | `accSurge`, `accSway` | the body's acceleration along and across the car, **m/s²**, as the sim's own physics gives it (the same as `accHeave`). For the belt and haptic effects; the motion cue stays the motion software's *(since 1.9)* |
 | 83..85 | `yawRate`, `pitchRate`, `rollRate` | the rates the body turns at, **deg/s**, as the sim gives them *(since 1.9)* |
+| 86..90 | `engCylinders`, `engLayout`, `engLitres`, `engTurbo`, `engLimitHz` | what the car's engine is, where the sender knows it: the cylinders (or rotors), **1..16**; the layout, **0 inline, 1 V, 2 flat / boxer, 3 rotary, 4 two-stroke, 5 electric**; the displacement, **litres**; **1** turbocharged, **0** not; the rev limiter's cuts a second. Each optional; send them with the identity. For a car the car table has no entry for, with follow car on, nullCAT puts them on the Engine and Limiter tiles over the defaults, once per car (a table entry, stock or the user's, always wins) *(since 1.11)* |
+| 91 | `carType` | the type of car, where the sender knows it: **0 road, 1 cup / track, 2 GT / race, 3 open wheeler, 4 rally gravel, 5 rally tarmac**. For a car the car table has no entry for, with follow car on, nullCAT applies the matching starting point once per car; the user can change it after *(since 1.11)* |
 
 Per-wheel groups are always sent as all four or not at all: a group with
 a wheel missing is treated as absent. A sender that only has per-axle
@@ -233,6 +235,12 @@ Unknown keys on the line are ignored *(since 1.9)*.
 
 ## Version history
 
+- **1.11** (nullCAT 0.9.10): added `engCylinders`, `engLayout`,
+  `engLitres`, `engTurbo` and `engLimitHz`, what the car's engine is, and
+  `carType`, its type of car, at slots 86..91. For a car the car table has
+  no entry for, nullCAT sets its Engine and Limiter tiles and its starting
+  point from them. The BeamNG.drive mod sends them. No change to parsing;
+  every 1.10 sender remains fully compatible.
 - **1.10** (nullCAT 0.9.10): added `direct=only`, a direct source that
   cannot switch (a game's own nullCAT mod, such as BeamNG's). A sender
   saying `direct=on` or `only` is the channel source while it sends, and

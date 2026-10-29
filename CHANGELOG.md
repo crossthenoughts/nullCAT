@@ -26,6 +26,14 @@ each shaker, and BeamNG.drive straight from the game.
   zip's `beamng` folder (sending to this PC) and as
   `nullCAT-v<version>-beamng-pi.zip` for a Pi rig; its README says how to
   install it. Motion stays with your motion software.
+- BeamNG.drive cars play their own engine: the mod says what each car's
+  engine is (its cylinders, V, inline, boxer or rotary, its size, turbo,
+  how fast its limiter cuts) and what type of car it is (road, track or
+  cup, race, rally gravel or tarmac, from its config's name). For a car
+  the car table has no entry for, nullCAT puts the engine on the Engine
+  and Limiter tiles and applies the type of car as the starting point,
+  once per car: change either and it stays as you set it. The car row
+  then reads *engine from the game*. It works the same for mod cars.
 - SimHub and a game's own sender side by side: while a sender says it
   sends direct telemetry (the BeamNG mod does), nullCAT takes the haptic
   channels from it and sets the others' aside, so the SimHub plugin can

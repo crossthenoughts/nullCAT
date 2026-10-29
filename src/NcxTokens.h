@@ -53,6 +53,14 @@ struct NcxTok
         TyreWearFL, TyreWearFR, TyreWearRL, TyreWearRR,         // tread worn, 0..1 (0 new, 1 worn out), where the sim has it
         AccSurge, AccSway,                                      // body acceleration along and across the car, m/s^2, as the sim gives it
         YawRate, PitchRate, RollRate,                           // body rotation rates, deg/s, as the sim gives them
+        // protocol 1.11: what the car is, where the sender knows it (the
+        // car table, where it has the car, wins)
+        EngCylinders,                                           // cylinders (or rotors), 1..16
+        EngLayout,                                              // 0 inline, 1 V, 2 flat / boxer, 3 rotary, 4 two-stroke, 5 electric
+        EngLitres,                                              // displacement, litres
+        EngTurbo,                                               // 1 turbocharged, 0 not
+        EngLimitHz,                                             // the rev limiter's cuts a second
+        CarType,                                                // 0 road, 1 cup / track, 2 GT / race, 3 open wheeler, 4 rally gravel, 5 rally tarmac
         TokenCount
     };
 };
@@ -93,6 +101,7 @@ inline const char* ncxTokenName(int t)
         "tyreWearFL", "tyreWearFR", "tyreWearRL", "tyreWearRR",
         "accSurge", "accSway",
         "yawRate", "pitchRate", "rollRate",
+        "engCylinders", "engLayout", "engLitres", "engTurbo", "engLimitHz", "carType",
     };
     return (t >= 0 && t < NcxTok::TokenCount) ? kNames[t] : "";
 }

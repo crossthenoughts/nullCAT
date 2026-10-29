@@ -60,7 +60,13 @@ setup and in BeamNG's protocol settings.
   grass, dirt, sand, cobbles, snow, ice, mud, standing water) and whether
   it is wet, the suspension travel, the height of the road under it, and
   a puncture.
-- The car's name, once a second.
+- The car's name, once a second, and with it what the car is: its
+  engine (the cylinders, V, inline, boxer or rotary, its size, turbo or
+  not, how fast the limiter cuts) and its type (road, track or cup, race,
+  rally gravel or tarmac, from the config's name). For a car nullCAT's car
+  table has no entry for, the Engine and Limiter tiles take that engine
+  and the type of car becomes the starting point, once per car; change
+  either and it stays as you set it. Mod cars are described the same way.
 
 That drives the Engine, Limiter, Gear shift, Driveline, ABS, TC, Long
 slip, Lat slip, Road, Wheels, Surface and Rumble strip tiles, and the belt from

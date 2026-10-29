@@ -403,7 +403,14 @@ tiles go back to their defaults: a generic engine (a 2 litre inline
 four), gearbox, ABS and TC, each tile at the strength the cars in the
 table that have it play it at (ABS and TC play only when they are
 working). So an Assetto Corsa car without ABS never leaves the next
-game's car with its ABS off. After a restart the same car keeps its
+game's car with its ABS off. Where the game's own sender says what the
+car is (the BeamNG.drive mod does), its engine goes on top of the
+defaults: the cylinders, V, inline, boxer or rotary, the size, the turbo
+and how fast the limiter cuts, so a V8 plays as a V8; and its type of
+car (road, track or cup, race, rally gravel or tarmac) is applied as the
+starting point. Both happen once per car: change them and they stay as
+you set them. The car row then reads `· no entry · engine from the
+game`. After a restart the same car keeps its
 tiles as they are, so what you tuned for it by hand stays, whether the
 table gave it its entry or the defaults: nullCAT remembers the car it
 last acted on in `carstate.json` beside the rig config (machine state,

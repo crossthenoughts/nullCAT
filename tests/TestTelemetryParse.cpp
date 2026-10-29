@@ -288,8 +288,17 @@ int main()
     {
         check(NcxTok::SlipSpeedRR == 74 && NcxTok::InPit == 75 && NcxTok::Lap == 76 && NcxTok::TyreWearFL == 77
               && NcxTok::TyreWearRR == 80 && NcxTok::AccSurge == 81 && NcxTok::AccSway == 82 && NcxTok::YawRate == 83
-              && NcxTok::PitchRate == 84 && NcxTok::RollRate == 85 && NcxTok::TokenCount == 86,
+              && NcxTok::PitchRate == 84 && NcxTok::RollRate == 85,
               "protocol 1.9: inPit, lap, tyreWearFL..RR, accSurge, accSway and the three rates take slots 75..85, after slipSpeedRR");
+        // protocol 1.11: what the car is, appended at 86..91
+        check(NcxTok::EngCylinders == 86 && NcxTok::EngLayout == 87 && NcxTok::EngLitres == 88 && NcxTok::EngTurbo == 89
+              && NcxTok::EngLimitHz == 90 && NcxTok::CarType == 91 && NcxTok::TokenCount == 92
+              && std::string(ncxTokenName(NcxTok::EngCylinders)) == "engCylinders" && std::string(ncxTokenName(NcxTok::CarType)) == "carType",
+              "protocol 1.11: engCylinders, engLayout, engLitres, engTurbo, engLimitHz and carType take slots 86..91");
+        bool okY = false; const TelemetryData e = parse("NULLCATY,engCylinders=8,engLayout=1,engLitres=5.2,engTurbo=0,engLimitHz=7,carType=1", &okY);
+        check(okY && e.ncyHave[NcxTok::EngCylinders] && e.ncy[NcxTok::EngCylinders] == 8.0 && e.ncy[NcxTok::EngLitres] == 5.2
+              && e.ncyHave[NcxTok::CarType] && e.ncy[NcxTok::CarType] == 1.0,
+              "protocol 1.11: the engine description and the type of car parse by name");
         check(std::string(ncxTokenName(NcxTok::InPit)) == "inPit" && std::string(ncxTokenName(NcxTok::Lap)) == "lap"
               && std::string(ncxTokenName(NcxTok::TyreWearFL)) == "tyreWearFL" && std::string(ncxTokenName(NcxTok::TyreWearRR)) == "tyreWearRR"
               && std::string(ncxTokenName(NcxTok::AccSurge)) == "accSurge" && std::string(ncxTokenName(NcxTok::AccSway)) == "accSway"

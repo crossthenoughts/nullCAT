@@ -207,6 +207,80 @@ local function findCar()
   engine  = powertrain and powertrain.getDevice and powertrain.getDevice("mainEngine") or nil
 end
 
+-- What the car is (protocol 1.11), sent with its name, for nullCAT's Engine
+-- and Limiter tiles and its type of car where its car table has no entry:
+-- the cylinders the engine's sound is built on, the layout from the
+-- sound's name (I4, V8, boxer, rotary), the displacement where that name
+-- gives it, else a rough figure from the torque (turbo or not), the turbo,
+-- the limiter's cut rate, and the type of car from the config's name
+-- (rally gravel or tarmac, race, track, else road). Mod cars carry the same
+-- sound and engine data, so they are described the same way.
+local carFacts = ""
+local function lower(x) return string.lower(tostring(x or "")) end
+local function describeCar()
+  carFacts = ""
+  local data = v and v.data
+  local f = {}
+  local me = (type(data) == "table" and type(data.mainEngine) == "table") and data.mainEngine or nil
+  local electric = false
+  if engine == nil and powertrain and powertrain.getDevices then
+    local ok, devs = pcall(powertrain.getDevices)
+    if ok and type(devs) == "table" then
+      for _, d in pairs(devs) do
+        if type(d) == "table" and lower(d.type):find("electricmotor") then electric = true end
+      end
+    end
+  end
+  if electric then
+    f[#f + 1] = "engLayout=5"
+  elseif me then
+    local sc = (type(me.soundConfig) == "string" and type(data[me.soundConfig]) == "table") and data[me.soundConfig] or nil
+    local names = lower(sc and sc.sampleName) .. " " .. lower(me.starterSample) .. " " .. lower(me.shutOffSampleEngine)
+    -- a word of the sound's name: at its start, or after a separator
+    local function word(p) return names:find("^" .. p) ~= nil or names:find("[%s_>%-]" .. p) ~= nil end
+    local layout = nil
+    if word("rotary") or word("wankel") then layout = 3
+    elseif word("2stroke") or word("two_?stroke") then layout = 4
+    elseif word("v%d") then layout = 1
+    elseif word("b%d") or word("box") or word("flat%d") then layout = 2
+    elseif word("i%d") or word("inline") then layout = 0
+    end
+    local cyl = sc and tonumber(sc.fundamentalFrequencyCylinderCount)
+    if not cyl then cyl = tonumber(names:match("^[vib](%d+)") or names:match("[%s_>%-][vib](%d+)") or names:match("box(%d+)")) end
+    if cyl and cyl >= 1 and cyl <= 16 then f[#f + 1] = string.format("engCylinders=%d", cyl) end
+    if layout then f[#f + 1] = string.format("engLayout=%d", layout) end
+    local turbo = me.turbocharger ~= nil and me.turbocharger ~= ""
+    local cc = tonumber(names:match("(%d+)cc"))
+    local litres = (cc and cc >= 50 and cc <= 10000) and cc / 1000 or nil
+    if not litres then
+      local tq = engine and tonumber(engine.maxTorque)
+      if tq and tq > 0 then
+        local perLitre = (lower(me.requiredEnergyType) == "diesel" and 170) or (turbo and 160)
+                      or ((me.supercharger ~= nil and me.supercharger ~= "") and 135) or 100
+        litres = math.max(0.6, math.min(8.5, tq / perLitre))
+      end
+    end
+    if litres then f[#f + 1] = string.format("engLitres=%.1f", litres) end
+    f[#f + 1] = "engTurbo=" .. (turbo and "1" or "0")
+    local cut = tonumber(me.revLimiterCutTime)
+    if lower(me.revLimiterType) == "timebased" and cut and cut > 0 then
+      f[#f + 1] = string.format("engLimitHz=%.0f", math.max(4, math.min(30, 1 / (1.5 * cut))))
+    end
+  end
+  -- the type of car from the words of the config's and the vehicle's names
+  local cfg = (v and type(v.config) == "table") and v.config or {}
+  local words = {}
+  for w in (lower(cfg.partConfigFilename):match("([^/\\]+)%.pc$") or ""):gmatch("[%a%d]+") do words[w] = true end
+  for w in lower(cfg.mainPartName):gmatch("[%a%d]+") do words[w] = true end
+  local carType = 0
+  if words.rally then carType = (words.tarmac or words.asphalt) and 5 or 4
+  elseif words.race or words.racing or words.gt3 or words.gt2 or words.gt4 or words.gte or words.lmp or words.endurance then carType = 2
+  elseif words.track or words.trackday or words.cup or words.hillclimb or words.timeattack then carType = 1
+  end
+  f[#f + 1] = "carType=" .. carType
+  carFacts = table.concat(f, ",")
+end
+
 -- The body's frame: the world to the car (y forward, z up, x right), for
 -- node positions (offsets from the car in the world's directions).
 local function bodyFrame()
@@ -283,6 +357,14 @@ local function dumpEngine()
   keyList("config", cfg)
   local data = v and v.data
   keyList("jbeam", data)
+  say("I", "described as: " .. carFacts)
+  -- the config's own info file (its body style, its type and so on), for the type of car
+  local model = tostring(cfg.model or cfg.mainPartName or "")
+  local base = tostring(cfg.partConfigFilename or ""):match("([^/\\]+)%.pc$")
+  if jsonReadFile and model ~= "" and base then
+    local ok, info = pcall(jsonReadFile, "/vehicles/" .. model .. "/info_" .. base .. ".json")
+    if ok and type(info) == "table" then dumpSection("info", info, 0, { n = 40 }) else say("I", "no info file for the config") end
+  end
   if type(data) == "table" then
     local me = data.mainEngine
     dumpSection("jbeam.information", data.information, 1, { n = 60 })
@@ -347,6 +429,7 @@ local function build(dt)
     parts[#parts + 1] = "car=" .. carName
     parts[#parts + 1] = "carId=" .. carId
     parts[#parts + 1] = "direct=only"
+    if carFacts ~= "" then parts[#parts + 1] = carFacts end
     -- once per car, after its first second (the electrics are filled by then)
     if DUMP_ENGINE and dumpedFor ~= carId and slowSec < 1e8 then
       local ok, err = pcall(dumpEngine)
@@ -462,7 +545,7 @@ end
 -- What the car is, again (a load or a reset); a step that fails is named
 -- in the log and the line goes on without what it would have found.
 local function learnCar(surfaces)
-  local steps = surfaces and { findWheels, loadSurfaces, findCar, measureCar } or { findWheels, findCar, measureCar }
+  local steps = surfaces and { findWheels, loadSurfaces, findCar, describeCar, measureCar } or { findWheels, findCar, describeCar, measureCar }
   for _, step in ipairs(steps) do
     local ok, err = pcall(step)
     if not ok then say("E", "could not read the car: " .. tostring(err)) end

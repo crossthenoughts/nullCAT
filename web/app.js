@@ -2366,7 +2366,7 @@ async function hapPresetsRender(sel){
 // found for it and where from) and the Engine tile's folded notes.
 function hapCarText(c){
   if(!c||!c.car) return '(none)';
-  if(!c.source) return c.car+' · no entry'+(c.defaults?' · defaults in use':'');
+  if(!c.source) return c.car+' · no entry'+(c.defaults?(c.described?' · engine from the game':' · defaults in use'):'');
   return (c.name||c.car)+' · '+(c.source==='user'?'yours':'stock')+(c.near?' · near match':'')+(c.applied?'':' · not applied');
 }
 let hapCarLast=null;   // the car row's last answer, for the session block

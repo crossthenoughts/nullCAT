@@ -108,6 +108,17 @@ public:
     // gets when the strip follows the car, so it never keeps the last
     // car's engine, gearbox, ABS or TC.
     static QJsonObject defaultHapticsObject();
+    // What the sender says about the car's engine (protocol 1.11:
+    // engCylinders, engLayout, engLitres, engTurbo, engLimitHz, by name),
+    // as the partial haptics object readHapticsObject merges: the engine
+    // tile's cylinders, layout, litres, turbo and limiter hz, each clamped
+    // to its range and only where sent. Empty when it says nothing. For a
+    // car with no entry: an entry, the table's or yours, always wins.
+    static QJsonObject engineFromSender(const bool have[], const double val[]);
+    // The starting point a sender's type of car (carType) names: Road car,
+    // Cup car, GT3 / GT, Open wheeler, Rally gravel, Rally tarmac; "" for
+    // a type it does not know.
+    static std::string startingPointForCarType(double carType);
     // The settings of one tile (its haptics key) that belong to the car:
     // what a car's entry sets and "save for this car" stores. Empty for a
     // tile the table never touches.

@@ -250,6 +250,44 @@ private slots:
         QCOMPARE(t.find("AMS2", "MINI Cooper S 1965").source, std::string("stock"));
     }
 
+    // What a sender says about the engine, as the engine tile's settings:
+    // only what it sends, clamped to each setting's range; nothing sent,
+    // nothing to merge. The type of car names its starting point.
+    void senderFacts_engineAndType()
+    {
+        bool have[NcxTok::TokenCount] = {}; double val[NcxTok::TokenCount] = {};
+        QVERIFY(CarTable::engineFromSender(have, val).isEmpty());
+        have[NcxTok::EngCylinders] = true; val[NcxTok::EngCylinders] = 8.0;
+        have[NcxTok::EngLayout]    = true; val[NcxTok::EngLayout]    = 1.0;
+        have[NcxTok::EngLitres]    = true; val[NcxTok::EngLitres]    = 5.24;
+        have[NcxTok::EngTurbo]     = true; val[NcxTok::EngTurbo]     = 0.0;
+        have[NcxTok::EngLimitHz]   = true; val[NcxTok::EngLimitHz]   = 6.7;
+        const QJsonObject h = CarTable::engineFromSender(have, val);
+        const QJsonObject e = h.value(haptics::effectInfo(haptics::Effect::Engine).key).toObject();
+        QCOMPARE(h.size(), 1);
+        QCOMPARE(e.value("cylinders").toDouble(), 8.0);
+        QCOMPARE(e.value("layout").toDouble(), 1.0);
+        QCOMPARE(e.value("litres").toDouble(), 5.2);
+        QCOMPARE(e.value("turbo").toDouble(), 0.0);
+        QCOMPARE(e.value("limHz").toDouble(), 7.0);
+        // out of range: clamped; a layout past electric is electric
+        val[NcxTok::EngCylinders] = 40.0; val[NcxTok::EngLayout] = 9.0; val[NcxTok::EngLimitHz] = 1.0;
+        const QJsonObject c = CarTable::engineFromSender(have, val).value(haptics::effectInfo(haptics::Effect::Engine).key).toObject();
+        QCOMPARE(c.value("cylinders").toDouble(), 16.0);
+        QCOMPARE(c.value("layout").toDouble(), 5.0);
+        QCOMPARE(c.value("limHz").toDouble(), 4.0);
+        // one field alone: that field alone
+        bool one[NcxTok::TokenCount] = {}; one[NcxTok::EngTurbo] = true; val[NcxTok::EngTurbo] = 1.0;
+        const QJsonObject t = CarTable::engineFromSender(one, val).value(haptics::effectInfo(haptics::Effect::Engine).key).toObject();
+        QCOMPARE(t.size(), 1);
+        QCOMPARE(t.value("turbo").toDouble(), 1.0);
+        QCOMPARE(QString::fromStdString(CarTable::startingPointForCarType(0)), QString("Road car"));
+        QCOMPARE(QString::fromStdString(CarTable::startingPointForCarType(1)), QString("Cup car"));
+        QCOMPARE(QString::fromStdString(CarTable::startingPointForCarType(4)), QString("Rally gravel"));
+        QCOMPARE(QString::fromStdString(CarTable::startingPointForCarType(5)), QString("Rally tarmac"));
+        QVERIFY(CarTable::startingPointForCarType(6).empty() && CarTable::startingPointForCarType(-1).empty());
+    }
+
     void coversGame_byEitherLayer()
     {
         QTemporaryDir dir; QVERIFY(dir.isValid());

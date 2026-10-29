@@ -2083,6 +2083,8 @@ bool WebServer::start()
                 root["near"]    = m_carState.match.nearMatch;
                 root["applied"] = m_carState.applied;
                 root["defaults"] = m_carState.defaults;
+                root["described"] = m_carState.described;   // the sender's engine on top of the defaults
+                root["typed"]     = m_carState.typed;       // ...and its type of car as the starting point
             }
             root["follow"] = followCarEnabled();
             root["stock"]  = m_cars.stockCount();
@@ -3009,9 +3011,10 @@ void WebServer::sampleEffectStatus()
     const MotionStatus ms = m_motion->getMotionStatus();
     bool live = false;
     std::string game, car, carId;
+    TelemetryData td{};
     if (m_telemetry)
     {
-        const TelemetryData td = m_telemetry->getLatestData(/*wait=*/true);
+        td    = m_telemetry->getLatestData(/*wait=*/true);
         live  = td.ncxFresh;
         game  = td.game;
         car   = td.car;
@@ -3045,9 +3048,83 @@ void WebServer::sampleEffectStatus()
             const bool carBound = !car.empty() && m_profiles.bindings().count(HapticsProfiles::carKey(car)) > 0;
             carIdentity(game, car, carId, !carBound && followCarEnabled());
         }
+        // What the sender says about a car on the defaults (it can come a
+        // line after the name): its engine and type of car, once.
+        if (!(car.empty() && carId.empty())) senderCarFacts(td);
     }
     else if (!live)
         m_lastIdentity.clear();   // a returning stream looks its profile up again
+}
+
+// A car the table has no entry for, on the defaults (follow car put it
+// there, nothing has replaced them since): what its sender says about it
+// goes on top, once per car and remembered across a restart. The engine
+// (cylinders, layout, litres, turbo, the limiter's cut rate: protocol
+// 1.11 eng*) into the engine tile; the type of car (carType) as its
+// starting point. An entry, the table's or yours, always wins: a car with
+// one is never on the defaults. Status thread.
+void WebServer::senderCarFacts(const TelemetryData& td)
+{
+    CarState st;
+    { std::lock_guard<std::mutex> lk(m_carMx); st = m_carState; }
+    if (!st.defaults || !st.match.source.empty() || (st.described && st.typed)) return;
+    if (st.game != td.game || st.car != td.car || st.carId != td.carId) return;   // not the car on the defaults
+    const std::string& who = st.car.empty() ? st.carId : st.car;
+    bool described = st.described, typed = st.typed;
+    if (!described)
+    {
+        const QJsonObject eng = CarTable::engineFromSender(td.ncyHave, td.ncy);
+        if (!eng.isEmpty())
+        {
+            std::string err;
+            bool changed = false;
+            bool ok = false;
+            {
+                std::lock_guard<std::mutex> io(m_profilesIo);
+                ok = applyHapticsObjectLocked(eng, err, &changed);
+            }
+            if (ok)
+            {
+                if (changed) m_carGen.fetch_add(1);
+                described = true;
+                const QJsonObject e = eng.value(haptics::effectInfo(haptics::Effect::Engine).key).toObject();
+                static const char* const kLayout[] = { "inline", "V", "flat", "rotary", "two-stroke", "electric" };
+                const int lay = e.contains("layout") ? e.value("layout").toInt() : -1;
+                LOG_INFO(strf("Haptics: the sim describes the engine of %s: %s%s%s%s%s, on its engine tile.", who.c_str(),
+                              e.contains("cylinders") ? (std::to_string(e.value("cylinders").toInt()) + " cylinders").c_str() : "",
+                              (lay >= 0 && lay < 6) ? (std::string(" ") + kLayout[lay]).c_str() : "",
+                              e.contains("litres") ? strf(" %.1f litres", e.value("litres").toDouble()).c_str() : "",
+                              e.contains("turbo") ? (e.value("turbo").toDouble() > 0.5 ? " turbo" : " no turbo") : "",
+                              e.contains("limHz") ? strf(", limiter %d hz", e.value("limHz").toInt()).c_str() : ""));
+            }
+            else
+                LOG_WARNING(strf("Haptics: the sim's engine description of %s could not be applied: %s", who.c_str(), err.c_str()));
+        }
+    }
+    if (!typed && td.ncyHave[NcxTok::CarType])
+    {
+        typed = true;   // said once: a type it cannot match is not asked about again
+        const std::string name = CarTable::startingPointForCarType(td.ncy[NcxTok::CarType]);
+        std::string err;
+        if (name.empty())
+            LOG_INFO(strf("Haptics: the sim's type of car for %s (%.0f) names no starting point.", who.c_str(), td.ncy[NcxTok::CarType]));
+        else if (applyPreset(name, err))
+            LOG_INFO(strf("Haptics: starting point '%s' applied for %s (the sim's type of car).", name.c_str(), who.c_str()));
+        else
+            LOG_WARNING(strf("Haptics: starting point '%s' for %s could not be applied: %s", name.c_str(), who.c_str(), err.c_str()));
+    }
+    if (described == st.described && typed == st.typed) return;
+    CarMemory mem; bool remember = false;
+    {
+        std::lock_guard<std::mutex> lk(m_carMx);
+        const std::string ident = m_carState.game + "|" + m_carState.car + "|" + m_carState.carId;
+        if (ident != st.game + "|" + st.car + "|" + st.carId) return;   // another car meanwhile: its own facts
+        m_carState.described = described;
+        m_carState.typed     = typed;
+        if (m_carMem.ident == ident) { m_carMem.described = described; m_carMem.typed = typed; remember = true; }
+        mem = m_carMem;
+    }
+    if (remember) saveCarMemory(mem);
 }
 
 // The table entry for what the sim names: by the stable id when the
@@ -3083,7 +3160,7 @@ void WebServer::carIdentity(const std::string& game, const std::string& car, con
 {
     CarTable::Match m = findCar(game, car, carId);
     const std::string ident = game + "|" + car + "|" + carId;
-    bool applied = false, defaults = false;
+    bool applied = false, defaults = false, described = false, typed = false;
     const int gen0 = m_carGen.load();   // a pull or load from the page meanwhile has the last word (below)
     int bumps = 0;                      // ...this call's own rewrites of the set
     CarMemory mem;
@@ -3092,11 +3169,14 @@ void WebServer::carIdentity(const std::string& game, const std::string& car, con
     if (ident == mem.ident)
     {
         // The same car, back after a dropout or a restart: the tiles
-        // already carry what they carried (the entry or the defaults, or
-        // the user's edits since), and the row reads as it did.
-        applied  = mem.applied;
-        defaults = mem.defaults;
-        acted    = ident;
+        // already carry what they carried (the entry or the defaults, the
+        // sender's engine and type on top, or the user's edits since), and
+        // the row reads as it did.
+        applied   = mem.applied;
+        defaults  = mem.defaults;
+        described = mem.described;
+        typed     = mem.typed;
+        acted     = ident;
     }
     else if (mayApply && !m.source.empty())
     {
@@ -3149,16 +3229,21 @@ void WebServer::carIdentity(const std::string& game, const std::string& car, con
             m_carState.applied  = applied;
             m_carState.defaults = defaults;
         }
+        m_carState.described = described;
+        m_carState.typed     = typed;
         // A line that names the game but no car yet (the first line after
         // a start can) is no car to remember or forget: the memory stands,
         // so the real car's line that follows still reads as the same car
         // and its hand tuning is not overwritten by its entry again.
         if (!(car.empty() && carId.empty()))
         {
-            mem.ident    = acted;
-            mem.applied  = acted.empty() ? false : m_carState.applied;
-            mem.defaults = acted.empty() ? false : m_carState.defaults;
-            remember = (mem.ident != m_carMem.ident || mem.applied != m_carMem.applied || mem.defaults != m_carMem.defaults);
+            mem.ident     = acted;
+            mem.applied   = acted.empty() ? false : m_carState.applied;
+            mem.defaults  = acted.empty() ? false : m_carState.defaults;
+            mem.described = acted.empty() ? false : described;
+            mem.typed     = acted.empty() ? false : typed;
+            remember = (mem.ident != m_carMem.ident || mem.applied != m_carMem.applied || mem.defaults != m_carMem.defaults
+                        || mem.described != m_carMem.described || mem.typed != m_carMem.typed);
             m_carMem = mem;
         }
     }
@@ -3198,7 +3283,9 @@ void WebServer::loadCarMemory()
         const QJsonObject o = QJsonDocument::fromJson(QByteArray::fromStdString(text)).object();
         mem.ident    = o.value("ident").toString().toStdString();
         mem.applied  = o.value("applied").toBool(false);
-        mem.defaults = o.value("defaults").toBool(false);
+        mem.defaults  = o.value("defaults").toBool(false);
+        mem.described = o.value("described").toBool(false);
+        mem.typed     = o.value("typed").toBool(false);
     }
     else
     {
@@ -3206,7 +3293,7 @@ void WebServer::loadCarMemory()
         if (f) std::getline(f, mem.ident);
         mem.defaults = !mem.ident.empty();
     }
-    if (mem.ident.empty()) { mem.applied = false; mem.defaults = false; }
+    if (mem.ident.empty()) { mem.applied = false; mem.defaults = false; mem.described = false; mem.typed = false; }
     std::lock_guard<std::mutex> lk(m_carMx);
     m_carMem = mem;
 }
@@ -3274,6 +3361,8 @@ void WebServer::saveCarMemory(const CarMemory&)
     o["ident"]    = QString::fromStdString(mem.ident);
     o["applied"]  = mem.applied;
     o["defaults"] = mem.defaults;
+    o["described"] = mem.described;
+    o["typed"]     = mem.typed;
     o["_help"]    = "nullCAT: the car the car table last acted on by itself (game|car|id), and whether its tiles carry "
                     "its entry or the defaults, so the same car after a restart keeps its tiles as they are. Machine "
                     "state, not configuration: safe to delete, never edited by hand.";

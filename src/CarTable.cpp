@@ -3,6 +3,7 @@
 #include "CarTable.h"
 #include "Config.h"
 #include "HapticsRegistry.h"
+#include "NcxTokens.h"
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -10,6 +11,8 @@
 #include <QSaveFile>
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <iterator>
 #include <set>
 
 namespace {
@@ -374,6 +377,33 @@ bool CarTable::coversGame(const std::string& game) const
         return it != layer.rows.end() && it->first.compare(0, prefix.size(), prefix) == 0;
     };
     return any(m_user) || any(m_stock);
+}
+
+QJsonObject CarTable::engineFromSender(const bool have[], const double val[])
+{
+    const auto clampTo = [](double x, double lo, double hi) { return std::max(lo, std::min(hi, x)); };
+    QJsonObject eng;
+    if (have[NcxTok::EngCylinders] && std::isfinite(val[NcxTok::EngCylinders]))
+        eng["cylinders"] = std::round(clampTo(val[NcxTok::EngCylinders], 1.0, 16.0));
+    if (have[NcxTok::EngLayout] && std::isfinite(val[NcxTok::EngLayout]))
+        eng["layout"] = std::round(clampTo(val[NcxTok::EngLayout], 0.0, 5.0));
+    if (have[NcxTok::EngLitres] && std::isfinite(val[NcxTok::EngLitres]) && val[NcxTok::EngLitres] > 0.0)
+        eng["litres"] = std::round(clampTo(val[NcxTok::EngLitres], 0.1, 30.0) * 10.0) / 10.0;
+    if (have[NcxTok::EngTurbo] && std::isfinite(val[NcxTok::EngTurbo]))
+        eng["turbo"] = val[NcxTok::EngTurbo] >= 0.5 ? 1.0 : 0.0;
+    if (have[NcxTok::EngLimitHz] && std::isfinite(val[NcxTok::EngLimitHz]) && val[NcxTok::EngLimitHz] > 0.0)
+        eng["limHz"] = std::round(clampTo(val[NcxTok::EngLimitHz], 4.0, 30.0));
+    QJsonObject h;
+    if (!eng.isEmpty()) h[engineKey()] = eng;
+    return h;
+}
+
+std::string CarTable::startingPointForCarType(double carType)
+{
+    if (!std::isfinite(carType)) return "";
+    static const char* const kTypes[] = { "Road car", "Cup car", "GT3 / GT", "Open wheeler", "Rally gravel", "Rally tarmac" };
+    const long t = std::lround(carType);
+    return (t >= 0 && t < static_cast<long>(std::size(kTypes))) ? kTypes[t] : "";
 }
 
 bool CarTable::anyEntries() const

@@ -860,6 +860,36 @@ int main()
               && has(get("/api/cars"), "\"near\":true") && has(get("/api/status"), "\"hapCarDefault\":false")
               && has(get("/api/status"), "\"hapCarApplied\":true"),
               "follow car: a name that starts with an entry's is a near match, applied");
+        // A car on the defaults whose sender describes it (protocol 1.11,
+        // the BeamNG mod): its engine goes on the engine tile and its type
+        // of car is applied as the starting point, once: the same car
+        // described otherwise later changes nothing. Breaks with
+        // senderCarFacts not called, or applying every time.
+        {
+            const auto describe = [&](const char* cyl, const char* want) {
+                for (int t = 0, rpm = 3000; t < 10000; t += 100, rpm += 7)
+                {
+                    const std::string line = std::string("NULLCATY,game=BeamNG.drive,car=bastion sport_M,carId=bastion/sport_M,engCylinders=")
+                        + cyl + ",engLayout=1,engLitres=5.2,engTurbo=0,engLimitHz=7,carType=1,rpm=" + std::to_string(rpm);
+                    TelemetryData td;
+                    if (TelemetryInput::parsePacket(line.c_str(), static_cast<int>(line.size()), td)) telemetry.ingest(td);
+                    if (has(get("/api/cars"), want)) return true;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
+                return false; };
+            check(describe("8", "\"described\":true") && has(get("/api/cars"), "\"typed\":true") && has(get("/api/cars"), "\"defaults\":true"),
+                  "follow car: a car on the defaults takes what its sender says about it (GET /api/cars described, typed)");
+            std::string r = get("/api/rig");
+            r.erase(std::remove(r.begin(), r.end(), ' '), r.end());
+            check(has(r, "\"cylinders\":8") && has(r, "\"layout\":1") && has(r, "\"litres\":5.2") && has(r, "\"limHz\":7"),
+                  "...its engine on the engine tile (8 cylinders, V, 5.2 litres, limiter 7 hz)");
+            check(has(r, "\"beltFullG\":1.4"), "...and its type of car (cup) applied as the starting point (belt g at max 1.4)");
+            describe("6", "\"typed\":true");
+            std::this_thread::sleep_for(std::chrono::milliseconds(1200));   // two status samples
+            std::string r2 = get("/api/rig");
+            r2.erase(std::remove(r2.begin(), r2.end(), ' '), r2.end());
+            check(has(r2, "\"cylinders\":8") && !has(r2, "\"cylinders\":6"), "...once: the same car described otherwise later changes nothing");
+        }
         // A save that moves a setting the car table owns (the engine's amp)
         // means the tiles no longer carry the entry: the car row stops
         // claiming it. One that moves nothing the car owns (the master
