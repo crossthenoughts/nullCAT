@@ -656,6 +656,7 @@ static void writeDriveConfig(const DriveConfig& d, QJsonObject& obj)
     obj["beltGFullG"]                = d.beltGFullG;
     obj["beltGCurve"]                = d.beltGCurve;
     obj["beltGSmoothMs"]             = d.beltGSmoothMs;
+    obj["beltGCrashPct"]             = d.beltGCrashPct;
     // Nested device object: written for the control-loading families only,
     // so ordinary axes never carry an unused block.
     if (axisCaps(d.axisType, d.mode).isDevice())
@@ -784,6 +785,7 @@ static void readDriveConfig(const QJsonObject& obj, int idx, DriveConfig& d)
     rdDbl (obj, "beltGFullG",             d.beltGFullG);
     rdDbl (obj, "beltGCurve",             d.beltGCurve);
     rdDbl (obj, "beltGSmoothMs",          d.beltGSmoothMs);
+    rdDbl (obj, "beltGCrashPct",          d.beltGCrashPct);
     if (obj.contains("device") && obj.value("device").isObject())
         readDeviceParams(obj.value("device").toObject(), d.device);
 
@@ -1536,6 +1538,8 @@ std::vector<std::string> AppConfig::validate() const
                 errors.push_back(pfx + "beltGCurve out of range [0.3, 3]");
             if (d.beltGSmoothMs < 0.0 || d.beltGSmoothMs > 250.0)
                 errors.push_back(pfx + "beltGSmoothMs out of range [0, 250]");
+            if (!(d.beltGCrashPct >= 0.0 && d.beltGCrashPct <= 100.0))
+                errors.push_back(pfx + "beltGCrashPct out of range [0, 100]");
             // Ratio safety: the strap sees motor torque x reduction, so a
             // torqueMaxPct tuned at 1:1 must be re-derived when the ratio changes.
             // Cap the STRAP-side ceiling at 300%-of-rated-at-1:1 equivalent.

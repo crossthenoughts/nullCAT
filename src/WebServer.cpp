@@ -157,7 +157,7 @@ static bool jsonEqual(const std::string& a, const std::string& b)
 // The belt's source, torque range and guards are not in it: they wait for
 // an Initialize.
 static const char* const kBeltGLiveKeys[] = { "beltGMode", "beltGSway", "beltGSwayMix", "beltGHeave", "beltGHeaveMix",
-                                              "beltGFromG", "beltGFullG", "beltGCurve", "beltGSmoothMs" };
+                                              "beltGFromG", "beltGFullG", "beltGCurve", "beltGSmoothMs", "beltGCrashPct" };
 
 // True when two rig bodies differ ONLY in the parts the running process
 // applies live on save (haptics tuning, per-device feel, a belt's g shape,

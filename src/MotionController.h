@@ -292,6 +292,9 @@ private:
     // the car's g); false when there is none this cycle.
     bool   beltDemand(int i, const TelemetryData& td, double& tension);
     double beltGTension(int i, double x);
+    // Belt from g after a crash: the share of the g this cycle (1 = all of
+    // it), from the crash watch in the axis's runtime. RT thread only.
+    double beltCrashScale(int i, const NcxValues& v, bool teleport);
 
     // ---- Per-family step functions (Stage D decomposition) ----------------
     // process()'s per-axis switch keeps the family-agnostic frame (e-stop
@@ -491,6 +494,7 @@ private:
         double  beltGFullG        = 1.5;
         double  beltGCurve        = 1.0;
         double  beltGSmoothMs     = 30.0;
+        double  beltGCrashPct     = 50.0;     // the g's share after a crash while it stays rough (100 = off)
         double  beltUnitsPerRev   = 10.0;     // encoderCountsPerRev / countsPerMm (rpm math)
         double  hapticsMaxMm      = 3.0;      // position axes: largest haptic offset (0 = none)
         double  blendMaxVelocityMmS = 20.0; // velocity cap during post-homing blend
@@ -584,6 +588,32 @@ private:
             beltTeleportSec = 0.0; beltSpeedSeen = false;
             for (bool& s : beltRoadSeen) s = false;
         }
+        // Belt from g: the crash watch (MotionController::beltCrashScale).
+        // The g's slow part and its fast part's power (rough, junk frames
+        // left out), how long surge has held one value, the most speed over
+        // the last 0.6 s in 50 ms buckets, a hit waiting for its speed
+        // loss, the look after a crash (its second half's power, junk in),
+        // the crash held (its car, how long quiet) and the share it leaves
+        // the g. Road state rather than the car's: kept across a car change
+        // (the hold ends with the car); cleared at tension-up (resetBeltCrash).
+        struct BeltCrash
+        {
+            double meanS = 0.0, meanW = 0.0, roughPow = 0.0;
+            bool   seeded = false;
+            double lastS = 0.0, sameSec = 0.0;
+            double speedBucket[12] = {};
+            int    bucket = 0;
+            double bucketSec = 0.0;
+            bool   speedSeen = false;
+            double hitSec = 0.0, hitKmh = 0.0, hitPeakMs2 = 0.0;
+            double lookSec = 0.0, lookPow = 0.0, lookTime = 0.0, lostKmh = 0.0;
+            bool   held = false;
+            double quietSec = 0.0;
+            char   car[NCY_STR_LEN] = {}, carId[NCY_STR_LEN] = {};
+            double scale = 1.0;
+        };
+        BeltCrash beltCrash;
+        void resetBeltCrash() { beltCrash = BeltCrash{}; }
         // Belt from g: the motion stream's staleness, which (not the
         // channels') lets the belt slacken by itself, with the posts.
         // Armed once a motion frame is seen this session.
@@ -693,6 +723,7 @@ private:
     {
         int    mode = 1, sway = 0, heave = 0;
         double swayMix = 1.0, heaveMix = 1.0, fromG = 0.05, fullG = 1.5, curve = 1.0, smoothMs = 30.0;
+        double crashPct = 50.0;
     };
     static BeltGShape beltGShapeOf(const DriveConfig& dc);
     static void       putBeltGShape(AxisConfig& ac, const BeltGShape& s);

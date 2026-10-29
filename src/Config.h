@@ -258,7 +258,11 @@ struct DriveConfig
     // second through SimHub, about 333 with the plugin's Kunos direct
     // feed). The stale-stream stages, relaxer, slew cap and speed fold
     // apply as for "motion"; a channel stream that stops is a stream that
-    // stops (hold, ease to min, park slack).
+    // stops (hold, ease to min, park slack). After a crash (a hit past 8 g
+    // that loses 30 km/h) that leaves the car still and its g rough a second
+    // on, the g counts at beltGCrashPct percent (a wrecked car's physics
+    // send noise) until it settles for a second, the car drives off, a reset
+    // or another car; 100 = off.
     std::string beltSource    = "motion";
     std::string beltGMode     = "decel";
     std::string beltGSway     = "off";
@@ -269,6 +273,7 @@ struct DriveConfig
     double      beltGFullG    = 1.5;
     double      beltGCurve    = 1.0;
     double      beltGSmoothMs = 30.0;
+    double      beltGCrashPct = 50.0;
 
     // NOTE: drive-side safety limits (max torque 0x6072, position 0x607D,
     // following-error 0x6065) are intentionally NOT app-managed. They are set

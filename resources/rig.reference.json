@@ -54,7 +54,8 @@
             "beltGFromG": 0.05,
             "beltGFullG": 1.5,
             "beltGCurve": 1.0,
-            "beltGSmoothMs": 30.0
+            "beltGSmoothMs": 30.0,
+            "beltGCrashPct": 50.0
         }
     ]
 }

@@ -281,6 +281,7 @@ private slots:
         AppConfig c = cfg; c.drives[0].beltGFromG = 1.0; c.drives[0].beltGFullG = 1.02; QVERIFY(names(c, "beltGFullG"));
         AppConfig e = cfg; e.drives[0].beltGCurve = 5.0;          QVERIFY(names(e, "beltGCurve"));
         AppConfig f = cfg; f.drives[0].beltGSmoothMs = 500.0;     QVERIFY(names(f, "beltGSmoothMs"));
+        { AppConfig x = cfg; x.drives[0].beltGCrashPct = 120.0; QVERIFY(names(x, "beltGCrashPct")); }
         AppConfig g = cfg; g.drives[0].beltGFromG = -0.1;         QVERIFY(names(g, "beltGFromG"));
         AppConfig h = cfg; h.drives[0].beltGSway = "sideways";    QVERIFY(names(h, "beltGSway"));
         AppConfig k = cfg; k.drives[0].beltGHeave = "up";         QVERIFY(names(k, "beltGHeave"));

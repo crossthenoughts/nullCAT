@@ -1023,6 +1023,7 @@ const AXIS_SPEC=[
   {k:'beltGFullG',label:'g at max',type:'num',live:true,min:0.2,max:6,step:0.05,unit:'g',torque:true,tip:'With the cue from g: the g that pulls the belt to Torque max. Lower makes it stronger; road cars brake at about 1 g, race cars 2 to 4 g.'},
   {k:'beltGCurve',label:'g curve',type:'num',live:true,min:0.3,max:3,step:0.05,torque:true,tip:'With the cue from g: 1 is a straight line from g from to g at max. Above 1 is softer at small g and steeper near the top; below 1 the reverse.'},
   {k:'beltGSmoothMs',label:'g smoothing',type:'num',live:true,min:0,max:250,step:5,unit:'ms',torque:true,tip:'With the cue from g: how much the g is smoothed (it arrives about 60 times a second from most senders, about 333 with direct telemetry). 20 to 40 ms takes the steps out at 60; more is softer but later.'},
+  {k:'beltGCrashPct',label:'g after a crash',type:'num',live:true,min:0,max:100,step:5,unit:'%',torque:true,tip:'With the cue from g: after a crash (a hit past 8 g that loses 30 km/h or more), if the car is still a second on and its g still rough, as the physics of a wrecked car send noise, the g counts at this share until it settles for a second, you drive off, reset or change car. The crash itself plays as it always did; a reset, and most crashes, change nothing. 100 = off.'},
 ];
 function condMode(){ return (cfgObj&&cfgObj.conditioningMode)||'bypass'; }
 const isRot=d=>d&&d.axisType==='rotary_lever';

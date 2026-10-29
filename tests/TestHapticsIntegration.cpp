@@ -4094,6 +4094,179 @@ int main()
         }
     }
 
+    // ---- I-29c: the belt from g after a crash (beltGCrashPct) ----
+    // A wrecked car's g is noise (BeamNG 2026-10-29: a 140 g hit at 211
+    // km/h, then the car standing at 0 km/h with surge spikes to 1.4 g).
+    // After a crash, a hit past 8 g that loses 30 km/h, a second's look:
+    // if the car is then still (under 20 km/h) and its g rough, the g
+    // counts at the share until it settles for a second, the car drives
+    // off (past 30 km/h), a reset (a teleport) or another car; then back
+    // to full over half a second. A hit alone holds nothing, nor does a
+    // car still moving a second on (a junk frame in a braking zone loses
+    // the speed too), nor a crash quiet by then (most crashes, every
+    // restart). A pause (the stream stale) defers the look and the quiet;
+    // a car at rest sending one value over and over is quiet.
+    // Belt torque 5..50 over 0.1..1.1 g: 1 g pulls 45.5, half of it 23.
+    // Taking the share out of beltDemand fails the wreck checks; dropping
+    // the speed-loss test fails the lone-hit check; dropping the still
+    // test fails the braking-zone check; taking the look out (holding at
+    // the hit) fails "felt as it comes" and the quiet-crash check; the
+    // releases each fail their own check, and counting a stale look fails
+    // the pause checks.
+    {
+        const double G = 9.80665;
+        int tick = 0;
+        double speed = 100.0, roadMm = 455000.0;
+        const char* car = "Car A";
+        auto f = [&](double accG) {
+            TelemetryData sd = frame(0.0, true, 65535.0);
+            ++tick;
+            sd.ncx[static_cast<int>(NcxValues::SpeedKmh)] = speed + ((tick & 1) ? 1e-3 : 0.0);
+            sd.ncyHave[NcxTok::AccSurge] = true;
+            sd.ncy[NcxTok::AccSurge] = accG * G + ((tick & 1) ? 1e-4 : 0.0);
+            for (int w = 0; w < 4; ++w) { sd.ncyHave[NcxTok::RoadHeightFL + w] = true; sd.ncy[NcxTok::RoadHeightFL + w] = roadMm + ((tick & 1) ? 0.1 : 0.0); }
+            std::strncpy(sd.car, car, NCY_STR_LEN - 1);
+            return sd;
+        };
+        auto cyclesOf = [](double sec) { return std::max(1, static_cast<int>(sec / 0.002 + 0.5)); };
+        // A rough g: mid +-a, flipping every 10 ms. The highest tension.
+        auto rough = [&](MotionController& mc, double sec, double mid, double a) {
+            double hi = -1e9;
+            for (int c = 0, n = cyclesOf(sec); c < n; ++c) hi = std::max(hi, run(mc, f(mid + (((c / 5) & 1) ? a : -a)), 1, 1).hi);
+            return hi;
+        };
+        auto steady = [&](MotionController& mc, double sec, double g) {
+            double t = 0.0;
+            for (int c = 0, n = cyclesOf(sec); c < n; ++c) t = run(mc, f(g), 1, 1).hi;
+            return t;
+        };
+        // A value held on a live stream (a car at rest, AC Rally), then a
+        // pause as BeamNG's (its last values for 0.4 s, then the stream stale).
+        auto atRest = [&](MotionController& mc, double sec, double accG) {
+            for (int c = 0, n = cyclesOf(sec); c < n; ++c) { TelemetryData sd = f(accG); sd.ncy[NcxTok::AccSurge] = accG * G; sd.ncx[static_cast<int>(NcxValues::SpeedKmh)] = speed; run(mc, sd, 1, 1); }
+        };
+        auto stale = [&](MotionController& mc, double sec) {
+            atRest(mc, 0.4, 0.0);
+            for (int c = 0, n = cyclesOf(sec); c < n; ++c) { TelemetryData sd = f(0.0); sd.ncxFresh = false; run(mc, sd, 1, 1); }
+        };
+        auto beltCfg = [&](double crashPct) {
+            AppConfig cfg = makeBeltConfig(0.0, 1.0);    // torque 5..50
+            DriveConfig& d = cfg.drives[0];
+            d.beltSource = "g"; d.beltGMode = "decel";
+            d.beltGFromG = 0.1; d.beltGFullG = 1.1; d.beltGSmoothMs = 0.0; d.beltGCrashPct = crashPct;
+            return cfg;
+        };
+        auto belt = [&](double kmh = 100.0) {
+            auto mc = std::make_unique<MotionController>();
+            mc->configure(beltCfg(50.0));
+            tensionBelt(*mc);
+            speed = kmh; roadMm = 455000.0; car = "Car A";
+            steady(*mc, 0.8, 0.0);
+            return mc;
+        };
+        // A hit (one 20 g frame), the speed falling to `to` over 0.2 s at
+        // 2 g (a car's fall: no teleport).
+        auto hit = [&](MotionController& mc, double to) {
+            run(mc, f(20.0), 1, 1);
+            const double from = speed;
+            for (int c = 1; c <= 100; ++c) { speed = from + (to - from) * c / 100.0; run(mc, f(2.0), 1, 1); }
+        };
+        // A wreck held: the crash, its look, the g rough at 0 km/h.
+        auto wreck = [&](MotionController& mc) { hit(mc, 0.0); rough(mc, 1.0, 0.0, 1.0); };
+        {
+            auto mc = belt();
+            check(mc->getAxisState(0) == AxisMotionState::ONLINE && std::fabs(rough(*mc, 0.5, 0.0, 1.0) - 45.5) < 1e-3,
+                  "I-29c setup: a rough 1 g pulls 45.5 before any crash");
+            hit(*mc, 0.0);
+            check(std::fabs(rough(*mc, 0.7, 0.0, 1.0) - 45.5) < 1e-3, "I-29c a crash (100 km/h lost) is felt as it comes for its first second");
+            rough(*mc, 0.3, 0.0, 1.0);
+            check(std::fabs(rough(*mc, 3.0, 0.0, 1.0) - 23.0) < 1e-3,
+                  "I-29c ...then a wreck, still and its g rough, pulls at half the g for as long as it stays so");
+            steady(*mc, 3.5, 0.0);
+            check(std::fabs(steady(*mc, 0.6, 0.6) - 27.5) < 1e-3, "I-29c ...back to full once the g settles (a reset in place, a car at rest)");
+        }
+        {
+            auto mc = belt();
+            hit(*mc, 0.0);
+            steady(*mc, 0.9, 0.0);
+            check(std::fabs(steady(*mc, 0.4, 0.6) - 27.5) < 1e-3 && std::fabs(rough(*mc, 2.0, 0.0, 1.0) - 45.5) < 1e-3,
+                  "I-29c a crash or a restart quiet within its first second holds nothing (most crashes, every reset)");
+        }
+        {
+            // Standing (the car stopped as a car does), a lone junk frame,
+            // then a rough g: still and rough, but no speed lost to a hit.
+            auto mc = belt(0.0);
+            run(*mc, f(20.0), 1, 1);
+            rough(*mc, 1.2, 0.0, 1.0);
+            check(std::fabs(rough(*mc, 2.0, 0.0, 1.0) - 45.5) < 1e-3,
+                  "I-29c a hit with no speed lost (a lone junk frame, AMS2's 404 g at 60 km/h) holds nothing");
+        }
+        {
+            // Braking into a hairpin: 120 to 25 km/h at 4.5 g with one junk
+            // frame, then a rough road at 25: a car still moving (under the
+            // 30 km/h that would end a hold, over the 20 that starts one).
+            auto mc = belt(120.0);
+            run(*mc, f(20.0), 1, 1);
+            for (int c = 1; c <= 300; ++c) { speed = 120.0 - 95.0 * c / 300.0; run(*mc, f(4.5), 1, 1); }
+            rough(*mc, 1.0, 0.0, 1.0);
+            check(std::fabs(rough(*mc, 2.0, 0.0, 1.0) - 45.5) < 1e-3,
+                  "I-29c a junk frame braking into a hairpin (95 km/h lost, the car at 25 a second on) holds nothing");
+        }
+        {
+            auto mc = belt();
+            wreck(*mc);
+            check(std::fabs(rough(*mc, 0.5, 0.0, 1.0) - 23.0) < 1e-3, "I-29c (driving off) held at half");
+            double slow = 0.0, first = 0.0;
+            for (int c = 1; c <= 151; ++c) { speed = 0.2 * c; const double t = run(*mc, f(0.6), 1, 1).hi; if (speed < 29.9) slow = t; else if (first == 0.0) first = t; }
+            check(std::fabs(slow - 14.0) < 1e-3 && first > 14.0 + 1e-3 && first < 27.5 - 1.0,
+                  "I-29c ...held while it crawls; driving off (past 30 km/h) ends it, the share coming back over half a second");
+            check(std::fabs(steady(*mc, 0.6, 0.6) - 27.5) < 1e-3, "I-29c ...full half a second on");
+        }
+        {
+            auto mc = belt();
+            wreck(*mc);
+            roadMm = 525000.0;   // a reset elsewhere: the road under the car 70 m higher, standing still
+            rough(*mc, 0.05, 0.0, 1.0);
+            rough(*mc, 1.6, 0.0, 1.0);
+            check(std::fabs(rough(*mc, 0.5, 0.0, 1.0) - 45.5) < 1e-3, "I-29c a reset (a teleport) ends it");
+        }
+        {
+            auto mc = belt();
+            wreck(*mc);
+            car = "Car B";
+            rough(*mc, 0.6, 0.0, 1.0);
+            check(std::fabs(rough(*mc, 0.5, 0.0, 1.0) - 45.5) < 1e-3, "I-29c another car named ends it, rough or not");
+        }
+        {
+            auto mc = belt();
+            wreck(*mc);
+            check(std::fabs(rough(*mc, 0.5, 0.0, 1.0) - 23.0) < 1e-3, "I-29c (the setting live) held at half");
+            mc->stageBeltG(0, beltCfg(100.0).drives[0]);
+            rough(*mc, 0.1, 0.0, 1.0);
+            check(std::fabs(rough(*mc, 0.5, 0.0, 1.0) - 45.5) < 1e-3, "I-29c the setting saved at 100 mid-hold: full at once");
+        }
+        {
+            // A pause straight after the crash (BeamNG: Escape), then the
+            // wreck as it was: the look waits for the stream.
+            auto mc = belt();
+            hit(*mc, 0.0);
+            stale(*mc, 3.0);
+            rough(*mc, 1.2, 0.0, 1.0);
+            check(std::fabs(rough(*mc, 1.0, 0.0, 1.0) - 23.0) < 1e-3, "I-29c a pause straight after a crash defers the look: the wreck is held after it");
+            // ...and a pause mid-hold counts no quiet: still held after it.
+            stale(*mc, 3.0);
+            check(std::fabs(rough(*mc, 0.5, 0.0, 1.0) - 23.0) < 1e-3, "I-29c a pause mid-hold counts no quiet: still held after it");
+        }
+        {
+            // A car at rest sending one value over and over (AC Rally
+            // standing still): quiet, so a launch after it pulls whole.
+            auto mc = belt();
+            wreck(*mc);
+            atRest(*mc, 4.0, 0.0);
+            check(std::fabs(steady(*mc, 0.05, 0.6) - 27.5) < 1e-3, "I-29c a car at rest after the crash (its values held, the stream live) settles it: the launch pulls whole");
+        }
+    }
+
     // ---- I-28: the belt from g slackens with the posts, never on its own ----
     // The channel stream goes quiet whenever the game pauses or loses focus
     // while the motion stream (and the posts) carry on: the belt eases to

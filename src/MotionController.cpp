@@ -220,10 +220,10 @@ void MotionController::configure(const AppConfig& config)
                 static const char* const kSway[4]  = { "off", "left", "right", "both" };
                 static const char* const kHeave[4] = { "off", "press", "lift", "both" };
                 LOG_INFO(strf("MotionController: Axis %d belt from the car's g: surge %s, sway %s x%.2f, "
-                              "heave %s x%.2f, %.2f..%.2f g, curve %.2f, smoothed %.0f ms", i + 1,
+                              "heave %s x%.2f, %.2f..%.2f g, curve %.2f, smoothed %.0f ms, %.0f %% after a crash", i + 1,
                               kSurge[ac.beltGMode & 3], kSway[ac.beltGSway & 3], ac.beltGSwayMix,
                               kHeave[ac.beltGHeave & 3], ac.beltGHeaveMix,
-                              ac.beltGFromG, ac.beltGFullG, ac.beltGCurve, ac.beltGSmoothMs));
+                              ac.beltGFromG, ac.beltGFullG, ac.beltGCurve, ac.beltGSmoothMs, ac.beltGCrashPct));
             }
         }
 
@@ -1204,6 +1204,7 @@ void MotionController::tensionBelts()
             rt.beltLastTripWhy  = 0;            // card guard flag clears on tension-up
             for (auto& c : rt.beltGCh) c.live = c.meanLive = false;   // the g filters start afresh (not from the last session's braking)
             rt.resetBeltTeleport();   // ...and the teleport test (a speed from the last session is no jump)
+            rt.resetBeltCrash();      // ...and the crash watch (a crash from the last session holds nothing)
             RT_LOG_INFO("MotionController: Axis %d (belt) tensioning -- blending in.", i + 1);
         }
     }
@@ -1304,6 +1305,7 @@ MotionController::BeltGShape MotionController::beltGShapeOf(const DriveConfig& d
     s.fullG    = beltFullGWithin(s.fromG, std::isfinite(dc.beltGFullG) ? dc.beltGFullG : 1.5);
     s.curve    = std::isfinite(dc.beltGCurve) ? std::max(0.3, std::min(3.0, dc.beltGCurve)) : 1.0;
     s.smoothMs = std::isfinite(dc.beltGSmoothMs) ? std::max(0.0, std::min(250.0, dc.beltGSmoothMs)) : 30.0;
+    s.crashPct = std::isfinite(dc.beltGCrashPct) ? std::max(0.0, std::min(100.0, dc.beltGCrashPct)) : 50.0;
     return s;
 }
 
@@ -1312,6 +1314,7 @@ void MotionController::putBeltGShape(AxisConfig& ac, const BeltGShape& s)
     ac.beltGMode = s.mode; ac.beltGSway = s.sway; ac.beltGHeave = s.heave;
     ac.beltGSwayMix = s.swayMix; ac.beltGHeaveMix = s.heaveMix;
     ac.beltGFromG = s.fromG; ac.beltGFullG = s.fullG; ac.beltGCurve = s.curve; ac.beltGSmoothMs = s.smoothMs;
+    ac.beltGCrashPct = s.crashPct;
 }
 
 void MotionController::stageBeltG(int axisIndex, const DriveConfig& dc)
@@ -1364,11 +1367,12 @@ void MotionController::applyPendingBeltG()
             if (was[k] == 0 && now[k] != 0) { m_runtime[i].beltGCh[k].live = false; m_runtime[i].beltGCh[k].meanLive = false; }
         const bool same = ac.beltGMode == s[i].mode && ac.beltGSway == s[i].sway && ac.beltGHeave == s[i].heave
                        && ac.beltGSwayMix == s[i].swayMix && ac.beltGHeaveMix == s[i].heaveMix && ac.beltGFromG == s[i].fromG
-                       && ac.beltGFullG == s[i].fullG && ac.beltGCurve == s[i].curve && ac.beltGSmoothMs == s[i].smoothMs;
+                       && ac.beltGFullG == s[i].fullG && ac.beltGCurve == s[i].curve && ac.beltGSmoothMs == s[i].smoothMs
+                       && ac.beltGCrashPct == s[i].crashPct;
         putBeltGShape(ac, s[i]);
         if (!same)
-            RT_LOG_INFO("MotionController: Axis %d belt from the car's g applied live: surge %s, %.2f..%.2f g, curve %.2f, smoothed %.0f ms",
-                        i + 1, kSurge[s[i].mode & 3], s[i].fromG, s[i].fullG, s[i].curve, s[i].smoothMs);
+            RT_LOG_INFO("MotionController: Axis %d belt from the car's g applied live: surge %s, %.2f..%.2f g, curve %.2f, smoothed %.0f ms, %.0f %% after a crash",
+                        i + 1, kSurge[s[i].mode & 3], s[i].fromG, s[i].fullG, s[i].curve, s[i].smoothMs, s[i].crashPct);
     }
 }
 
@@ -1835,6 +1839,159 @@ static constexpr double kBeltGTeleportKmh = 30.0;
 // even at 123 km/h).
 static constexpr double kBeltGTeleportRoadMm   = 2000.0;
 static constexpr double kBeltGTeleportStillKmh = 10.0;
+// After a crash a wrecked car's g is noise (BeamNG 2026-10-29: a 140 g hit
+// at 211 km/h, then the car standing at 0 km/h with surge spikes to 1.4 g
+// for as long as it stood), so the belt takes the g at beltGCrashPct while
+// the wreck sits there rough. A crash: a hit past the junk limit with the
+// speed falling kBeltGCrashKmh or more from the most of the kBeltGCrashSec
+// before it, within kBeltGCrashSec after it; a hit alone is none (AMS2
+// sends a lone 404 g frame at 60 km/h, AC EVO 14 g at 94). Then a look of
+// kBeltGLookSec, the g taken as it comes meanwhile: the share applies only
+// if by its end the car is under kBeltGCrashSlowKmh (a car still moving
+// is no wreck to hold: a junk frame in a braking zone loses the speed too)
+// and its g is still rough over the look's second half. A restart or a
+// reset looks the same at the hit (a spike, the speed gone in a frame) but
+// is quiet by then, and so are most crashes in the recordings (2026-10-12
+// to 10-29, every title). Rough: the fast part of surge and sway (each
+// less its own mean over about kBeltGSlowSec), in power, past kBeltGQuietMs2
+// (a car at rest is still). The look counts only frames whose surge moved
+// within kBeltGCrashLiveSec (a paused game sends nothing, or its last
+// values over and over): a pause defers it. The quiet counts no frame from
+// a stale stream (BeamNG paused sends nothing), but a value held on a live
+// one is a car at rest (AC Rally repeats its values standing still): no
+// fast part, its power easing off, quiet. Held, it ends once
+// the power over about kBeltGRoughSec (junk frames left out, each one
+// starting the count again) stays under the limit for kBeltGQuietSec, the
+// car drives off past kBeltGCrashGoKmh, a teleport (a reset), or another
+// car. The share then comes back to full over kBeltGCrashBackSec.
+static constexpr double kBeltGCrashKmh     = 30.0;
+static constexpr double kBeltGCrashSec     = 0.6;
+static constexpr double kBeltGLookSec      = 1.0;
+static constexpr double kBeltGCrashSlowKmh = 20.0;
+static constexpr double kBeltGCrashGoKmh   = 30.0;
+static constexpr double kBeltGCrashLiveSec = 0.1;
+static constexpr double kBeltGSlowSec      = 0.1;
+static constexpr double kBeltGRoughSec     = 0.5;
+static constexpr double kBeltGQuietMs2     = 2.0;
+static constexpr double kBeltGQuietSec     = 1.0;
+static constexpr double kBeltGCrashBackSec = 0.5;
+
+double MotionController::beltCrashScale(int i, const NcxValues& v, bool teleport)
+{
+    const AxisConfig& ac = m_axisConfig[i];
+    AxisRuntime::BeltCrash& c = m_runtime[i].beltCrash;
+    const double dt    = m_cycleTimeSec;
+    const double share = std::isfinite(ac.beltGCrashPct) ? std::max(0.0, std::min(100.0, ac.beltGCrashPct)) / 100.0 : 0.5;
+    const bool haveS = v.fresh && v.have[NcxValues::AccSurge] && std::isfinite(v.val[NcxValues::AccSurge]);
+    const bool haveW = v.fresh && v.have[NcxValues::AccSway]  && std::isfinite(v.val[NcxValues::AccSway]);
+    const bool haveV = v.fresh && v.have[NcxValues::SpeedKmh] && std::isfinite(v.val[NcxValues::SpeedKmh]);
+    const double s   = haveS ? v.val[NcxValues::AccSurge] : 0.0;
+    const double w   = haveW ? v.val[NcxValues::AccSway]  : 0.0;
+    const double kmh = haveV ? v.val[NcxValues::SpeedKmh] : 0.0;
+    // Live: surge moving (a paused game resends its last values).
+    if (haveS) { if (s != c.lastS) { c.lastS = s; c.sameSec = 0.0; } else c.sameSec += dt; }
+    const bool   live = haveS && c.sameSec <= kBeltGCrashLiveSec;
+    const bool   atRest = haveS && !live;   // a value held on a live stream: a car at rest
+    const double h    = std::sqrt(s * s + w * w);
+    if (atRest) c.roughPow -= c.roughPow * (dt / (kBeltGRoughSec + dt));
+
+    // The most speed over the last 0.6 s, in 50 ms buckets.
+    if (haveV)
+    {
+        if (!c.speedSeen) { for (double& b : c.speedBucket) b = kmh; c.speedSeen = true; }
+        if ((c.bucketSec += dt) >= 0.05)
+        {
+            c.bucketSec -= 0.05;
+            c.bucket = (c.bucket + 1) % 12;
+            c.speedBucket[c.bucket] = kmh;
+        }
+        else c.speedBucket[c.bucket] = std::max(c.speedBucket[c.bucket], kmh);
+    }
+
+    // Roughness: the filters leave junk frames out; a junk frame counts in
+    // the look as its own power.
+    double p = h * h;
+    if (live && h <= kBeltGJunkMs2)
+    {
+        if (!c.seeded) { c.meanS = s; c.meanW = w; c.seeded = true; }
+        c.meanS += (s - c.meanS) * (dt / (kBeltGSlowSec + dt));
+        c.meanW += (w - c.meanW) * (dt / (kBeltGSlowSec + dt));
+        const double fs = s - c.meanS, fw = w - c.meanW;
+        p = fs * fs + fw * fw;
+        c.roughPow += (p - c.roughPow) * (dt / (kBeltGRoughSec + dt));
+    }
+
+    // A hit, then the speed it loses: a crash, and the look after it.
+    if (live && h > kBeltGJunkMs2)
+    {
+        double vmax = 0.0;
+        for (double b : c.speedBucket) vmax = std::max(vmax, b);
+        c.hitKmh     = (c.hitSec > 0.0) ? std::max(c.hitKmh, vmax) : vmax;
+        c.hitPeakMs2 = (c.hitSec > 0.0) ? std::max(c.hitPeakMs2, h) : h;
+        c.hitSec     = kBeltGCrashSec;
+    }
+    if (c.hitSec > 0.0)
+    {
+        c.hitSec -= dt;
+        const double lost = haveV ? c.hitKmh - kmh : 0.0;
+        if (share < 1.0 && !c.held && c.lookSec <= 0.0 && lost >= kBeltGCrashKmh)
+        {
+            c.lookSec  = kBeltGLookSec;
+            c.lookPow  = 0.0;
+            c.lookTime = 0.0;
+            c.lostKmh  = lost;
+            c.hitSec   = 0.0;
+            std::memcpy(c.car,   v.car,   NCY_STR_LEN);
+            std::memcpy(c.carId, v.carId, NCY_STR_LEN);
+        }
+    }
+    // A crash sent before the car was named: the car named next is its own.
+    if ((c.lookSec > 0.0 || c.held) && c.car[0] == '\0' && v.car[0] != '\0')
+    {
+        std::memcpy(c.car,   v.car,   NCY_STR_LEN);
+        std::memcpy(c.carId, v.carId, NCY_STR_LEN);
+    }
+    const bool other = v.car[0] != '\0' && c.car[0] != '\0' && otherCar(v, c.car, c.carId);
+    if (c.lookSec > 0.0 && live)
+    {
+        c.lookSec -= dt;
+        if (c.lookSec <= kBeltGLookSec / 2.0) { c.lookPow += p * dt; c.lookTime += dt; }
+        if (c.lookSec <= 0.0 && c.lookTime > 0.0)
+        {
+            const double rms = std::sqrt(c.lookPow / c.lookTime);
+            if (share < 1.0 && !other && haveV && kmh < kBeltGCrashSlowKmh && rms >= kBeltGQuietMs2)
+            {
+                c.held     = true;
+                c.quietSec = 0.0;
+                RT_LOG_INFO("MotionController: Axis %d belt: a crash (%.0f g, %.0f km/h lost) left the car still and its g rough: its g at %.0f %% until it settles",
+                            i + 1, c.hitPeakMs2 / 9.80665, c.lostKmh, share * 100.0);
+            }
+        }
+    }
+    if (c.lookSec > 0.0 && other) c.lookSec = 0.0;   // another car: nothing to hold
+
+    // Held until the g settles, the car drives off, a reset, another car, or
+    // the setting at 100 %.
+    if (c.held)
+    {
+        bool settled = false;
+        if (live || atRest)
+        {
+            if (h > kBeltGJunkMs2 || std::sqrt(c.roughPow) >= kBeltGQuietMs2) c.quietSec = 0.0;
+            else settled = (c.quietSec += dt) >= kBeltGQuietSec;
+        }
+        const bool driven = haveV && kmh > kBeltGCrashGoKmh;
+        if (share >= 1.0 || other || settled || driven || teleport)
+        {
+            c.held = false;
+            RT_LOG_INFO("MotionController: Axis %d belt: %s after the crash: its g back to full", i + 1,
+                        other ? "another car" : teleport ? "a reset" : driven ? "driving off" : settled ? "the g settled" : "the setting at 100 %");
+        }
+    }
+    c.scale = c.held ? share : std::min(1.0, c.scale + (1.0 - share) * dt / kBeltGCrashBackSec);
+    if (!c.held && share >= 1.0) c.scale = 1.0;
+    return c.scale;
+}
 
 // The belt's live tension demand this cycle from its source (Config.h
 // beltSource): the motion line's slot for this axis, or the car's g.
@@ -1905,6 +2062,8 @@ bool MotionController::beltDemand(int i, const TelemetryData& td, double& tensio
                         i + 1, kBeltGTeleportHoldSec);
         rt.beltTeleportSec = kBeltGTeleportHoldSec;
     }
+    // The crash watch, every cycle (through a teleport's hold-off too).
+    const double crashScale = beltCrashScale(i, v, teleport);
     if (rt.beltTeleportSec > 0.0)
     {
         rt.beltTeleportSec -= dt;
@@ -1960,7 +2119,7 @@ bool MotionController::beltDemand(int i, const TelemetryData& td, double& tensio
     // Unusable on every g the belt takes: the standby stages, as a lost line
     // (nothing selected never has a demand: the belt waits at minimum).
     if (!anyUsable) return false;
-    tension = beltGTension(i, x);
+    tension = beltGTension(i, x * crashScale);
     return true;
 }
 
@@ -2845,6 +3004,7 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
                 rt.beltLastTripWhy  = 0;
                 for (auto& c : rt.beltGCh) c.live = c.meanLive = false;
                 rt.resetBeltTeleport();
+                rt.resetBeltCrash();
 
                 state = AxisMotionState::BLENDING;
                 RT_LOG_INFO("MotionController: Axis %d BLENDING into live telemetry.", i + 1);

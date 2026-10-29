@@ -62,6 +62,13 @@ each shaker, and BeamNG.drive straight from the game.
   GT3, 2.5 for an open wheeler), shown under the type on the Haptics
   panel and saved like the tiles, with the loop running. 0 leaves each belt
   on its own g at max.
+- A belt on the car's g steadies after a crash: **g after a crash** (default
+  50 %). When a crash leaves the car standing with its g still rough a
+  second later (a wrecked BeamNG car's physics send noise, which the belt
+  chased), the g counts at that share until it settles for a second, you
+  drive off, reset or change car. The crash itself plays as before; a
+  restart, a reset and most crashes are quiet by then and change nothing.
+  100 turns it off.
 - SimHub plugin: with `"kunosDirectHeights": "on"` beside `"kunosDirect"`,
   the road heights under the tyres and, in Competizione, EVO and Rally,
   the game's own kerb vibration go straight from the game at its physics
