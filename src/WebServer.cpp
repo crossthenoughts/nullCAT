@@ -3181,10 +3181,11 @@ void WebServer::carIdentity(const std::string& game, const std::string& car, con
     else if (mayApply && !m.source.empty())
     {
         std::string err;
-        applied = applyCarEntry(m, err);
+        bool moved = false;
+        applied = applyCarEntry(m, err, &moved);
         if (applied)
         {
-            ++bumps;
+            if (moved) ++bumps;   // only a write bumps the generation: count what this call bumped
             acted = ident;
             LOG_INFO(strf("Haptics: car preset '%s' (%s%s) applied for %s.", m.key.c_str(), m.source.c_str(),
                           m.nearMatch ? ", near match" : "", car.c_str()));
@@ -3203,10 +3204,11 @@ void WebServer::carIdentity(const std::string& game, const std::string& car, con
         // settings.
         std::string err;
         const std::string& who = car.empty() ? carId : car;
-        defaults = applyCarDefaults(err);
+        bool moved = false;
+        defaults = applyCarDefaults(err, &moved);
         if (defaults)
         {
-            ++bumps;
+            if (moved) ++bumps;   // tiles already on the defaults (the last car on them too): no write, no bump
             acted = ident;
             LOG_INFO(strf("Haptics: no car table entry for %s: its car settings are on the defaults.", who.c_str()));
         }
@@ -3385,25 +3387,29 @@ bool WebServer::followCarEnabled() const
     return cfg.get().hapticsFollowCar;
 }
 
-bool WebServer::applyCarEntry(const CarTable::Match& m, std::string& err)
+bool WebServer::applyCarEntry(const CarTable::Match& m, std::string& err, bool* changedOut)
 {
+    if (changedOut) *changedOut = false;
     if (m.source.empty()) { err = "no entry"; return false; }
     std::lock_guard<std::mutex> lk(m_profilesIo);
     bool changed = false;
     if (!applyHapticsObjectLocked(CarTable::toHapticsObject(m.entry), err, &changed)) return false;
     if (changed) m_carGen.fetch_add(1);
+    if (changedOut) *changedOut = changed;
     return true;
 }
 
 // The car-owned settings back to a generic car's (a fresh install's, each
 // tile at the table's typical strength), applied and saved the way an
 // entry is (only those keys move).
-bool WebServer::applyCarDefaults(std::string& err)
+bool WebServer::applyCarDefaults(std::string& err, bool* changedOut)
 {
+    if (changedOut) *changedOut = false;
     std::lock_guard<std::mutex> lk(m_profilesIo);
     bool changed = false;
     if (!applyHapticsObjectLocked(CarTable::defaultHapticsObject(), err, &changed)) return false;
     if (changed) m_carGen.fetch_add(1);
+    if (changedOut) *changedOut = changed;
     return true;
 }
 

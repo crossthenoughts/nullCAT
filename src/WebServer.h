@@ -303,8 +303,10 @@ private:
     void carIdentity(const std::string& game, const std::string& car, const std::string& carId, bool mayApply);
     CarTable::Match findCar(const std::string& game, const std::string& car, const std::string& carId) const;
     std::string carKeyFor(const std::string& game, const std::string& car, const std::string& carId) const;
-    bool applyCarEntry(const CarTable::Match& m, std::string& err);
-    bool applyCarDefaults(std::string& err);
+    // changed (optional): whether the set moved (only then is the apply
+    // generation bumped)
+    bool applyCarEntry(const CarTable::Match& m, std::string& err, bool* changed = nullptr);
+    bool applyCarDefaults(std::string& err, bool* changed = nullptr);
     bool followCarEnabled() const;
 
     // Starting points (presets.json beside the executable): a type of car's
