@@ -810,7 +810,11 @@ int main()
     // while the status is polled. Breaks with the defaults kept to the
     // games the table covers.
     {
-        check(nameCar(telemetry, "iRacing", "Some Car", "\"hapCarDefault\":true", 10000),
+        // Each car waited for by its name first: two cars in a row on the
+        // defaults read alike, so the flag alone would not say the second
+        // has been taken.
+        check(nameCar(telemetry, "iRacing", "Some Car", "\"hapCar\":\"Some Car\"", 10000)
+              && waitStatus("\"hapCarDefault\":true", 5000),
               "follow car: a car in a game the table has nothing for gets the defaults too (status hapCarDefault)");
         {
             std::string r = get("/api/rig");
@@ -818,7 +822,8 @@ int main()
             check(!has(r, "\"cylinders\":8") && has(r, "\"followCar\":true"),
                   "...the defaults replaced the last car's engine (the F40's) in the saved rig");
         }
-        check(nameCar(telemetry, "AssettoCorsa", "Mystery Car", "\"hapCarDefault\":true", 10000),
+        check(nameCar(telemetry, "AssettoCorsa", "Mystery Car", "\"hapCar\":\"Mystery Car\"", 10000)
+              && waitStatus("\"hapCarDefault\":true", 5000),
               "follow car: a car with no entry puts the car tiles on the defaults (status hapCarDefault)");
         std::string rig = get("/api/rig");
         rig.erase(std::remove(rig.begin(), rig.end(), ' '), rig.end());
