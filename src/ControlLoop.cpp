@@ -1122,6 +1122,9 @@ void ControlLoopWorker::run()
             { driveCache[i]->setTargetTorque(0.0); bled = true; }
         if (bled)
         {
+            // On the loop's next deadline, not straight after its last frame
+            // (two frames in one SYNC0 window count as a sync error).
+            PlatformRT::waitUntil(nextCycleTime);
             m_master->sendReceive();
             RT_LOG_INFO("ControlLoop: Belt torque bled to 0 before loop exit (ErC1.2 guard).");
         }

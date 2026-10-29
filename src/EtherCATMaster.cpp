@@ -1908,7 +1908,7 @@ void EtherCATMaster::logOPFailureDiagnostics(ecx_contextt* ctx)
     checkSlaveStates();
 }
 
-void EtherCATMaster::runOPBridge(ecx_contextt* ctx, int64_t ticksPer2Ms)
+void EtherCATMaster::runOPBridge(ecx_contextt* ctx, int64_t ticksPer2Ms, int64_t minGapCounts)
 {
     // Warm-up bridge - run 10 frames on the calling thread before creating
     // the pump thread. Windows/Npcap per-thread send-path state
@@ -1919,7 +1919,12 @@ void EtherCATMaster::runOPBridge(ecx_contextt* ctx, int64_t ticksPer2Ms)
     // timing consistent with the send path failing before the first packet
     // reaches the wire. Diagnosis is behavioral inference - not verified at
     // the Npcap source level.
+    // Its first frame a period on, not straight after the frame before it
+    // (the loop's last, or the OP transition's); late, it drops frames
+    // rather than sending them close behind (skipMissedPeriods).
     PlatformRT::Timestamp bNext = PlatformRT::now();
+    PlatformRT::advancePeriod(bNext, ticksPer2Ms);
+    PlatformRT::waitUntil(bNext);
     for (int i = 0; i < 10; ++i)
     {
         PlatformRT::advancePeriod(bNext, ticksPer2Ms);
@@ -1928,6 +1933,7 @@ void EtherCATMaster::runOPBridge(ecx_contextt* ctx, int64_t ticksPer2Ms)
         busExchange(ctx, &ex);
         if (ex != 0) break;
         PlatformRT::waitUntil(bNext);
+        PlatformRT::skipMissedPeriods(bNext, PlatformRT::now(), ticksPer2Ms, minGapCounts);
     }
 }
 
@@ -2548,7 +2554,30 @@ void EtherCATMaster::stopPump()
         m_pumpActive.store(false);
         if (m_pumpThread.joinable())
             m_pumpThread.join();
-        LOG_INFO("EtherCATMaster: Background pump stopped.");
+        // One line for the whole stretch (the only line: this runs at the
+        // hand-over, just before the loop's first frame).
+        const PumpReport& r = m_pumpReport;
+        std::string how;
+#ifndef _WIN32
+        how = r.elevated ? strf(", SCHED_FIFO %d", r.priority) : std::string(", normal priority");
+        if (r.core >= 0) how += strf(" on core %d", r.core);
+#endif
+        std::string seen = r.missedWakes > 0
+            ? strf("%d late wake(s) dropped %d frame(s)", r.missedWakes, r.droppedFrames)
+            : std::string("no frame dropped");
+        if (r.shortReplies > 0)
+            seen += strf("; %d replies short of WKC %d, the first %.2f s in (WKC %d): drives not in OP",
+                         r.shortReplies, m_expectedWKC, r.shortFromSec, r.shortWkc);
+        if (r.lostFrames > 0)
+            seen += strf("; %d frame(s) with no reply, the first %.2f s in", r.lostFrames, r.lostFromSec);
+        if (r.crashed)
+            seen += "; ended by a transport crash";
+        const bool bad = r.shortReplies > 0 || r.lostFrames > 0 || r.crashed;
+        const std::string line = strf("EtherCATMaster: Background pump stopped (held %.1f s%s; latest wake %.2f ms late; %s%s).",
+                                      r.heldSec, how.c_str(), r.latestWakeUs / 1000.0, seen.c_str(),
+                                      bad ? "" : "; every reply in full");
+        if (bad) LOG_WARNING(line);
+        else     LOG_INFO(line);
     }
 }
 
@@ -2599,19 +2628,33 @@ void EtherCATMaster::startPumpBody()
     // the SYNC0 grid; at other rates the pump is already off-cadence vs SYNC0
     // (pre-existing) and the lock is gated OFF by default anyway.
     const int64_t pumpCycNs = (m_controlLoopHz > 0) ? (1000000000LL / m_controlLoopHz) : 2000000LL;
+    // The least gap between two of the pump's (and the bridge's) frames after
+    // a late wake (PlatformRT::skipMissedPeriods): a SYNC0 period, at most
+    // half the pump's own, so two frames never share a SYNC0 window.
+    const int64_t minGap = std::min(PlatformRT::periodCounts(pumpCycNs / 1000.0), ticksPer2Ms / 2);
+    const int     rtCore = m_rtCore;
 
     // 10-frame bridge on the dispatch thread before launching the pump thread.
     // The dispatch thread has sent frames before (at init or prior restart), so
     // Npcap's per-thread send-path state is already warm - no AV on first pump frame.
     PlatformRT::timerBegin();
-    runOPBridge(ctx, ticksPer2Ms);
+    runOPBridge(ctx, ticksPer2Ms, minGap);
 
     m_pumpActive.store(true);
     m_pumpCrashed.store(false);
-    m_pumpThread = std::thread([this, ctx, ticksPer2Ms, pumpCycNs]() {
-#ifdef _WIN32
-        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
-#endif
+    m_pumpThread = std::thread([this, ctx, ticksPer2Ms, pumpCycNs, minGap, rtCore]() {
+        // Its priority and CPU (PlatformRT::besideRtSetup). At ordinary
+        // priority on the Pi's housekeeping cores the pump waited behind
+        // other work, caught up in bursts and the drives left OP with a
+        // sync error, each time at the hand-over to the loop (2026-10-23,
+        // 2026-10-29 twice).
+        PumpReport report;
+        {
+            const PlatformRT::BesideRt b = PlatformRT::besideRtSetup(rtCore);
+            report.elevated = b.elevated;
+            report.priority = b.priority;
+            report.core     = b.core;
+        }
         PlatformRT::timerBegin();
 
         // DC phase-lock for the pump cadence (default OFF -> when
@@ -2635,7 +2678,8 @@ void EtherCATMaster::startPumpBody()
         }
         int64_t pumpPhase = DcPhaseLock::kNoSample;
 
-        PlatformRT::Timestamp pNext = PlatformRT::now();
+        const PlatformRT::Timestamp pStart = PlatformRT::now();
+        PlatformRT::Timestamp pNext = pStart;
         while (m_pumpActive.load())
         {
             int64_t periodCounts = ticksPer2Ms;
@@ -2643,12 +2687,26 @@ void EtherCATMaster::startPumpBody()
             PlatformRT::advancePeriod(pNext, periodCounts);
             serviceStopRequest();   // the pump owns the bus while the loop is stopped (a fault reset waits for the loop)
             uint32_t ex = 0;
-            busExchange(ctx, &ex);
+            const int wkc = busExchange(ctx, &ex);
             if (ex != 0)
             {
                 LOG_ERROR(strf("EtherCATMaster: Pump thread crash (0x%08x) -- EtherCAT transport down.", ex));
                 m_pumpCrashed.store(true);
+                report.crashed = true;
                 break;
+            }
+            if (wkc < 0)
+            {
+                if (report.lostFrames++ == 0)
+                    report.lostFromSec = PlatformRT::elapsedMicros(PlatformRT::now(), pStart) / 1e6;
+            }
+            else if (wkc != m_expectedWKC)
+            {
+                if (report.shortReplies++ == 0)
+                {
+                    report.shortFromSec = PlatformRT::elapsedMicros(PlatformRT::now(), pStart) / 1e6;
+                    report.shortWkc     = wkc;
+                }
             }
             // Sample the DC phase for next cycle's trim (gated; off => no work).
             if (dcLock.enabled() && pumpCycNs > 0)
@@ -2658,8 +2716,18 @@ void EtherCATMaster::startPumpBody()
                 pumpPhase = ph;
             }
             PlatformRT::waitUntil(pNext);
+            const PlatformRT::Timestamp woke = PlatformRT::now();
+            const double lateUs = PlatformRT::elapsedMicros(woke, pNext);
+            if (lateUs > report.latestWakeUs) report.latestWakeUs = lateUs;
+            if (const int dropped = PlatformRT::skipMissedPeriods(pNext, woke, periodCounts, minGap))
+            {
+                ++report.missedWakes;
+                report.droppedFrames += dropped;
+            }
         }
         PlatformRT::timerEnd();
+        report.heldSec = PlatformRT::elapsedMicros(PlatformRT::now(), pStart) / 1e6;
+        m_pumpReport = report;   // read after the join (stopPump)
     });
 
     PlatformRT::timerEnd();

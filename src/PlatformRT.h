@@ -30,6 +30,7 @@
 #  include <cstring>
 #endif
 
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <vector>
@@ -148,6 +149,80 @@ inline int resolveRtCore(int coreIndex, bool pin)
 }
 
 // ============================================================
+// lockProcessMemory()
+// Linux: mlockall(MCL_CURRENT | MCL_FUTURE) once per process, so
+// the RT loop can never be paged out under memory pressure (swap-
+// thrash on a small-RAM host would stall live EtherCAT cycles; the
+// memlock rlimits are provisioned by setup.sh + the systemd unit).
+// MCL_FUTURE covers every later allocation (~tens of MB on this
+// appliance), so a second call only walks the address space again:
+// 16 to 28 ms at each loop start on the Pi, 0.5 s the first time,
+// all of it while the background pump still held the drives. The
+// headless main calls it at start-up, before the bus; threadSetup
+// calls it too (a no-op after the first). Nothing on Windows or in
+// a test run (NULLCAT_NO_RT).
+// ============================================================
+inline void lockProcessMemory()
+{
+#ifndef _WIN32
+    static std::atomic<bool> s_done{ false };
+    if (rtDisabled() || s_done.exchange(true)) return;
+    if (mlockall(MCL_CURRENT | MCL_FUTURE) == 0)
+        LOG_INFO("PlatformRT: mlockall(MCL_CURRENT|MCL_FUTURE) -- process memory locked.");
+    else
+        LOG_WARNING("PlatformRT: mlockall failed (memlock rlimit?) -- RT memory is swappable.");
+#endif
+}
+
+// ============================================================
+// besideRtSetup()
+// A thread that keeps time for the bus while the control loop is
+// stopped (the background pump, holding the drives in OP). Call on
+// the thread itself, before its first frame.
+// Linux: pinned to the CPU just below the loop's (rtCore from
+// resolveRtCore) at SCHED_FIFO 80, below the loop's 90. With the
+// loop on its usual core 3 that is core 2, the other core the Pi
+// installer isolates: away from the housekeeping cores, where at
+// ordinary priority the pump waited behind other work and then
+// caught up in bursts. Not pinned (the loop not pinned or on CPU 0,
+// or the pin refused): SCHED_FIFO 40, below the threaded IRQ
+// handlers (50) that bring its replies in on those cores.
+// Windows: TIME_CRITICAL, as the pump has always run; not pinned.
+// Nothing on Linux in a test run (NULLCAT_NO_RT). Returns what it
+// did, for the caller's log line (logged off this thread's frames).
+// ============================================================
+struct BesideRt
+{
+    bool elevated = false;   // the priority below took
+    int  priority = 0;       // Linux: the SCHED_FIFO priority asked for
+    int  core     = -1;      // the CPU pinned to, -1 = not pinned
+};
+
+inline BesideRt besideRtSetup(int rtCore)
+{
+    BesideRt r;
+#ifdef _WIN32
+    (void)rtCore;
+    r.elevated = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL) != 0;
+#else
+    if (rtDisabled()) return r;
+    if (rtCore >= 1 && rtCore - 1 < logicalCpuCount())
+    {
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        CPU_SET(rtCore - 1, &cpuset);
+        if (pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset) == 0)
+            r.core = rtCore - 1;
+    }
+    struct sched_param sp = {};
+    sp.sched_priority = (r.core >= 0) ? 80 : 40;
+    r.priority = sp.sched_priority;
+    r.elevated = pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) == 0;
+#endif
+    return r;
+}
+
+// ============================================================
 // threadSetup()
 // Elevates RT priority, registers with MMCSS (Windows) or
 // sets SCHED_FIFO (Linux), pins to coreIndex, and pre-faults
@@ -241,16 +316,8 @@ inline RtHandle threadSetup(int coreIndex = -1, bool pin = true)
     else
         LOG_INFO("PlatformRT: Thread not pinned (host.json rtPinCore false) -- the scheduler places it.");
 
-    // Lock the process's memory so the RT loop can never be paged out
-    // under memory pressure (swap-thrash on a small-RAM host would
-    // otherwise stall live EtherCAT cycles). The memlock rlimits are
-    // provisioned by setup.sh + the systemd unit.
-    // Process-wide and idempotent; MCL_FUTURE covers later allocations
-    // (~tens of MB total on this appliance -- cheap insurance on 2GB).
-    if (mlockall(MCL_CURRENT | MCL_FUTURE) == 0)
-        LOG_INFO("PlatformRT: mlockall(MCL_CURRENT|MCL_FUTURE) -- process memory locked.");
-    else
-        LOG_WARNING("PlatformRT: mlockall failed (memlock rlimit?) -- RT memory is swappable.");
+    // Lock the process's memory (once per process: lockProcessMemory).
+    lockProcessMemory();
 
     // Pre-fault the RT stack, mirroring the Windows branch: touch the
     // pages before the loop starts so no first-use page fault lands
@@ -377,6 +444,52 @@ inline void advancePeriod(Timestamp& deadline, int64_t periodCounts)
         deadline.tv_nsec -= 1000000000L;
     }
 #endif
+}
+
+// ============================================================
+// addCounts() - a deadline moved on by any number of ticks
+// (advancePeriod adds one period through a long, 32 bits on armhf).
+// ============================================================
+inline void addCounts(Timestamp& t, int64_t counts)
+{
+#ifdef _WIN32
+    t.QuadPart += counts;
+#else
+    int64_t sec = static_cast<int64_t>(t.tv_sec) + counts / 1000000000LL;
+    int64_t ns  = static_cast<int64_t>(t.tv_nsec) + counts % 1000000000LL;
+    if (ns >= 1000000000LL) { ns -= 1000000000LL; ++sec; }
+    else if (ns < 0)        { ns += 1000000000LL; --sec; }
+    t.tv_sec  = static_cast<time_t>(sec);
+    t.tv_nsec = static_cast<long>(ns);
+#endif
+}
+
+// ============================================================
+// skipMissedPeriods() - for a thread that keeps a fixed cadence
+// of frames and is not the control loop (the background pump, its
+// OP bridge), after each wait, with the deadline it waited for: the
+// frame due then goes out now. Woken late, it drops the frames it
+// could only send close behind: the deadline moves on by whole
+// periods, on the same grid (the phase against SYNC0 kept), until
+// the frame after this one comes at least minGapCounts later.
+// Catching up instead sends the missed frames back to back, several
+// in one SYNC0 window, which the drives in sync mode 2 count as
+// sync errors (AL status 0x001A, out of OP). Returns the frames
+// dropped (0: on schedule, or late by less than that).
+// ============================================================
+inline int skipMissedPeriods(Timestamp& deadline, const Timestamp& now, int64_t periodCounts, int64_t minGapCounts)
+{
+    if (periodCounts <= 0) return 0;
+#ifdef _WIN32
+    const int64_t late = now.QuadPart - deadline.QuadPart;
+#else
+    const int64_t late = (static_cast<int64_t>(now.tv_sec) - static_cast<int64_t>(deadline.tv_sec)) * 1000000000LL
+                       + (static_cast<int64_t>(now.tv_nsec) - static_cast<int64_t>(deadline.tv_nsec));
+#endif
+    if (late + minGapCounts < periodCounts) return 0;
+    const int64_t k = (late + minGapCounts) / periodCounts;
+    addCounts(deadline, k * periodCounts);
+    return k > 1000000 ? 1000000 : static_cast<int>(k);
 }
 
 // ============================================================

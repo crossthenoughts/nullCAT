@@ -13,9 +13,10 @@
 // event loop is needed (WebServer/httplib and ControlLoop run their own
 // threads; TelemetryInput is polled by the RT loop).
 //
-// RT scheduling (SCHED_FIFO, core pin, mlockall) is applied inside
-// ControlLoop via PlatformRT. That needs the rtprio/memlock limits
-// (provisioned) and CAP_NET_RAW on this binary for SOEM raw sockets.
+// RT scheduling (SCHED_FIFO, core pin) is applied inside ControlLoop via
+// PlatformRT; the memory lock (mlockall) here at start-up. That needs
+// the rtprio/memlock limits (provisioned) and CAP_NET_RAW on this binary
+// for SOEM raw sockets.
 // ============================================================
 
 #include "Config.h"
@@ -26,6 +27,7 @@
 #include "CarCache.h"
 #include "ShakerBank.h"
 #include "HapticsIdleClock.h"
+#include "PlatformRT.h"
 #include "BoundedCall.h"
 #include "ControlLoop.h"
 #include "StatusModel.h"
@@ -154,6 +156,10 @@ int main(int argc, char* argv[])
     LOG_INFO(strf("Drives: %d, Loop Hz: %d, Telemetry port: %d",
         cfg.numDrives, cfg.controlLoopHz, cfg.telemetryPort));
     LOG_INFO("==========================================================");
+
+    // The process memory locked now, once, before the bus: at a loop start
+    // it would walk the address space while the pump holds the drives.
+    PlatformRT::lockProcessMemory();
 
     // ---- backend objects (same wiring as src/main.cpp) ----
     EtherCATMaster master;

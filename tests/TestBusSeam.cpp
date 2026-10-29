@@ -21,7 +21,17 @@
 //       trips the controller with the drive as its source; its release
 //       frees the input, the trip holds;
 //   S-7 the seat pass untripped does enable the post on this bus (so
-//       S-5's "enables nothing" can fail).
+//       S-5's "enables nothing" can fail);
+//   S-8 the pump's first frame a period after the loop's last; the pump
+//       and its OP bridge, held up after a frame, drop the frames they
+//       missed instead of sending them back to back (the Pi's drives left
+//       OP that way at the hand-over to the loop), and the report counts
+//       them;
+//   S-9 replies short of the expected working counter while the pump
+//       holds the bus (the drives out of OP), and frames with no reply,
+//       each in its report;
+//   S-10 the schedule rule itself: late by less than a period less the
+//       least gap keeps it, later drops whole periods on the same grid.
 // Windows are generous (a slow emulated arm64 CI runner): a waitFor ends
 // as soon as its condition holds.
 #include "FakeBus.h"
@@ -31,9 +41,11 @@
 #include "../src/TelemetryInput.h"
 #include "../src/Config.h"
 #include "../src/Logging.h"
+#include "../src/PlatformRT.h"
 #include <chrono>
 #include <cstdio>
 #include <thread>
+#include <vector>
 
 static int g_pass = 0, g_fail = 0;
 static void check(bool ok, const char* what)
@@ -236,6 +248,94 @@ int main()
         loop.seatThenStop();
         check(bus.enables() > en, "S-7 untripped, the seat pass enables the post (S-5's check can fail)");
         master.shutdown();
+    }
+
+    // ---- S-8 the pump held up: no frames back to back after it ----
+    // The Pi's drives left OP with a sync error at the hand-over to the
+    // loop (2026-10-23, 2026-10-29 twice): the pump, late, caught up by
+    // sending its missed frames back to back.
+    {
+        // The frame after a hold-up: at least half the least gap (1 ms at
+        // this config's 500 Hz) after it, where catching up sends it within
+        // microseconds; slowness only widens it.
+        const auto afterHoldUp = [](const std::vector<int64_t>& t) -> int64_t
+        {
+            for (size_t i = 1; i + 1 < t.size(); ++i)
+                if (t[i] - t[i - 1] >= 8000000) return t[i + 1] - t[i];
+            return -1;
+        };
+        check(master.attachTestBus(&bus).ok, "S-8 (setup) OP");
+        bus.recordFrameTimes(true);
+        master.sendReceive();   // the loop's last frame
+        master.startPump();
+        check(waitFor([&] { return bus.frameTimes().size() >= 3; }, 2000), "S-8 the pump takes over");
+        {
+            const std::vector<int64_t> t = bus.frameTimes();
+            check(t.size() >= 2 && t[1] - t[0] >= 1000000,
+                  "S-8 its first frame comes a period after the loop's last, not straight after it");
+        }
+        const long f0 = bus.frames();
+        check(waitFor([&] { return bus.frames() > f0 + 10; }, 2000), "S-8 the pump runs frames");
+        bus.recordFrameTimes(true);
+        bus.holdUpAfterNextFrame(9);   // four and a half of its 2 ms periods
+        check(waitFor([&] { return bus.frameTimes().size() >= 6; }, 3000), "S-8 ...and goes on after a hold-up");
+        master.stopPump();
+        check(afterHoldUp(bus.frameTimes()) >= 500000,
+              "S-8 after a hold-up the pump drops the frames it missed: its next one is not straight after");
+        check(master.lastPumpReport().missedWakes >= 1 && master.lastPumpReport().droppedFrames >= 3,
+              "S-8 ...and its report counts the late wake and the frames dropped");
+        // The OP bridge (the pump's first frames, on the dispatch thread) the same.
+        bus.recordFrameTimes(true);
+        bus.holdUpAfterNextFrame(9);
+        master.startPump();
+        check(waitFor([&] { return bus.frameTimes().size() >= 6; }, 3000), "S-8 the bridge goes on after a hold-up");
+        master.stopPump();
+        check(afterHoldUp(bus.frameTimes()) >= 500000,
+              "S-8 ...and drops the frames it missed: its next one is not straight after");
+        bus.recordFrameTimes(false);
+    }
+
+    // ---- S-9 the drives leaving OP while the pump holds them are on record ----
+    {
+        const EtherCATMaster::PumpReport clean = master.lastPumpReport();
+        check(clean.shortFromSec < 0.0 && clean.shortReplies == 0 && clean.heldSec > 0.0,
+              "S-9 a pump with every reply in full reports none short");
+        const long f0 = bus.frames();
+        master.startPump();
+        check(waitFor([&] { return bus.frames() > f0 + 10; }, 2000), "S-9 the pump runs frames");
+        bus.replyWkc(2);   // both slaves out of OP: their inputs only
+        const long f1 = bus.frames();
+        check(waitFor([&] { return bus.frames() > f1 + 10; }, 2000), "S-9 ...the replies short");
+        bus.replyWkc(-1);  // then no reply at all
+        const long f2 = bus.frames();
+        check(waitFor([&] { return bus.frames() > f2 + 10; }, 2000), "S-9 ...then none");
+        master.stopPump();
+        bus.replyWkc(FakeBus::kFullReplies);
+        const EtherCATMaster::PumpReport r = master.lastPumpReport();
+        check(r.shortFromSec > 0.0 && r.shortWkc == 2 && r.shortReplies >= 10,
+              "S-9 the pump's report has when its replies went short, their WKC and how many");
+        check(r.lostFrames >= 10 && r.lostFromSec > r.shortFromSec && !r.crashed,
+              "S-9 ...and the frames with no reply apart from them (a lost frame is not a drive out of OP)");
+        master.shutdown();
+    }
+
+    // ---- S-10 the pump's schedule rule (PlatformRT::skipMissedPeriods) ----
+    {
+        const int64_t p = PlatformRT::periodCounts(2000.0), gap = p / 4;
+        const PlatformRT::Timestamp t0 = PlatformRT::now();
+        const auto at = [&t0](int64_t counts) { PlatformRT::Timestamp t = t0; PlatformRT::addCounts(t, counts); return t; };
+        PlatformRT::Timestamp d = t0;
+        check(PlatformRT::skipMissedPeriods(d, at(p / 2), p, gap) == 0 && PlatformRT::elapsedMicros(d, t0) == 0.0,
+              "S-10 a wake late by less than a period less the gap keeps the schedule");
+        d = t0;
+        check(PlatformRT::skipMissedPeriods(d, at(p * 4 / 5), p, gap) == 1 && PlatformRT::elapsedMicros(d, at(p)) == 0.0,
+              "S-10 a wake within the gap of the next frame drops that one, on the same grid");
+        d = t0;
+        check(PlatformRT::skipMissedPeriods(d, at(3 * p), p, gap) == 3 && PlatformRT::elapsedMicros(d, at(3 * p)) == 0.0,
+              "S-10 three periods late drops three, the grid kept (no catching up, no new phase)");
+        PlatformRT::Timestamp later = t0;
+        PlatformRT::addCounts(later, 3 * PlatformRT::periodCounts(1e6));   // 3 s: past a 32-bit long of ns
+        check(PlatformRT::elapsedMicros(later, t0) == 3e6, "S-10 a deadline moves on by seconds exactly");
     }
 
     std::printf("\n%d passed, %d failed\n", g_pass, g_fail);

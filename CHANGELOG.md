@@ -163,6 +163,12 @@ each shaker, and BeamNG.drive straight from the game.
   instead, and Setup is its own view.
 
 ### Fixed
+- Pi: the drives could drop out of sync as the control loop took over the
+  bus, leaving the rig unseated at Stop EtherCAT, or faulting every drive
+  just after an Initialize. The frames that hold the drives while the loop
+  is stopped now run at real-time priority beside the loop's core, a late
+  one no longer brings the missed ones straight after it, and no two come
+  close together at the hand-overs. The log says how each stretch went.
 - BeamNG.drive: the limiter plays when the engine is on its limiter. The
   mod read it from the rpm against the redline, but each cut drops the rpm
   well below it (200 rpm on a rally car), so it rarely showed; it now takes

@@ -236,6 +236,27 @@ public:
     void stopPump();
     void startPump();
 
+    // What the last background pump saw while it held the bus: written by
+    // its thread as it ends, read after stopPump() has joined it (the join
+    // orders the two; read it only then). stopPump() logs it.
+    struct PumpReport
+    {
+        double heldSec         = 0.0;
+        double latestWakeUs    = 0.0;   // the latest wake past its deadline
+        int    missedWakes     = 0;     // wakes late enough to drop frames (PlatformRT::skipMissedPeriods)
+        int    droppedFrames   = 0;
+        double shortFromSec    = -1.0;  // the first reply short of the expected WKC, -1 = none
+        int    shortWkc        = 0;     // ...its working counter
+        int    shortReplies    = 0;
+        double lostFromSec     = -1.0;  // the first frame with no reply, -1 = none
+        int    lostFrames      = 0;
+        bool   crashed         = false; // ended by a transport crash
+        bool   elevated        = false; // PlatformRT::besideRtSetup
+        int    priority        = 0;
+        int    core            = -1;
+    };
+    PumpReport lastPumpReport() const { return m_pumpReport; }
+
     // Cyclic mailbox handler integration. After SAFE-OP is reached
     // and drive modes are set, slaves with CoE support are added to SOEM's
     // cyclic mailbox queue. processCyclicMailbox() runs from the RT control
@@ -362,7 +383,7 @@ private:
     InitResult verifyOperationalWKC(ecx_contextt* ctx);                        // 50-cycle WKC validation after OP confirmed
     void runCapabilityScan(ecx_contextt* ctx);                                 // optional diagnostic SDO reads
     void logOPFailureDiagnostics(ecx_contextt* ctx);                           // per-slave ALState/ALCode/dcAct on OP failure
-    void runOPBridge(ecx_contextt* ctx, int64_t ticksPer2Ms);                  // 10-frame Npcap thread warm-up before pump thread
+    void runOPBridge(ecx_contextt* ctx, int64_t ticksPer2Ms, int64_t minGapCounts);   // 10-frame Npcap thread warm-up before pump thread
     InitResult pingMailbox(ecx_contextt* ctx);                                 // step 3: mailbox alive check (5 retries × 100ms)
 
     // Initialize SOEM cyclic mailbox queue and register CoE slaves.
@@ -448,6 +469,7 @@ private:
     std::thread m_pumpThread;
     std::atomic<bool> m_pumpActive{ false };
     std::atomic<bool> m_pumpCrashed{ false };
+    PumpReport        m_pumpReport;   // the pump thread's, see lastPumpReport()
 
     std::thread              m_pumpDispatchThread;
     std::mutex               m_pumpDispatchMu;

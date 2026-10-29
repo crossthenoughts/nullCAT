@@ -20,10 +20,12 @@
 //   - what a test injects: a fault (a sticky one survives the reset), the
 //     drive's own quick stop held (a hardware e-stop wired to the drive),
 //     a vertical axis sagging while disabled, and an overcurrent fault on
-//     enabling a motor that is still moving (the 2026-10-25 posts).
-// It records what a test asks about: frames, entries into operation
-// enabled, frames enabled while a test says enabling is forbidden, quick
-// stops and fault-reset pulses seen.
+//     enabling a motor that is still moving (the 2026-10-25 posts), the
+//     bus owner held up after a frame, replies short of the expected
+//     working counter (the drives out of OP).
+// It records what a test asks about: frames (and when each went out),
+// entries into operation enabled, frames enabled while a test says
+// enabling is forbidden, quick stops and fault-reset pulses seen.
 //
 // exchange() runs on whichever thread owns the bus (the pump, the RT
 // loop); the test thread reads the model through the accessors. One mutex
@@ -37,6 +39,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 class FakeBus : public BusTransport
@@ -81,12 +84,22 @@ public:
     int exchange(uint32_t* exception) override
     {
         if (exception) *exception = 0;
-        std::lock_guard<std::mutex> lk(m_mx);
-        for (Slave& s : m_s) step(s);
-        ++m_frames;
-        m_dcNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        const int64_t nowNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count();
-        return expectedWkc();
+        int stall = 0;
+        {
+            std::lock_guard<std::mutex> lk(m_mx);
+            for (Slave& s : m_s) step(s);
+            ++m_frames;
+            m_dcNs = nowNs;
+            if (m_recordTimes) m_frameNs.push_back(nowNs);
+            stall = m_holdUpMs.exchange(0);   // taken with the frame recorded (the test arms it after recording)
+        }
+        // The owner thread held up right after this frame (behind other
+        // work, as the pump was on the Pi), once.
+        if (stall > 0) std::this_thread::sleep_for(std::chrono::milliseconds(stall));
+        const int wkc = m_replyWkc.load();
+        return wkc != kFullReplies ? wkc : expectedWkc();
     }
     int64_t dcTimeNs() const override { return m_dcNs.load(); }
     uint8_t* outputs(int slave) override { return valid(slave) ? m_s[slave - 1].out : nullptr; }
@@ -131,6 +144,15 @@ public:
         return n;
     }
     template <class F> void with(int slave, F f) { std::lock_guard<std::mutex> lk(m_mx); f(m_s[slave - 1]); }
+    // Timing: the next frame's owner held up this long after it; when each
+    // frame went out (steady clock, ns) while recording.
+    void holdUpAfterNextFrame(int ms) { m_holdUpMs = ms; }
+    void recordFrameTimes(bool on) { std::lock_guard<std::mutex> lk(m_mx); m_recordTimes = on; if (on) m_frameNs.clear(); }
+    std::vector<int64_t> frameTimes() { std::lock_guard<std::mutex> lk(m_mx); return m_frameNs; }
+    // Every reply from now on with this working counter (the drives out of
+    // OP answer 1 per slave, a lost frame -1); kFullReplies = the expected.
+    static constexpr int kFullReplies = -1000;
+    void replyWkc(int wkc) { m_replyWkc = wkc; }
 
 private:
     bool valid(int slave) const { return slave >= 1 && slave <= slaveCount(); }
@@ -254,4 +276,8 @@ private:
     std::atomic<long>    m_frames{0};
     std::atomic<int64_t> m_dcNs{0};
     bool                 m_forbid = false;
+    std::atomic<int>     m_holdUpMs{0};
+    std::atomic<int>     m_replyWkc{kFullReplies};
+    bool                 m_recordTimes = false;
+    std::vector<int64_t> m_frameNs;
 };
