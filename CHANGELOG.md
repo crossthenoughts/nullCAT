@@ -38,10 +38,12 @@ each shaker, and BeamNG.drive straight from the game.
   sends direct telemetry (the BeamNG mod does), nullCAT takes the haptic
   channels from it and sets the others' aside, so the SimHub plugin can
   stay on for BeamNG; motion is never touched. When that sender stops,
-  the others are used again a few seconds later. The Haptics strip says
-  *another sender set aside* while it happens, and *always on with this
-  sender* for a sender like the mod, which the direct telemetry switch
-  cannot turn off.
+  the others are used again once one of them moves to another game, or
+  after five minutes: a game paused in a menu sends nothing, and the
+  SimHub plugin's own read of it no longer takes over and flips the car.
+  The Haptics strip says *another sender set aside* while it happens, and
+  *always on with this sender* for a sender like the mod, which the direct
+  telemetry switch cannot turn off.
 - **stones per m** on the Surface tile: how many stones a tyre strikes per
   metre of gravel (0.05 to 2, default 0.35; it was a fixed 2, which at
   rally speeds ran together into a rumble). Sand, dirt, mud and grass

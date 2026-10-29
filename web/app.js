@@ -2494,7 +2494,9 @@ function hapLive(s){
       const aside=s.directSetAside?', another sender set aside':'';
       cb.disabled = said==='only';   // nothing to switch: a tick here would only carry to the next game
       if(document.activeElement!==cb) cb.checked = said==='only' ? true : want ? want==='on' : said==='on';
-      st.textContent = !s.ncxRx ? '(no sender)'
+      // A game paused in a menu sends nothing while another sender's lines
+      // are set aside for it (up to five minutes): say so, not "no sender".
+      st.textContent = !s.ncxRx ? (s.directSetAside ? '(waiting for the game, another sender set aside)' : '(no sender)')
         : said==='' ? '(the sender does not offer it)'
         : said==='none' ? '(none in this game)'
         : said==='only' ? '(always on with this sender'+aside+')'

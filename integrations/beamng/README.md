@@ -40,8 +40,12 @@ plugin can stay on: while the mod sends, nullCAT takes every haptic
 channel from the mod and sets the plugin's BeamNG channels aside (the
 Haptics strip shows *(always on with this sender, another sender set
 aside)*). Motion is not
-touched. When the mod stops (BeamNG closed, the mod switched off after an
-update), nullCAT uses the plugin's channels again a few seconds later.
+touched. While BeamNG sits in a menu or paused, the mod sends nothing, and
+nullCAT keeps the plugin's channels aside for up to five minutes (past
+that, the plugin's read plays until you drive again). When the mod stops
+(BeamNG closed, the mod switched off after an update), nullCAT uses the
+plugin's channels again once SimHub moves to another game, or after those
+five minutes.
 
 nullCAT listens on port 4444. With nullCAT and your motion software on
 the same PC, only one of them can listen there: give your motion

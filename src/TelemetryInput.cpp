@@ -340,20 +340,38 @@ bool TelemetryInput::admitChannelLine(const TelemetryData& parsed, uint64_t send
     if (parsed.packetType != TelemetryPacketType::Ncx && parsed.packetType != TelemetryPacketType::Ncy) return true;
     char who[24];
     const char said = (parsed.packetType == TelemetryPacketType::Ncy) ? parsed.direct : 0;
-    // A change of source starts the store clean (ingest): the last
-    // source's values, its positional slots too, never play on under the
-    // new one's.
+    // The source taken: a change of source starts the store clean (ingest),
+    // so the last source's values, its positional slots too, never play on
+    // under the new one's; the game the set-aside lines name is this
+    // hold's to learn afresh.
+    const auto take = [&]() {
+        m_directSender   = sender;
+        m_directLastMs   = nowMs;
+        m_setAsideLogged = false;
+        m_sourceChanged  = true;
+        m_asideGame[0]   = '\0';
+        m_asideSender    = 0;
+        m_lastHolder     = 0;
+    };
     if ((said == 'y' || said == 'o') && sender != 0)
     {
         if (sender != m_directSender)
         {
             senderText(sender, who);
             RT_LOG_INFO("TelemetryInput: %s sends direct telemetry: other senders' channel lines are set aside while it does (their motion lines are not).", who);
-            m_setAsideLogged = false;
-            m_sourceChanged  = true;
+            take();
         }
-        m_directSender = sender;
         m_directLastMs = nowMs;
+        return true;
+    }
+    // The sender whose hold ran out sending again (a game back from a long
+    // pause, its first lines before it names its direct source): it takes
+    // the source back at once, never mixed with the others' lines.
+    if (m_directSender == 0 && sender != 0 && sender == m_lastHolder && said == 0)
+    {
+        senderText(sender, who);
+        RT_LOG_INFO("TelemetryInput: %s sends again: other senders' channel lines are set aside again.", who);
+        take();
         return true;
     }
     if (m_directSender != 0 && sender == m_directSender)
@@ -369,12 +387,35 @@ bool TelemetryInput::admitChannelLine(const TelemetryData& parsed, uint64_t send
         }
         return true;
     }
-    if (m_directSender != 0 && nowMs - m_directLastMs >= kDirectHoldMs)
+    if (m_directSender != 0)
     {
-        senderText(m_directSender, who);
-        RT_LOG_INFO("TelemetryInput: %s has stopped sending: the other senders' channel lines are used again.", who);
-        m_directSender  = 0;
-        m_sourceChanged = true;
+        // The game the set-aside lines name under this hold, as the first
+        // sender to name one named it, and whether that sender now names
+        // another: the direct sender's game has closed and another started.
+        bool otherGame = false;
+        if (parsed.packetType == TelemetryPacketType::Ncy && parsed.game[0])
+        {
+            if (!m_asideGame[0])
+            {
+                std::memcpy(m_asideGame, parsed.game, NCY_STR_LEN);
+                m_asideGame[NCY_STR_LEN - 1] = '\0';
+                m_asideSender = sender;
+            }
+            else if (sender == m_asideSender)
+                otherGame = std::strncmp(parsed.game, m_asideGame, NCY_STR_LEN) != 0;
+        }
+        const int64_t quiet = nowMs - m_directLastMs;
+        if (quiet >= kDirectHoldMs || (otherGame && quiet >= kDirectQuietMs))
+        {
+            senderText(m_directSender, who);
+            if (otherGame)
+                RT_LOG_INFO("TelemetryInput: %s has stopped sending and another game has started: the other senders' channel lines are used again.", who);
+            else
+                RT_LOG_INFO("TelemetryInput: %s has stopped sending: the other senders' channel lines are used again.", who);
+            m_lastHolder    = m_directSender;
+            m_directSender  = 0;
+            m_sourceChanged = true;
+        }
     }
     if (m_directSender == 0) return true;
     m_setAsideMs.store(nowMs, std::memory_order_release);

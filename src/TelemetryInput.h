@@ -180,16 +180,25 @@ public:
     // lines are set aside (motion lines never are), so two senders for one
     // game (a game's own nullCAT mod and the SimHub plugin) never mix their
     // values or flip the car between their names. Its own lines keep it the
-    // source after any gap; it lets go when it says off or none, or when
+    // source after any gap; it lets go when it says off or none, when
     // another sender's line comes kDirectHoldMs after its last (the game
-    // closed, the mod switched off): the others are used again. Another
-    // sender saying direct=on takes over. Each change of source starts the
-    // store clean, positional slots included. sender = where the line came
-    // from (the m_ncySender encoding), nowMs the time it arrived. True:
-    // hand the line on; false: set aside. Receive path only (receive()
-    // asks before anything is stored or recorded; public for tests, with
-    // their own senders and clock).
-    static constexpr int64_t kDirectHoldMs = 5000;
+    // closed, the mod switched off), or sooner, kDirectQuietMs or more
+    // after its last, when the first sender to name a game in a set-aside
+    // line names another than it did (another game started): the others
+    // are used again. A game paused in a menu sends nothing for as long as
+    // it sits there (BeamNG 2026-10-29: 42 s, and twice about 2 minutes)
+    // while the SimHub plugin goes on sending its own read of the same
+    // game, which took over at 5 s and flipped the car. A sender whose
+    // hold ran out takes the source back with its first line (before its
+    // identity names its source again). Another sender saying direct=on
+    // takes over at once. Each change of source starts the store clean,
+    // positional slots included. sender = where the line came from (the
+    // m_ncySender encoding), nowMs the time it arrived. True: hand the
+    // line on; false: set aside. Receive path only (receive() asks before
+    // anything is stored or recorded; public for tests, with their own
+    // senders and clock).
+    static constexpr int64_t kDirectHoldMs  = 300000;
+    static constexpr int64_t kDirectQuietMs = 5000;
     bool admitChannelLine(const TelemetryData& parsed, uint64_t sender, int64_t nowMs);
     // Any thread: another sender's channel line was set aside in the last
     // 1.5 s (the status says so beside direct telemetry).
@@ -303,10 +312,15 @@ private:
     std::atomic<uint64_t> m_ncySender{0};
     std::atomic<char>     m_senderDirect{0};
     // admitChannelLine: the direct sender (0 = none), its last channel
-    // line, and a change of source for the next ingest to start the store
-    // clean on (receive path only); when a line was last set aside.
+    // line, the game the set-aside lines first named under its hold and
+    // the sender that named it, the sender whose hold last ran out, and a
+    // change of source for the next ingest to start the store clean on
+    // (receive path only); when a line was last set aside.
     uint64_t              m_directSender   = 0;
     int64_t               m_directLastMs   = 0;
+    char                  m_asideGame[NCY_STR_LEN] = {};
+    uint64_t              m_asideSender    = 0;
+    uint64_t              m_lastHolder     = 0;
     bool                  m_setAsideLogged = false;
     bool                  m_sourceChanged  = false;
     std::atomic<int64_t>  m_setAsideMs{0};
