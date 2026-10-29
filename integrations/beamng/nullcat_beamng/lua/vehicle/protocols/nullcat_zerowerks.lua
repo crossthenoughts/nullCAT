@@ -213,7 +213,8 @@ end
 -- sound's name (I4, V8, boxer, rotary), the displacement where that name
 -- gives it, else a rough figure from the torque (turbo or not), the turbo,
 -- the limiter's cut rate, and the type of car from the config's name
--- (rally gravel or tarmac, race, track, else road). Mod cars carry the same
+-- (rally gravel or tarmac, race, track, else road; rally also from a
+-- surface's name: gravel, snow, dirt, tarmac, asphalt). Mod cars carry the same
 -- sound and engine data, so they are described the same way.
 local carFacts = ""
 local function lower(x) return string.lower(tostring(x or "")) end
@@ -272,8 +273,16 @@ local function describeCar()
   local words = {}
   for w in (lower(cfg.partConfigFilename):match("([^/\\]+)%.pc$") or ""):gmatch("[%a%d]+") do words[w] = true end
   for w in lower(cfg.mainPartName):gmatch("[%a%d]+") do words[w] = true end
+  -- a word as it starts (a number after it allowed: tarmac2): rally from
+  -- rally, rallye, rallycross, amrally or a surface's word (gravel_SQ,
+  -- asphalt_SQ), tarmac where the name says so
+  local function has(p)
+    for w in pairs(words) do if w:find("^" .. p .. "%d*$") then return true end end
+    return false
+  end
+  local tarmac = has("tarmac") or has("asphalt")
   local carType = 0
-  if words.rally then carType = (words.tarmac or words.asphalt) and 5 or 4
+  if has("rally%a*") or has("amrally") or tarmac or has("gravel") or has("snow") or has("dirt") then carType = tarmac and 5 or 4
   elseif words.race or words.racing or words.gt3 or words.gt2 or words.gt4 or words.gte or words.lmp or words.endurance then carType = 2
   elseif words.track or words.trackday or words.cup or words.hillclimb or words.timeattack then carType = 1
   end
