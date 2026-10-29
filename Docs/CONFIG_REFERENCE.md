@@ -200,15 +200,17 @@ Road-only fields. `model` picks how the body's movement is made; when the sim se
 | `surfaceHz` | `12` | The surface texture's carrier (Hz, 4 to 40): its own, so it can sit low enough for a position axis to carry while the `roadNoise` texture keeps `freqHz`. |
 | `surfaceKmh` | `100` | Road speed (km/h, 20 to 300) by which the surface texture is at its full mix; it rises from nothing at a standstill. |
 
-Kerb-only fields (`kerb`). Which tyre is on a kerb: `surface*` = 2, else the stronger of the `curbs` channel (all wheels, full at `peakPct`) and, with `detectMm` set, the road heights. `freqHz` is kept in the object but unused.
+Rumble strip fields (`kerb`, the Rumble strip tile). Which tyre is on a kerb: `surface*` = 2, else the stronger of the `curbs` channel (all wheels, full at `peakPct`) and, with `heights` on and `detectMm` set, the road heights. `freqHz` is kept in the object but unused.
 
 | Field | Default | Notes |
 |---|---|---|
 | `pitchCm` | `25` | Rib spacing (cm), 5 to 100: the ribs hum at road speed / pitch. |
+| `step` | `1` | 1 on, 0 off: the step up onto the kerb (`riseMm`) plays as well as the ribs. The motion software mostly carries the step already; 0 leaves the rumble alone. |
 | `riseMm` | `8` | The step up onto the kerb (mm), 0 to 50. |
 | `ribMm` | `3` | Rib height (mm), 0 to 20. |
 | `fullMm` | `10` | Kerb movement (mm) that is 100 % on a position axis, 0.5 to 50. A position axis gets the step as a thud on and off (above 3 Hz); a belt or shaker gets the ribs and the step's edges, scaled with speed (full at 80 km/h). |
-| `detectMm` | `0` | 0 to 100, 0 = off. Without a surface type: an axle's left-right `roadHeight*` difference jumping this far across the sim samples of the last 35 ms (a kerb's edge or ribs) puts a tyre on a kerb, from half of it, full at it, fading 0.25 s after the last jump; the side is the way the first jump went (the left tyre rising against the right: left), held through to the drop off (a jump back towards where it began, within 2 s), released once the axle is back level, quiet for 0.4 s, or after 4 s. The road's camber changing over seconds never counts. A `curbs` channel too: the stronger plays. |
+| `heights` | `1` | 1 on, 0 off: in a game that names no kerb surface and sends no `curbs` channel (Assetto Corsa), find kerbs in the road heights (`detectMm`). What it finds is mostly the kerb's edge: a thump on and off rather than a rumble. 0: no Rumble strip in such a game (the tile reads *no kerb surface*). |
+| `detectMm` | `0` | 0 to 100, 0 = off. Without a surface type (and with `heights` on): an axle's left-right `roadHeight*` difference jumping this far across the sim samples of the last 35 ms (a kerb's edge or ribs) puts a tyre on a kerb, from half of it, full at it, fading 0.25 s after the last jump; the side is the way the first jump went (the left tyre rising against the right: left), held through to the drop off (a jump back towards where it began, within 2 s), released once the axle is back level, quiet for 0.4 s, or after 4 s. The road's camber changing over seconds never counts. A `curbs` channel too: the stronger plays. |
 
 ABS and TC fields (`abs`, `tc`; `freqHz` is the cycle rate):
 

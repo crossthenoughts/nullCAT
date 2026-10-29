@@ -31,6 +31,7 @@ local DUMP_ENGINE  = true        -- what the game says about the engine and the 
 local LINE_LEN       = 1400      -- the datagram: the line, then spaces (nullCAT trims them)
 local SLOW_EVERY_SEC = 0.1       -- tyres, engine limit, car size
 local ID_EVERY_SEC   = 1.0       -- the car's name
+local LIMITER_HOLD_SEC = 0.25   -- the limiter held on between its cuts
 local GAME           = "BeamNG.drive"
 local RAD2DEG        = 57.29577951308232
 
@@ -144,22 +145,30 @@ end
 
 -- Whether the car differs from the config it was loaded from (a part or a
 -- tuning value changed since, in the parts or tuning menu): every slot and
--- value the saved file names, against the car. nil when the file cannot
--- be read.
+-- value the saved file names, against the car. The parts are compared only
+-- when the car lists its own (BeamNG 0.40 keeps them elsewhere: an empty
+-- list against the file read every config as changed). nil when the file
+-- cannot be read, or there is nothing to compare.
 local function changedFromSaved(cfg, path)
   if not (jsonReadFile and path ~= "") then return nil end
   local ok, saved = pcall(jsonReadFile, path)
   if not ok or type(saved) ~= "table" then return nil end
   local parts = type(cfg.parts) == "table" and cfg.parts or {}
-  for slot, part in pairs(type(saved.parts) == "table" and saved.parts or {}) do
-    if tostring(parts[slot] or "") ~= tostring(part or "") then return true end
+  local vars  = type(cfg.vars) == "table" and cfg.vars or {}
+  if next(parts) == nil and next(vars) == nil then return nil end
+  if next(parts) ~= nil then
+    for slot, part in pairs(type(saved.parts) == "table" and saved.parts or {}) do
+      if tostring(parts[slot] or "") ~= tostring(part or "") then return true end
+    end
   end
-  local vars = type(cfg.vars) == "table" and cfg.vars or {}
+  -- the tuning values both name (one only the file names is not a change)
   for k, x in pairs(type(saved.vars) == "table" and saved.vars or {}) do
-    local a, b = tonumber(vars[k]), tonumber(x)
-    if a and b then
-      if math.abs(a - b) > 1e-6 * math.max(1, math.abs(b)) then return true end
-    elseif tostring(vars[k]) ~= tostring(x) then return true end
+    if vars[k] ~= nil then
+      local a, b = tonumber(vars[k]), tonumber(x)
+      if a and b then
+        if math.abs(a - b) > 1e-6 * math.max(1, math.abs(b)) then return true end
+      elseif tostring(vars[k]) ~= tostring(x) then return true end
+    end
   end
   return false
 end
@@ -216,10 +225,11 @@ end
 
 -- ---- what BeamNG says about the engine, once per car, to the log
 -- (beamng.log in the user folder, lines "nullCAT: ..."): how the car is
--- built against its saved config, the engine device, its jbeam section and
--- the sections it names (sound, turbo, supercharger), the powertrain's
--- devices, and the names of every electrics value. Capped at a few hundred
--- lines.
+-- built against its saved config and where the game keeps the build, the
+-- vehicle's information, the engine's sound, turbo and supercharger
+-- sections, its jbeam section, the engine device, the powertrain's devices,
+-- and the names of every electrics value. Each part has its own cap, so a
+-- long one never crowds out the next (about 600 lines in all).
 
 local dumpedFor = nil
 
@@ -258,28 +268,42 @@ local function dumpEngine()
   for _ in pairs(type(cfg.parts) == "table" and cfg.parts or {}) do np = np + 1 end
   for _ in pairs(type(cfg.vars) == "table" and cfg.vars or {}) do nv = nv + 1 end
   say("I", "build: " .. buildNote .. ", " .. np .. " part slots, " .. nv .. " tuning values, config " .. tostring(cfg.partConfigFilename))
-  local budget = { n = 400 }
-  if engine then dumpSection("device", engine, 1, budget) else say("I", "no mainEngine device") end
+  -- where the game keeps the build: the names in the config and the jbeam data
+  local function keyList(label, t)
+    if type(t) ~= "table" then return end
+    local ks = {}
+    for k, x in pairs(t) do
+      local n = 0
+      if type(x) == "table" then for _ in pairs(x) do n = n + 1 end end
+      ks[#ks + 1] = tostring(k) .. ((type(x) == "table") and ("(" .. n .. ")") or "")
+    end
+    table.sort(ks)
+    for i = 1, #ks, 20 do say("I", label .. ": " .. table.concat(ks, " ", i, math.min(i + 19, #ks))) end
+  end
+  keyList("config", cfg)
+  local data = v and v.data
+  keyList("jbeam", data)
+  if type(data) == "table" then
+    local me = data.mainEngine
+    dumpSection("jbeam.information", data.information, 1, { n = 60 })
+    if type(me) == "table" then
+      for _, k in ipairs({ "soundConfig", "soundConfigExhaust", "turbocharger", "supercharger", "nitrousOxideInjection" }) do
+        local ref = me[k]
+        if type(ref) == "string" and type(data[ref]) == "table" then dumpSection("jbeam." .. ref, data[ref], 1, { n = 80 }) end
+      end
+    end
+    for _, k in ipairs({ "soundConfig", "turbocharger", "supercharger" }) do
+      if type(data[k]) == "table" then dumpSection("jbeam." .. k, data[k], 1, { n = 60 }) end
+    end
+    dumpSection("jbeam.mainEngine", me, 0, { n = 120 })
+  end
+  if engine then dumpSection("device", engine, 0, { n = 120 }) else say("I", "no mainEngine device") end
   if powertrain and powertrain.getDevices then
     local ok, devs = pcall(powertrain.getDevices)
     if ok and type(devs) == "table" then
       for name, d in pairs(devs) do
         say("I", "powertrain " .. tostring(name) .. ": " .. tostring(type(d) == "table" and d.type or type(d)))
       end
-    end
-  end
-  local data = v and v.data
-  if type(data) == "table" then
-    local me = data.mainEngine
-    dumpSection("jbeam.mainEngine", me, 1, budget)
-    if type(me) == "table" then
-      for _, k in ipairs({ "soundConfig", "soundConfigExhaust", "turbocharger", "supercharger", "nitrousOxideInjection" }) do
-        local ref = me[k]
-        if type(ref) == "string" and type(data[ref]) == "table" then dumpSection("jbeam." .. ref, data[ref], 1, budget) end
-      end
-    end
-    for _, k in ipairs({ "information", "turbocharger", "supercharger", "soundConfig" }) do
-      if type(data[k]) == "table" then dumpSection("jbeam." .. k, data[k], 1, budget) end
     end
   end
   local e = electrics and electrics.values
@@ -339,11 +363,23 @@ local function build(dt)
   add("brakePct", (tonumber(e.brake) or 0) * 100, "%.1f")
   add("clutchPct", (tonumber(e.clutch) or 0) * 100, "%.1f")
   add("absActive", flag(e.absActive), "%.0f")
-  add("tcActive", math.max(flag(e.tcsActive), flag(e.escActive)), "%.0f")
-  local maxRpm = engine and tonumber(engine.maxRPM) or nil
-  if maxRpm and maxRpm > 0 then
-    add("limiter", ((tonumber(e.rpm) or 0) >= 0.99 * maxRpm) and 1 or 0, "%.0f")
+  -- traction control alone: stability control brakes a wheel off the
+  -- throttle, which is not TC cutting the power (it read as TC on lifts)
+  add("tcActive", flag(e.tcsActive), "%.0f")
+  -- the limiter as the engine has it: each cut drops the rpm well below
+  -- the limit (200 rpm on a rally car), so the rpm alone rarely read it;
+  -- held over the short recoveries between cuts. The rpm against the
+  -- limit only where the game says nothing.
+  local maxRpm = engine and (tonumber(engine.revLimiterRPM) or tonumber(engine.maxRPM)) or nil
+  if maxRpm and maxRpm <= 0 then maxRpm = nil end
+  local onLimiter = nil
+  if engine and engine.revLimiterActive ~= nil then
+    local since = tonumber(engine.revLimiterWasActiveTimer)
+    onLimiter = engine.revLimiterActive == true or (since ~= nil and since < LIMITER_HOLD_SEC)
+  elseif maxRpm then
+    onLimiter = (tonumber(e.rpm) or 0) >= 0.99 * maxRpm
   end
+  if onLimiter ~= nil then add("limiter", onLimiter and 1 or 0, "%.0f") end
 
   -- the body: its acceleration, the rates it turns at, its angles. The
   -- sensor already reads in the car's own frame (no turning it): along

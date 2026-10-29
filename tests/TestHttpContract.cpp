@@ -41,6 +41,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <string>
 #include <thread>
@@ -800,21 +801,22 @@ int main()
         check(has(post("/api/haptics/presets/apply", "{\"name\":\"Open wheeler\"}"), "\"ok\":true") && genNow() == gen0 + 1,
               "POST /api/haptics/presets/apply of the one already applied: accepted, the generation stays");
     }
-    // Follow car: in a game the table does not cover, a car is left alone;
-    // in one it covers, a car the table has no entry for puts the car tiles
-    // on the defaults (not the last car's: the F40 pulled above), the
-    // status saying so; a name that starts with an entry's lands on that
-    // entry as a near match. Named the way a plugin does it, a NULLCATY
-    // line, fed straight in while the status is polled.
+    // Follow car: a car the table has no entry for puts the car tiles on
+    // the defaults (not the last car's: the F40 pulled above), the status
+    // saying so, in a game the table has nothing for (BeamNG: an Assetto
+    // Corsa car without ABS left its ABS off) as in one it covers; a name
+    // that starts with an entry's lands on that entry as a near match.
+    // Named the way a plugin does it, a NULLCATY line, fed straight in
+    // while the status is polled. Breaks with the defaults kept to the
+    // games the table covers.
     {
-        const int gen0 = genNow();
-        check(nameCar(telemetry, "iRacing", "Some Car", "\"hapCar\":\"Some Car\"", 10000)
-              && has(get("/api/status"), "\"hapCarDefault\":false") && genNow() == gen0,
-              "follow car: a car in a game the table does not cover is left alone (no defaults, no apply)");
+        check(nameCar(telemetry, "iRacing", "Some Car", "\"hapCarDefault\":true", 10000),
+              "follow car: a car in a game the table has nothing for gets the defaults too (status hapCarDefault)");
         {
             std::string r = get("/api/rig");
             r.erase(std::remove(r.begin(), r.end(), ' '), r.end());
-            check(has(r, "\"cylinders\":8") && has(r, "\"turbo\":1"), "...and the saved rig keeps the last car's engine");
+            check(!has(r, "\"cylinders\":8") && has(r, "\"followCar\":true"),
+                  "...the defaults replaced the last car's engine (the F40's) in the saved rig");
         }
         check(nameCar(telemetry, "AssettoCorsa", "Mystery Car", "\"hapCarDefault\":true", 10000),
               "follow car: a car with no entry puts the car tiles on the defaults (status hapCarDefault)");
@@ -1064,6 +1066,18 @@ int main()
           "direct telemetry off: reads back");
     check(has(get("/api/status"), "\"directSender\":\""), "status carries what the sender says");
     check(has(get("/api/status"), "\"directSetAside\":false"), "status carries whether another sender is set aside (none here)");
+    // The kerbs channel by name (a game's own kerb signal) reads true; the
+    // numbered line's slot (0 in Assetto Corsa whatever the game has) does
+    // not count. Breaks with curbsNamed read from the merged channels.
+    {
+        const auto feed = [&](const char* line) {
+            TelemetryData td;
+            if (TelemetryInput::parsePacket(line, static_cast<int>(std::strlen(line)), td)) telemetry.ingest(td); };
+        feed("NULLCATX,4000,100,3,0,50,0,0,0,0,0,0,0,0,7500");
+        check(has(get("/api/status"), "\"curbsNamed\":false"), "status: a numbered line's kerbs slot is no kerb channel of the game's");
+        feed("NULLCATY,curbs=40,rpm=4000");
+        check(has(get("/api/status"), "\"curbsNamed\":true"), "status: the kerbs channel by name is the game's own");
+    }
 
     // ---- e-stop; tension ACCEPTED but silently refused (contract fact #1/#2) ----
     check(has(post("/api/estop"), "\"ok\":true"), "POST /api/estop accepted");

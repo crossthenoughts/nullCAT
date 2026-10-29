@@ -488,6 +488,19 @@ std::string WebServer::buildStatusJson() const
         s += "\"directSetAside\":" + jsonBool(m_telemetry && m_telemetry->channelLinesSetAside()) + ",";
     }
     {
+        // The kerbs channel arriving by name: a game's own kerb signal. The
+        // numbered line carries the slot whatever the game has (0 in
+        // Assetto Corsa), so its presence there says nothing; the Rumble
+        // strip tile tells a game with no kerb signal from this.
+        bool curbsNamed = false;
+        if (m_telemetry)
+        {
+            const TelemetryData td = m_telemetry->getLatestData(/*wait=*/true);
+            curbsNamed = td.ncxFresh && td.ncyHave[NcxTok::Curbs];
+        }
+        s += "\"curbsNamed\":" + jsonBool(curbsNamed) + ",";
+    }
+    {
         // Haptics surface: fired counter, mute, live fx levels, and which
         // NCX tokens the wire is delivering (per-tile channel-health chips;
         // array order = NcxValues::Token order = the protocol registry).
@@ -3099,14 +3112,15 @@ void WebServer::carIdentity(const std::string& game, const std::string& car, con
         else
             LOG_WARNING(strf("Haptics: car preset '%s' could not be applied: %s", m.key.c_str(), err.c_str()));
     }
-    else if (mayApply && !(car.empty() && carId.empty()) && m_cars.coversGame(game))
+    else if (mayApply && !(car.empty() && carId.empty()) && m_cars.anyEntries())
     {
-        // A car the table has no entry for, in a game it covers: the
-        // engine, limiter, driveline, ABS and TC go back to their
-        // defaults, so this car never plays the last one's engine or
-        // gearbox. The strip tints them to say so. A game the table does
-        // not cover at all (no entry of either layer) keeps the user's own
-        // settings, as does a missing table.
+        // A car the table has no entry for, in any game (one it covers or
+        // one it has nothing for, as BeamNG): the engine, limiter,
+        // driveline, ABS and TC go back to their defaults, so this car
+        // never plays the last one's engine, gearbox or ABS (an Assetto
+        // Corsa car without ABS left a BeamNG car's ABS off). The strip
+        // tints them to say so. A missing table keeps the user's own
+        // settings.
         std::string err;
         const std::string& who = car.empty() ? carId : car;
         defaults = applyCarDefaults(err);
@@ -3119,8 +3133,8 @@ void WebServer::carIdentity(const std::string& game, const std::string& car, con
         else
             LOG_WARNING(strf("Haptics: the car defaults could not be applied for %s: %s", who.c_str(), err.c_str()));
     }
-    // else: a car the table did not act on (follow car off, a game it does
-    // not cover): nothing to remember.
+    // else: a car the table did not act on (follow car off, no table):
+    // nothing to remember.
     bool remember = false;
     {
         std::lock_guard<std::mutex> lk(m_carMx);

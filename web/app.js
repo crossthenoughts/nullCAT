@@ -1406,9 +1406,9 @@ const HAP_ROAD_MODEL_KEYS=[['fullMm','fullLearn','surface','surfaceHz','surfaceK
   ['bodyMm','rough','suspPct','suspHz','bodyHz','hopHz','damping'],['bodyMm']];
 const HAP_ROAD_ALL_KEYS=['fullMm','fullLearn','surface','surfaceHz','surfaceKmh','bodyMm','rough','suspPct','suspHz','bodyHz','hopHz','damping'];
 const HAP_ROAD_TEX_KEYS=['freqHz','jitter','peakPct'];
-// The dimmed settings of the Road and Kerb tiles with the reason, from the
+// The dimmed settings of the Road and Rumble strip tiles with the reason, from the
 // chosen model and what is arriving (null = the generic path trims).
-function hapDimFor(k,dv,have){
+function hapDimFor(k,dv,have,curbsNamed){
   const on=(t)=>{ const i=NCX_TOKENS.indexOf(t); return i>=0&&!!have[i]; };
   const all=(p)=>['FL','FR','RL','RR'].every(w=>on(p+w));
   if(k==='road'){
@@ -1439,9 +1439,11 @@ function hapDimFor(k,dv,have){
   }
   if(k==='kerb'){
     const dim={};
-    if(all('surface')){ dim.peakPct='The sim sends the surface under each tyre: the curbs channel is not used'; dim.detectMm='The sim sends the surface under each tyre: no detection needed'; }
-    else if(on('curbs')) dim.detectMm='The curbs channel is live: no detection needed';
-    else if(all('roadHeight')) dim.peakPct='No curbs channel: kerbs come from the road heights (detect mm)';
+    if(all('surface')){ dim.peakPct='The sim sends the surface under each tyre: the curbs channel is not used'; dim.detectMm=dim.heights='The sim sends the surface under each tyre: no detection needed'; }
+    else if(curbsNamed) dim.detectMm=dim.heights='The game sends its own kerb channel: no detection needed';
+    else if(all('roadHeight')) dim.peakPct='No curbs channel: kerbs come from the road heights (from road heights, detect mm)';
+    if(!dim.detectMm&&!(Math.round(+dv.heights)===1)) dim.detectMm='From road heights is off: no kerbs are looked for in the road heights';
+    if(!(Math.round(+dv.step)===1)) dim.riseMm='Step is off: only the ribs play';
     return dim;
   }
   return null;
@@ -2561,7 +2563,7 @@ function hapLive(s){
       }).join('  ');
       ch.classList.toggle('bad',!allOk);
       // Only the trim that acts on the live path reads as live.
-      const special=hapDimFor(k,t.dv,s.ncxHave);
+      const special=hapDimFor(k,t.dv,s.ncxHave,!!s.curbsNamed);
       // A dimmed setting says why first, then what it does.
       const titled=(row,why)=>{ const help=row.dataset.help||''; row.title=why?(why+(help?'\n\n'+help:'')):help; };
       t.tile.querySelectorAll('[data-pk]').forEach(row=>{
@@ -3009,11 +3011,12 @@ function hapInit(){
    its tile into the editor pane, leaves a placeholder row, and brings the
    route drawer under it as the routing section; every lookup hapLive
    makes stays inside the tile, so it keeps updating wherever it sits. ---- */
-// The groups follow what sets them: the car table (pulled per car), the
-// type of car (a starting point), then the rest, the H-shifter's detent
-// click last.
+// The groups, in this order, with a rule between them and no headings:
+// mostly what the car table pulls per car, then mostly what the type of
+// car sets, then the rest, the H-shifter's detent click last. No names:
+// both reach into more than one group, so a name would mislead.
 const HAP_CATS=[['Car',['rpmVibe','limiter','driveline','tc','abs']],['Type of car',['slipLon','slipLat','road','wheels','surface','kerb','impacts']],['Other',['gearShift','detentClick']]];
-const HAP_ABBR={rpmVibe:'ENG',limiter:'LIM',gearShift:'GEAR',driveline:'DRV',tc:'TC',abs:'ABS',slipLon:'LONG',slipLat:'LAT',wheels:'WHL',road:'ROAD',kerb:'KERB',surface:'SURF',impacts:'IMP',detentClick:'CLK'};
+const HAP_ABBR={rpmVibe:'ENG',limiter:'LIM',gearShift:'GEAR',driveline:'DRV',tc:'TC',abs:'ABS',slipLon:'LONG',slipLat:'LAT',wheels:'WHL',road:'ROAD',kerb:'RUMB',surface:'SURF',impacts:'IMP',detentClick:'CLK'};
 const HAP_SEL_KEY='nullcat.ui.sel', HAP_FOLD_KEY='nullcat.ui.rigfold';
 let hapSel=null; try{ hapSel=localStorage.getItem(HAP_SEL_KEY)||null; }catch(_){}
 function hapCatOf(k){ for(const [n,ks] of HAP_CATS) if(ks.includes(k)) return n; return 'Effects'; }
@@ -3043,7 +3046,11 @@ function hapMixerBuild(){
   // within a group, the order its list gives (not the registry's)
   const rank=k=>{ for(const [,ks] of HAP_CATS){ const i=ks.indexOf(k); if(i>=0) return i; } return 99; };
   for(const c in byCat) byCat[c].sort((a,b)=>rank(a.dataset.fx)-rank(b.dataset.fx));
-  for(const cat of order){ if(!byCat[cat]) continue; const g=document.createElement('div'); g.className='mxg'; g.innerHTML='<span class="lab"></span>'; g.firstChild.textContent=cat; strip.appendChild(g); for(const tile of byCat[cat]) strip.appendChild(tile); }
+  let firstGroup=true;
+  for(const cat of order){ if(!byCat[cat]) continue;
+    if(!firstGroup){ const g=document.createElement('div'); g.className='mxg'; g.dataset.group=cat; strip.appendChild(g); }
+    firstGroup=false;
+    for(const tile of byCat[cat]) strip.appendChild(tile); }
   // the Master tile: its profile and follow-car rows up into the session
   // block, Mute and Rec into the panel head, the rest in a fold
   if(master){
@@ -3212,9 +3219,10 @@ setInterval(hapUiRefresh,1000);
    per tile (the mixer row, the editor's head and the rail), its trigger
    count, a level bar under its wave, and the session glass's Now row.
    Muted, off, routed nowhere, no game, no input (a channel it needs is not
-   sent), a low input rate (Kerb on road heights slower than its detector
-   needs), playing, or ready; an event that has not happened yet this
-   session (since Reset peaks or the loop start) is armed. */
+   sent), no kerb surface (the Rumble strip in a game that names none, with
+   from road heights off), a low input rate (Rumble strip on road heights
+   slower than its detector needs), playing, or ready; an event that has not
+   happened yet this session (since Reset peaks or the loop start) is armed. */
 const HAP_EVENTS=['tc','abs','limiter','kerb','impacts','gearShift','detentClick'];
 const HAP_MTR={}; let hapMtrRaf=0, hapMtrT=0;
 function hapAgoText(sec){ return sec<60?Math.round(sec)+' s ago':sec<3600?Math.round(sec/60)+' min ago':Math.round(sec/3600)+' h ago'; }
@@ -3235,19 +3243,32 @@ function hapTileState(t,s){
   const missing=[];
   for(const e of (t.fx.chan||[])){ const sp=hapChanSpec(e); if(!sp.optional&&!sp.ok(s.ncxHave||[])) missing.push(sp.label); }
   if(missing.length) return {st:'noinput',lamp:'warn',cls:'warn',text:'no input · needs '+missing[0],tip:'This game does not send what it needs: '+missing.join(', ')+'.'};
+  let via='', viaTip='';
   if(t.fx.k==='kerb'){
     const on=nm=>{ const i=NCX_TOKENS.indexOf(nm); return i>=0&&Array.isArray(s.ncxHave)&&!!s.ncxHave[i]; };
+    const surf=['FL','FR','RL','RR'].every(w=>on('surface'+w));
+    const heightsOn=Math.round(+t.dv.heights)===1&&+t.dv.detectMm>0;
+    // A game that names no kerb surface and sends no kerb channel of its own
+    // (by name: the numbered line carries the slot as 0 whatever the game
+    // has) has no rumble strip of its own: said, rather than left to look
+    // broken.
+    if(!surf&&!s.curbsNamed){
+      if(!heightsOn) return {st:'nosurface',lamp:'',cls:'dim',text:'no kerb surface'+cnt,short:'no kerb surface',
+        tip:'This game does not say which tyre is on a kerb, so there is no rumble strip to play. From road heights finds the kerb\'s edge in the road heights instead: a thump on and off rather than a rumble.'};
+      via=' · from road heights';
+      viaTip=' This game does not say which tyre is on a kerb: the kerbs come from the road heights, which find the kerb\'s edge (a thump on and off) rather than its ribs\' rumble.';
+    }
     // the height detector runs beside a kerbs channel (the stronger of the
     // two), so a slow rate fires at random whatever the channel does
-    const viaHeights=!['FL','FR','RL','RR'].every(w=>on('surface'+w))&&+t.dv.detectMm>0, hz=+s.hapHeightsHz||0;
+    const viaHeights=!surf&&heightsOn, hz=+s.hapHeightsHz||0;
     if(viaHeights&&hz>0&&hz<150) return {st:'lowrate',lamp:'warn',cls:'warn',text:'low rate · heights '+Math.round(hz)+'/s'+cnt,short:'low rate · '+Math.round(hz)+'/s',
       tip:'Kerbs are found from the road heights, arriving '+Math.round(hz)+' times a second: too few for a rumble strip\'s ribs (about 110 a second at 100 km/h), so it fires at random. With the SimHub plugin, turn kunosDirectHeights on for the game\'s physics rate.'};
   }
   const playing=t.fx.transient?(ago>=0&&ago<1):((+t.level||0)>0.05);
-  if(playing) return {st:'playing',lamp:'ok',cls:'ok',text:'playing'+cnt,tip:'Playing now.'};
-  if(ev&&!n&&has(s.hapCount)) return {st:'armed',lamp:'',cls:'',text:'armed · none yet',tip:'Ready, and nothing has set it off yet for this car (since it was named, Reset peaks or the loop start).'};
+  if(playing) return {st:'playing',lamp:'ok',cls:'ok',text:'playing'+cnt+via,short:'playing'+cnt,tip:'Playing now.'+viaTip};
+  if(ev&&!n&&has(s.hapCount)) return {st:'armed',lamp:'',cls:'',text:'armed · none yet'+via,short:'armed · none yet',tip:'Ready, and nothing has set it off yet for this car (since it was named, Reset peaks or the loop start).'+viaTip};
   const when=(ev&&ago>=0)?' · '+hapAgoText(ago):'';
-  return {st:'ready',lamp:'',cls:'',text:'ready'+cnt+when,short:(ev&&n>0)?'×'+n+when:'ready',tip:'Ready: fed, nothing to play right now.'};
+  return {st:'ready',lamp:'',cls:'',text:'ready'+cnt+when+via,short:(ev&&n>0)?'×'+n+when:'ready',tip:'Ready: fed, nothing to play right now.'+viaTip};
 }
 function hapStatesUpdate(s){
   let playing=0; const warn=[], armed=[];

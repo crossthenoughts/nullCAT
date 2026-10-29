@@ -256,8 +256,7 @@ private slots:
         writeText(dir.path() + "/cars.json", stockFile());
         CarTable t;
         QVERIFY(t.loadStock((dir.path() + "/cars.json").toStdString()));
-        // The games the table has entries for, by any of their names; the
-        // defaults for a car with no entry only ever apply in these.
+        // The games the table has entries for, by any of their names.
         QVERIFY(t.coversGame("ac"));
         QVERIFY(t.coversGame("AssettoCorsa"));
         QVERIFY(t.coversGame("Automobilista2"));
@@ -272,6 +271,14 @@ private slots:
         QVERIFY(t.coversGame("iracing"));
         QVERIFY(t.removeUser("iRacing:Dallara IR18"));
         QVERIFY(!t.coversGame("iRacing"));
+        // Any entry at all is a table (a car it has no entry for, in any
+        // game, then gets the defaults); an empty one is none (the user's
+        // settings stay).
+        QVERIFY(t.anyEntries());
+        CarTable none;
+        QVERIFY(!none.anyEntries());
+        none.putUser(none.keyFor("iRacing", "Dallara IR18"), mine);
+        QVERIFY(none.anyEntries());
     }
 
     void defaults_carKeysAtFreshValues()

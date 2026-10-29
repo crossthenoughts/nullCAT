@@ -376,6 +376,12 @@ bool CarTable::coversGame(const std::string& game) const
     return any(m_user) || any(m_stock);
 }
 
+bool CarTable::anyEntries() const
+{
+    std::lock_guard<std::mutex> lk(m_mx);
+    return !m_user.rows.empty() || !m_stock.rows.empty();
+}
+
 void CarTable::putUser(const std::string& key, const QJsonObject& entry)
 {
     std::lock_guard<std::mutex> lk(m_mx);

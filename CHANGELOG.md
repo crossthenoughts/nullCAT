@@ -75,6 +75,20 @@ each shaker, and BeamNG.drive straight from the game.
   the kerb detection (15 mm).
 
 ### Changed
+- The Kerb tile is now **Rumble strip**: the rumble of a kerb's ribs,
+  which is what it is for. Two tickboxes, both on as it always played:
+  **step** (the step up onto the kerb, which your motion software mostly
+  carries already) and **from road heights** (kerbs found in the road
+  heights in a game that does not say which tyre is on one, as Assetto
+  Corsa). In such a game the tile now says so: *no kerb surface* with from
+  road heights off, *from road heights* with it on, as what it finds there
+  is the kerb's edge, more a thump than a rumble.
+- A car the car table has no entry for gets the default car settings in
+  any game, not only in the games the table covers: a BeamNG.drive car no
+  longer keeps the last Assetto Corsa car's engine, gearbox, ABS and TC
+  (an AC car without ABS left BeamNG's ABS off).
+- The Haptics tiles keep their groups without the headings: the groups'
+  names did not describe them well.
 - A car the sim gives a new id under the same name (another build or
   config of it, as BeamNG's are) is a new car: its redline, gear ratios,
   tyres and trigger counts start over, as for any other car change.
@@ -141,6 +155,15 @@ each shaker, and BeamNG.drive straight from the game.
   instead, and Setup is its own view.
 
 ### Fixed
+- BeamNG.drive: the limiter plays when the engine is on its limiter. The
+  mod read it from the rpm against the redline, but each cut drops the rpm
+  well below it (200 rpm on a rally car), so it rarely showed; it now takes
+  the engine's own limiter state.
+- BeamNG.drive: TC is traction control alone. Stability control braking a
+  wheel off the throttle read as TC, and the TC tile, which plays on the
+  throttle, stayed quiet.
+- BeamNG.drive: a car as saved no longer reads as changed from its saved
+  config (every car's id carried a build code).
 - Car table: the BMW M3 E46 GTR in Automobilista 2 has no ABS and no TC (its
   entry had both on, so those tiles looked live and never played).
 - A belt on the car's g no longer gives a hard tug when the car is reset or

@@ -1293,6 +1293,16 @@ int main()
         check(kerbPk[WheelRR] > 0.99 && kerbPk[WheelRL] == 0.0 && kerbPk[WheelFL] == 0.0, "I-9 kerb detect: RR stepping up 25 mm is on a kerb");
         ride(1.0, 0.5, [&](double) { heights(80.0, 0.0, 80.0, 25.0); });
         check(kerbPk[WheelRR] == 0.0, "I-9 kerb detect: ...for a moment: its flat top is no rumble");
+        // From road heights off: the same ribs under FL find no kerb (a game
+        // with no kerb surface then has no rumble strip). Breaks with the
+        // tickbox left out of the detector's gate.
+        {
+            haptics::KerbParams off = kd; off.heights = 0.0; K.configureKerb(off);
+            ride(0.6, 0.0, [&](double t) { const int k = static_cast<int>(t * 60.0 + 0.5); heights((k % 2) ? 100.0 : 80.0, 0.0, 80.0, 25.0); });
+            check(kerbPk[WheelFL] == 0.0 && kerbPk[WheelFR] == 0.0, "I-9 kerb detect: from road heights off, the ribs find no kerb");
+            K.configureKerb(kd);
+            ride(1.0, 0.0, [&](double) { heights(80.0, 0.0, 80.0, 25.0); });
+        }
         // A numbered line pads its kerb channel with 0 (Assetto Corsa sends
         // none): that 0 must not shut the detector out.
         kv.have[NcxValues::Curbs] = true; kv.val[NcxValues::Curbs] = 0.0;

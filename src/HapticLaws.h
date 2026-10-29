@@ -1599,17 +1599,18 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         else
         {
             // The game's kerb channel (Competizione, EVO) on every wheel,
-            // and with detect mm set and the road heights arriving, a tyre
-            // jumping against its axle mate (a kerb's edge or ribs): the stronger of the two. A
-            // numbered line pads a kerb channel it does not have with 0, so
-            // the channel must never shut the detector out (it did, in
-            // Assetto Corsa).
+            // and with from road heights on, detect mm set and the road
+            // heights arriving, a tyre jumping against its axle mate (a
+            // kerb's edge or ribs): the stronger of the two. A numbered
+            // line pads a kerb channel it does not have with 0, so the
+            // channel must never shut the detector out (it did, in Assetto
+            // Corsa).
             if (live && v.have[NcxValues::Curbs])
             {
                 const double c = mag(NcxValues::Curbs, FxType::Kerb);
                 for (double& l : lvl) l = c;
             }
-            if (kp.detectMm > 0.0 && haveW(NcxValues::RoadHeightFL) && kmh > kKerbMinKmh)
+            if (kp.heights >= 0.5 && kp.detectMm > 0.0 && haveW(NcxValues::RoadHeightFL) && kmh > kKerbMinKmh)
             {
                 heights = true;
                 const double half  = 0.5 * kp.detectMm;

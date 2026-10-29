@@ -1790,6 +1790,24 @@ int main()
             std::vector<double> fs, ps, ls; double rs = 0.0;
             run(8.0, fs, ps, ls, rs);
             CHECK(rms(f, 1600) > 2.0 * rms(fs, 1600), "kerb: the ribs are stronger at speed");
+            // Step off: the thud on and off goes (the motion carries the
+            // step), the ribs' hum stays. Breaks with the tickbox left out
+            // of the model.
+            {
+                KerbParams ko; ko.step = 0.0;
+                KerbModel m; double on2 = 0.0; std::vector<double> f2;
+                for (int i = 0; i < 6000; ++i)
+                {
+                    const double t = i * dt;
+                    m.driveSpeed(20.0); m.drive(WheelFL, (t >= 0.5 && t < 2.0) ? 1.0 : 0.0); m.step(dt, p, ko);
+                    const RoadOut o = m.outputFor(Part::FL);
+                    if (i >= 1000 && i < 1400) on2 = std::max(on2, o.pos);
+                    f2.push_back(o.force);
+                }
+                CHECK(on2 < 0.25 * on, "kerb step off: no thud up as the tyre steps on");
+                int x2 = 0; for (size_t i = 1601; i < 3600; ++i) if ((f2[i] >= 0.0) != (f2[i - 1] >= 0.0)) ++x2;
+                approx(x2 / 2.0, 20.0 / 0.25, 3.0, "kerb step off: the ribs still hum at speed / pitch");
+            }
         }
     }
 

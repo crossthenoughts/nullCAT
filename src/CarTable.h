@@ -79,10 +79,12 @@ public:
     Match findKey(const std::string& key) const;
     // Every entry, user and stock, sorted by game then name.
     std::vector<Item> list() const;
-    // Whether either layer has any entry for this game (its name or alias):
-    // a car missing from a game the table covers gets the defaults when the
-    // strip follows the car; a game it does not cover is left alone.
+    // Whether either layer has any entry for this game (its name or alias).
     bool coversGame(const std::string& game) const;
+    // Whether either layer has any entry at all: with a table, a car it has
+    // no entry for (in any game) gets the defaults when the strip follows
+    // the car; with none (no cars.json), the user's settings stay.
+    bool anyEntries() const;
 
     // The key an entry for this game/car is filed under: the game's short
     // id when the table knows the game, else the game name itself.

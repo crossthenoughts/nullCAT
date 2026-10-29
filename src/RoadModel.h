@@ -894,7 +894,7 @@ public:
                 w.pitchK = 1.0 + 0.2 * jit * (wavesynth::rand01(w.rng) - 0.5);
             }
             const double rib = 0.5 * (1.0 - std::cos(w.phase));
-            const double z = w.lvl * (k.riseMm + k.ribMm * w.ribH * rib);   // mm
+            const double z = w.lvl * ((k.step >= 0.5 ? k.riseMm : 0.0) + k.ribMm * w.ribH * rib);   // mm
             w.zf += (z - w.zf) * envA;
             w.zs += (w.zf - w.zs) * smA;
             w.zp = posA * (w.zp + w.zs - w.zsPrev); w.zsPrev = w.zs;

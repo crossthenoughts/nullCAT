@@ -112,11 +112,11 @@ by itself.
 
 | Game | Sent per wheel, without setup | Feeds |
 |---|---|---|
-| Assetto Corsa | slip angle, wheel speeds, tyre loads, the combined slip, suspension travel, the road height under each tyre, wheelbase and track | Longitudinal slip, Lateral slip, Road, Kerb |
-| Assetto Corsa Competizione | slip angle, a real slip ratio, wheel speeds, combined slip, suspension travel, road height, wheelbase and track, the game's kerb vibration, the rain and how wet the track is (no loads: the game leaves them at zero) | Longitudinal slip, Lateral slip, Road, Kerb, Surface (puddles only: no surface under each tyre) |
-| Assetto Corsa EVO, Rally | slip angle, a real slip ratio, wheel speeds, loads, combined slip, suspension travel, road height, wheelbase and track, the game's kerb vibration | Longitudinal slip, Lateral slip, Road, Kerb |
-| Le Mans Ultimate | wheel speeds, tyre loads, suspension travel, the tyre's slide over the road (nullCAT turns it into a slip angle), the surface under each tyre, punctures, tyre wear, the rain and how wet the track is | Longitudinal slip, Lateral slip, Road, Kerb, Surface, Wheels |
-| Automobilista 2 | wheel speeds, suspension velocities, tyre slip speed (nullCAT turns it into a slip angle), the surface under each tyre (snow and ice included), the rain, which tyres are on the ground and which are punctured | Longitudinal slip, Lateral slip, Road, Kerb, Surface, Wheels; a tyre in the air goes quiet |
+| Assetto Corsa | slip angle, wheel speeds, tyre loads, the combined slip, suspension travel, the road height under each tyre, wheelbase and track | Longitudinal slip, Lateral slip, Road, Rumble strip |
+| Assetto Corsa Competizione | slip angle, a real slip ratio, wheel speeds, combined slip, suspension travel, road height, wheelbase and track, the game's kerb vibration, the rain and how wet the track is (no loads: the game leaves them at zero) | Longitudinal slip, Lateral slip, Road, Rumble strip, Surface (puddles only: no surface under each tyre) |
+| Assetto Corsa EVO, Rally | slip angle, a real slip ratio, wheel speeds, loads, combined slip, suspension travel, road height, wheelbase and track, the game's kerb vibration | Longitudinal slip, Lateral slip, Road, Rumble strip |
+| Le Mans Ultimate | wheel speeds, tyre loads, suspension travel, the tyre's slide over the road (nullCAT turns it into a slip angle), the surface under each tyre, punctures, tyre wear, the rain and how wet the track is | Longitudinal slip, Lateral slip, Road, Rumble strip, Surface, Wheels |
+| Automobilista 2 | wheel speeds, suspension velocities, tyre slip speed (nullCAT turns it into a slip angle), the surface under each tyre (snow and ice included), the rain, which tyres are on the ground and which are punctured | Longitudinal slip, Lateral slip, Road, Rumble strip, Surface, Wheels; a tyre in the air goes quiet |
 
 Every game also sends the body's motion from SimHub's own motion data
 (its accelerations up, along and across, its pitch and roll, and the rates
@@ -173,7 +173,7 @@ With `"kunosDirectHeights": "on"` as well, the same short line carries
 the height of the road under each tyre and, in Competizione, EVO and
 Rally, the game's own kerb vibration, also at the physics rate. A rumble
 strip's ribs pass under a tyre about 110 times a second at 100 km/h, too
-fast for SimHub's 60 a second to show, so with this on the Kerb tile can
+fast for SimHub's 60 a second to show, so with this on the Rumble strip tile can
 feel them, and the Road tile gets every bump. Off by default.
 
 ## What the plugin reads in the Assetto Corsa family

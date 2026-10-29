@@ -154,7 +154,9 @@ try {
     // row.
     stateLines:   [...document.querySelectorAll('#hapStrip .hap-tile[data-fx] [data-st]')].filter(e => e.textContent.trim()).length,
     levelBars:    document.querySelectorAll('#hapStrip .hap-tile[data-fx] .mxlv').length,
-    groups:       [...document.querySelectorAll('#hapStrip .mxg .lab')].map(e => e.textContent).join('|'),
+    // the rules between the groups (no headings): each with the tile that
+    // starts its group, and any text it carries
+    groups:       [...document.querySelectorAll('#hapStrip .mxg')].map(e => e.dataset.group + ':' + ((e.nextElementSibling && e.nextElementSibling.dataset.fx) || '') + (e.textContent.trim() ? ':text' : '')).join('|'),
     firstLast:    (() => { const t = [...document.querySelectorAll('#hapStrip .hap-tile[data-fx]')]; return t.length ? t[0].dataset.fx + '|' + t[t.length - 1].dataset.fx : ''; })(),
     sesRows:      !!document.querySelector('#hapSesType #hapPresetSel') && !!document.querySelector('#hapSesCarRow #hapCarPull'),
     sesNow:       (document.getElementById('hapSesNow') || {}).textContent || '',
@@ -318,8 +320,8 @@ try {
   if (st.presetOpts !== 11)     fails.push(`starting point selector has ${st.presetOpts} options, expected the 10 shipped starting points and the prompt`);
   if (st.stateLines !== nEffects || st.levelBars !== nEffects)
     fails.push(`tile states: ${st.stateLines} state lines and ${st.levelBars} level bars, expected one each per effect (${nEffects})`);
-  if (st.groups !== 'Car|Type of car|Other' || st.firstLast !== 'rpmVibe|detentClick')
-    fails.push(`mixer groups "${st.groups}", first|last "${st.firstLast}": expected Car|Type of car|Other, rpmVibe|detentClick`);
+  if (st.groups !== 'Type of car:slipLon|Other:gearShift' || st.firstLast !== 'rpmVibe|detentClick')
+    fails.push(`mixer groups "${st.groups}", first|last "${st.firstLast}": expected Type of car:slipLon|Other:gearShift (rules, no headings), rpmVibe|detentClick`);
   if (!st.sesRows)              fails.push('the type of car and car table rows are not up in the session block');
   if (!st.sesNow || st.sesNow === '-') fails.push(`the session glass's Now row reads "${st.sesNow}" after a status`);
   if (!st.carNotes)             fails.push('no car notes block on the Engine tile');

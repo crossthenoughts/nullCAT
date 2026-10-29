@@ -15,7 +15,7 @@
   "_help_kunosDirect": "Assetto Corsa, Competizione, EVO and Rally only: on sends the car's accelerations (along, across and up, for the belt and Impacts on the rig) straight from the game's shared memory at its physics rate, about 333 a second, instead of SimHub's 60. The plugin first matches them against SimHub's own while you drive (about 10 s above 20 km/h), so they arrive in the same units and directions; until then, and whenever they stop matching, SimHub's go as before. The SimHub action ToggleKunosDirect (Controls and events) flips it while driving, to compare the two; the property KunosDirect says what it is doing. on or off.",
   "kunosDirect": "off",
 
-  "_help_kunosDirectHeights": "With kunosDirect on as well: the height of the road under each tyre, and the game's own kerb vibration where it has one (Competizione, EVO, Rally), also go straight from the game at its physics rate instead of SimHub's 60 a second, so the Kerb tile can feel a rumble strip's ribs and the Road tile gets every bump. on or off.",
+  "_help_kunosDirectHeights": "With kunosDirect on as well: the height of the road under each tyre, and the game's own kerb vibration where it has one (Competizione, EVO, Rally), also go straight from the game at its physics rate instead of SimHub's 60 a second, so the Rumble strip tile can feel a rumble strip's ribs and the Road tile gets every bump. on or off.",
   "kunosDirectHeights": "off",
 
   "_help_magnitudes": "The four magnitudes are 0..100 summaries. skid and lockup are the FALLBACK for the two slip effects when the per-wheel channels below are not bound: they feed all four wheels at once.",
@@ -28,7 +28,7 @@
   "_help_roadProp": "Road surface texture 0..100: drives the Road effect.",
   "roadProp": "",
 
-  "_help_curbsProp": "Kerb strike magnitude 0..100: drives the Kerb effect.",
+  "_help_curbsProp": "Kerb strike magnitude 0..100: drives the Rumble strip effect.",
   "curbsProp": "",
 
   "_help_wheels": "Per-wheel channels, RAW physics, no shaping: nullCAT holds the tyre model. A group is sent only when all four wheels (FL, FR, RL, RR) are bound. Each group has a Scale for unit conversion (the value is multiplied by it before sending).",

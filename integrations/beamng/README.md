@@ -63,7 +63,7 @@ setup and in BeamNG's protocol settings.
 - The car's name, once a second.
 
 That drives the Engine, Limiter, Gear shift, Driveline, ABS, TC, Long
-slip, Lat slip, Road, Wheels, Surface and Kerb tiles, and the belt from
+slip, Lat slip, Road, Wheels, Surface and Rumble strip tiles, and the belt from
 the car's g.
 
 ## The car's name
