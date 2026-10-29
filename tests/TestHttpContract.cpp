@@ -856,10 +856,6 @@ int main()
                   && !has(get("/api/cars/list"), "\"name\":\"My Mystery\""),
                   "GET /api/cars after forget: no entry, not applied, not the defaults; the list no longer carries it");
         }
-        check(nameCar(telemetry, "AssettoCorsa", "Mazda 787B Le Mans", "\"hapCarKey\":\"ac:ks_mazda_787b\"", 10000)
-              && has(get("/api/cars"), "\"near\":true") && has(get("/api/status"), "\"hapCarDefault\":false")
-              && has(get("/api/status"), "\"hapCarApplied\":true"),
-              "follow car: a name that starts with an entry's is a near match, applied");
         // A car on the defaults whose sender describes it (protocol 1.11,
         // the BeamNG mod): its engine goes on the engine tile and its type
         // of car is applied as the starting point, once: the same car
@@ -890,6 +886,11 @@ int main()
             r2.erase(std::remove(r2.begin(), r2.end(), ' '), r2.end());
             check(has(r2, "\"cylinders\":8") && !has(r2, "\"cylinders\":6"), "...once: the same car described otherwise later changes nothing");
         }
+        // (after the described car: the checks below run on this AC car)
+        check(nameCar(telemetry, "AssettoCorsa", "Mazda 787B Le Mans", "\"hapCarKey\":\"ac:ks_mazda_787b\"", 10000)
+              && has(get("/api/cars"), "\"near\":true") && has(get("/api/status"), "\"hapCarDefault\":false")
+              && has(get("/api/status"), "\"hapCarApplied\":true"),
+              "follow car: a name that starts with an entry's is a near match, applied");
         // A save that moves a setting the car table owns (the engine's amp)
         // means the tiles no longer carry the entry: the car row stops
         // claiming it. One that moves nothing the car owns (the master
