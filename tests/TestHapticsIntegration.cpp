@@ -4359,6 +4359,298 @@ int main()
         }
     }
 
+    // ---- I-31: slip from the car's g (Lateral slip: learn onset) ----
+    // A car whose sideways g rises with its front slip angle up to 5 deg and
+    // then holds at 1.5 g (the rears slip 0.7 x as far), through steady
+    // corners at 120 km/h, its turn rate agreeing with its g. The tile is
+    // fixed from 0 to full at 13 deg, straight up. Nothing is trusted until
+    // the car has been past the limit; then each axle's limit is learned
+    // and the slide starts at 80 % of it, full at 2 x it; learn off plays
+    // the fixed onset; a gap in the stream or a moment on another source
+    // keeps it, another car starts it over. Breaks with the past-the-limit
+    // check, the per-axle split, the onset in the law, the gap rule, the
+    // learning per source or the reset removed.
+    {
+        using haptics::FxType; using haptics::Part;
+        const double dt = 0.002, G = 9.80665, PI = 3.14159265358979;
+        const double knee = 5.0, plat = 1.5, rearShare = 0.7, kmh = 120.0;
+        haptics::Layer L; haptics::LawsState st;
+        haptics::EffectParams fx; fx.ampPct = 100.0; fx.routes[0] = { 0, 1.0, Part::FL };
+        L.configureFx(FxType::Skid, fx); L.configureFx(FxType::Lockup, fx);
+        haptics::SlipParams lat = haptics::effectInfo(haptics::Effect::Skid).slipDefaults;
+        check(lat.learn == 1.0 && lat.learnOnsetPct == 80.0 && lat.learnFullX == 2.0, "I-31: learn onset is on by default (80 % of the limit, full at 2 x)");
+        lat.onsetPct = 0.0; lat.peak = 13.0; lat.ease = 0.0;
+        L.configureSlip(FxType::Skid, lat);
+        NcxValues v{}; v.fresh = true;
+        std::strncpy(v.car, "Car A", NCY_STR_LEN - 1);
+        auto set = [&](int t, double x) { v.have[t] = true; v.val[t] = x; };
+        double turnShare = 1.0;   // the sideways g against what the turn rate gives (1 = they agree)
+        int tick = 0;             // (a live sender never repeats a float exactly: the g by a hair, frame to frame)
+        auto corner = [&](double frontDeg) {
+            for (int w = 0; w < 4; ++w) set(NcxValues::SlipAngleFL + w, (w < 2 ? 1.0 : rearShare) * frontDeg);
+            const double ay = plat * G * std::min(1.0, frontDeg / knee);
+            set(NcxValues::AccSway, ay + ((++tick & 1) ? 1e-4 : 0.0));
+            set(NcxValues::YawRate, ay / turnShare / (kmh / 3.6) * 180.0 / PI);
+        };
+        set(NcxValues::SpeedKmh, kmh); set(NcxValues::AccSurge, 0.0); set(NcxValues::BrakePct, 0.0);
+        auto step = [&]() { haptics::driveLaws(L, st, v, dt); L.step(dt); };
+        // Corners: the front slip angle swept from 0.3 deg to top and back every 8 s.
+        double clock = 0.0;
+        auto sweep = [&](double secs, double top, bool mixed = false) {
+            for (int i = 0; i < static_cast<int>(secs / dt); ++i)
+            {
+                clock += dt;
+                if (mixed) turnShare = (std::fmod(clock, 32.0) < 8.0) ? 1.0 : 0.35;
+                const double ph = std::fmod(clock, 8.0) / 8.0, tri = ph < 0.5 ? 2.0 * ph : 2.0 - 2.0 * ph;
+                corner(0.3 + (top - 0.3) * tri);
+                step();
+            }
+        };
+        auto hold = [&](double deg, double secs) { corner(deg); for (int i = 0; i < static_cast<int>(secs / dt); ++i) step(); return L.slipWheelLevel(FxType::Skid, WheelFL); };
+        const auto& F = st.gripLat[0][0]; const auto& R = st.gripLat[0][1];   // the sim's slip angle's
+        sweep(60.0, 1.1 * knee);
+        check(!F.learned() && !R.learned() && F.fedSec > 20.0, "I-31: a minute short of the limit (to 1.1 x it): fed, nothing trusted yet");
+        const double fixedAt3 = hold(3.0, 2.0);
+        check(fixedAt3 > 0.15, "I-31: ...the fixed onset plays meanwhile (3 deg of 13: a slide)");
+        sweep(90.0, 2.0 * knee);
+        std::printf("  I-31 learned: F %.2f R %.2f deg (knee %.1f / %.1f), %.0f s of corners, turn state %d\n",
+                    F.limit, R.limit, knee, knee * rearShare, F.fedSec, haptics::gripTurnState(st));
+        check(F.learned() && F.limit > 0.8 * knee && F.limit < 1.1 * knee, "I-31: past the limit, the front limit is learned (within a bin of the knee)");
+        check(R.learned() && R.limit / F.limit > 0.6 && R.limit / F.limit < 0.8, "I-31: ...and the rear's, apart (0.7 x)");
+        check(haptics::gripTurnState(st) == 1, "I-31: ...the sideways g matching the turning");
+        const double learnedAt3 = hold(3.0, 4.0);
+        check(learnedAt3 < 0.02, "I-31 learned: 3 deg is short of 80 % of the limit: no slide");
+        const double learnedAt9 = hold(9.0, 2.0);
+        check(learnedAt9 > 0.8, "I-31 learned: 9 deg is near 2 x the limit: nearly a full slide (fixed: 9 of 13)");
+        lat.learn = 0.0; L.configureSlip(FxType::Skid, lat);
+        check(hold(3.0, 4.0) > 0.15, "I-31 learn off: the fixed onset plays again");
+        check(F.learned(), "I-31 learn off: ...the limit is kept (it learns on)");
+        lat.learn = 1.0; L.configureSlip(FxType::Skid, lat);
+        check(hold(3.0, 4.0) < 0.02, "I-31 learn on again: the learned onset");
+        // Each axle its own onset: 3.2 deg on every tyre is past 80 % of
+        // the rears' limit and short of the fronts'. Breaks with one axle's
+        // onset used for both.
+        for (int w = 0; w < 4; ++w) set(NcxValues::SlipAngleFL + w, 3.2);
+        for (int i = 0; i < static_cast<int>(2.0 / dt); ++i) step();
+        check(L.slipWheelLevel(FxType::Skid, WheelFL) < 0.02 && L.slipWheelLevel(FxType::Skid, WheelRL) > 0.05,
+              "I-31 learned: each axle its own onset (3.2 deg: the rears slide, the fronts do not)");
+        // The grip budget measures the angle against the learned onset: 3
+        // deg (short of it) with a 0.12 slip ratio braking is just past
+        // the limit together, a light slide; against the tile's fixed onset
+        // (0 here) it read as a big one. Breaks with the budget left on the
+        // fixed onset.
+        for (int w = 0; w < 4; ++w) set(NcxValues::SlipRatioFL + w, -0.12);
+        const double budgetAt3 = hold(3.0, 2.0);
+        for (int w = 0; w < 4; ++w) v.have[NcxValues::SlipRatioFL + w] = false;
+        check(budgetAt3 > 0.005 && budgetAt3 < 0.08, "I-31 learned: the grip budget against the learned onset (a light slide, not a big one)");
+        const double before = F.limit;
+        v.fresh = false;
+        for (int i = 0; i < static_cast<int>(2.0 / dt); ++i) step();
+        v.fresh = true;
+        check(F.learned() && F.limit == before && hold(3.0, 1.0) < 0.02, "I-31: a gap in the stream keeps what was learned");
+        // The angles gone a second, a combined slip still sent (Assetto
+        // Corsa sends both): the angle's limits wait for it.
+        for (int w = 0; w < 4; ++w) { v.have[NcxValues::SlipAngleFL + w] = false; set(NcxValues::WheelSlipFL + w, 10.0); }
+        for (int i = 0; i < static_cast<int>(1.0 / dt); ++i) step();
+        const bool wasCombined = st.slipSrc == 2;
+        for (int w = 0; w < 4; ++w) v.have[NcxValues::WheelSlipFL + w] = false;
+        const double afterFlip = F.limit;
+        check(wasCombined && F.learned() && afterFlip == before && hold(3.0, 4.0) < 0.02,
+              "I-31: a moment on another source (a combined slip) keeps the angle's limits and its onset");
+        std::strncpy(v.car, "Car B", NCY_STR_LEN - 1);
+        step();
+        check(!st.gripLat[0][0].learned() && !st.gripLat[0][1].learned() && st.gripTurnSec < 0.01, "I-31 car B: the limits start over");
+        check(hold(3.0, 4.0) > 0.15, "I-31 car B: ...and the fixed onset plays until car B is learned");
+    }
+
+    // ---- I-31b: a sideways g that does not match the turning (Assetto
+    // Corsa Rally's, through SimHub) teaches nothing: three corners in four
+    // turn at 0.35 x their g; the one that agrees would teach a limit by
+    // itself. Breaks with the turn check left out of the samples.
+    {
+        using haptics::FxType; using haptics::Part;
+        const double dt = 0.002, G = 9.80665, PI = 3.14159265358979;
+        haptics::Layer L; haptics::LawsState st;
+        haptics::EffectParams fx; fx.ampPct = 100.0; fx.routes[0] = { 0, 1.0, Part::FL };
+        L.configureFx(FxType::Skid, fx);
+        L.configureSlip(FxType::Skid, haptics::effectInfo(haptics::Effect::Skid).slipDefaults);
+        NcxValues v{}; v.fresh = true;
+        std::strncpy(v.car, "Car A", NCY_STR_LEN - 1);
+        auto set = [&](int t, double x) { v.have[t] = true; v.val[t] = x; };
+        set(NcxValues::SpeedKmh, 120.0); set(NcxValues::AccSurge, 0.0); set(NcxValues::BrakePct, 0.0);
+        double clock = 0.0;
+        for (int i = 0; i < static_cast<int>(200.0 / dt); ++i)
+        {
+            clock += dt;
+            const double share = (std::fmod(clock, 32.0) < 8.0) ? 1.0 : 0.35;
+            const double ph = std::fmod(clock, 8.0) / 8.0, tri = ph < 0.5 ? 2.0 * ph : 2.0 - 2.0 * ph;
+            const double deg = 0.3 + 9.7 * tri, ay = 1.5 * G * std::min(1.0, deg / 5.0);
+            for (int w = 0; w < 4; ++w) set(NcxValues::SlipAngleFL + w, deg);
+            set(NcxValues::AccSway, ay + ((i & 1) ? 1e-4 : 0.0));
+            set(NcxValues::YawRate, ay / share / (120.0 / 3.6) * 180.0 / PI);
+            haptics::driveLaws(L, st, v, dt); L.step(dt);
+        }
+        std::printf("  I-31b: turn state %d (%.0f s cornering, %.0f s agreeing), F %.2f\n",
+                    haptics::gripTurnState(st), st.gripTurnSec, st.gripTurnOkSec, st.gripLat[0][0].limit);
+        check(haptics::gripTurnState(st) == 2 && !st.gripLat[0][0].learned() && !st.gripLat[0][1].learned(),
+              "I-31b: a sideways g that does not match the turning: nothing learned, the tile says why");
+        haptics::LawsState none;
+        v.have[NcxValues::AccSway] = v.have[NcxValues::YawRate] = false;
+        for (int i = 0; i < 100; ++i) { haptics::driveLaws(L, none, v, dt); L.step(dt); }
+        check(haptics::gripTurnState(none) == -1, "I-31b: a sim with no sideways g and turn rate: the tile says it needs them");
+    }
+
+    // ---- I-31d: what the sideways learner never takes. A slip that does
+    // not follow the g (corners at 1 g whatever the angle, straights at
+    // none) shows no climb to a limit: nothing learned (it taught 1.15 deg,
+    // a full slide in every corner). Once the g is known to match the
+    // turning: braking, hard surge, a tyre in the air or a turn that is
+    // not steady feed nothing, and a paused game resending one frame
+    // (mid-corner, the g against the turn) neither feeds nor counts against
+    // the turn check. The baseline: relearn, fixed taken up or its angles
+    // changed start the slip-speed path's limits over. Breaks with the
+    // climb check, the frozen check or any of the exclusions removed.
+    {
+        using haptics::FxType; using haptics::Part;
+        const double dt = 0.002, G = 9.80665, PI = 3.14159265358979;
+        haptics::Layer L; haptics::LawsState st;
+        haptics::EffectParams fx; fx.ampPct = 100.0; fx.routes[0] = { 0, 1.0, Part::FL };
+        L.configureFx(FxType::Skid, fx);
+        haptics::SlipParams lat = haptics::effectInfo(haptics::Effect::Skid).slipDefaults;
+        L.configureSlip(FxType::Skid, lat);
+        NcxValues v{}; v.fresh = true;
+        std::strncpy(v.car, "Car A", NCY_STR_LEN - 1);
+        auto set = [&](int t, double x) { v.have[t] = true; v.val[t] = x; };
+        set(NcxValues::SpeedKmh, 120.0); set(NcxValues::AccSurge, 0.0); set(NcxValues::BrakePct, 0.0);
+        auto step = [&]() { haptics::driveLaws(L, st, v, dt); L.step(dt); };
+        const auto& F = st.gripLat[0][0];
+        // The flat curve: 8 s corners at 1 g with the angle wandering 1 to
+        // 6 deg, 4 s straights at 0 g and 0.3 to 0.9 deg.
+        double clock = 0.0;
+        for (int i = 0; i < static_cast<int>(180.0 / dt); ++i)
+        {
+            clock += dt;
+            const double ph = std::fmod(clock, 12.0);
+            const bool bend = ph < 8.0;
+            const double wob = 0.5 + 0.5 * std::sin(clock * 2.3);
+            const double deg = bend ? 1.0 + 5.0 * wob : 0.3 + 0.6 * wob, ay = bend ? 1.0 * G : 0.0;
+            for (int w = 0; w < 4; ++w) set(NcxValues::SlipAngleFL + w, deg);
+            set(NcxValues::AccSway, ay + ((i & 1) ? 1e-4 : 0.0)); set(NcxValues::YawRate, ay / (120.0 / 3.6) * 180.0 / PI);
+            step();
+        }
+        std::printf("  I-31d flat curve: F %.2f, turn state %d, %.0f s fed\n", F.limit, haptics::gripTurnState(st), F.fedSec);
+        check(haptics::gripTurnState(st) == 1 && F.fedSec > 60.0 && !F.learned(), "I-31d: a slip that does not follow the g shows no climb to a limit: nothing learned");
+        // Exclusions: each a minute of real corners (knee 5 deg), with one
+        // thing wrong, feeds nothing.
+        auto corners = [&](double secs, double share) {
+            for (int i = 0; i < static_cast<int>(secs / dt); ++i)
+            {
+                clock += dt;
+                const double ph = std::fmod(clock, 8.0) / 8.0, tri = ph < 0.5 ? 2.0 * ph : 2.0 - 2.0 * ph;
+                const double deg = 0.3 + 9.7 * tri, ay = 1.5 * G * std::min(1.0, deg / 5.0);
+                for (int w = 0; w < 4; ++w) set(NcxValues::SlipAngleFL + w, deg);
+                set(NcxValues::AccSway, ay + ((i & 1) ? 1e-4 : 0.0)); set(NcxValues::YawRate, ay / share / (120.0 / 3.6) * 180.0 / PI);
+                step();
+            }
+        };
+        auto fedBy = [&](const char* what, double secs, double share) {
+            const double before = F.fedSec; corners(secs, share);
+            std::printf("  I-31d %s: fed %.2f s\n", what, F.fedSec - before);
+            return F.fedSec - before;
+        };
+        set(NcxValues::BrakePct, 50.0);
+        check(fedBy("braking", 60.0, 1.0) == 0.0, "I-31d: braking (50 %) feeds nothing");
+        set(NcxValues::BrakePct, 0.0); set(NcxValues::AccSurge, 0.5 * G);
+        check(fedBy("surge", 60.0, 1.0) == 0.0, "I-31d: hard surge (0.5 g) feeds nothing");
+        set(NcxValues::AccSurge, 0.0);
+        for (int w = 0; w < 4; ++w) set(NcxValues::OnGroundFL + w, w == WheelRR ? 0.0 : 1.0);
+        check(fedBy("a tyre in the air", 60.0, 1.0) == 0.0, "I-31d: a tyre in the air feeds nothing");
+        for (int w = 0; w < 4; ++w) v.have[NcxValues::OnGroundFL + w] = false;
+        const double steadyFed = fedBy("steady", 20.0, 1.0);
+        const double notSteadyFed = fedBy("not steady", 20.0, 0.6);
+        check(steadyFed > 1.0 && notSteadyFed < 0.15 * steadyFed,
+              "I-31d: a turn not steady (the g 0.6 x the turning) feeds next to nothing (its gentlest moments only), steady corners do");
+        // A paused game resending one frame, mid-corner, the g at half the
+        // turning: five minutes neither feed nor count against the check.
+        for (int w = 0; w < 4; ++w) set(NcxValues::SlipAngleFL + w, 4.0);
+        set(NcxValues::AccSway, 0.5 * G); set(NcxValues::YawRate, 1.0 * G / (120.0 / 3.6) * 180.0 / PI);
+        const double fedFrozen = F.fedSec, turnFrozen = st.gripTurnSec;
+        for (int i = 0; i < static_cast<int>(300.0 / dt); ++i) step();
+        std::printf("  I-31d frozen 5 min: fed %.2f s, cornering counted %.2f s, turn state %d\n",
+                    F.fedSec - fedFrozen, st.gripTurnSec - turnFrozen, haptics::gripTurnState(st));
+        check(F.fedSec - fedFrozen < 0.2 && st.gripTurnSec - turnFrozen < 0.2 && haptics::gripTurnState(st) == 1,
+              "I-31d: a paused game resending one frame neither feeds nor counts against the turn check");
+        // The baseline and the slip-speed path's limits.
+        st.gripLat[2][0].limit = 3.0;
+        haptics::relearnLatBase(st);
+        check(!st.gripLat[2][0].learned(), "I-31d: relearn (the baseline) starts the slip-speed path's limits over");
+        st.gripLat[2][0].limit = 3.0;
+        lat.baseMode = 2.0; lat.baseDegF = 1.0; L.configureSlip(FxType::Skid, lat); step();
+        const bool fixedTaken = !st.gripLat[2][0].learned();
+        st.gripLat[2][0].limit = 3.0; step();
+        const bool sameKept = st.gripLat[2][0].learned();
+        lat.baseDegF = 1.5; L.configureSlip(FxType::Skid, lat); step();
+        check(fixedTaken && sameKept && !st.gripLat[2][0].learned(),
+              "I-31d: a fixed baseline taken up, or its angles changed, starts them over (the same fixed angles keep them)");
+        check(st.gripLat[0][0].fedSec > 1.0, "I-31d: ...the sim's own angle's are kept");
+    }
+
+    // ---- I-31c: the lock onset from the braking limit (Longitudinal slip:
+    // learn lock onset). Straight braking at 100 km/h, the fronts' slip
+    // ratio swept to 0.5: on gravel the braking g grows to 0.25 slip, on
+    // tarmac to 0.05, then holds at 0.8 g. Gravel moves the lock to about
+    // 1.5 x its limit (a 0.3 slip is no lock); tarmac keeps it at 0.15 (it
+    // is never made earlier); learn off keeps 0.15. Breaks with the floor
+    // at 0.15, the onset in the law or the learner removed.
+    {
+        using haptics::FxType; using haptics::Part;
+        const double dt = 0.002, G = 9.80665;
+        auto drive = [&](double kneeR, bool learn, double& onsetOut, double peakRatio = 0.0) {
+            haptics::Layer L; haptics::LawsState st;
+            haptics::EffectParams fx; fx.ampPct = 100.0; fx.routes[0] = { 0, 1.0, Part::FL };
+            L.configureFx(FxType::Lockup, fx);
+            haptics::SlipParams lon = haptics::effectInfo(haptics::Effect::Lockup).slipDefaults;
+            lon.learn = learn ? 1.0 : 0.0;
+            if (peakRatio > 0.0) lon.peak = peakRatio;
+            L.configureSlip(FxType::Lockup, lon);
+            NcxValues v{}; v.fresh = true;
+            std::strncpy(v.car, "Car A", NCY_STR_LEN - 1);
+            auto set = [&](int t, double x) { v.have[t] = true; v.val[t] = x; };
+            set(NcxValues::SpeedKmh, 100.0); set(NcxValues::AccSway, 0.0); set(NcxValues::BrakePct, 80.0);
+            int tick = 0;   // (the sideways g by a hair, frame to frame: a live sender)
+            auto at = [&](double r) {
+                for (int w = 0; w < 4; ++w) set(NcxValues::SlipRatioFL + w, -r);
+                set(NcxValues::AccSurge, 0.8 * G * std::min(1.0, r / kneeR));
+                set(NcxValues::AccSway, (++tick & 1) ? 1e-4 : 0.0);
+            };
+            double clock = 0.0;
+            for (int i = 0; i < static_cast<int>(60.0 / dt); ++i)
+            {
+                clock += dt;
+                const double ph = std::fmod(clock, 4.0) / 4.0, tri = ph < 0.5 ? 2.0 * ph : 2.0 - 2.0 * ph;
+                at(0.005 + 0.495 * tri);
+                haptics::driveLaws(L, st, v, dt); L.step(dt);
+            }
+            at(0.3);
+            for (int i = 0; i < static_cast<int>(4.0 / dt); ++i) { haptics::driveLaws(L, st, v, dt); L.step(dt); }
+            onsetOut = st.gripLockOnset;
+            std::printf("  I-31c knee %.2f learn %d: limit %.3f, lock from %.3f, lock at 0.3 %.2f\n",
+                        kneeR, learn ? 1 : 0, st.gripLon.limit, st.gripLockOnset, L.slipWheelLevel(FxType::Lockup, WheelFL));
+            return L.slipWheelLevel(FxType::Lockup, WheelFL);
+        };
+        double on = 0.0;
+        const double gravel = drive(0.25, true, on);
+        check(on > 0.3 && gravel < 0.02, "I-31c gravel: the lock starts later (about 1.5 x the limit): a 0.3 slip is no lock");
+        const double tarmac = drive(0.05, true, on);
+        check(std::fabs(on - 0.15) < 1e-9 && tarmac > 0.15, "I-31c tarmac: the lock stays at 0.15, never earlier");
+        const double off = drive(0.25, false, on);
+        check(std::fabs(on - 0.15) < 1e-9 && off > 0.15, "I-31c learn off: the lock at 0.15");
+        drive(0.25, true, on, 0.4);
+        check(std::fabs(on - 0.35) < 1e-6, "I-31c: the lock starts no later than the peak ratio less 0.05 (peak 0.4: 0.35)");
+        drive(0.4, true, on);
+        check(std::fabs(on - 0.4) < 1e-6, "I-31c: ...and no later than 0.4 (a limit of 0.4: 0.4, not 0.6)");
+    }
+
     std::printf("TestHapticsIntegration: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

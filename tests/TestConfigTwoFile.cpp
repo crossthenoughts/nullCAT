@@ -381,6 +381,9 @@ private slots:
         c.hapticsAbs.lowOff = 0.0;                 // default on: off round-trips
         c.hapticsSlipLon.screech = 0.45; c.hapticsSlipLon.screechPct = 4.5; c.hapticsSlipLon.screechHz = 42.0;   // the edge
         c.hapticsSlipLat.baseMode = 2.0; c.hapticsSlipLat.baseDegF = 2.4; c.hapticsSlipLat.baseDegR = 1.1;      // the lateral baseline fixed
+        QCOMPARE(c.hapticsSlipLat.learn, 1.0); QCOMPARE(c.hapticsSlipLon.learn, 1.0);   // the defaults: on
+        c.hapticsSlipLat.learn = 0.0; c.hapticsSlipLat.learnOnsetPct = 70.0; c.hapticsSlipLat.learnFullX = 2.5;   // slip from g
+        c.hapticsSlipLon.learn = 0.0;
         c.hapticsSurface = { 0.4, 0.8, 1.0, 0.3, 110.0, 0.5 };
         c.hapticsFx[static_cast<size_t>(haptics::Effect::Surface)].routes[0].part = haptics::Part::RL;
         c.hapticsWheels  = { 2.5, 0.5, 0.8, 1.5 };
@@ -461,6 +464,9 @@ private slots:
         QCOMPARE(r.hapticsSlipLat.pulse, 0.8);    QCOMPARE(r.hapticsSlipLat.pulseHz, 7.5);
         QCOMPARE(r.hapticsSlipLat.baseMode, 2.0); QCOMPARE(r.hapticsSlipLat.baseDegF, 2.4); QCOMPARE(r.hapticsSlipLat.baseDegR, 1.1);
         QCOMPARE(r.hapticsSlipLon.baseMode, 0.0);   // Longitudinal carries no baseline
+        QCOMPARE(r.hapticsSlipLat.learn, 0.0); QCOMPARE(r.hapticsSlipLat.learnOnsetPct, 70.0); QCOMPARE(r.hapticsSlipLat.learnFullX, 2.5);
+        QCOMPARE(r.hapticsSlipLon.learn, 0.0);
+        QCOMPARE(r.hapticsSlipLon.learnOnsetPct, 80.0);   // Longitudinal carries no learned onset % of its own
         {   // the baseline is a choice: 1.5 is none of them
             const auto names = [](const AppConfig& x) {
                 for (const std::string& e : x.validate()) if (e.find("baseMode") != std::string::npos) return true;

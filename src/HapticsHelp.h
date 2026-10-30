@@ -173,6 +173,13 @@ constexpr ParamHelp kHelp[] = {
     { "slipLon", "peakRatio",
       "The slip ratio that counts as a full lock or spin, 0.2 to 2 (nothing plays inside 0.15). Road car: 0.6 "
       "to 0.8. GT3: 0.4 to 0.6. Single-seater: 0.3 to 0.5 (slicks let go at less slip)." },
+    { "slipLon", "learn",
+      "Learn lock onset: nullCAT watches how hard this car brakes against how far its front tyres slip, finds "
+      "where the braking stops growing (its grip limit), and starts the lock at 1.5 times that, never earlier "
+      "than the usual 15 %. On tarmac the limit sits far below that, so nothing changes; on gravel and snow "
+      "the tyres brake best with more slip, and the lock no longer plays through ordinary braking there. It "
+      "learns from straight braking above 40 km/h and needs the car's g (a sim that sends it). The row shows "
+      "the limit found. On for most." },
     { "slipLon", "edge",
       "The tyres working short of their limit, braking or driving: a fine grain that tells you the rear is "
       "putting the power down (or the fronts are near locking) before anything lets go, 0 to 1 (0 = off). 0.2 "
@@ -214,6 +221,21 @@ constexpr ParamHelp kHelp[] = {
     { "slipLat", "onsetPct",
       "Where a slide starts, as a share of peak deg, 0 to 90%. 0 with a high ease gives the most progressive "
       "way in; 30 to 50 keeps ordinary cornering quiet. GT3 on a bench: 0 with ease 2 felt right." },
+    { "slipLat", "learn",
+      "Learn onset: nullCAT watches this car's sideways g against how far its tyres slip, finds where the g "
+      "stops rising (its grip limit, front and rear apart), and starts the slide at learned onset % of that "
+      "limit, full at learned full x it. Every car and title has its own limit (2 to 13 degrees, and more on a "
+      "combined slip), so one fixed onset plays too early in some and too late in others. It learns from "
+      "steady corners above 60 km/h once you have driven past the limit a few times (a minute or two), and "
+      "needs the car's g and turn rate (a sim that sends them); until then, and with it off, onset % and peak "
+      "deg play. The row shows the limit found. A game whose sideways g does not match the car's turning "
+      "(the row says so) keeps onset % and peak deg. On for most." },
+    { "slipLat", "learnOnsetPct",
+      "With learn onset: where a slide starts, as a share of this car's grip limit, 30 to 100 %. 80 plays a "
+      "light scrub as the tyres reach the limit; lower starts earlier, 100 only once they are past it." },
+    { "slipLat", "learnFullX",
+      "With learn onset: a full slide at this many times the grip limit, 1.2 to 4. 2 for most; lower for a "
+      "car that is quickly all or nothing, higher to keep big slides apart from small ones." },
     { "slipLat", "ease",
       "The shape of the way in, 0 to 2: 0 rises straight to full, 1 starts gently (severity squared), 2 "
       "gentler still. 1 to 2 for most; 2 lets you feel the load come and go as you adjust your line." },

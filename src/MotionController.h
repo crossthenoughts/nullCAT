@@ -172,6 +172,14 @@ struct MotionStatus
     int             hapLatSrc = 0, hapLatMode = 0;
     double          hapLatBaseSec = 0.0;
     bool            hapLatLearned = false;
+    // Slip from the car's g: each axle's sideways grip limit (0 = not
+    // learned) in the lateral source's units (hapGripSrc), the seconds it
+    // has learned from, whether the car's sideways g matches its turning
+    // (haptics::gripTurnState: -1 not sent, 0 not enough cornering yet, 1
+    // yes, 2 no); the braking limit (0 = not learned) and the lock onset in
+    // force (slip ratios).
+    double          hapGripLat[2] = {}, hapGripSec = 0.0, hapGripLon = 0.0, hapGripLock = 0.0;
+    int             hapGripSrc = 0, hapGripTurn = -1;
     // Road: full mm learned for this car (0 = not yet), and the seconds of
     // driving it has learned over.
     double          hapRoadFullMm = 0.0, hapRoadFullSec = 0.0;

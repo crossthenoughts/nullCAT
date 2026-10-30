@@ -915,6 +915,12 @@ void MotionController::publishHapticsStatusLocked()
     m_statusSnapshot.hapAbsWheelHz = m_hapLaws.absWheelHz;
     m_statusSnapshot.hapLatBaseSec = m_hapLaws.latBaseSec;
     m_statusSnapshot.hapLatLearned = m_hapLaws.latBaseSec >= haptics::laws_k::kLatBaseLearnSec;
+    for (int a = 0; a < 2; ++a) m_statusSnapshot.hapGripLat[a] = haptics::gripLatLimit(m_hapLaws, a);
+    m_statusSnapshot.hapGripSec  = haptics::gripLatSec(m_hapLaws);
+    m_statusSnapshot.hapGripSrc  = m_hapLaws.gripSrc;
+    m_statusSnapshot.hapGripTurn = haptics::gripTurnState(m_hapLaws);
+    m_statusSnapshot.hapGripLon  = m_hapLaws.gripLon.limit;
+    m_statusSnapshot.hapGripLock = m_hapLaws.gripLockOnset;
     m_statusSnapshot.hapRoadFullMm  = m_haptics.roadModel().learnedFullMm();
     m_statusSnapshot.hapRoadFullSec = m_haptics.roadModel().learnedFullSec();
 }

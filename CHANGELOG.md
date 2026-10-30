@@ -16,7 +16,8 @@ back to 0.9.9 brings the old page back, without the additions below.
 With it: a belt on the car's g whose g settings apply on Save with the loop
 running and whose g at max follows the type of car, two rally types of car,
 a SimHub plugin that finds AC EVO's kerbs, an EQ and a compressor on
-each shaker, and BeamNG.drive straight from the game.
+each shaker, slip tiles that learn each car's grip, and BeamNG.drive
+straight from the game.
 
 ### Added
 - **BeamNG.drive**: a mod for the game that sends its telemetry straight
@@ -71,6 +72,20 @@ each shaker, and BeamNG.drive straight from the game.
   drive off, reset or change car. The crash itself plays as before; a
   restart, a reset and most crashes are quiet by then and change nothing.
   100 turns it off.
+- The slip tiles learn each car's grip. **learn onset** on Lateral slip (on
+  by default) finds where the car's sideways g stops rising with its
+  tyres' slip, front and rear apart, and starts the slide at **learned
+  onset %** of that limit (80), full at **learned full x** it (2). Each car
+  has its own limit (2 to 13 degrees on the recordings), so one fixed onset
+  played too early in some cars and too late in others: in Le Mans
+  Ultimate the rear slide played 3 % of the time. It learns in steady
+  corners within the first minute or two, once you have been past the
+  limit, and needs the car's g and turn rate; until then, and with it off,
+  onset % and peak deg play as before. The tile shows the limit found, or
+  why it is not learning. **learn lock onset** on Longitudinal slip (on by
+  default) starts the lock later for tyres that brake best with more slip
+  (gravel, snow): at 1.5 times the car's braking limit, never earlier than
+  before, so on tarmac nothing changes.
 - SimHub plugin: with `"kunosDirectHeights": "on"` beside `"kunosDirect"`,
   the road heights under the tyres and, in Competizione, EVO and Rally,
   the game's own kerb vibration go straight from the game at its physics

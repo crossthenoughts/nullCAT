@@ -20,6 +20,7 @@
 #include "HapticsLayer.h"
 #include "HapticsRegistry.h"
 #include "DeviceStateLayer.h"   // NcxValues
+#include "GripLimitLearner.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -151,7 +152,45 @@ struct LawsState
     double latCreep[WHEEL_COUNT] = {};
     double latBaseSec = 0.0;   // straight-line time the baseline has learned over
     int    latBaseMode = 0;    // the tile's baseline mode last cycle (leaving fixed starts the learning over)
+    // Slip from the car's g (GripLimitLearner.h): each axle's sideways
+    // limit (0 front, 1 rear) for each lateral source in its own units (1
+    // the sim's slip angle and 3 an angle from a slip speed, in degrees; 2
+    // a combined slip), so a moment on another source keeps what this one
+    // learned (Assetto Corsa sends both an angle and a combined slip, and a
+    // reset on every change lost a learned car within minutes on the
+    // replays); gripSrc the source last in use; the fronts' braking limit
+    // (a slip ratio); the car's sideways and braking g as fed (smoothed, in
+    // g, and whether last cycle had them); the cornering that shows whether
+    // its sideways g matches its turning (seconds at kGripTurnG or more by
+    // the turn rate, and those with the g within kGripTurnTol of it), and
+    // whether the sim has sent the g and turn rate at all; how far each
+    // learned limit is blended in (0 the tile's fixed onset .. 1 learned);
+    // the lock onset in force (for the tile).
+    GripLimitLearner gripLat[3][2] = { { GripLimitLearner::angle(),    GripLimitLearner::angle() },
+                                       { GripLimitLearner::combined(), GripLimitLearner::combined() },
+                                       { GripLimitLearner::angle(),    GripLimitLearner::angle() } };
+    GripLimitLearner gripLon = GripLimitLearner::ratio();
+    int    gripSrc = 0;
+    double gripAyG = 0.0, gripAxG = 0.0;
+    bool   gripAySeen = false, gripAxSeen = false;
+    bool   gripGSent = false;
+    double gripTurnSec = 0.0, gripTurnOkSec = 0.0;
+    double gripBlend[3][2] = {}, gripLockBlend = 0.0;
+    double gripLockOnset = 0.0;
+    // The g as last seen and how long neither has moved (a paused game
+    // resending its last frame teaches nothing); the fixed baseline the
+    // slip-speed path's limits were learned against.
+    double gripLastAx = 0.0, gripLastAy = 0.0, gripSameSec = 0.0;
+    double latFixF = 0.0, latFixR = 0.0;
 };
+
+// The slip-speed path's sideways limits start over (its angles are less
+// the baseline: a new baseline, a new angle).
+inline void forgetGripSlipSpeed(LawsState& st)
+{
+    st.gripLat[2][0] = st.gripLat[2][1] = GripLimitLearner::angle();
+    st.gripBlend[2][0] = st.gripBlend[2][1] = 0.0;
+}
 
 // The Lateral tile's straight-line baseline starts over: its relearn
 // button, and a new car.
@@ -159,6 +198,7 @@ inline void relearnLatBase(LawsState& st)
 {
     for (int w = 0; w < WHEEL_COUNT; ++w) st.latRaw[w] = st.latBase[w] = st.latAngle[w] = st.latCreep[w] = 0.0;
     st.latBaseSec = 0.0;
+    forgetGripSlipSpeed(st);
 }
 
 // A different car: everything learned or remembered about the last one
@@ -240,6 +280,36 @@ namespace laws_k {
     constexpr double kLatCreepMin      = -0.02, kLatCreepMax = 0.12;
     constexpr double kLatRatioGate     = 0.5;
     constexpr double kLatFadeFromKmh   = 10.0, kLatFadeFullKmh = 25.0;
+    // Slip from the car's g (GripLimitLearner): the sideways limit learns
+    // from steady cornering above kGripMinKmh, every tyre on the ground,
+    // the brake at kGripMaxBrk % or less, the surge under kGripMaxSurgeG,
+    // the sideways g within kGripSteadyShare of it (plus kGripSteadyG) of
+    // the road speed x the turn rate; a bin counts from kGripLatBinSec, the
+    // limit is trusted after kGripLatPastSec past it. Only once the car's
+    // sideways g matches its turning: kGripTurnSec of cornering at
+    // kGripTurnG or more by the road speed x the turn rate, kGripTurnOkShare
+    // of it with the g within kGripTurnTol (Assetto Corsa Rally's sideways
+    // g scored 3 to 9 %, every other title 26 to 94 %, 2026-10-30).
+    constexpr double kGripG            = 9.80665;
+    constexpr double kGripMinKmh       = 60.0;
+    constexpr double kGripMaxBrk       = 5.0;
+    constexpr double kGripMaxSurgeG    = 0.3;
+    constexpr double kGripSteadyShare  = 0.2, kGripSteadyG = 0.1;
+    constexpr double kGripLatBinSec    = 0.5, kGripLatPastSec = 2.0;
+    constexpr double kGripTurnG        = 0.4, kGripTurnTol = 0.25;
+    constexpr double kGripTurnSec      = 10.0, kGripTurnOkShare = 0.3;
+    // The braking limit learns from straight braking above kGripLonMinKmh,
+    // every tyre on the ground, the brake past kGripLonMinBrk %, the
+    // sideways g under kGripLonMaxSwayG, the car slowing (the braking g
+    // smoothed at kGripLonSmoothHz); the lock then starts at kGripLockX x
+    // it, never earlier than kLonOnsetRatio and no later than kGripLockMax.
+    // A learned onset, or leaving it, blends over kGripBlendSec.
+    constexpr double kGripLonMinKmh    = 40.0, kGripLonMinBrk = 10.0, kGripLonMaxSwayG = 0.25;
+    constexpr double kGripLonSmoothHz  = 5.0;
+    constexpr double kGripLonBinSec    = 0.3, kGripLonPastSec = 1.0;
+    constexpr double kGripLockX        = 1.5, kGripLockMax = 0.4;
+    constexpr double kGripBlendSec     = 3.0;
+    constexpr double kGripFrozenSec    = 0.1;   // neither g moving this long: a paused game resending, nothing counts
     constexpr double kPreviewSec       = 2.0;      // Test preview length
     // Slip laws (the lateral onset, curve and smoothing are the tile's:
     // SlipParams onsetPct, ease, smoothHz)
@@ -431,6 +501,31 @@ namespace laws_k {
     constexpr PreviewKnock kPreviewKnocks[] = {
         { 0.10, WheelFL, 1.0, 1.0 }, { 0.50, WheelFR, 0.6, 1.0 }, { 0.90, WheelRL, 1.0, -1.0 },
         { 1.30, WheelRR, 0.6, 1.0 }, { 1.70, -1, 1.0, 1.0 } };
+}
+
+// Slip from the car's g: whether its sideways g has shown it matches its
+// turning (enough cornering, enough of it agreeing); for the tile, -1 the
+// sim sends no sideways g and turn rate, 0 not enough cornering yet, 1 it
+// matches, 2 it does not (the sideways limit is not learned).
+inline bool gripTurnOk(const LawsState& st)
+{
+    return st.gripTurnSec >= laws_k::kGripTurnSec && st.gripTurnOkSec >= laws_k::kGripTurnOkShare * st.gripTurnSec;
+}
+inline int gripTurnState(const LawsState& st)
+{
+    if (!st.gripGSent) return -1;
+    if (st.gripTurnSec < laws_k::kGripTurnSec) return 0;
+    return gripTurnOk(st) ? 1 : 2;
+}
+// For the tile: an axle's sideways limit for the lateral source last in
+// use (0 = not learned, or no source yet), and the seconds it learned from.
+inline double gripLatLimit(const LawsState& st, int axle)
+{
+    return (st.gripSrc > 0) ? st.gripLat[st.gripSrc - 1][axle].limit : 0.0;
+}
+inline double gripLatSec(const LawsState& st)
+{
+    return (st.gripSrc > 0) ? st.gripLat[st.gripSrc - 1][0].fedSec : 0.0;
 }
 
 // A surface class as sent (any finite number): clamped to the table before
@@ -781,7 +876,22 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         // Slip means nothing at a standstill (a stationary car reports
         // slip angles and skid magnitudes that are noise or stale).
         const bool moving = speed > kSlipMinSpeedKmh;
+        // The car's g as the slip learners take it (GripLimitLearner): a
+        // paused game that resends its last frame is no driving, so nothing
+        // counts once neither g has moved for kGripFrozenSec.
+        bool gMoving = false;
+        if (live && v.have[NcxValues::AccSurge] && v.have[NcxValues::AccSway])
+        {
+            if (v.val[NcxValues::AccSurge] != st.gripLastAx || v.val[NcxValues::AccSway] != st.gripLastAy)
+            {
+                st.gripLastAx = v.val[NcxValues::AccSurge]; st.gripLastAy = v.val[NcxValues::AccSway];
+                st.gripSameSec = 0.0;
+            }
+            else st.gripSameSec += dtSec;
+            gMoving = st.gripSameSec <= kGripFrozenSec;
+        }
         double lonPeak = kLonOnsetRatio + 0.05;
+        double lockOnset = kLonOnsetRatio;   // the lock's onset (later on loose ground, learned), for the grip budget too
         double lockW[WHEEL_COUNT] = {}, spinW[WHEEL_COUNT] = {};   // the Longitudinal tile's own, for the grip budget
 
         // Longitudinal: slip ratio (- locking, + spinning) past the onset
@@ -792,6 +902,20 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             const double peak = std::max(kLonOnsetRatio + 0.05, sp.peak);
             lonPeak = peak;
             const bool preview = st.previewSec[static_cast<int>(FxType::Lockup)] > 0.0;
+            // The lock's onset: kLonOnsetRatio, or with learn on and this
+            // car's braking limit learned (below), kGripLockX x that limit,
+            // never earlier: on tarmac the limit sits at 0.01 to 0.06, and a
+            // lock from 1.5 x it played through 22 to 60 % of ABS braking; on
+            // gravel at 0.11 to 0.18, where the lock at 0.15 played through
+            // 40 % of an AC Rally car's braking (13 % from 1.5 x its limit).
+            {
+                const bool use = sp.learn >= 0.5 && st.gripLon.learned();
+                st.gripLockBlend = use ? std::min(1.0, st.gripLockBlend + dtSec / kGripBlendSec)
+                                       : std::max(0.0, st.gripLockBlend - dtSec / kGripBlendSec);
+                const double to = std::min(std::min(kGripLockMax, peak - 0.05), std::max(kLonOnsetRatio, kGripLockX * st.gripLon.limit));
+                lockOnset = kLonOnsetRatio + st.gripLockBlend * (to - kLonOnsetRatio);
+                st.gripLockOnset = lockOnset;
+            }
             const bool haveRatio = haveW(NcxValues::SlipRatioFL);
             const bool haveWs    = !haveRatio && haveW(NcxValues::WheelSpeedFL) && v.have[NcxValues::SpeedKmh];
             const double single  = mag(NcxValues::Lockup, FxType::Lockup);
@@ -947,7 +1071,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 if (moving && haveRatio)
                 {
                     const double r = v.val[NcxValues::SlipRatioFL + w];
-                    lock = std::max(0.0, std::min(1.0, (-r - kLonOnsetRatio) / (peak - kLonOnsetRatio)));
+                    lock = std::max(0.0, std::min(1.0, (-r - lockOnset) / (peak - lockOnset)));
                     spin = std::max(0.0, std::min(1.0, ( r - kLonOnsetRatio) / (peak - kLonOnsetRatio)));
                     ratioW[w] = r; ratioOk[w] = true;
                 }
@@ -957,7 +1081,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                     // with the car (spun round, rolling back) is rolling,
                     // not locked.
                     const double r = std::fabs(v.val[NcxValues::WheelSpeedFL + w]) * st.rollK[w] / speed - 1.0;
-                    lock = std::max(0.0, std::min(1.0, (-r - kLonOnsetRatio) / (peak - kLonOnsetRatio)));
+                    lock = std::max(0.0, std::min(1.0, (-r - lockOnset) / (peak - lockOnset)));
                     spin = std::max(0.0, std::min(1.0, ( r - kLonOnsetRatio) / (peak - kLonOnsetRatio)));
                     ratioW[w] = r; ratioOk[w] = true;
                 }
@@ -968,6 +1092,27 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 if (preview) { lock = 1.0; spin = 1.0; }
                 L.driveSlip(FxType::Lockup, w, lock, spin);
                 lockW[w] = lock; spinW[w] = spin;
+            }
+            // This car's braking limit (GripLimitLearner), from straight
+            // braking (the constants above): the fronts' more locking wheel
+            // against the braking g (accSurge reads positive braking from
+            // every sender). Traction never teaches it: the power runs out
+            // before the grip does.
+            {
+                const bool gSent = live && v.have[NcxValues::AccSurge] && v.have[NcxValues::AccSway];
+                if (gSent)
+                {
+                    const double ax = v.val[NcxValues::AccSurge] / kGripG;
+                    const double a  = 1.0 - std::exp(-2.0 * wavesynth::kPi * kGripLonSmoothHz * dtSec);
+                    st.gripAxG = st.gripAxSeen ? st.gripAxG + a * (ax - st.gripAxG) : ax;
+                }
+                st.gripAxSeen = gSent;
+                bool fit = gSent && gMoving && !preview && speed > kGripLonMinKmh && st.gripAxG > 0.0
+                        && v.have[NcxValues::BrakePct] && v.val[NcxValues::BrakePct] > kGripLonMinBrk
+                        && std::fabs(v.val[NcxValues::AccSway]) < kGripLonMaxSwayG * kGripG;
+                for (int w = 0; w < WHEEL_COUNT && fit; ++w) fit = ratioOk[w] && !st.air[w];
+                if (fit) st.gripLon.add(std::max(0.0, std::max(-ratioW[WheelFL], -ratioW[WheelFR])), st.gripAxG, dtSec);
+                st.gripLon.tick(dtSec, kGripLonBinSec, kGripLonPastSec);
             }
             // Which axle the engine drives: the one that runs further ahead
             // of the other under full throttle than it does cruising, by a
@@ -1010,8 +1155,11 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 {
                     const int m = w ^ 1;   // the axle's other wheel
                     const double r = (haveWs && ratioOk[m]) ? 0.5 * (ratioW[w] + ratioW[m]) : ratioW[w];
+                    // (full where the lock or spin starts: a locking wheel's
+                    // onset is later on loose ground, learned)
+                    const double full = (r < 0.0) ? lockOnset : kLonOnsetRatio;
                     const double from = std::max(0.001, std::min(kLonOnsetRatio - 0.01, sp.screechPct / 100.0));
-                    const double l = std::max(0.0, std::min(1.0, (std::fabs(r) - from) / (kLonOnsetRatio - from)));
+                    const double l = std::max(0.0, std::min(1.0, (std::fabs(r) - from) / (full - from)));
                     edge = std::min(1.0, l * l * (3.0 - 2.0 * l) * loadW[w]) * ground[w];
                 }
                 if (preview) edge = 1.0;
@@ -1063,6 +1211,13 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             // values were never learned.
             const int baseMode = std::max(0, std::min(2, static_cast<int>(sp.baseMode + 0.5)));
             if (st.latBaseMode == 2 && baseMode != 2) relearnLatBase(st);
+            // Fixed taken up, or its angles changed: the angles the
+            // slip-speed path's limits were learned on moved.
+            if (baseMode == 2 && (st.latBaseMode != 2 || sp.baseDegF != st.latFixF || sp.baseDegR != st.latFixR))
+            {
+                forgetGripSlipSpeed(st);
+                st.latFixF = sp.baseDegF; st.latFixR = sp.baseDegR;
+            }
             st.latBaseMode = baseMode;
             // Fixed takes the set angles off and learns nothing, the
             // straight-line slip along the road included.
@@ -1151,6 +1306,29 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 for (int w = 0; w < WHEEL_COUNT; ++w) st.slipF[w] = in[w];
                 st.slipSrc = src;
             }
+            // Slip from the car's g: where each axle's grip runs out, learned
+            // (below, after the smoothing) for each source in its own units;
+            // a moment on another source, or a gap in the stream (no source),
+            // keeps what this one learned. With learn on, once an axle is
+            // learned its slide starts at learned onset % of that limit and
+            // is full at learned full x it, blended in over kGripBlendSec; the
+            // tile's onset and peak until then, and with learn off.
+            if (src != 0) st.gripSrc = src;
+            const double lOn   = std::max(0.3, std::min(1.0, sp.learnOnsetPct / 100.0));
+            const double lFull = std::max(1.2, std::min(4.0, sp.learnFullX));
+            double onAx[2], pkAx[2];   // the onset and full slide per axle (0 front, 1 rear), in the source's units
+            for (int a = 0; a < 2; ++a)
+            {
+                const double fixOn = combined ? onsetC : onset, fixPk = combined ? peakC : peak;
+                onAx[a] = fixOn; pkAx[a] = fixPk;
+                if (src == 0) continue;
+                const GripLimitLearner& g = st.gripLat[src - 1][a];
+                double& b = st.gripBlend[src - 1][a];
+                b = (sp.learn >= 0.5 && g.learned()) ? std::min(1.0, b + dtSec / kGripBlendSec)
+                                                     : std::max(0.0, b - dtSec / kGripBlendSec);
+                onAx[a] = fixOn + b * (lOn * g.limit - fixOn);
+                pkAx[a] = fixPk + b * (lFull * g.limit - fixPk);
+            }
             const auto curve = [ease](double lin) { return std::pow(std::max(0.0, std::min(1.0, lin)), 1.0 + ease); };
             // An angle from a slip speed fades in with road speed (below
             // walking-pace speeds a slow car's sideways part is mostly
@@ -1159,13 +1337,12 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 ? std::max(0.0, std::min(1.0, (speed - kLatFadeFromKmh) / (kLatFadeFullKmh - kLatFadeFromKmh))) : 1.0;
             for (int w = 0; w < WHEEL_COUNT; ++w)
             {
+                const int a = (w == WheelFL || w == WheelFR) ? 0 : 1;
                 if (src != 0) st.slipF[w] += (in[w] - st.slipF[w]) * smA;
                 st.latAngle[w] = angled ? st.slipF[w] : 0.0;
                 double sev = 0.0;
-                if (moving && angled)
-                    sev = curve((st.slipF[w] - onset) / std::max(1e-6, peak - onset));
-                else if (moving && combined)
-                    sev = curve((st.slipF[w] - onsetC) / std::max(1e-6, peakC - onsetC));
+                if (moving && (angled || combined))
+                    sev = curve((st.slipF[w] - onAx[a]) / std::max(1e-6, pkAx[a] - onAx[a]));
                 else if (moving && src == 0 && live && v.have[NcxValues::Skid])
                     sev = single;
                 sev = std::min(1.0, sev * loadW[w]) * ground[w] * latFade;
@@ -1189,15 +1366,16 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 if (sp.budget >= 0.5 && moving && angled && ratioOk[w] && !preview
                     && st.previewSec[static_cast<int>(FxType::Lockup)] <= 0.0)
                 {
-                    const double onsetA = std::max(0.05 * peak, onset);
+                    const double onsetA = std::max(0.05 * pkAx[a], onAx[a]);
                     const double aN = st.slipF[w] / onsetA;
-                    const double kN = std::fabs(ratioW[w]) / kLonOnsetRatio;
+                    const double kRef = (ratioW[w] < 0.0) ? lockOnset : kLonOnsetRatio;   // locking: from the lock's onset
+                    const double kN = std::fabs(ratioW[w]) / kRef;
                     const double u  = std::sqrt(aN * aN + kN * kN);
                     double lat = 0.0, lon = 0.0;
                     if (u > 1e-9)
                     {
                         const double wa = aN * aN / (u * u), wk = kN * kN / (u * u);
-                        const double uFull = wa * (peak / onsetA) + wk * (lonPeak / kLonOnsetRatio);
+                        const double uFull = wa * (pkAx[a] / onsetA) + wk * (lonPeak / kRef);
                         // The way in (ease) is the Lateral tile's: by
                         // direction, so a slide straight along rises as the
                         // Longitudinal tile's does, in a straight line (with
@@ -1225,8 +1403,7 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                     double screech = 0.0;
                     if (moving)
                     {
-                        const double x = angled ? st.slipF[w] / peak
-                                       : combined ? st.slipF[w] / peakC
+                        const double x = (angled || combined) ? st.slipF[w] / pkAx[a]
                                        : (live && v.have[NcxValues::Skid]) ? single : 0.0;
                         const double from = std::max(0.0, std::min(0.95, sp.screechPct / 100.0));
                         const double l = std::max(0.0, std::min(1.0, (x - from) / (1.0 - from)));
@@ -1235,6 +1412,42 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                     if (preview) screech = 1.0;
                     L.driveSlipExtra(FxType::Skid, w, screech, latFinal);
                 }
+            }
+
+            // Feed the sideways limit (the constants above): each axle's
+            // stronger wheel as played (smoothed) against the car's sideways
+            // g (smoothed alike, so the two line up), from steady cornering
+            // only, an angle from a slip speed once its baseline is known;
+            // and only once the car's sideways g has shown it matches its
+            // turning: an onset learned from a wrong g would be wrong too.
+            {
+                const bool gSent = live && v.have[NcxValues::AccSway] && v.have[NcxValues::YawRate] && v.have[NcxValues::AccSurge];
+                if (gSent)
+                {
+                    st.gripGSent = true;
+                    const double ay   = std::fabs(v.val[NcxValues::AccSway]);
+                    const double turn = speed / 3.6 * std::fabs(v.val[NcxValues::YawRate]) * wavesynth::kPi / 180.0;
+                    st.gripAyG = st.gripAySeen ? st.gripAyG + smA * (ay / kGripG - st.gripAyG) : ay / kGripG;
+                    if (gMoving && speed > kGripMinKmh && turn >= kGripTurnG * kGripG)
+                    {
+                        st.gripTurnSec += dtSec;
+                        if (std::fabs(st.gripAyG * kGripG / turn - 1.0) <= kGripTurnTol) st.gripTurnOkSec += dtSec;
+                    }
+                    const bool baseKnown = src != 3 || st.latBaseSec >= kLatBaseLearnSec || baseMode == 2;
+                    bool fit = gMoving && gripTurnOk(st) && src != 0 && baseKnown && !preview && speed > kGripMinKmh
+                            && !(v.have[NcxValues::BrakePct] && v.val[NcxValues::BrakePct] > kGripMaxBrk)
+                            && std::fabs(v.val[NcxValues::AccSurge]) < kGripMaxSurgeG * kGripG
+                            && std::fabs(ay - turn) <= kGripSteadyShare * ay + kGripSteadyG * kGripG;
+                    for (int w = 0; w < WHEEL_COUNT && fit; ++w) fit = !st.air[w];
+                    if (fit)
+                    {
+                        st.gripLat[src - 1][0].add(std::max(st.slipF[WheelFL], st.slipF[WheelFR]), st.gripAyG, dtSec);
+                        st.gripLat[src - 1][1].add(std::max(st.slipF[WheelRL], st.slipF[WheelRR]), st.gripAyG, dtSec);
+                    }
+                }
+                st.gripAySeen = gSent;
+                if (src != 0)
+                    for (GripLimitLearner& g : st.gripLat[src - 1]) g.tick(dtSec, kGripLatBinSec, kGripLatPastSec);
             }
         }
         // Preview timers for the slip slots decay here (previewOr does it

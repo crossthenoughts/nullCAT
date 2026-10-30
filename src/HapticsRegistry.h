@@ -80,7 +80,7 @@ struct EffectInfo
     SlipParams   slipDefaults;
 };
 
-constexpr int SLIP_KEY_COUNT = 18;  // SlipParams fields with a config key (slipField)
+constexpr int SLIP_KEY_COUNT = 21;  // SlipParams fields with a config key (slipField)
 
 namespace registry_detail {
 
@@ -125,6 +125,9 @@ constexpr ParamSpec kSlipLatParams[] = {        // lateral slip: scrub (fronts) 
     { "slideHz", "slide hz",   4,   30,  1,    nullptr },
     { "peakDeg", "peak deg",   2,   20,  0.5,  nullptr },
     { "onsetPct","onset %",    0,   90,  5,    nullptr },   // the slide starts at this share of peak
+    { "learn",   "learn onset", 0,  1,   1,    "off|on" },  // ...or where this car's g stops rising, learned per axle
+    { "learnOnsetPct", "learned onset %", 30, 100, 5, nullptr },   // ...the slide from this share of that limit
+    { "learnFullX",    "learned full x",  1.2, 4,  0.1, nullptr },   // ...full at this many times it
     { "ease",    "ease",       0,   2,   0.1,  nullptr },   // 0 linear, 1 a gentle start, 2 gentler
     { "smoothHz","smooth hz",  0,   30,  1,    nullptr },   // slip angle smoothing, 0 off
     { "attackMs","attack ms",  2,   200, 1,    nullptr },   // how fast a slide builds
@@ -142,6 +145,7 @@ constexpr ParamSpec kSlipLonParams[] = {        // longitudinal slip: lock judde
     { "spin",      "spin x",     0,   1,   0.1,  nullptr },
     { "spinHz",    "spin hz",    4,   30,  1,    nullptr },
     { "peakRatio", "peak ratio", 0.2, 2,   0.05, nullptr },
+    { "learn",     "learn lock onset", 0, 1, 1,  "off|on" },  // the lock later where this car's braking grip runs out later (loose ground)
     { "edge",      "edge x",     0,   1,   0.05, nullptr },   // the tyres working short of their limit
     { "edgePct",   "edge from %", 0.5, 14, 0.5,  nullptr },   // ...from this slip ratio % (full at the 15 % limit)
     { "edgeHz",    "edge hz",    10,  120, 1,    nullptr },   // ...on its own carrier
@@ -153,11 +157,13 @@ constexpr ParamSpec kSlipLonParams[] = {        // longitudinal slip: lock judde
 constexpr const char* kSlipLatKeys[SLIP_KEY_COUNT] = { "scrub", "scrubHz", "slide", "slideHz", "peakDeg",
                                                        "onsetPct", "ease", "smoothHz", "attackMs", "budget",
                                                        "screech", "screechPct", "screechHz", "pulse", "pulseHz",
-                                                       "baseMode", "baseDegF", "baseDegR" };
+                                                       "baseMode", "baseDegF", "baseDegR", "learn", "learnOnsetPct",
+                                                       "learnFullX" };
 constexpr const char* kSlipLonKeys[SLIP_KEY_COUNT] = { "lock", "lockHz", "spin", "spinHz", "peakRatio",
                                                        nullptr, nullptr, nullptr, nullptr, nullptr,
                                                        "edge", "edgePct", "edgeHz", nullptr, nullptr,
-                                                       nullptr, nullptr, nullptr };
+                                                       nullptr, nullptr, nullptr, "learn", nullptr,
+                                                       nullptr };
 constexpr ParamSpec kRoadParams[] = {           // road: the model, its settings, the texture fallback
     { "ampPct",     "amp %",       0,   100, 1,    nullptr },
     { "model",      "model",       0,   2,   1,    "suspension|tyre|chassis" },
@@ -315,18 +321,23 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "arrive. The two wheels of an axle move together, the corner told by how hard. Route with a part (a corner, "
       "an axle, all). Needs per-wheel slip ratios, or wheel speeds (the rolling factor is learned while "
       "cruising), or the single lockup channel as a fallback (peak % is the channel value that counts as a full "
-      "slide on that path). Edge: every tyre working short of its limit, braking or driving (a traction control "
+      "slide on that path). Learn lock onset: the lock starts at 1.5 x this car's braking limit, learned from "
+      "straight braking, never before 0.15 (later on loose ground, unchanged on tarmac). Edge: every tyre working "
+      "short of its limit, braking or driving (a traction control "
       "holds the driven wheels at a few % of slip, well short of the spin texture): a fine grain from edge from % "
       "of slip ratio up to full at the limit, on its own carrier (edge hz), so you feel the rear putting the power "
       "down and the fronts near locking before anything lets go.",
-      kSlipLonKeys, { 1.0, 9.0, 1.0, 16.0, 0.8, 40.0, 1.0, 8.0, 8.0, 0.0, 0.3, 3.0, 35.0, 0.0, 6.0, 0.0, 0.0, 0.0 } },
+      kSlipLonKeys, { 1.0, 9.0, 1.0, 16.0, 0.8, 40.0, 1.0, 8.0, 8.0, 0.0, 0.3, 3.0, 35.0, 0.0, 6.0, 0.0, 0.0, 0.0, 1.0, 80.0, 2.0 } },
     { Effect::Skid,        "slipLat",     "Lateral slip", Kind::Slip, EventType::COUNT, FxType::Skid,
       { "slipAngle*|slipSpeed*|wheelSlip*|skid", "speedKmh", "~load*", nullptr }, { 0.0, 20.0, 0.0, 0.5 }, kSlipLatParams, static_cast<int>(std::size(kSlipLatParams)),
       "The tyres sliding, per wheel. Scrub: the fronts pushing wide, a fine texture. Screech: the fronts starting "
       "to squeal before they let go, a light texture from screech % of peak deg, full at peak deg, on its own "
       "carrier (screech hz). Pulse: fronts past the limit sticking and slipping in a slow, irregular shove at "
       "pulse hz, as strong as the scrub; slow enough for a seat actuator to carry. Slide: the rears stepping "
-      "out, an irregular slower chatter. A slide starts at onset % of peak deg and is full at peak deg; ease "
+      "out, an irregular slower chatter. A slide starts at onset % of peak deg and is full at peak deg; with learn "
+      "onset on, once the car's own grip limit is learned (where its sideways g stops rising with the slip, front "
+      "and rear apart: needs accSway, yawRate and accSurge), it starts at learned onset % of that limit and is full at "
+      "learned full x it, the row showing the limit found; ease "
       "shapes the way in (0 straight up, 1 a light scrub first, 2 lighter still), smooth hz steadies the slip "
       "angle the sim sends, attack ms is how fast a slide builds. Grip budget on: a tyre has one grip for "
       "cornering and braking or driving together, so where the sim sends both a slip angle and a slip ratio (or "
@@ -339,7 +350,7 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "over); else the per-wheel combined slip (any sliding tyre, spinning and locking included), from onset % of "
       "peak % up to full at peak % (the chip shows the value arriving and its peak); else the single skid channel. "
       "Nothing at a standstill.",
-      kSlipLatKeys, { 1.0, 20.0, 1.0, 11.0, 7.0, 40.0, 1.0, 8.0, 30.0, 1.0, 0.3, 50.0, 30.0, 0.6, 6.0, 0.0, 0.0, 0.0 } },
+      kSlipLatKeys, { 1.0, 20.0, 1.0, 11.0, 7.0, 40.0, 1.0, 8.0, 30.0, 1.0, 0.3, 50.0, 30.0, 0.6, 6.0, 0.0, 0.0, 0.0, 1.0, 80.0, 2.0 } },
     { Effect::Road,        "road",        "Road",         Kind::Road, EventType::COUNT, FxType::Road,
       { "roadHeight*|suspVel*|suspTravel*|roadNoise", "speedKmh", "~surface*", "~accHeave", nullptr },
       { 0.0, 16.0, 0.0, 0.6 }, kRoadParams, static_cast<int>(std::size(kRoadParams)),
@@ -504,6 +515,9 @@ inline double& slipField(SlipParams& s, int i)
         case 15: return s.baseMode;
         case 16: return s.baseDegF;
         case 17: return s.baseDegR;
+        case 18: return s.learn;
+        case 19: return s.learnOnsetPct;
+        case 20: return s.learnFullX;
         default: return s.peak;
     }
 }

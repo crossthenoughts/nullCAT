@@ -2576,6 +2576,14 @@ function hapLive(s){
           if(+s.hapLatSrc!==3){ dim=true; why='Only for a sim that sends a slip speed rather than a slip angle (Automobilista 2, Le Mans Ultimate)'; }
           else if(key!=='baseMode'&&Math.round(+t.dv.baseMode)!==2){ dim=true; why='Used with baseline fixed only'; }
         }
+        // Learn onset: once this car is learned its own onset and full slide
+        // play; the learned % and x only matter with it on.
+        if(k==='slipLat'){
+          const learnOn=Math.round(+t.dv.learn)===1, g=s.hapGrip||{}, gs=+g.src||0;
+          const used=learnOn&&gs>0&&gs===(+s.hapLatSrc||0)&&+g.f>0&&+g.r>0;
+          if(!learnOn&&(key==='learnOnsetPct'||key==='learnFullX')){ dim=true; why='Learn onset is off'; }
+          else if(used&&!dim&&(key==='onsetPct'||key==='peakDeg'||key==='peakPct')){ dim=true; why='Learn onset is on and this car is learned: its slide starts at learned onset % of its grip limit and is full at learned full x it (the limit is on the learn onset row). Yours plays until a car is learned, and with learn onset off.'; }
+        }
         row.classList.toggle('dim',dim);
         titled(row,why);
       });
@@ -2615,6 +2623,29 @@ function hapLive(s){
       if(lr){ lr.textContent='learn full mm'+(mm>0?' ('+mm.toFixed(1)+')':sec>0?' (learning '+sec.toFixed(0)+' s)':'');
               lr.classList.toggle('warn',on&&!(mm>0)); }
       if(fr) fr.disabled=on;
+    }
+    // Slip from the car's g: what has been learned for this car, on the
+    // learn row (whether or not it is ticked, so it can be compared).
+    if(k==='slipLat'||k==='slipLon'){
+      const lr=t.tile.querySelector('[data-pk="learn"] .hk'), g=s.hapGrip||{}, on=Math.round(+t.dv.learn)===1;
+      if(lr){
+        let txt='', warn=false;
+        if(k==='slipLat'){
+          const src=+g.src||0, u=src===2?'':'°', f=+g.f||0, r=+g.r||0, turn=+g.turn;
+          const val=(x)=>x>0?x.toFixed(1)+u:'-';
+          txt=(f>0||r>0)?' (grip limit F '+val(f)+' R '+val(r)+')'
+             :turn===-1?' (needs the car\'s g and turn rate)'
+             :src===0?' (needs a slip per wheel)'
+             :turn===2?' (not learning: the car\'s sideways g does not match its turning)'
+             :' (learning'+(+g.sec>0?', '+(+g.sec).toFixed(0)+' s':'')+')';
+          warn=on&&!(f>0||r>0);
+        } else {
+          const lon=+g.lon||0, lock=+g.lock||0.15;
+          txt=lon>0?(' (grip limit '+(lon*100).toFixed(0)+' %'+(on?', lock from '+(lock*100).toFixed(0)+' %':'')+')'):' (learning)';
+        }
+        lr.textContent=(k==='slipLat'?'learn onset':'learn lock onset')+txt;
+        lr.classList.toggle('warn',warn);
+      }
     }
     // ABS: what says it is working (the flag, the wheels and their rate).
     const ab=t.tile.querySelector('[data-abssrc]');

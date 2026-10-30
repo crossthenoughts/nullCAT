@@ -567,6 +567,23 @@ ms** is how fast a slide builds (30 by default; lower for a snappier
 break-away). As slip grows the carrier slows and roughens on its own
 (squeal, moan, shudder).
 
+**learn onset** (on by default) finds where this car's tyres let go
+instead of using one onset for every car. nullCAT watches the car's
+sideways g against how far its tyres slip: the g rises with the slip up
+to the tyres' limit and then stops rising, and that limit is learned for
+the fronts and the rears apart. Every car has its own (2 to 13 degrees
+on the recordings, more on a combined slip), so one fixed onset plays too
+early in some cars and too late in others. The slide then starts at
+**learned onset %** of the limit (80 by default: a light scrub as the
+tyres reach it) and is full at **learned full x** it (2 by default). It
+learns in steady corners above 60 km/h and trusts a limit only once you
+have driven past it a few times, usually within the first minute or two;
+until then onset % and peak deg play, and so they do with learn onset
+off. The learn onset row shows the limit found for each axle. It needs
+the car's g and turn rate from the sim; a game whose sideways g does not
+match the car's turning is not learned from, and the row says so. A
+different car is learned afresh.
+
 **grip budget** (on by default) treats each tyre's grip as one budget
 shared between cornering and braking or driving, as a real tyre's is.
 Where the sim sends both a slip angle and a slip ratio (or wheel speeds:
@@ -584,6 +601,13 @@ Hz by default; a car with a live rear axle tramps lower, set spin hz
 around 10 for one). **peak ratio** is
 the slip ratio at full severity (0.8 by default; a locked wheel is -1);
 nothing plays inside the first 0.15, where the tyre is still gripping.
+**learn lock onset** (on by default) moves that point for tyres that
+brake best with more slip: on gravel, dirt or snow a tyre keeps braking
+harder up to 0.1 to 0.25 of slip, where on tarmac it peaks well under
+0.1. nullCAT learns this car's limit from straight braking and starts the
+lock at 1.5 times it, never earlier than 0.15: on tarmac nothing changes,
+and on loose ground the lock no longer plays through ordinary hard
+braking. The row shows the limit found.
 
 **edge** is that grip at work: a fine grain while a tyre is braking or
 driving hard but short of letting go, so you feel the rear putting the

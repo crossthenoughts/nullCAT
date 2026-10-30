@@ -564,6 +564,10 @@ std::string WebServer::buildStatusJson() const
            + ",\"hz\":" + jsonDouble(ms.hapAbsWheelHz, 1) + ",\"seen\":" + jsonBool(ms.hapAbsFlagSeen) + "},";
         s += "\"hapLatBaseSec\":" + jsonDouble(ms.hapLatBaseSec, 1) + ",\"hapLatSrc\":" + std::to_string(ms.hapLatSrc)
            + ",\"hapLatMode\":" + std::to_string(ms.hapLatMode) + ",\"hapLatLearned\":" + jsonBool(ms.hapLatLearned) + ","
+           + "\"hapGrip\":{\"f\":" + jsonDouble(ms.hapGripLat[0], 2) + ",\"r\":" + jsonDouble(ms.hapGripLat[1], 2)
+           + ",\"sec\":" + jsonDouble(ms.hapGripSec, 0) + ",\"src\":" + std::to_string(ms.hapGripSrc)
+           + ",\"turn\":" + std::to_string(ms.hapGripTurn) + ",\"lon\":" + jsonDouble(ms.hapGripLon, 3)
+           + ",\"lock\":" + jsonDouble(ms.hapGripLock, 3) + "},"
            + "\"hapRoadFull\":{\"mm\":" + jsonDouble(ms.hapRoadFullMm, 1) + ",\"sec\":" + jsonDouble(ms.hapRoadFullSec, 0) + "},";
         // Sim identity from NULLCATY (empty until a sender names it).
         if (m_telemetry)
