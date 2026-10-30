@@ -100,6 +100,9 @@ set(SOURCES
     src/MainWindow.cpp
     src/ApplicationSettingsDialog.h
     src/ApplicationSettingsDialog.cpp
+    src/Theme.cpp
+    # The window's look: fonts, stylesheet and its images, embedded (AUTORCC).
+    resources/nullcat.qrc
     src/EtherCATMaster.cpp
     src/SdoWorker.cpp
     src/A6Drive.cpp
@@ -125,6 +128,7 @@ set(SOURCES
 
 set(HEADERS
     src/MainWindow.h
+    src/Theme.h
     src/EtherCATMaster.h
     src/SdoWorker.h
     src/A6Drive.h

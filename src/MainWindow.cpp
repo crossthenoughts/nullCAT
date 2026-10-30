@@ -3,6 +3,7 @@
 #include "MainWindow.h"
 #include "AxisKind.h"
 #include "Logging.h"
+#include "Theme.h"
 
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN
@@ -160,52 +161,12 @@ void MainWindow::setComponents(
 }
 
 // ============================================================================
-// nullCAT HMI skin (dash-logger idiom, dark instrument panel). Palette:
-//   win #21262d  panel #191d23  panel2 #262c34  edge #10141a  edge2 #323a44
-//   ink #e8ebef  ink2 #aeb6c2  muted #6d7783  faint #48515c
-//   green #37c95a  amber #f5b340  red #ec3b3b  cyan #2fcfd6
-// QSS can't do letter-spacing / text-transform / box-shadow - those use QFont
-// or pre-uppercased text; the glow is approximated with a light inner border.
+// Look: the web console's a6 slate housing, from the application stylesheet
+// (resources/theme/a6.qss, applied in main.cpp via theme::apply). Widgets here
+// carry object names and dynamic properties (tone / lamp / kind / on / blink)
+// for the stylesheet to select on. The only colours set in code are in rich
+// text, which the stylesheet cannot reach: the wordmark and the log lines.
 // ============================================================================
-
-// Subordinate "ghost" button (Home / Settings / Web / Open). Shared with the
-// Home rehome-highlight reset in onRefreshTimer() so clearing the amber restores
-// THIS look, not a heavier button style.
-static const char* kSubBtnStyle =
-    "QPushButton { background:transparent; color:#aeb6c2; border:1px solid #323a44;"
-    "              border-radius:4px; padding:8px 6px; font-size:11px; }"
-    "QPushButton:hover:enabled { background:#262c34; color:#e8ebef; }"
-    "QPushButton:disabled { color:#48515c; border-color:#262c34; }";
-
-// "warn" sub-button (Reset Faults) - amber text on a warm-edged outline.
-static const char* kWarnBtnStyle =
-    "QPushButton { background:transparent; color:#f5b340; border:1px solid #5a4a2a;"
-    "              border-radius:4px; padding:8px 6px; font-size:11px; }"
-    "QPushButton:hover:enabled { background:#2a2418; color:#ffc04d; }"
-    "QPushButton:disabled { color:#48515c; border-color:#262c34; }";
-
-// Heavy run buttons (Init/Stop-EC, Start/Stop-Loop). updateButtonStates swaps
-// between the green primary (the live GO action) and the neutral variant.
-static const char* kPrimaryBtnStyle =
-    "QPushButton { background:#37c95a; color:#0c130e; border:1px solid #37c95a;"
-    "              border-radius:4px; padding:13px 12px; font-weight:700; font-size:13px; }"
-    "QPushButton:hover:enabled { background:#43d566; }"
-    "QPushButton:disabled { background:#1e232a; color:#48515c; border-color:#262c34; }";
-static const char* kRunBtnStyle =
-    "QPushButton { background:#262c34; color:#e8ebef; border:1px solid #323a44;"
-    "              border-radius:4px; padding:13px 12px; font-size:13px; }"
-    "QPushButton:hover:enabled { background:#2f3640; }"
-    "QPushButton:disabled { background:#1e232a; color:#48515c; border-color:#262c34; }";
-
-// E-STOP - the only full-width red bar; light inner border approximates the glow.
-static const char* kEstopStyle =
-    "QPushButton { background:#ec3b3b; color:#ffffff; border:1px solid #ff7a7a;"
-    "              border-radius:5px; font-weight:800; font-size:15px; padding:14px 0; }"
-    "QPushButton:hover { background:#f15151; }"
-    "QPushButton:pressed { background:#c92020; }";
-static const char* kEstopActiveStyle =
-    "QPushButton { background:#7a1414; color:#ffffff; border:1px solid #ec3b3b;"
-    "              border-radius:5px; font-weight:800; font-size:15px; padding:14px 0; }";
 
 void MainWindow::buildUI()
 {
@@ -213,139 +174,133 @@ void MainWindow::buildUI()
     central->setObjectName("central");
     setCentralWidget(central);
 
-    // Readouts on top, run-deck pinned to the bottom via a stretch.
-    // Styling is visual-only - widgets and handlers are unaffected by it.
-    central->setStyleSheet(
-        "QWidget#central { background:#21262d; }"
-        "QLabel { color:#e8ebef; font-family:'Space Grotesk','Segoe UI',sans-serif; }"
-        "QToolTip { background:#15181d; color:#e8ebef; border:1px solid #10141a; }"
-        "QPushButton { background:#262c34; color:#e8ebef; border:1px solid #323a44;"
-        "              border-radius:4px; padding:9px 12px; font-size:12px; }"
-        "QPushButton:hover:enabled { background:#2f3640; }"
-        "QPushButton:disabled { color:#48515c; background:#1e232a; border-color:#262c34; }"
-    );
-
     QVBoxLayout* mainLayout = new QVBoxLayout(central);
     mainLayout->setSpacing(7);
     mainLayout->setContentsMargins(13, 12, 13, 12);
 
-    // Section rule (mock .secline): uppercase tracked label + 1px hairline.
-    // (QSS has no letter-spacing, so the label tracking uses a QFont.)
+    // Section rule (.sec): tracked label + 1px hairline.
     auto addSecline = [&](const QString& text) {
         QWidget* w = new QWidget();
         QHBoxLayout* h = new QHBoxLayout(w);
         h->setContentsMargins(2, 4, 2, 2);
         h->setSpacing(9);
         QLabel* l = new QLabel(text);
-        { QFont f; f.setPixelSize(10); f.setLetterSpacing(QFont::AbsoluteSpacing, 1.8); l->setFont(f); }
-        l->setStyleSheet("color:#6d7783;");
+        l->setObjectName("secLabel");
         h->addWidget(l);
         QFrame* rule = new QFrame();
-        rule->setFrameShape(QFrame::HLine);
+        rule->setObjectName("secRule");
+        rule->setFrameShape(QFrame::NoFrame);
         rule->setFixedHeight(1);
-        rule->setStyleSheet("background:#323a44; border:0;");
         h->addWidget(rule, 1);
         mainLayout->addWidget(w);
     };
 
-    // ---- Header: brand left (cat + nullCAT + ØWERKS), connection pill right. --
-    QHBoxLayout* header = new QHBoxLayout();
-    header->setContentsMargins(2, 0, 2, 0);
+    // ---- Header (.top): brand plate left (cat + nullCAT + ØWERKS), status right.
+    QFrame* hdr = new QFrame();
+    hdr->setObjectName("hdr");
+    QHBoxLayout* header = new QHBoxLayout(hdr);
+    header->setContentsMargins(0, 0, 8, 0);
     header->setSpacing(11);
 
+    QFrame* brandPlate = new QFrame();
+    brandPlate->setObjectName("brand");
+    QHBoxLayout* bp = new QHBoxLayout(brandPlate);
+    bp->setContentsMargins(8, 4, 30, 4);
+    bp->setSpacing(8);
     m_catLogo = new QLabel();
+    m_catLogo->setObjectName("catLogo");
     m_catLogo->setAlignment(Qt::AlignCenter);
     m_catLogo->setFixedSize(64, 42);   // wide racer art - trim the box to its real height
     m_catLogo->setToolTip("Rig status (aggregate) - the same indicator the web UI shows.");
-    header->addWidget(m_catLogo, 0, Qt::AlignVCenter);
-    header->addStretch();   // centre the brand block between the cat and the pill
+    bp->addWidget(m_catLogo, 0, Qt::AlignVCenter);
 
     QVBoxLayout* brand = new QVBoxLayout();
-    brand->setSpacing(0);
+    brand->setSpacing(2);
     brand->setContentsMargins(0, 0, 0, 0);
-    QLabel* wordmark = new QLabel("null<b>CAT</b>");
+    // .bn b: "null" in the mono at .65, "CAT" in Archivo 900 (rich text, so
+    // the two faces sit in one label exactly as the web wordmark does).
+    QLabel* wordmark = new QLabel(
+        "<span style=\"font-family:'JetBrains Mono'; font-weight:500; font-size:15px; color:#c1c9d3;\">null</span>"
+        "<span style=\"font-family:'Archivo'; font-weight:900; font-size:17px; color:#ffffff;\">CAT</span>");
+    wordmark->setObjectName("wordmark");
     wordmark->setTextFormat(Qt::RichText);
-    { QFont wf; wf.setPixelSize(23); wf.setWeight(QFont::Normal); wordmark->setFont(wf); }
-    wordmark->setStyleSheet("color:#e8ebef;");
     wordmark->setAlignment(Qt::AlignLeft | Qt::AlignBottom);
     brand->addWidget(wordmark);
     QLabel* brandSub = new QLabel("ØWERKS · ETHERCAT MOTION");
-    { QFont sf; sf.setPixelSize(9); sf.setLetterSpacing(QFont::AbsoluteSpacing, 1.5); brandSub->setFont(sf); }
-    brandSub->setStyleSheet("color:#6d7783;");
+    brandSub->setObjectName("brandSub");
     brandSub->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     brand->addWidget(brandSub);
-    header->addLayout(brand);
+    bp->addLayout(brand);
+    header->addWidget(brandPlate);
     header->addStretch();
 
-    // Connection pill - the aggregate status (recoloured by state in updateCatLogo).
+    // Aggregate status readout (glass) - tone set by state in updateCatLogo.
     m_labelAgg = new QLabel("OFFLINE");
+    m_labelAgg->setObjectName("aggPill");
     m_labelAgg->setAlignment(Qt::AlignCenter);
-    { QFont pf; pf.setPixelSize(10); pf.setLetterSpacing(QFont::AbsoluteSpacing, 1.4); m_labelAgg->setFont(pf); }
-    m_labelAgg->setStyleSheet(
-        "color:#6d7783; border:1px solid #323a44; border-radius:13px; padding:5px 11px;");
+    theme::setTone(m_labelAgg, "dim");
     header->addWidget(m_labelAgg, 0, Qt::AlignVCenter);
-    mainLayout->addLayout(header);
+    mainLayout->addWidget(hdr);
 
-    // ---- AXES: one bordered panel wrapping borderless rows. ------------------
+    // ---- AXES: one panel (.pnl) wrapping borderless rows. --------------------
     addSecline("AXES");
     QFrame* axesPanel = new QFrame();
-    axesPanel->setStyleSheet("background:#191d23; border:1px solid #10141a; border-radius:5px;");
+    axesPanel->setObjectName("axesPanel");
     m_axesLayout = new QVBoxLayout(axesPanel);
     m_axesLayout->setSpacing(2);
     m_axesLayout->setContentsMargins(6, 5, 6, 5);
     mainLayout->addWidget(axesPanel);
     // rows populated in buildAxisChips() once the config is set.
 
-    // ---- SYSTEM: status cluster (QGridLayout, k|v|k|v). ----------------------
+    // ---- SYSTEM: the status window (.stat glass, k|v|k|v). -------------------
     addSecline("SYSTEM");
     QWidget* cluster = new QWidget();
+    cluster->setObjectName("statWin");
     QGridLayout* sg = new QGridLayout(cluster);
-    sg->setContentsMargins(4, 2, 4, 2);
+    sg->setContentsMargins(10, 8, 10, 8);
     sg->setHorizontalSpacing(10);
-    sg->setVerticalSpacing(5);
+    sg->setVerticalSpacing(6);
     auto cap = [](const QString& t) {
         QLabel* l = new QLabel(t);
-        { QFont f; f.setPixelSize(9); f.setLetterSpacing(QFont::AbsoluteSpacing, 1.0); l->setFont(f); }
-        l->setStyleSheet("color:#6d7783;");
+        l->setObjectName("statCap");
+        return l;
+    };
+    // State words read uppercase like the web's .vt (QSS has no text-transform).
+    // Readouts with units stay as written: uppercasing "µs" gives Greek
+    // capital Mu, which reads "MS" (milliseconds).
+    auto val = [](const QString& t, const char* tone, bool upper = true) {
+        QLabel* l = new QLabel(t);
+        l->setObjectName("statVal");
+        if (upper) { QFont f = l->font(); f.setCapitalization(QFont::AllUppercase); l->setFont(f); }
+        theme::setTone(l, tone);
         return l;
     };
     sg->addWidget(cap("MASTER"), 0, 0);
-    m_labelMasterState = new QLabel("None");
-    m_labelMasterState->setStyleSheet("color:#6d7783;");
+    m_labelMasterState = val("None", "dim");
     sg->addWidget(m_labelMasterState, 0, 1);
     sg->addWidget(cap("SLAVES"), 0, 2);
-    m_labelSlaveCount = new QLabel("0");
-    m_labelSlaveCount->setStyleSheet("color:#e8ebef;");
+    m_labelSlaveCount = val("0", "disp");
     sg->addWidget(m_labelSlaveCount, 0, 3);
     sg->addWidget(cap("LOOP"), 1, 0);
-    m_labelLoopState = new QLabel("Stopped");
-    m_labelLoopState->setStyleSheet("color:#f5b340;");
+    m_labelLoopState = val("Stopped", "warn");
     sg->addWidget(m_labelLoopState, 1, 1);
     sg->addWidget(cap("RATE"), 1, 2);
-    m_labelLoopHz = new QLabel(" - ");
-    m_labelLoopHz->setStyleSheet("color:#e8ebef;");
+    m_labelLoopHz = val(" - ", "disp", false);
     sg->addWidget(m_labelLoopHz, 1, 3);
     sg->addWidget(cap("JITTER"), 2, 0);
-    m_labelJitter = new QLabel(" - ");
-    m_labelJitter->setStyleSheet("color:#e8ebef;");
+    m_labelJitter = val(" - ", "disp", false);
     sg->addWidget(m_labelJitter, 2, 1);
     sg->addWidget(cap("WKC"), 2, 2);
-    m_labelWkc = new QLabel("0");
-    m_labelWkc->setStyleSheet("color:#37c95a;");
+    m_labelWkc = val("0", "ok");
     sg->addWidget(m_labelWkc, 2, 3);
     sg->addWidget(cap("TELEMETRY"), 3, 0);
-    m_labelTelemetryState = new QLabel("No data");
-    m_labelTelemetryState->setStyleSheet("color:#6d7783;");
+    m_labelTelemetryState = val("No data", "dim");
     sg->addWidget(m_labelTelemetryState, 3, 1);
     sg->addWidget(cap("WEB"), 3, 2);
-    m_labelWeb = new QLabel("off");
-    m_labelWeb->setStyleSheet("color:#6d7783;");
+    m_labelWeb = val("off", "dim");
     sg->addWidget(m_labelWeb, 3, 3);
     sg->setColumnStretch(1, 1);
     sg->setColumnStretch(3, 1);
-    for (QLabel* v : { m_labelMasterState, m_labelSlaveCount, m_labelLoopState,
-                       m_labelLoopHz, m_labelJitter, m_labelWkc, m_labelTelemetryState, m_labelWeb })
-    { QFont f = v->font(); f.setPixelSize(12); v->setFont(f); }
     mainLayout->addWidget(cluster);
 
     // ---- Log fold (collapsible). Folded = just this row (no gap); expanding
@@ -353,12 +308,9 @@ void MainWindow::buildUI()
     // it (and shrinks it back on collapse). Fixed log height keeps the delta exact.
     static constexpr int kLogHeight = 150;
     m_btnToggleLog = new QPushButton("▸  Show Log");
+    m_btnToggleLog->setObjectName("logFold");
     m_btnToggleLog->setFlat(true);
     m_btnToggleLog->setCursor(Qt::PointingHandCursor);
-    m_btnToggleLog->setStyleSheet(
-        "QPushButton { background:transparent; border:0; color:#6d7783; text-align:left;"
-        "              padding:6px 2px; font-size:10px; }"
-        "QPushButton:hover { color:#aeb6c2; }");
     connect(m_btnToggleLog, &QPushButton::clicked, this, [this]() {
         m_logExpanded = !m_logExpanded;
         m_logView->setVisible(m_logExpanded);
@@ -369,29 +321,28 @@ void MainWindow::buildUI()
     mainLayout->addWidget(m_btnToggleLog);
 
     m_logView = new QTextEdit();
+    m_logView->setObjectName("log");
     m_logView->setReadOnly(true);
-    m_logView->setFont(QFont("Consolas", 9));
     m_logView->setFixedHeight(kLogHeight);
     m_logView->setVisible(false);
-    m_logView->setStyleSheet("background:#070809; color:#aeb6c2; border:1px solid #10141a;");
     m_logExpanded = false;
     mainLayout->addWidget(m_logView);
 
-    // ---- RUN deck: E-STOP, the two toggle buttons, secondary rows. ----------
+    // ---- RUN deck: E-STOP, the two toggle keys, secondary rows. --------------
     addSecline("RUN");
 
     m_btnEmergency = new QPushButton("⚡  EMERGENCY STOP");
+    m_btnEmergency->setObjectName("estop");
     m_btnEmergency->setMinimumHeight(50);
-    m_btnEmergency->setStyleSheet(kEstopStyle);
     connect(m_btnEmergency, &QPushButton::clicked, this, &MainWindow::onEmergencyStop);
     mainLayout->addWidget(m_btnEmergency);
     mainLayout->addSpacing(2);
 
-    // Init/Stop EtherCAT - context-aware (onToggleEtherCAT). Style swaps between
-    // green primary (live GO) and neutral in updateButtonStates.
+    // Init/Stop EtherCAT - context-aware (onToggleEtherCAT). Its lamp lights
+    // green when it is the live GO (updateButtonStates).
     m_btnInitEC = new QPushButton("Initialize EtherCAT");
     m_btnInitEC->setMinimumHeight(40);
-    m_btnInitEC->setStyleSheet(kRunBtnStyle);
+    theme::setLamp(m_btnInitEC, "off");
     m_btnInitEC->setToolTip("Initialize: open NIC, discover slaves, enter OP.\n"
                             "Once in OP (loop stopped) the same button stops EtherCAT.");
     connect(m_btnInitEC, &QPushButton::clicked, this, &MainWindow::onToggleEtherCAT);
@@ -400,19 +351,19 @@ void MainWindow::buildUI()
     // Start/Stop Loop - context-aware (onToggleLoop).
     m_btnStart = new QPushButton("Start Loop");
     m_btnStart->setMinimumHeight(40);
-    m_btnStart->setStyleSheet(kRunBtnStyle);
+    theme::setLamp(m_btnStart, "off");
     m_btnStart->setToolTip("Start the control loop (unparks all axes).\n"
                            "While running, the same button stops it (parks, then stops).");
     connect(m_btnStart, &QPushButton::clicked, this, &MainWindow::onToggleLoop);
     mainLayout->addWidget(m_btnStart);
 
     // Park/Unpark - rig-level toggle. Park eases every axis to its rest position;
-    // Unpark returns them to standby without a rehome. Label/enable/style driven
+    // Unpark returns them to standby without a rehome. Label/enable/lamp driven
     // in updateButtonStates from the SHARED motion aggregates, so this button and
     // the web's park-toggle can never disagree about what a click will do.
     m_btnPark = new QPushButton("Park All");
     m_btnPark->setMinimumHeight(36);
-    m_btnPark->setStyleSheet(kRunBtnStyle);
+    theme::setLamp(m_btnPark, "off");
     m_btnPark->setToolTip("Park all axes (ease to rest position).\n"
                           "Once parked, the same button unparks - no rehome needed.");
     connect(m_btnPark, &QPushButton::clicked, this, &MainWindow::onTogglePark);
@@ -420,61 +371,64 @@ void MainWindow::buildUI()
 
     // Belt don/doff - rig-level toggle for torque (belt-tension) axes only; hidden
     // on rigs without them. Slack eases tension to 0 (get in/out), Tension blends
-    // back in. Visibility/label/enable/style all driven in updateButtonStates,
+    // back in. Visibility/label/enable/lamp all driven in updateButtonStates,
     // mirroring the web btn-belts. (onToggleBelts dispatches Slack vs Tension.)
     m_btnBelts = new QPushButton("Slack Belts");
     m_btnBelts->setMinimumHeight(36);
-    m_btnBelts->setStyleSheet(kRunBtnStyle);
+    theme::setLamp(m_btnBelts, "off");
     m_btnBelts->setVisible(false);
     m_btnBelts->setToolTip("Belt don/doff (torque axes): slack the belts to get in/out, then "
                            "tension to blend back in. Position axes keep running.");
     connect(m_btnBelts, &QPushButton::clicked, this, &MainWindow::onToggleBelts);
     mainLayout->addWidget(m_btnBelts);
 
-    // Secondary row 1: Reset (warn) · Home · Settings (ghost).
+    // Secondary row 1: Reset (amber legend) · Home · Settings (small keys).
     QWidget* secRow = new QWidget();
     QHBoxLayout* sec = new QHBoxLayout(secRow);
     sec->setContentsMargins(0, 0, 0, 0);
     sec->setSpacing(6);
     m_btnResetFaults = new QPushButton("Reset Faults");
+    m_btnResetFaults->setObjectName("resetFaults");
+    m_btnResetFaults->setProperty("kind", "sm");
     m_btnResetFaults->setMinimumHeight(30);
-    m_btnResetFaults->setStyleSheet(kWarnBtnStyle);
     connect(m_btnResetFaults, &QPushButton::clicked, this, &MainWindow::onResetFaults);
     sec->addWidget(m_btnResetFaults);
-    // Home - rarely needed; highlights amber when a rehome IS required (onRefreshTimer).
+    // Home - rarely needed; its lamp lights amber when a rehome IS required (onRefreshTimer).
     m_btnStartHoming = new QPushButton("Home");
+    m_btnStartHoming->setProperty("kind", "sm");
+    theme::setLamp(m_btnStartHoming, "off");
     m_btnStartHoming->setMinimumHeight(30);
-    m_btnStartHoming->setStyleSheet(kSubBtnStyle);
     m_btnStartHoming->setToolTip(
         "Run CiA402 homing for all axes (torque-home, back off, set zero, CSP).\n"
         "Requires EtherCAT in OP and the control loop running.");
     connect(m_btnStartHoming, &QPushButton::clicked, this, &MainWindow::onStartHoming);
     sec->addWidget(m_btnStartHoming);
     m_btnAppSettings = new QPushButton("Settings…");
+    m_btnAppSettings->setProperty("kind", "sm");
     m_btnAppSettings->setMinimumHeight(30);
-    m_btnAppSettings->setStyleSheet(kSubBtnStyle);
     m_btnAppSettings->setToolTip("PC host settings (NIC, foreground keeper, timing).\n"
                                  "Only available when EtherCAT is offline.");
     connect(m_btnAppSettings, &QPushButton::clicked, this, &MainWindow::onApplicationSettings);
     sec->addWidget(m_btnAppSettings);
     mainLayout->addWidget(secRow);
 
-    // Secondary row 2: a small web-server on/off toggle + the "Web UI" button
+    // Secondary row 2: a small web-server on/off latch + the "Web UI" key
     // that opens it in a browser (only enabled while the server is on).
     QWidget* webRow = new QWidget();
     QHBoxLayout* wr = new QHBoxLayout(webRow);
     wr->setContentsMargins(0, 0, 0, 0);
     wr->setSpacing(6);
     m_btnWebToggle = new QPushButton("○ Off");
+    m_btnWebToggle->setObjectName("webToggle");   // its glyph is the lamp; latched while serving
+    m_btnWebToggle->setProperty("kind", "sm");
     m_btnWebToggle->setMinimumHeight(26);
     m_btnWebToggle->setFixedWidth(64);
-    m_btnWebToggle->setStyleSheet(kSubBtnStyle);
     m_btnWebToggle->setToolTip("Web server on/off. Axis & tuning config and full telemetry are served here.");
     connect(m_btnWebToggle, &QPushButton::clicked, this, &MainWindow::onToggleWebServer);
     wr->addWidget(m_btnWebToggle);
     m_btnOpenWeb = new QPushButton("Web UI");
+    m_btnOpenWeb->setProperty("kind", "sm");
     m_btnOpenWeb->setMinimumHeight(26);
-    m_btnOpenWeb->setStyleSheet(kSubBtnStyle);
     m_btnOpenWeb->setToolTip("Open the web UI in the default browser (enabled when the server is on).");
     connect(m_btnOpenWeb, &QPushButton::clicked, this, &MainWindow::onOpenWebUI);
     wr->addWidget(m_btnOpenWeb, 1);
@@ -483,9 +437,6 @@ void MainWindow::buildUI()
     // Top-pack the content; any surplus height sits at the very bottom (no mid gaps).
     mainLayout->addStretch(1);
 
-    // Engraved bottom rail.
-    statusBar()->setStyleSheet(
-        "QStatusBar { background:#15181d; color:#6d7783; border-top:1px solid #10141a; }");
     statusBar()->showMessage("Ready. Configure NIC in Settings, then Initialize.");
 }
 
@@ -501,31 +452,31 @@ void MainWindow::buildAxisChips()
     const AppConfig& cfg = m_config->get();
     for (int i = 0; i < cfg.numDrives && i < static_cast<int>(cfg.drives.size()); ++i)
     {
-        // Axis row: dot + bold UPPERCASE name (left) + state text (right value).
+        // Axis row (.axr): lamp + bold UPPERCASE name (left) + state on glass (right).
         AxisChip chip;
         chip.container = new QWidget();
-        chip.container->setStyleSheet("background:transparent;");
+        chip.container->setObjectName("axisRow");
         QHBoxLayout* row = new QHBoxLayout(chip.container);
         row->setContentsMargins(8, 6, 8, 6);
         row->setSpacing(10);
 
         chip.led = new QLabel();
-        chip.led->setFixedSize(9, 9);
-        chip.led->setStyleSheet("background:#48515c; border-radius:4px;");  // faint until first update
+        chip.led->setObjectName("axisLamp");
+        chip.led->setFixedSize(11, 4);   // the web's .lamp
+        theme::setLamp(chip.led, "off");   // unlit until first update
         row->addWidget(chip.led, 0, Qt::AlignVCenter);
 
         chip.name = new QLabel(QString::fromStdString(cfg.drives[i].name).toUpper());
+        chip.name->setObjectName("axisName");
         chip.name->setMinimumWidth(34);
-        { QFont f; f.setPixelSize(13); f.setWeight(QFont::DemiBold); f.setLetterSpacing(QFont::AbsoluteSpacing, 0.6); chip.name->setFont(f); }
-        chip.name->setStyleSheet("color:#e8ebef;");
         row->addWidget(chip.name);
 
         row->addStretch();
 
         chip.state = new QLabel(" - ");
+        chip.state->setObjectName("axisState");
         chip.state->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        { QFont f; f.setPixelSize(11); f.setLetterSpacing(QFont::AbsoluteSpacing, 0.8); chip.state->setFont(f); }
-        chip.state->setStyleSheet("color:#6d7783;");
+        theme::setTone(chip.state, "dim");
         row->addWidget(chip.state);
 
         m_axesLayout->addWidget(chip.container);
@@ -1067,11 +1018,7 @@ void MainWindow::updateWebButtons()
     if (m_btnWebToggle)
     {
         m_btnWebToggle->setText(running ? "● On" : "○ Off");
-        m_btnWebToggle->setStyleSheet(running
-            ? "QPushButton { background:transparent; color:#37c95a; border:1px solid #2c5a36;"
-              "              border-radius:4px; padding:8px 6px; font-size:11px; }"
-              "QPushButton:hover:enabled { background:#16231a; }"
-            : kSubBtnStyle);
+        theme::setOn(m_btnWebToggle, running);            // latched while serving
         m_btnWebToggle->setEnabled(m_webServer != nullptr);
     }
     if (m_btnOpenWeb)
@@ -1083,12 +1030,12 @@ void MainWindow::updateWebButtons()
         if (running)
         {
             m_labelWeb->setText(QString(":%1").arg(m_webServer->port()));
-            m_labelWeb->setStyleSheet("color:#2fcfd6;");   // cyan = active
+            theme::setTone(m_labelWeb, "acc");   // active
         }
         else
         {
             m_labelWeb->setText("off");
-            m_labelWeb->setStyleSheet("color:#6d7783;");
+            theme::setTone(m_labelWeb, "dim");
         }
     }
 }
@@ -1104,7 +1051,7 @@ void MainWindow::onEmergencyStop()
     if (m_master) m_master->requestStopAll();
 
     m_btnEmergency->setText("⚡ E-STOP ACTIVE - click to clear");
-    m_btnEmergency->setStyleSheet(kEstopActiveStyle);
+    theme::setOn(m_btnEmergency, true);
 
     disconnect(m_btnEmergency, &QPushButton::clicked, this, &MainWindow::onEmergencyStop);
     connect(m_btnEmergency, &QPushButton::clicked, this, [this]()
@@ -1115,7 +1062,7 @@ void MainWindow::onEmergencyStop()
                 statusBar()->showMessage("E-STOP released. The drives stay stopped: re-initialize them to resume.");
 
             m_btnEmergency->setText("⚡  EMERGENCY STOP");
-            m_btnEmergency->setStyleSheet(kEstopStyle);
+            theme::setOn(m_btnEmergency, false);
             disconnect(m_btnEmergency, nullptr, nullptr, nullptr);
             connect(m_btnEmergency, &QPushButton::clicked, this, &MainWindow::onEmergencyStop);
             updateButtonStates();
@@ -1134,17 +1081,17 @@ void MainWindow::onRefreshTimer()
     if (m_telemetry && m_telemetry->hasRecentData())
     {
         m_labelTelemetryState->setText("Receiving");
-        m_labelTelemetryState->setStyleSheet("color:#37c95a;");
+        theme::setTone(m_labelTelemetryState, "ok");
     }
     else if (m_telemetry && m_telemetry->isInitialized())
     {
         m_labelTelemetryState->setText("Listening…");
-        m_labelTelemetryState->setStyleSheet("color:#f5b340;");
+        theme::setTone(m_labelTelemetryState, "warn");
     }
     else
     {
         m_labelTelemetryState->setText("Not connected");
-        m_labelTelemetryState->setStyleSheet("color:#6d7783;");
+        theme::setTone(m_labelTelemetryState, "dim");
     }
 
     if (m_motion)
@@ -1158,16 +1105,13 @@ void MainWindow::onRefreshTimer()
         if (m_loopRunning && ms.needsRehome)
         {
             // Make it obvious that the user needs to press Home after a fault-park:
-            // the amber highlight overrides the ghost kSubBtnStyle.
+            // Home's lamp lights amber (the web's .key.amb.lit).
             statusBar()->showMessage("REHOME REQUIRED - press 'Home' to continue.");
-            m_btnStartHoming->setStyleSheet(
-                "QPushButton { background-color:#f5b340; color:#0c130e; font-weight:bold;"
-                "             border:1px solid #f5b340; border-radius:4px; padding:8px 6px; font-size:11px; }"
-                "QPushButton:hover { background-color:#ffc04d; }");
+            theme::setLamp(m_btnStartHoming, "warn");
         }
         else
         {
-            m_btnStartHoming->setStyleSheet(kSubBtnStyle);   // restore the sub-button look
+            theme::setLamp(m_btnStartHoming, "off");         // back to unlit
             bool allHomed = (ms.numDrives > 0);
             for (int i = 0; i < ms.numDrives; ++i)
                 if (!ms.homed[i]) { allHomed = false; break; }
@@ -1183,11 +1127,10 @@ void MainWindow::onRefreshTimer()
 
 void MainWindow::onNewLogLine(const QString& line, int level)
 {
-    QString color = "#333333";
-    if (level >= static_cast<int>(LogLevel::LVL_CRITICAL)) color = "#cc0000";
-    else if (level >= static_cast<int>(LogLevel::LVL_ERROR))   color = "#cc4400";
-    else if (level >= static_cast<int>(LogLevel::LVL_WARNING)) color = "#886600";
-    else if (level >= static_cast<int>(LogLevel::LVL_DEBUG))   color = "#888888";
+    // The web's .log colours: errors and above red, warnings amber, the rest ink2.
+    QString color = theme::a6::ink2;
+    if (level >= static_cast<int>(LogLevel::LVL_ERROR))        color = theme::a6::bad;
+    else if (level >= static_cast<int>(LogLevel::LVL_WARNING)) color = theme::a6::warn;
 
     m_logView->append(QString("<span style='color:%1;'>%2</span>")
         .arg(color, line.toHtmlEscaped()));
@@ -1209,7 +1152,7 @@ void MainWindow::onLoopStarted()
 {
     m_loopRunning = true;
     m_labelLoopState->setText("Running");
-    m_labelLoopState->setStyleSheet("color:#37c95a;");
+    theme::setTone(m_labelLoopState, "ok");
     statusBar()->showMessage("Control loop running - unparking axes...");
     updateButtonStates();
 
@@ -1229,11 +1172,11 @@ void MainWindow::onLoopStopped()
 {
     m_loopRunning = false;
     m_labelLoopState->setText("Stopped");
-    m_labelLoopState->setStyleSheet("color:#f5b340;");
+    theme::setTone(m_labelLoopState, "warn");
     m_labelLoopHz->setText(" - ");
     m_labelJitter->setText(" - ");
     m_labelWkc->setText("0");
-    m_labelWkc->setStyleSheet("color:#37c95a;");
+    theme::setTone(m_labelWkc, "ok");
     statusBar()->showMessage("Control loop stopped.");
     updateButtonStates();
 
@@ -1251,9 +1194,7 @@ void MainWindow::onStatsUpdated(LoopStats stats)
 
     // WKC errors: 0 is the healthy steady state; any non-zero is worth calling out.
     m_labelWkc->setText(QString::number(stats.wkcErrors));
-    m_labelWkc->setStyleSheet(stats.wkcErrors > 0
-        ? "color:#ec3b3b; font-weight:bold;"   // red
-        : "color:#37c95a;");                    // green (healthy)
+    theme::setTone(m_labelWkc, stats.wkcErrors > 0 ? "bad" : "ok");
 }
 
 void MainWindow::onDriveStatusUpdated(int /*index*/, DriveStatus /*status*/)
@@ -1280,19 +1221,19 @@ void MainWindow::onSlaveError(int slaveIndex, const QString& message)
 
 void MainWindow::updateMasterStateLabel(ECState state)
 {
-    QString text, style;
+    QString text; const char* tone = "dim";
     switch (state)
     {
-    case ECState::None:   text = "None";    style = "color:#6d7783;";  break;
-    case ECState::Init:   text = "Init";    style = "color:#f5b340;";  break;
-    case ECState::PreOp:  text = "PreOp";   style = "color:#f5b340;";  break;
-    case ECState::SafeOp: text = "SafeOp";  style = "color:#5a9bff;";  break;
-    case ECState::Op:     text = "OP";      style = "color:#37c95a;";  break;
-    case ECState::Error:  text = "Error";   style = "color:#ec3b3b;";  break;
-    default:              text = "Unknown"; style = "color:#6d7783;";  break;
+    case ECState::None:   text = "None";    tone = "dim";  break;
+    case ECState::Init:   text = "Init";    tone = "warn"; break;
+    case ECState::PreOp:  text = "PreOp";   tone = "warn"; break;
+    case ECState::SafeOp: text = "SafeOp";  tone = "acc";  break;   // was blue; a6 has none
+    case ECState::Op:     text = "OP";      tone = "ok";   break;
+    case ECState::Error:  text = "Error";   tone = "bad";  break;
+    default:              text = "Unknown"; tone = "dim";  break;
     }
     m_labelMasterState->setText(text);
-    m_labelMasterState->setStyleSheet(style);
+    theme::setTone(m_labelMasterState, tone);
 }
 
 void MainWindow::onCountdownTick()
@@ -1380,15 +1321,14 @@ void MainWindow::updateButtonStates()
     m_btnStartHoming->setEnabled(ecOp && loopRun);
     m_btnResetFaults->setEnabled(ecOp && !loopRun);
 
-    // ---- HMI primary/neutral styling (visual only). The live GO action is the
-    // green primary; everything else neutral. Only re-applied on change (this
-    // runs at 5 Hz, so re-polishing every tick would flicker).
+    // ---- Key lamps (visual only). The live GO action's lamp is lit green;
+    // everything else unlit. Only re-applied on change (this runs at 5 Hz).
     int initStyle  = (!ecOp && !initBusy && m_btnInitEC->isEnabled()) ? 1 : 0;  // Initialize is the GO
     int startStyle = (ecOp && !loopRun) ? 1 : 0;                                // Start is the GO
     if (initStyle != m_initBtnStyle)
-    { m_initBtnStyle = initStyle; m_btnInitEC->setStyleSheet(initStyle ? kPrimaryBtnStyle : kRunBtnStyle); }
+    { m_initBtnStyle = initStyle; theme::setLamp(m_btnInitEC, initStyle ? "ok" : "off"); }
     if (startStyle != m_startBtnStyle)
-    { m_startBtnStyle = startStyle; m_btnStart->setStyleSheet(startStyle ? kPrimaryBtnStyle : kRunBtnStyle); }
+    { m_startBtnStyle = startStyle; theme::setLamp(m_btnStart, startStyle ? "ok" : "off"); }
 
     // ---- Rig-level toggles (Park/Unpark, Belt don/doff) ----
     // Both read the SHARED StatusModel aggregates -- the same derivations the
@@ -1432,7 +1372,7 @@ void MainWindow::updateButtonStates()
         m_btnPark->setEnabled(loopRun && !estop && !magg.transitional);
         const int ps = (m_parked && loopRun && !estop && !magg.transitional) ? 1 : 0;
         if (ps != m_parkBtnStyle)
-        { m_parkBtnStyle = ps; m_btnPark->setStyleSheet(ps ? kPrimaryBtnStyle : kRunBtnStyle); }
+        { m_parkBtnStyle = ps; theme::setLamp(m_btnPark, ps ? "ok" : "off"); }
     }
     if (m_btnBelts)
     {
@@ -1443,7 +1383,7 @@ void MainWindow::updateButtonStates()
             m_btnBelts->setEnabled(loopRun && !estop);
             const int bs = (beltsSlack && loopRun && !estop) ? 1 : 0;   // green when it will tension
             if (bs != m_beltsBtnStyle)
-            { m_beltsBtnStyle = bs; m_btnBelts->setStyleSheet(bs ? kPrimaryBtnStyle : kRunBtnStyle); }
+            { m_beltsBtnStyle = bs; theme::setLamp(m_btnBelts, bs ? "ok" : "off"); }
         }
     }
 
@@ -1487,17 +1427,19 @@ QString MainWindow::ecStateToString(ECState state)
 // deriveAggregate / styleOf as the web UI (and any external indicator box),
 // so the status surfaces cannot diverge.
 
-// Map a canonical indicator -> Qt colour from the SHARED styleOf() palette (dark
-// hex == the web dark theme). Honors the pattern: pulse/blink dim on the
-// off-phase; offline is always dimmed.
-static QColor indicatorColor(status::Indicator s, bool blinkOn)
+// Render a canonical indicator onto an axis row: lamp + text tone through its
+// SHARED styleOf() web class (theme::statusTones, the web's LAMP_OF). Honors
+// the pattern: pulse/blink dim on the off-phase; offline is the unlit lamp.
+static void renderIndicator(QLabel* led, QLabel* text, status::Indicator s, bool blinkOn)
 {
     const status::Style& st = status::styleOf(s);
-    QColor c(st.hexDark);
+    const theme::StatusTones t = theme::statusTones(st.webClass);
     const std::string pat = st.pattern ? st.pattern : "solid";
-    if (pat == "solid-dim")                                   c = c.darker(150);
-    else if (!blinkOn && (pat == "pulse" || pat == "blink"))  c = c.darker(190);
-    return c;
+    const QString phase = (!blinkOn && (pat == "pulse" || pat == "blink")) ? "off" : "on";
+    theme::setLamp(led, t.lamp);
+    theme::setTone(text, t.text);
+    theme::setProp(led, "blink", phase);
+    theme::setProp(text, "blink", phase);
 }
 
 void MainWindow::updateStatusIndicators()
@@ -1528,10 +1470,8 @@ void MainWindow::updateStatusIndicators()
         inds.push_back(ind);
 
         AxisChip& chip = m_axisChips[i];
-        const QString col = indicatorColor(ind.state, m_blinkOn).name();
-        chip.led->setStyleSheet(QString("background:%1; border-radius:4px;").arg(col));
+        renderIndicator(chip.led, chip.state, ind.state, m_blinkOn);
         chip.state->setText(QString::fromStdString(ind.text));
-        chip.state->setStyleSheet(QString("color:%1;").arg(col));
     }
 
     status::Indicator agg = status::deriveAggregate(
@@ -1553,14 +1493,13 @@ void MainWindow::updateCatLogo(status::Indicator agg)
         case status::Indicator::RUNNING: logo = "online";  label = "ONLINE";  break;
         default:                         logo = "offline"; label = "OFFLINE"; break;  // OFFLINE / IDLE / BUSY
     }
-    const QColor col(status::styleOf(agg).hexDark);
 
     if (m_labelAgg)
     {
-        // Connection pill - colour text + border by state (font set once in buildUI).
+        // Aggregate readout - tone by state (ESTOP/FAULT bad, ONLINE ok, else dim).
         m_labelAgg->setText(label);
-        m_labelAgg->setStyleSheet(QString(
-            "color:%1; border:1px solid %1; border-radius:13px; padding:5px 11px;").arg(col.name()));
+        theme::setTone(m_labelAgg, (agg == status::Indicator::ESTOP || agg == status::Indicator::FAULT) ? "bad"
+                                 : agg == status::Indicator::RUNNING ? "ok" : "dim");
     }
 
     if (m_catLogo)

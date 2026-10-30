@@ -17,6 +17,7 @@
 #include <QTimer>
 
 #include "MainWindow.h"
+#include "Theme.h"
 #include "Config.h"
 #include "Logging.h"
 #include "EtherCATMaster.h"
@@ -39,6 +40,8 @@ int main(int argc, char* argv[])
 {
     // ---- Qt Application ----
     QApplication app(argc, argv);
+    // The a6 look (fonts, style, stylesheet) before any window or message box.
+    theme::apply(app);
     // Prevent zombie process from blocking relaunch
     HANDLE hMutex = CreateMutexA(nullptr, TRUE, "nullCAT_SingleInstance");
     if (GetLastError() == ERROR_ALREADY_EXISTS)

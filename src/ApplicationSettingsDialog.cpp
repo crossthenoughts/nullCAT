@@ -24,6 +24,7 @@
 #include "Logging.h"
 #include "PlatformRT.h"   // logicalCpuCount / autoRtCore for the loop CPU field
 #include "ShakerOutput.h" // the playback devices for the shaker card lists
+#include "Theme.h"       // invalid-field look (a property the stylesheet selects on)
 #include <QLabel>
 #include <algorithm>
 #include <QFormLayout>
@@ -272,6 +273,7 @@ void ApplicationSettingsDialog::buildUI()
 
     // ---- Advanced (collapsible) ----
     m_btnAdvancedToggle = new QToolButton();
+    m_btnAdvancedToggle->setObjectName("advToggle");
     m_btnAdvancedToggle->setText("Advanced settings");
     m_btnAdvancedToggle->setCheckable(true);
     m_btnAdvancedToggle->setChecked(false);
@@ -280,6 +282,7 @@ void ApplicationSettingsDialog::buildUI()
     col->addWidget(m_btnAdvancedToggle);
 
     m_groupAdvanced = new QGroupBox();
+    m_groupAdvanced->setObjectName("advGroup");   // untitled: the stylesheet drops the title gap
     m_groupAdvanced->setVisible(false);
     QFormLayout* fAdv = new QFormLayout(m_groupAdvanced);
     m_checkSimulation = new QCheckBox("Simulation Mode (no EtherCAT hardware required)");
@@ -351,7 +354,7 @@ void ApplicationSettingsDialog::buildUI()
 
     m_validationLabel = new QLabel();
     m_validationLabel->setWordWrap(true);
-    m_validationLabel->setStyleSheet("color: #c0392b; font-size: 9pt;");
+    m_validationLabel->setObjectName("validation");
     btnRow->addWidget(m_validationLabel, /*stretch*/ 1);
 
     m_btnOk     = new QPushButton("OK");
@@ -585,10 +588,7 @@ void ApplicationSettingsDialog::updateShakerEnables()
 void ApplicationSettingsDialog::setSpinboxError(QWidget* w, bool error)
 {
     if (!w) return;
-    if (error)
-        w->setStyleSheet("border: 1px solid #c0392b; background: #fdecea;");
-    else
-        w->setStyleSheet(QString());
+    theme::setProp(w, "invalid", error ? QStringLiteral("true") : QStringLiteral("false"));
 }
 
 void ApplicationSettingsDialog::validateFields()

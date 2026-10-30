@@ -53,12 +53,37 @@ documented on the image itself under /usr/share/doc/<package>/copyright.
 - LGPL-2.1-or-later, dynamically linked (v2 API). Optional: only used when
   the GPIO control panel is enabled.
 
-## Space Grotesk (web UI font)
+## Fonts (web UI and desktop window)
 
-- https://github.com/floriankarsten/space-grotesk
-- Copyright 2020 The Space Grotesk Project Authors.
-- SIL Open Font License 1.1. The license text ships alongside the bundled
-  font files (`web/fonts/OFL.txt`), as the OFL requires.
+All SIL Open Font License 1.1. Each license text ships alongside the bundled
+font files, as the OFL requires. The web UI serves the woff2 files in
+`web/fonts/`; the Windows desktop window embeds TTF copies in `nullCAT.exe`
+(sources in `resources/fonts/`, which a release does not ship separately; its
+license texts are the same as those in `web/fonts/`).
+
+### Barlow (web UI and desktop window)
+
+- https://github.com/jpt/barlow
+- Copyright 2017 The Barlow Project Authors.
+- License text: `web/fonts/OFL-Barlow.txt`, `resources/fonts/OFL-Barlow.txt`.
+
+### JetBrains Mono (web UI and desktop window)
+
+- https://github.com/JetBrains/JetBrainsMono
+- Copyright 2020 The JetBrains Mono Project Authors.
+- License text: `web/fonts/OFL-JetBrainsMono.txt`, `resources/fonts/OFL-JetBrainsMono.txt`.
+
+### Archivo (web UI and desktop window)
+
+- https://github.com/Omnibus-Type/Archivo
+- Copyright 2020 The Archivo Project Authors.
+- License text: `web/fonts/OFL-Archivo.txt`, `resources/fonts/OFL-Archivo.txt`.
+
+### DSEG7 Classic (web UI)
+
+- https://github.com/keshikan/DSEG
+- Copyright (c) 2017, keshikan, with Reserved Font Name "DSEG".
+- License text: `web/fonts/OFL-DSEG.txt`.
 
 ## A6-EC servo drive documentation
 

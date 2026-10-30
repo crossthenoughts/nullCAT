@@ -1,0 +1,28 @@
+<!DOCTYPE RCC>
+<!-- The desktop window's look (src/Theme.cpp): the console fonts (SIL OFL,
+     licence texts beside them in fonts/, not embedded), the stylesheet and
+     its key-lamp and arrow images (drawn at 2x). -->
+<RCC version="1.0">
+  <qresource prefix="/fonts">
+    <file alias="Barlow-Medium.ttf">fonts/Barlow-Medium.ttf</file>
+    <file alias="Barlow-SemiBold.ttf">fonts/Barlow-SemiBold.ttf</file>
+    <file alias="Barlow-Bold.ttf">fonts/Barlow-Bold.ttf</file>
+    <file alias="JetBrainsMono-Regular.ttf">fonts/JetBrainsMono-Regular.ttf</file>
+    <file alias="JetBrainsMono-Medium.ttf">fonts/JetBrainsMono-Medium.ttf</file>
+    <file alias="JetBrainsMono-SemiBold.ttf">fonts/JetBrainsMono-SemiBold.ttf</file>
+    <file alias="Archivo-ExtraBold.ttf">fonts/Archivo-ExtraBold.ttf</file>
+    <file alias="Archivo-Black.ttf">fonts/Archivo-Black.ttf</file>
+  </qresource>
+  <qresource prefix="/theme">
+    <file alias="a6.qss">theme/a6.qss</file>
+    <file alias="lamp-off.png">theme/lamp-off.png</file>
+    <file alias="lamp-ok.png">theme/lamp-ok.png</file>
+    <file alias="lamp-warn.png">theme/lamp-warn.png</file>
+    <file alias="arrow-up.png">theme/arrow-up.png</file>
+    <file alias="arrow-down.png">theme/arrow-down.png</file>
+    <file alias="arrow-up-hi.png">theme/arrow-up-hi.png</file>
+    <file alias="arrow-down-hi.png">theme/arrow-down-hi.png</file>
+    <file alias="arrow-up-off.png">theme/arrow-up-off.png</file>
+    <file alias="arrow-down-off.png">theme/arrow-down-off.png</file>
+  </qresource>
+</RCC>

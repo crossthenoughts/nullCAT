@@ -126,6 +126,8 @@ code{font:500 12px var(--mono);padding:1px 5px;border-radius:2px;background:var(
 .stat .c:first-child{border-left:0}
 .stat .v{display:flex;align-items:center;gap:6px}
 .stat .seg{font-size:14px}
+/* units after a readout keep their case: uppercase turns the micro sign into a capital Mu, which reads "MS" */
+.stat .v .dl{text-transform:none}
 button.c.more{flex-direction:row;align-items:center;gap:8px;background:none;border:0;border-left:1px solid rgba(255,255,255,.05);cursor:pointer;color:inherit}
 .chv{width:0;height:0;border-top:5px solid var(--dim);border-left:4px solid transparent;border-right:4px solid transparent;transition:transform .15s}
 button.c.more:hover .dl,button.c.more:hover .chv{color:var(--disp);border-top-color:var(--disp)}
