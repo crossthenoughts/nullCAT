@@ -255,8 +255,11 @@ private:
     // described / typed: what the sender says about such a car, its engine
     // (protocol 1.11 eng*) and its type of car (carType), has been put on
     // top of the defaults, once per car.
+    // ...and the starting point in force for the car (type) and where it
+    // came from (typeFrom: "game" the sender's type of car, "you" applied
+    // from the page; "" none), so the row can say what plays and why.
     struct CarState { CarTable::Match match; std::string car, carId, game; bool applied = false; bool defaults = false;
-                      bool described = false; bool typed = false; };
+                      bool described = false; bool typed = false; std::string type, typeFrom; };
     CarState          m_carState;            // guarded by m_carMx
     mutable std::mutex m_carMx;              // mutable: read by the const status builder
     // Bumps on every rewrite of the live haptics set: the server's own (a
@@ -280,12 +283,15 @@ private:
     // whether it got an entry or the defaults, and the car row reads the
     // same. Guarded by m_carMx; written outside it.
     struct CarMemory { std::string ident; bool applied = false; bool defaults = false;
-                       bool described = false; bool typed = false; };
+                       bool described = false; bool typed = false; std::string type, typeFrom; };
     CarMemory         m_carMem;
     void loadCarMemory();                       // start(): carstate.json, else the older cardefaults.txt
     // A car on the defaults: the sender's engine description and type of
     // car on top, once per car (status thread, after carIdentity).
     void senderCarFacts(const TelemetryData& td);
+    // The starting point in force for the car the sim names, and where it
+    // came from ("game", "you"); remembered with the car (carstate.json).
+    void setCarType(const std::string& type, const std::string& from);
     // Direct telemetry (protocol 1.9): the rig's choice for the channel
     // sender's direct source, -1 = left to the sender, 0 off, 1 on. Kept
     // in senderstate.json beside the rig config (machine state, so a page

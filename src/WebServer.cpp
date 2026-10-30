@@ -647,6 +647,7 @@ std::string WebServer::buildStatusJson() const
                 s += "\"hapCarSrc\":" + jsonStr(m_carState.match.source) + ",";
                 s += std::string("\"hapCarApplied\":") + (m_carState.applied ? "true" : "false") + ",";
                 s += std::string("\"hapCarDefault\":") + (m_carState.defaults ? "true" : "false") + ",";
+                s += "\"hapCarType\":" + jsonStr(m_carState.type) + ",\"hapCarTypeFrom\":" + jsonStr(m_carState.typeFrom) + ",";
             }
             s += "\"hapCarGen\":" + jsonInt(m_carGen.load()) + ",";
             s += "\"hapGame\":" + jsonStr(game) + ",\"hapDots\":[";
@@ -2063,6 +2064,7 @@ bool WebServer::start()
             std::string err;
             if (!applyPreset(name, err)) { errResp(res, "Could not apply the starting point: " + err); return; }
             LOG_INFO(strf("Haptics: starting point '%s' applied from the web.", name.c_str()));
+            setCarType(name, "you");   // the type in force for the car the sim names (none named: nothing to remember)
             // The new generation: the page that asked reloads by itself and
             // need not again when the status shows it.
             res.set_content("{\"ok\":true,\"gen\":" + jsonInt(m_carGen.load()) + "}", "application/json");
@@ -2089,6 +2091,8 @@ bool WebServer::start()
                 root["defaults"] = m_carState.defaults;
                 root["described"] = m_carState.described;   // the sender's engine on top of the defaults
                 root["typed"]     = m_carState.typed;       // ...and its type of car as the starting point
+                root["type"]      = QString::fromStdString(m_carState.type);      // the starting point in force for the car...
+                root["typeFrom"]  = QString::fromStdString(m_carState.typeFrom);  // ..."game" (the sender's type of car), "you" (applied from the page)
             }
             root["follow"] = followCarEnabled();
             root["stock"]  = m_cars.stockCount();
@@ -3075,6 +3079,7 @@ void WebServer::senderCarFacts(const TelemetryData& td)
     if (st.game != td.game || st.car != td.car || st.carId != td.carId) return;   // not the car on the defaults
     const std::string& who = st.car.empty() ? st.carId : st.car;
     bool described = st.described, typed = st.typed;
+    std::string typeName;   // the starting point applied here, for the row
     if (!described)
     {
         const QJsonObject eng = CarTable::engineFromSender(td.ncyHave, td.ncy);
@@ -3113,7 +3118,10 @@ void WebServer::senderCarFacts(const TelemetryData& td)
         if (name.empty())
             LOG_INFO(strf("Haptics: the sim's type of car for %s (%.0f) names no starting point.", who.c_str(), td.ncy[NcxTok::CarType]));
         else if (applyPreset(name, err))
+        {
+            typeName = name;
             LOG_INFO(strf("Haptics: starting point '%s' applied for %s (the sim's type of car).", name.c_str(), who.c_str()));
+        }
         else
             LOG_WARNING(strf("Haptics: starting point '%s' for %s could not be applied: %s", name.c_str(), who.c_str(), err.c_str()));
     }
@@ -3125,7 +3133,31 @@ void WebServer::senderCarFacts(const TelemetryData& td)
         if (ident != st.game + "|" + st.car + "|" + st.carId) return;   // another car meanwhile: its own facts
         m_carState.described = described;
         m_carState.typed     = typed;
-        if (m_carMem.ident == ident) { m_carMem.described = described; m_carMem.typed = typed; remember = true; }
+        if (!typeName.empty()) { m_carState.type = typeName; m_carState.typeFrom = "game"; }
+        if (m_carMem.ident == ident)
+        {
+            m_carMem.described = described; m_carMem.typed = typed;
+            if (!typeName.empty()) { m_carMem.type = typeName; m_carMem.typeFrom = "game"; }
+            remember = true;
+        }
+        mem = m_carMem;
+    }
+    if (remember) saveCarMemory(mem);
+}
+
+void WebServer::setCarType(const std::string& type, const std::string& from)
+{
+    CarMemory mem; bool remember = false;
+    {
+        std::lock_guard<std::mutex> lk(m_carMx);
+        if (m_carState.car.empty() && m_carState.carId.empty()) return;   // no car named: nothing it is in force for
+        m_carState.type = type; m_carState.typeFrom = from;
+        const std::string ident = m_carState.game + "|" + m_carState.car + "|" + m_carState.carId;
+        if (!m_carMem.ident.empty() && ident == m_carMem.ident && (m_carMem.type != type || m_carMem.typeFrom != from))
+        {
+            m_carMem.type = type; m_carMem.typeFrom = from;
+            remember = true;
+        }
         mem = m_carMem;
     }
     if (remember) saveCarMemory(mem);
@@ -3154,6 +3186,7 @@ void WebServer::carIdentity(const std::string& game, const std::string& car, con
     CarTable::Match m = findCar(game, car, carId);
     const std::string ident = game + "|" + car + "|" + carId;
     bool applied = false, defaults = false, described = false, typed = false;
+    std::string type, typeFrom;         // the starting point in force: a car change has none yet
     const int gen0 = m_carGen.load();   // a pull or load from the page meanwhile has the last word (below)
     int bumps = 0;                      // ...this call's own rewrites of the set
     CarMemory mem;
@@ -3169,6 +3202,8 @@ void WebServer::carIdentity(const std::string& game, const std::string& car, con
         defaults  = mem.defaults;
         described = mem.described;
         typed     = mem.typed;
+        type      = mem.type;
+        typeFrom  = mem.typeFrom;
         acted     = ident;
     }
     else if (mayApply && !m.source.empty())
@@ -3226,6 +3261,8 @@ void WebServer::carIdentity(const std::string& game, const std::string& car, con
         }
         m_carState.described = described;
         m_carState.typed     = typed;
+        m_carState.type      = type;
+        m_carState.typeFrom  = typeFrom;
         // A line that names the game but no car yet (the first line after
         // a start can) is no car to remember or forget: the memory stands,
         // so the real car's line that follows still reads as the same car
@@ -3237,8 +3274,11 @@ void WebServer::carIdentity(const std::string& game, const std::string& car, con
             mem.defaults  = acted.empty() ? false : m_carState.defaults;
             mem.described = acted.empty() ? false : described;
             mem.typed     = acted.empty() ? false : typed;
+            mem.type      = acted.empty() ? std::string() : type;
+            mem.typeFrom  = acted.empty() ? std::string() : typeFrom;
             remember = (mem.ident != m_carMem.ident || mem.applied != m_carMem.applied || mem.defaults != m_carMem.defaults
-                        || mem.described != m_carMem.described || mem.typed != m_carMem.typed);
+                        || mem.described != m_carMem.described || mem.typed != m_carMem.typed
+                        || mem.type != m_carMem.type || mem.typeFrom != m_carMem.typeFrom);
             m_carMem = mem;
         }
     }
@@ -3281,6 +3321,8 @@ void WebServer::loadCarMemory()
         mem.defaults  = o.value("defaults").toBool(false);
         mem.described = o.value("described").toBool(false);
         mem.typed     = o.value("typed").toBool(false);
+        mem.type      = o.value("type").toString().toStdString();
+        mem.typeFrom  = o.value("typeFrom").toString().toStdString();
     }
     else
     {
@@ -3358,6 +3400,8 @@ void WebServer::saveCarMemory(const CarMemory&)
     o["defaults"] = mem.defaults;
     o["described"] = mem.described;
     o["typed"]     = mem.typed;
+    o["type"]      = QString::fromStdString(mem.type);
+    o["typeFrom"]  = QString::fromStdString(mem.typeFrom);
     o["_help"]    = "nullCAT: the car the car table last acted on by itself (game|car|id), and whether its tiles carry "
                     "its entry or the defaults, so the same car after a restart keeps its tiles as they are. Machine "
                     "state, not configuration: safe to delete, never edited by hand.";

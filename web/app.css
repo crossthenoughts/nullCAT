@@ -497,6 +497,7 @@ body[data-view="setup"] .ws{display:none}body[data-view="setup"] .su{display:gri
 #hapSesCar .cn{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #hapSesCar .ctag{flex:none;padding:0 5px;border-radius:2px;font:600 9px/15px var(--mono);letter-spacing:.08em;color:var(--acc);text-shadow:none;box-shadow:inset 0 0 0 1px currentColor}
 #hapSesCar .ctag.w{color:var(--warn)}
+#hapSesCar .ctag.ok{color:var(--ok)}
 .sv{padding:5px 8px}.sv .seg{font-size:16px}
 
 .ses .hap-game .hk:first-child{width:56px;flex:none;font:600 11px/1.2 var(--lab);letter-spacing:.14em;text-transform:uppercase;color:var(--silk)}

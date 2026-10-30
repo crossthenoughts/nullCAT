@@ -875,6 +875,9 @@ int main()
                 return false; };
             check(describe("8", "\"described\":true") && has(get("/api/cars"), "\"typed\":true") && has(get("/api/cars"), "\"defaults\":true"),
                   "follow car: a car on the defaults takes what its sender says about it (GET /api/cars described, typed)");
+            check(has(get("/api/cars"), "\"type\":\"Cup car\"") && has(get("/api/cars"), "\"typeFrom\":\"game\"")
+                  && has(get("/api/status"), "\"hapCarType\":\"Cup car\""),
+                  "...and names the type it applied, from the game (GET /api/cars type, status hapCarType)");
             std::string r = get("/api/rig");
             r.erase(std::remove(r.begin(), r.end(), ' '), r.end());
             check(has(r, "\"cylinders\":8") && has(r, "\"layout\":1") && has(r, "\"litres\":5.2") && has(r, "\"limHz\":7"),
@@ -885,11 +888,16 @@ int main()
             std::string r2 = get("/api/rig");
             r2.erase(std::remove(r2.begin(), r2.end(), ' '), r2.end());
             check(has(r2, "\"cylinders\":8") && !has(r2, "\"cylinders\":6"), "...once: the same car described otherwise later changes nothing");
+            // A type applied by hand is the type in force, yours. Breaks
+            // with setCarType not called from the starting-point apply.
+            check(has(post("/api/haptics/presets/apply", "{\"name\":\"Rally tarmac\"}"), "\"ok\":true")
+                  && has(get("/api/cars"), "\"type\":\"Rally tarmac\"") && has(get("/api/cars"), "\"typeFrom\":\"you\""),
+                  "a starting point applied by hand is the type in force for the car, yours");
         }
         // (after the described car: the checks below run on this AC car)
         check(nameCar(telemetry, "AssettoCorsa", "Mazda 787B Le Mans", "\"hapCarKey\":\"ac:ks_mazda_787b\"", 10000)
               && has(get("/api/cars"), "\"near\":true") && has(get("/api/status"), "\"hapCarDefault\":false")
-              && has(get("/api/status"), "\"hapCarApplied\":true"),
+              && has(get("/api/status"), "\"hapCarApplied\":true") && has(get("/api/cars"), "\"type\":\"\""),
               "follow car: a name that starts with an entry's is a near match, applied");
         // A save that moves a setting the car table owns (the engine's amp)
         // means the tiles no longer carry the entry: the car row stops
@@ -1288,6 +1296,8 @@ int main()
         const Reply r = postHdr("/api/rig", rigWith(body, "rpmVibe", "ampPct", 37.0), {{"X-Nullcat-Gen", std::to_string(gen)}});
         check(r.status == 200 && has(r.body, "\"ok\":true"), "a hand-set engine amp (37) saved before the restart");
         check(waitStatus("\"hapCarApplied\":false", 2000), "...which clears the row's applied");
+        check(has(post("/api/haptics/presets/apply", "{\"name\":\"Open wheeler\"}"), "\"ok\":true") && has(get("/api/cars"), "\"typeFrom\":\"you\""),
+              "a type applied by hand before the restart (remembered with the car)");
         const int genOld = genNow();
         web.stop();
         check(std::filesystem::exists(cfgDir / "carstate.json"), "carstate.json is beside the config");
@@ -1317,8 +1327,11 @@ int main()
             check(has(compact(get("/api/rig")), "\"ampPct\":37") && has(get("/api/status"), "\"hapCarApplied\":false")
                   && has(get("/api/status"), "\"hapCarDefault\":false"),
                   "...the hand-set amp stays and the row reads as remembered (not applied)");
+            check(has(get("/api/cars"), "\"type\":\"Open wheeler\"") && has(get("/api/cars"), "\"typeFrom\":\"you\""),
+                  "...and the type in force is remembered across the restart (carstate.json)");
             check(nameCar(telemetry, "AssettoCorsa", "Ferrari F40", "\"hapCarApplied\":true", 10000) && genNow() == gen2 + 1,
                   "a different car after the restart is applied as ever");
+            check(has(get("/api/cars"), "\"type\":\"\""), "...with no type in force yet (a car change)");
 
             // ---- direct telemetry across the restart, and end to end ----
             // The choice (off, set before the restart) is remembered; the

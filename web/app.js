@@ -2349,23 +2349,26 @@ async function hapProfilesRender(sel,prefer){
 // Starting points selector: the shipped types of car in their order, each
 // option's hover its description; the chosen one stays chosen across a
 // rebuild of the strip.
-let hapPresetPick='';
+let hapPresetPick='';       // the type you picked and have not applied yet
+let hapTypeInForce='';      // the type in force for the car the sim names (hapCarRow)
 async function hapPresetsRender(sel){
   if(!sel) return;
   try{
     const r=await fetch(API+'/api/haptics/presets'); if(!r.ok) return;
     const list=(await r.json()).presets||[];
     const esc=(t)=>String(t||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
-    sel.innerHTML='<option value="">(pick a type)</option>'+list.map(p=>'<option value="'+esc(p.name)+'" title="'+esc(p.description)+'"'+(p.name===hapPresetPick?' selected':'')+'>'+esc(p.name)+'</option>').join('');
+    sel.innerHTML='<option value="">(pick a type)</option>'+list.map(p=>'<option value="'+esc(p.name)+'" title="'+esc(p.description)+'"'+(p.name===(hapPresetPick||hapTypeInForce)?' selected':'')+'>'+esc(p.name)+'</option>').join('');
     const o=sel.options[sel.selectedIndex]; sel.title=(o&&o.title)||'';
   }catch(_){}
 }
 // Car table: the Master tile's car line (what the sim names, the entry
 // found for it and where from) and the Engine tile's folded notes.
+function hapCarTypeText(c){ return c&&c.type?('type '+c.type+(c.typeFrom==='game'?' from the game':c.typeFrom==='you'?' (yours)':'')):''; }
 function hapCarText(c){
   if(!c||!c.car) return '(none)';
-  if(!c.source) return c.car+' · no entry'+(c.defaults?(c.described?' · engine from the game':' · defaults in use'):'');
-  return (c.name||c.car)+' · '+(c.source==='user'?'yours':'stock')+(c.near?' · near match':'')+(c.applied?'':' · not applied');
+  const type=hapCarTypeText(c)?' · '+hapCarTypeText(c):'';
+  if(!c.source) return c.car+' · no entry'+(c.described?' · engine from the game':(c.defaults&&!c.type?' · defaults in use':''))+type;
+  return (c.name||c.car)+' · '+(c.source==='user'?'yours':'stock')+(c.near?' · near match':'')+(c.applied?' · applied':' · not applied')+type;
 }
 let hapCarLast=null;   // the car row's last answer, for the session block
 function hapCarRow(c){
@@ -2377,9 +2380,17 @@ function hapCarRow(c){
     // What the sim sent, exactly (the name and the id), and the entry it
     // matched: what a car table entry must be keyed by.
     const sent=(c&&c.car)?'\nThe sim sends: "'+c.car+'"'+(c.carId?', id "'+c.carId+'"':'')+(c.game?' ('+c.game+')':'')+(c.key?'; matched '+c.key:'; no entry matches'):'';
-    now.title=(((c&&c.defaults)?'The car table has no entry for '+c.car+', so follow car put the engine, limiter, driveline, ABS and TC on their defaults (the pink settings) rather than keep the last car\'s. Pick a car like it in the preset box and apply it, or tune them and save for this car.'
+    now.title=(((c&&c.defaults)?'The car table has no entry for '+c.car+', so follow car put the engine, limiter, driveline, ABS and TC on their defaults (the pink settings) rather than keep the last car\'s'+(c.described?', with the engine the game describes on top':'')+(c.type?'; the '+c.type+' starting point '+(c.typeFrom==='game'?'came from the game\'s type of car':'was applied by you'):'')+'. Pick a car like it in the preset box and apply it, or tune them and save for this car.'
       :(c&&c.near)?'No entry under this exact name: the table\'s '+(c.name||c.key)+' is the nearest (the name the sim gives starts with it). Save for this car to file your own under the sim\'s name.':'')+sent).trim();
   }
+  // The Type box shows the type in force for this car (from the game, or
+  // applied by you) unless you have picked another and not applied it yet.
+  const ts=$('hapPresetSel');
+  if(ts&&c&&c.car){ const inForce=c.type||'';
+    if(!hapPresetPick||hapPresetPick===hapTypeInForce){ hapPresetPick=''; ts.value=[...ts.options].some(o=>o.value===inForce)?inForce:''; }
+    hapTypeInForce=inForce;
+    const o=ts.options[ts.selectedIndex];
+    ts.title=(o&&o.value&&o.value===inForce)?('In force for this car'+(c.typeFrom==='game'?', from the game':c.typeFrom==='you'?', applied by you':'')+(o.title?'. '+o.title:'')):((o&&o.title)||''); }
   // Forget drops yours for THIS car: a near match is another car's entry.
   const fb=$('hapCarForget'); if(fb) fb.disabled=!(c&&c.source==='user'&&!c.near);
   const pb=$('hapCarPull'); if(pb) pb.disabled=!(c&&c.source);
@@ -2529,7 +2540,7 @@ function hapLive(s){
     }
   }
   if(typeof s.hapCarKey==='string'){
-    const sig=(s.hapCar||'')+'|'+s.hapCarKey+'|'+(s.hapCarSrc||'')+'|'+(s.hapCarApplied?1:0)+'|'+(s.hapCarDefault?1:0);
+    const sig=(s.hapCar||'')+'|'+s.hapCarKey+'|'+(s.hapCarSrc||'')+'|'+(s.hapCarApplied?1:0)+'|'+(s.hapCarDefault?1:0)+'|'+(s.hapCarType||'')+'|'+(s.hapCarTypeFrom||'');
     if(sig!==hapCarLive){ hapCarLive=sig; hapCarRefresh(); }
   }
   // Sim dots: the remembered record for the game shown (the current one
@@ -2867,6 +2878,7 @@ function hapInit(){
       if(dirtyState().count>0&&!confirm('You have unsaved edits on this page; applying a starting point rewrites the saved slip, road, kerb, wheels and impacts settings and the belt g at max and reloads the page state. Continue?')) return;
       try{
         const j=await post('/api/haptics/presets/apply',{name});
+        hapPresetPick='';   // applied: the box shows the type in force once the car row refreshes
         if(typeof j.gen==='number') hapCarGenLive=j.gen;   // this page reloads itself: the status need not again
         await loadConfig();
         const m=$('hapPresetMsg'); if(m) m.textContent='applied '+name+' (the engine, gearbox, ABS and TC come from the car table)';   // the rebuilt tile's
@@ -3220,14 +3232,20 @@ function hapUiRefresh(){
   if(cg){ // the name (it truncates) and what the car table has for it (it never does)
     const c=hapCarLast, tags=[];
     if(c&&c.car){
-      if(!c.source) tags.push(['no entry','w']);
-      else { tags.push([c.source==='user'?'yours':'stock','']); if(c.near) tags.push(['near match','w']); if(!c.applied) tags.push(['not applied','w']); }
-      if(c.defaults) tags.push(['defaults','w']);
+      // What plays and why: the entry and whether it is applied; a car
+      // without one, what came from the game and the type in force.
+      const type=hapCarTypeText(c)?[hapCarTypeText(c),c.typeFrom==='game'?'ok':'']:null;
+      if(!c.source){ tags.push(['no entry','w']);
+        if(c.described) tags.push(['engine from the game','ok']);
+        if(type) tags.push(type);
+        if(c.defaults&&!c.described&&!type) tags.push(['defaults','w']); }
+      else { tags.push([c.source==='user'?'yours':'stock','']); if(c.near) tags.push(['near match','w']);
+        tags.push(c.applied?['applied','ok']:['not applied','w']); if(type) tags.push(type); }
     }
     const name=(c&&c.car)?(c.name||c.car):'(none)', key=name+'|'+tags.map(t=>t[0]).join('|');
     if(cg._k!==key){ cg._k=key; cg.textContent='';
       const n=document.createElement('span'); n.className='cn'; n.textContent=name; cg.appendChild(n);
-      for(const [t,w] of tags){ const e=document.createElement('span'); e.className='ctag'+(w?' w':''); e.textContent=t; cg.appendChild(e); } }
+      for(const [t,w] of tags){ const e=document.createElement('span'); e.className='ctag'+(w?' '+w:''); e.textContent=t; cg.appendChild(e); } }
     cg.title=(($('hapCarNow')||{}).title)||''; }
   const gi=$('hapMasterGain'), gf=$('hapGainFader'), gs=$('hapGainSeg');
   if(gi&&gf&&document.activeElement!==gf) gf.value=gi.value; if(gi&&gs) setSeg(gs,(+gi.value||0).toFixed(2));

@@ -117,6 +117,12 @@ straight from the game.
   Every type now also sets the stones.
 
 ### Changed
+- The car readout says what plays, not only what was found: `applied` or
+  `not applied` beside the entry's `stock` or `yours`, and for a car the
+  table has no entry for, `engine from the game` and `type Road car from
+  the game` (or `type Rally tarmac (yours)` once you apply one) in place
+  of a bare `defaults`. The Type box shows the type in force for the car,
+  and remembers it across a restart.
 - The desktop window takes the console's look: the slate housing, keys
   with lamps, dark value wells and the console's fonts, in the main window,
   Application Settings and the message boxes. It works exactly as before.

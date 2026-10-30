@@ -371,8 +371,12 @@ tint of their own. Everything untinted stays put when the car or the
 type changes.
 
 The car readout at the top of the Haptics panel shows the car the sim is
-naming and what the table has for it in small tags (`stock`, `yours` for
-your own entry, `no entry`). The **Car** row under it has **Re-apply**,
+naming and what plays for it, in small tags: `stock` or `yours` (whose
+entry it is) with `applied` or `not applied`, `near match`, or `no
+entry`; and for a car the game describes, `engine from the game` and
+`type Road car from the game` (`type Rally tarmac (yours)` once you apply
+a type by hand). The **Type** box shows the type in force for the car.
+The **Car** row under it has **Re-apply**,
 which applies that entry to the five tiles again, and **More** with
 **save as mine** and **forget mine**. **Follow car** (on
 by default) does it by itself whenever the
@@ -382,8 +386,8 @@ starting point, or a profile) moves the tiles while you have unsaved edits
 on the strip, the page keeps your edits and says so; Save then refuses,
 reloads what the controller has, and asks you to make the edits again,
 rather than write your older copy over what was applied. A save of your
-own that moves a setting the car owns clears the car row's "applied" (the
-tiles are yours now, not the entry's: the row says `· not applied`) until
+own that moves a setting the car owns clears the car row's `applied` (the
+tiles are yours now, not the entry's: the row says `not applied`) until
 you re-apply it.
 
 A sim sometimes names a car with something after a name the table knows:
@@ -407,15 +411,16 @@ defaults: the cylinders, V, inline, boxer or rotary, the size, the turbo
 and how fast the limiter cuts, so a V8 plays as a V8; and its type of
 car (road, track or cup, race, rally gravel or tarmac) is applied as the
 starting point. Both happen once per car: change them and they stay as
-you set them. The car row then reads `· no entry · engine from the
-game`. After a restart the same car keeps its
+you set them. The car row then reads `no entry · engine from the game ·
+type Road car from the game`, and `type Rally tarmac (yours)` once you
+apply another type. After a restart the same car keeps its
 tiles as they are, so what you tuned for it by hand stays, whether the
 table gave it its entry or the defaults: nullCAT remembers the car it
 last acted on in `carstate.json` beside the rig config (machine state,
 safe to delete), and the car row reads as it did before the restart. A
 different car is a car change as ever. The car row of a car on the
-defaults reads
-`· no entry · defaults in use`, and the settings the car table owns are
+defaults, with nothing from the game, reads `no entry · defaults`, and
+the settings the car table owns are
 tinted pink instead of the usual faint tint (hover one to read why) until
 you apply a car or save as mine, or the next car comes on. The car still
 plays, just not as itself: give it a car like it from the **another car**
