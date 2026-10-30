@@ -239,6 +239,27 @@ CarTable::Match CarTable::find(const std::string& game, const std::string& car, 
     return findNear(game, car);
 }
 
+CarTable::Match CarTable::findCar(const std::string& game, const std::string& car, const std::string& carId) const
+{
+    for (const bool nearOk : { false, true })
+    {
+        const Match byId   = carId.empty() ? Match{} : find(game, carId, nearOk);
+        const Match byName = find(game, car, nearOk);
+        // Yours by the name only when it is filed under this name: one filed
+        // under another car's id that shares the display name (a mod car
+        // named as the shipped one) is that other car's.
+        if (byName.source == "user" && byId.source != "user")
+        {
+            const std::string here = keyFor(game, car);
+            std::lock_guard<std::mutex> lk(m_mx);
+            if (normaliseKey(byName.key) == normaliseKey(here)) return byName;
+        }
+        if (!byId.source.empty()) return byId;
+        if (!byName.source.empty()) return byName;
+    }
+    return Match{};
+}
+
 // A name the sim cut short: AC EVO hands its car names over in a field of
 // 31 characters ("BMW M3 E30 Sport Evo (Evolution" for "BMW M3 E30 Sport
 // Evo (Evolution III)"). The one car of the same game whose name starts

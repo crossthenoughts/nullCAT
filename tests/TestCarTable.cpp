@@ -13,6 +13,10 @@
 //     entry of the same game it starts with, in whole words, two or more;
 //     an exact entry always wins, a one-word prefix or another game never
 //   - the user layer wins over stock on the same key; forget restores stock
+//   - a car named by id and name: an entry of yours filed under the name
+//     wins over a shipped one under the id (one filed under another car's
+//     id with the same display name does not); else the id's, exact
+//     before near
 //   - the car defaults (a car with no entry, follow car on) carry exactly
 //     the car-owned keys at a fresh install's values and move nothing else;
 //     they only ever apply in a game the table covers (either layer)
@@ -415,6 +419,31 @@ private slots:
         t.putUser(t.keyFor("Automobilista2", "Lotus 98T"), byName);
         QCOMPARE(t.find("AMS2", "lotus 98t").source, std::string("user"));
         QVERIFY(t.removeUser("ams2:Lotus 98T"));
+
+        // A car the sender names by id and name. Shipped only: the id's
+        // entry. Yours filed under the name (saved while the sender sent no
+        // id): yours wins over the shipped one under the id. Another car's
+        // entry of yours that shares the display name does not. Breaks with
+        // the id looked up first across both layers, or with any entry of
+        // yours by that name winning.
+        t.removeUser("ac:ks_mazda_787b");
+        QCOMPARE(t.findCar("AssettoCorsa", "Mazda 787B", "ks_mazda_787b").source, std::string("stock"));
+        QCOMPARE(t.findCar("AssettoCorsa", "Mazda 787B Le Mans", "ks_mazda_787b").key, std::string("ac:ks_mazda_787b"));
+        QJsonObject named; named["name"] = "Mazda 787B"; named["notes"] = "by name";
+        QJsonObject soft; soft["ampPct"] = 20; named["engine"] = soft;
+        t.putUser(t.keyFor("AssettoCorsa", "Mazda 787B"), named);
+        const CarTable::Match both = t.findCar("AssettoCorsa", "Mazda 787B", "ks_mazda_787b");
+        QCOMPARE(both.source, std::string("user"));
+        QCOMPARE(both.notes, std::string("by name"));
+        QCOMPARE(t.findCar("AssettoCorsa", "Other Car", "ks_mazda_787b").source, std::string("stock"));   // the name is someone else's: the id's
+        QCOMPARE(t.findCar("AssettoCorsa", "Mazda 787B Le Mans", "ks_mazda_787b").source, std::string("stock"));   // yours only near by the name: the id's exact
+        QVERIFY(t.removeUser("ac:Mazda 787B"));
+        QJsonObject modCar; modCar["name"] = "Mazda 787B"; modCar["notes"] = "a mod car";
+        t.putUser(t.keyFor("AssettoCorsa", "x_mod_787b"), modCar);   // another car, the same display name
+        QCOMPARE(t.findCar("AssettoCorsa", "Mazda 787B", "ks_mazda_787b").source, std::string("stock"));
+        QCOMPARE(t.findCar("AssettoCorsa", "Mazda 787B", "x_mod_787b").notes, std::string("a mod car"));
+        QVERIFY(t.removeUser("ac:x_mod_787b"));
+        t.putUser(t.keyFor("AssettoCorsa", "ks_mazda_787b"), mine);   // (the entry the checks below expect)
 
         // Both layers show in the list (game, then name, then the layer:
         // stock before user for the same car).

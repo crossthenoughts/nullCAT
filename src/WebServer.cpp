@@ -3129,21 +3129,10 @@ void WebServer::senderCarFacts(const TelemetryData& td)
 
 // The table entry for what the sim names: by the stable id when the
 // plugin sends one, else by the shown name (an older plugin, or a game
-// whose id is its name). Both ways exactly before either way near: an id
-// that only starts like another car's must not beat the name's own entry.
+// whose id is its name); yours before a shipped one (CarTable::findCar).
 CarTable::Match WebServer::findCar(const std::string& game, const std::string& car, const std::string& carId) const
 {
-    for (const bool nearOk : { false, true })
-    {
-        if (!carId.empty())
-        {
-            CarTable::Match m = m_cars.find(game, carId, nearOk);
-            if (!m.source.empty()) return m;
-        }
-        CarTable::Match m = m_cars.find(game, car, nearOk);
-        if (!m.source.empty()) return m;
-    }
-    return CarTable::Match{};
+    return m_cars.findCar(game, car, carId);
 }
 
 // Where an entry saved for this car is filed: under the id when there is

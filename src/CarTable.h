@@ -74,6 +74,13 @@ public:
     // near match (the longest entry of the same game the name starts
     // with, whole words, at least two).
     Match find(const std::string& game, const std::string& car, bool nearOk = true) const;
+    // The entry for a car as the sender names it, by its stable id (when it
+    // sends one) and its display name: both ways exactly before either way
+    // near (an id that only starts like another car's must not beat the
+    // name's own entry), and an entry of yours filed under this name before
+    // a shipped one under the id (saved while the sender sent no id); else
+    // the id's before the name's.
+    Match findCar(const std::string& game, const std::string& car, const std::string& carId) const;
     // An entry by its key only (either layer, user first), e.g. one picked
     // from the list to use as a starting point for another car.
     Match findKey(const std::string& key) const;
