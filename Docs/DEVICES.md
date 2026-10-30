@@ -144,11 +144,9 @@ Each effect's row says what it is doing, under its name, with a lamp:
 **playing**; **ready** (fed, nothing to play right now); **armed · none
 yet** (an event that has not happened this session, such as ABS on a car
 you have not braked hard in, or one that has none); **no input** (this
-game does not send what the effect needs, named); **low rate** (Rumble strip
-working from road heights that arrive too slowly to find a kerb's ribs:
-see the Rumble strip tile); **no kerb surface** (the Rumble strip in a
-game that does not say which tyre is on a kerb, with from road heights
-off); **unrouted** (turned up, routed nowhere); **off**
+game does not send what the effect needs, named); **not in this game**
+(dimmed: the Rumble strip in a game that does not say when a tyre is on a
+kerb); **unrouted** (turned up, routed nowhere); **off**
 (amplitude 0); **muted**; **no game** (no telemetry arriving). The
 events (TC, ABS, limiter, kerb, impacts, gear shift, detent click) also
 show how many times they have gone off and how long ago the last one was,
@@ -505,7 +503,7 @@ effect silent.
 | Road | the road through the tyres and suspension, per corner (below): the sim's suspension movement with the road's fine roughness added, or the body's movement over the road, or the sim's own body movement | road speed, with the road height, surface or suspension per corner; or the body's heave, pitch and roll; or the single road channel |
 | Limiter | an extra hammer while on the rev limiter | limiter |
 | TC pulse | the body surge of each traction-control cut: a loss of drive and a recovery, each cut a little different (below; the Engine tile stutters as well) | TC active |
-| Rumble strip | the rumble strip under a tyre on a kerb: a hum that rises and falls with speed, a thud on and off (below) | the surface under each tyre, or the kerbs channel, or the road height under each tyre |
+| Rumble strip | the rumble strip under a tyre on a kerb: a hum that rises and falls with speed (below) | the surface under each tyre, or the game's own kerb channel |
 | Driveline | a slipping clutch juddering at a launch, the engine lugging at low revs (below) | clutch, rpm, gear (speed, throttle) |
 | Surface | what the ground does under each tyre: stones on gravel, snow crunching, studs on ice, puddles dragging and floating the tyre (below) | the surface under each tyre, speed (rain or wetness) |
 | Wheels | each wheel turning: slightly out of balance, flat spots from lock-ups, hot brake discs juddering, through the tyre and suspension (below) | speed (per-wheel slip ratio or wheel speeds, brake) |
@@ -516,10 +514,10 @@ limiter and traction control arrive automatically, and for Assetto
 Corsa, Competizione, EVO, Rally, Automobilista 2 and Le Mans Ultimate so
 do the per-wheel channels: the plugin knows which raw fields each of
 those sims exposes and sends them by itself, so the tiles have their
-input with nothing to set up. Rumble strip works by itself in Automobilista 2 and
-Le Mans Ultimate (the surface under each tyre), Competizione and EVO (the
-game's own kerb channel); in Assetto
-Corsa set its **detect mm** (below). For another sim the per-wheel
+input with nothing to set up. Rumble strip works by itself in Automobilista 2,
+Le Mans Ultimate and BeamNG.drive (the surface under each tyre), and in
+Competizione and Rally (the game's own kerb channel); plain Assetto Corsa
+does not say when a tyre is on a kerb, so it has none. For another sim the per-wheel
 channels, road and kerbs need SimHub properties named in the plugin's
 settings file (see the plugin README). Any other motion software that can send a text line
 can feed the same channels (see PROTOCOL.md).
@@ -792,36 +790,25 @@ pitch, about 90 times a second at 80 km/h, and the hum climbs and falls
 with speed; each rib is a little different (**jitter**). **rib mm** is
 the ribs' height (3 by default).
 
-With **step** on (as it always played), the step up onto the kerb plays
-too: **rise mm** (8 by default). Your motion software mostly carries
-that already, as the car rides up onto the kerb, so with step off only
-the rumble is left. A seat actuator cannot carry the hum: it gets a thud
-as the tyre steps on and another as it steps off, scaled by **full mm**
-(the kerb movement that counts as 100 %, 10 by default), and riding
-along the kerb does not hold the seat up. A belt or shaker gets the ribs,
-stronger with speed, and a kick on and a kick off. On and off are
-abrupt, as in a car. Route it with a part so the corner on the kerb
-rumbles.
+The car riding up onto the kerb is your motion's: the sim moves the car
+and your motion software carries it. A seat actuator cannot carry the
+hum: it gets a small bump as the tyre goes on and another as it comes off,
+scaled by **full mm** (the kerb movement that counts as 100 %, 10 by
+default), and riding along the kerb does not hold the seat up. A belt or
+shaker gets the ribs, stronger with speed, and a kick on and a kick off.
+On and off are abrupt, as in a car. Route it with a part so the corner on
+the kerb rumbles.
 
-Which tyre is on a kerb comes from the sim: the surface under each tyre
-(Automobilista 2, Le Mans Ultimate, BeamNG.drive); else the game's own
-kerb channel (Competizione, EVO: all wheels, full at **peak %**).
-
-A game with neither (Assetto Corsa) does not say which tyre is on a
-kerb, so it has no rumble strip of its own: the tile then reads **no
-kerb surface**. With **from road heights** on, nullCAT finds kerbs in
-the road height under each tyre instead: one tyre jumping by half of
-**detect mm** or more (full at it) against its partner on the same axle
-in a few hundredths of a second, on the side that jumped up, through to
-the drop off it. What that finds is mostly the kerb's edge, so it plays
-more a thump on and off than a rumble, and the tile says the kerbs come
-*from road heights*. It needs the heights at the game's physics rate
-(the SimHub plugin's `kunosDirectHeights`) to find ribs at all. The
-track's own camber and banking change over seconds and never count.
-Detect mm is 0 (off) by default; around 15 suits most tracks: lower if
-kerbs are missed, higher if bumps read as kerbs. A flat painted kerb
-cannot be found that way. The Test button runs the strip at 80 km/h, on
-and off.
+It plays only where the game says when a tyre is on a kerb: the surface
+under each tyre (Automobilista 2, Le Mans Ultimate, BeamNG.drive), else
+the game's own kerb channel (Competizione, Rally: all wheels, full at
+**peak %**). A game that flickers its kerb surface on and off along a
+kerb, as Le Mans Ultimate does, still plays one rumble. A game that says
+neither (plain Assetto Corsa) has no rumble strip: the tile is dimmed
+and reads **not in this game**, and its kerbs come through the motion,
+Road and Impacts. The road heights cannot tell a kerb from the road's
+own camber at speed, so they are not used for it. The Test button runs
+the strip at 80 km/h, on and off.
 
 ### Surface
 

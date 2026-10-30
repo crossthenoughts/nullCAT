@@ -845,13 +845,14 @@ private:
 //
 // Ribs every pitch, laid out by distance, so they hum at speed / pitch
 // (60 to 110 Hz at racing speeds) and the hum rises and falls with speed;
-// each rib a little different in height (jitter); the step up onto the
-// kerb at rise. All through the tyre's envelope. A seat post can carry the
-// step (a thud on and off) but not the hum: it gets the kerb's height,
-// smoothed, above kKerbPosHpHz (riding along a kerb does not hold the seat
-// up; the motion cue has the car's own lift where the sim models it). A belt or shaker gets the ribs and the step's edges (a kick
-// on, a kick off), stronger with speed, which is the on/off sound of a
-// kerb. Abrupt in and out: a tyre is on a kerb or it is not.
+// each rib a little different in height (jitter). All through the tyre's
+// envelope. The car riding up onto the kerb is the motion cue's (the sim
+// models its lift). A seat post cannot carry the hum: it gets the ribs'
+// mean height, smoothed, above kKerbPosHpHz (a small bump on and off,
+// never a held lift along the kerb). A belt or shaker gets the ribs and
+// their edges (a kick on, a kick off), stronger with speed, which is the
+// on/off sound of a kerb. Abrupt in and out: a tyre is on a kerb or it is
+// not.
 // ============================================================
 class KerbModel
 {
@@ -894,7 +895,7 @@ public:
                 w.pitchK = 1.0 + 0.2 * jit * (wavesynth::rand01(w.rng) - 0.5);
             }
             const double rib = 0.5 * (1.0 - std::cos(w.phase));
-            const double z = w.lvl * ((k.step >= 0.5 ? k.riseMm : 0.0) + k.ribMm * w.ribH * rib);   // mm
+            const double z = w.lvl * k.ribMm * w.ribH * rib;   // mm
             w.zf += (z - w.zf) * envA;
             w.zs += (w.zf - w.zs) * smA;
             w.zp = posA * (w.zp + w.zs - w.zsPrev); w.zsPrev = w.zs;

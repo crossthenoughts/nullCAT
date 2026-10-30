@@ -74,22 +74,13 @@ struct LawsState
     bool   throttleSeen = false;
     double lowThrottleAgo = 1e9, highThrottleAgo = 1e9;
     double dogKnockIn = 0.0;   // seconds until the dog engagement knock (0 = none pending)
-    // Kerb detection from road heights, per axle: the last few sim samples
-    // of the left-minus-right height difference with their times (a jump
-    // across them is a kerb's edge or ribs), the jumps' fading envelope,
-    // and the kerb under way: on or not, how long, the difference before it
-    // began, and its side from the first jump (0 none, 1 left, 2 right).
-    static constexpr int KERB_HIST = 32;
-    bool   kerbSeen = false;
-    double kerbClock = 0.0;
-    double kerbHistT[2][KERB_HIST] = {}, kerbHistD[2][KERB_HIST] = {};
-    int    kerbHistN[2] = {}, kerbHistHead[2] = {};
-    double kerbEnv[2] = {};
-    bool   kerbOn[2] = {};
-    double kerbOnSec[2] = {}, kerbRef[2] = {}, kerbQuietSec[2] = {};
-    double kerbLastRef[2] = {}, kerbSinceOff[2] = { 1e9, 1e9 };   // the last kerb: where it began, how long since it ended
-    int    kerbLastSide[2] = {};
-    int    kerbSide[2] = {};
+    // Rumble strip: the surface class taken as this car's source once all
+    // four tyres have named one; per tyre, how long the kerb is still held
+    // past its last kerb frame; the game's own kerb vibration held at its
+    // peak, and for how long.
+    bool   kerbSurface = false;
+    double kerbHoldSec[WHEEL_COUNT] = {};
+    double kerbCurbs = 0.0, kerbCurbsSec = 0.0;
     // Lateral slip: the per-wheel slip angle (or combined slip) smoothed,
     // and which source it is (0 none, 1 angle, 2 combined, 3 an angle from
     // a slip speed) so a change of source starts the smoothing afresh.
@@ -349,20 +340,13 @@ namespace laws_k {
     constexpr double kPreviewKmh       = 80.0;     // the road speed a road, kerb or ABS Test preview runs at
     constexpr double kPreviewKerbOnSec = 0.6;      // kerb preview: on this long...
     constexpr double kPreviewKerbCycle = 1.0;      // ...in every this long
-    constexpr double kKerbMinKmh       = 10.0;     // height detection: rolling
-    // A kerb is a JUMP in an axle's left-right height difference: the
-    // largest change across the sim samples of the last this long (a kerb's
-    // edge, its ribs; two samples at 60 Hz, more at a faster rate), the
-    // envelope of the jumps fading over this long. The road's camber and
-    // banking change over seconds (Imola: 20 to 55 mm, axle by axle), about
-    // 1 mm in the window, so they never jump. A kerb lasts from its first
-    // jump until the axle is back level with where it was before (the drop
-    // off it is the same kerb, on the same side), at most this long.
-    constexpr double kKerbJumpSec      = 0.035;
-    constexpr double kKerbHoldSec      = 0.25;
-    constexpr double kKerbEventMaxSec  = 4.0;
-    constexpr double kKerbQuietSec     = 0.4;      // ...or until it has been quiet this long (the camber may have moved)
-    constexpr double kKerbDropSec      = 2.0;      // a jump back towards where it began, within this after, is its drop off
+    // A tyre named on a kerb stays on it this long past its last kerb frame:
+    // Le Mans Ultimate's kerb class flickers on and off frame to frame along
+    // a kerb (2026-10-30: a third of its runs one frame long, the median
+    // 34 ms), BeamNG's mostly under 100 ms; held, they play as one rumble.
+    // The game's own kerb vibration is held at its peak as long.
+    constexpr double kKerbHoldSec      = 0.15;
+    constexpr double kKerbCurbsOn      = 0.05;     // the kerb vibration's share that counts as on a kerb
     // ABS: no ABS below walking pace (the ABS tile's off < 5 km/h).
     constexpr double kAbsLowOffKmh     = 5.0;
     // Surface laws: the water film from rain.
@@ -1561,29 +1545,29 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         L.driveRoadGrain(grain);
     }
 
-    // Kerb: how much of each tyre is on a kerb. The sim's surface class
-    // under each tyre where it sends one; else the stronger of its curbs
-    // channel (all wheels, full at peak %) and, with detect mm set and the
-    // road height under each tyre, a kerb's edge or ribs: the axle's
-    // left-right height difference jumping by half of detect mm or more
-    // within a few hundredths of a second (full at detect mm), the rumble
-    // fading a quarter second after the last jump, on the side the first
-    // jump rose (to the drop off it). The road's own camber and banking change
-    // over seconds and never count (measured against a slowly learned usual
-    // difference, they read as a kerb most of a lap at Imola). A Test
-    // preview runs the strip at 80 km/h, on and off.
+    // Rumble strip: how much of each tyre is on a kerb, as the game says it:
+    // the surface class under each tyre where it sends one (each kerb frame
+    // held kKerbHoldSec), taken as the car's source once all four tyres have
+    // named one (a frame missing a tyre is that tyre off the kerb, never a
+    // switch of source); else the game's own kerb vibration sent by name
+    // (Competizione, Rally: one value for the car, so every wheel, full at
+    // peak %, held at its peak as long). A numbered line pads a kerb channel
+    // it does not have with 0, so only the named one counts. A game that
+    // says neither (Assetto Corsa) has no rumble strip here: its road
+    // heights cannot tell a kerb from the road's camber at speed (2026-10-30,
+    // against BeamNG's kerb surface: 1 hit in 20 a kerb), and the motion,
+    // Road and Impacts carry its kerbs. A Test preview runs the strip at
+    // 80 km/h, on and off.
     {
         double& previewLeft = st.previewSec[static_cast<int>(FxType::Kerb)];
-        const KerbParams& kp = L.kerbParams();
         const auto haveW = [&](int group) -> bool
         {
             if (!live) return false;
             for (int w = 0; w < WHEEL_COUNT; ++w) if (!v.have[group + w]) return false;
             return true;
         };
-        const double kmh = (live && v.have[NcxValues::SpeedKmh]) ? std::max(0.0, v.val[NcxValues::SpeedKmh]) : 0.0;
         double lvl[WHEEL_COUNT] = {};
-        bool heights = false;
+        if (live && haveW(NcxValues::SurfaceFL)) st.kerbSurface = true;
         if (previewLeft > 0.0)
         {
             const bool on = std::fmod(kPreviewSec - previewLeft, kPreviewKerbCycle) < kPreviewKerbOnSec;
@@ -1591,110 +1575,24 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             previewLeft -= dtSec;
             L.driveKerbSpeed(kPreviewKmh / 3.6);   // after the road law's speed, so it wins
         }
-        else if (haveW(NcxValues::SurfaceFL))
+        else if (st.kerbSurface)
         {
             for (int w = 0; w < WHEEL_COUNT; ++w)
-                lvl[w] = (surfaceClass(v.val[NcxValues::SurfaceFL + w]) == SurfKerb) ? 1.0 : 0.0;
+            {
+                const bool kerb = live && v.have[NcxValues::SurfaceFL + w]
+                               && surfaceClass(v.val[NcxValues::SurfaceFL + w]) == SurfKerb;
+                st.kerbHoldSec[w] = kerb ? kKerbHoldSec : std::max(0.0, st.kerbHoldSec[w] - dtSec);
+                lvl[w] = (st.kerbHoldSec[w] > 0.0) ? 1.0 : 0.0;
+            }
         }
-        else
+        else if (live && v.named[NcxValues::Curbs])
         {
-            // The game's kerb channel (Competizione, EVO) on every wheel,
-            // and with from road heights on, detect mm set and the road
-            // heights arriving, a tyre jumping against its axle mate (a
-            // kerb's edge or ribs): the stronger of the two. A numbered
-            // line pads a kerb channel it does not have with 0, so the
-            // channel must never shut the detector out (it did, in Assetto
-            // Corsa).
-            if (live && v.have[NcxValues::Curbs])
-            {
-                const double c = mag(NcxValues::Curbs, FxType::Kerb);
-                for (double& l : lvl) l = c;
-            }
-            if (kp.heights >= 0.5 && kp.detectMm > 0.0 && haveW(NcxValues::RoadHeightFL) && kmh > kKerbMinKmh)
-            {
-                heights = true;
-                const double half  = 0.5 * kp.detectMm;
-                const double fade  = std::exp(-dtSec / kKerbHoldSec);
-                st.kerbClock += dtSec;
-                for (int ax = 0; ax < 2; ++ax)
-                {
-                    const int l = ax ? WheelRL : WheelFL, r = ax ? WheelRR : WheelFR;
-                    const double d = v.val[NcxValues::RoadHeightFL + l] - v.val[NcxValues::RoadHeightFL + r];
-                    const int K = LawsState::KERB_HIST;
-                    if (!st.kerbSeen) { st.kerbHistN[ax] = 0; st.kerbEnv[ax] = 0.0; st.kerbOn[ax] = false; st.kerbSide[ax] = 0;
-                                        st.kerbQuietSec[ax] = 0.0; st.kerbLastSide[ax] = 0; st.kerbSinceOff[ax] = 1e9; }
-                    // A new sim sample (the held value changed) joins the
-                    // history; the jump: the largest change from any sample
-                    // of the last kKerbJumpSec.
-                    const int last = (st.kerbHistHead[ax] + K - 1) % K;
-                    if (st.kerbHistN[ax] == 0 || st.kerbHistD[ax][last] != d)
-                    {
-                        st.kerbHistT[ax][st.kerbHistHead[ax]] = st.kerbClock;
-                        st.kerbHistD[ax][st.kerbHistHead[ax]] = d;
-                        st.kerbHistHead[ax] = (st.kerbHistHead[ax] + 1) % K;
-                        st.kerbHistN[ax] = std::min(K, st.kerbHistN[ax] + 1);
-                    }
-                    // A past sample counts while it was still the value
-                    // held some time in the window: the sample that replaced
-                    // it arrived inside it.
-                    double jump = 0.0, from = d;
-                    for (int i = 2; i <= st.kerbHistN[ax]; ++i)
-                    {
-                        const int succ = (st.kerbHistHead[ax] + K - (i - 1)) % K;
-                        if (st.kerbClock - st.kerbHistT[ax][succ] > kKerbJumpSec) break;
-                        const double dk = st.kerbHistD[ax][(st.kerbHistHead[ax] + K - i) % K];
-                        if (std::fabs(d - dk) > jump) { jump = std::fabs(d - dk); from = dk; }
-                    }
-                    st.kerbEnv[ax] = std::max(jump, st.kerbEnv[ax] * fade);
-                    const double k = std::max(0.0, std::min(1.0, (st.kerbEnv[ax] - half) / half));
-                    // The kerb under way: its side is the first jump's (the
-                    // left tyre rising against the right: left; a side
-                    // learned from the camber lagged a corner's camber and
-                    // put it on the wrong wheel), held until the axle is back
-                    // level with where it was before, so the drop off a
-                    // raised kerb rumbles the same wheel.
-                    // While on one, the axle swinging past where it began to
-                    // the other side is a kerb under the other wheel (a
-                    // chicane); quiet for kKerbQuietSec, it is over even if
-                    // the camber has moved meanwhile.
-                    if (st.kerbOn[ax] && jump > half)
-                    {
-                        const double off = d - st.kerbRef[ax];
-                        if ((st.kerbSide[ax] == 1 && off < -half) || (st.kerbSide[ax] == 2 && off > half))
-                        { st.kerbSide[ax] = (off > 0.0) ? 1 : 2; st.kerbRef[ax] = from; st.kerbOnSec[ax] = 0.0; }
-                    }
-                    // A new jump: the drop off the last kerb when it comes
-                    // soon after and swings back towards where that kerb
-                    // began (the same wheel); else a kerb of its own, on the
-                    // side the jump rose.
-                    st.kerbSinceOff[ax] += dtSec;
-                    if (!st.kerbOn[ax] && jump > half)
-                    {
-                        const bool dropOff = st.kerbLastSide[ax] != 0 && st.kerbSinceOff[ax] < kKerbDropSec
-                                             && std::fabs(from - st.kerbLastRef[ax]) > half
-                                             && std::fabs(d - st.kerbLastRef[ax]) < std::fabs(from - st.kerbLastRef[ax]);
-                        st.kerbOn[ax] = true; st.kerbOnSec[ax] = 0.0;
-                        st.kerbRef[ax]  = dropOff ? st.kerbLastRef[ax] : from;
-                        st.kerbSide[ax] = dropOff ? st.kerbLastSide[ax] : ((d > from) ? 1 : 2);
-                    }
-                    if (st.kerbOn[ax])
-                    {
-                        st.kerbOnSec[ax] += dtSec;
-                        st.kerbQuietSec[ax] = (k <= 0.0) ? st.kerbQuietSec[ax] + dtSec : 0.0;
-                        if ((k <= 0.0 && std::fabs(d - st.kerbRef[ax]) <= half) || st.kerbQuietSec[ax] > kKerbQuietSec
-                            || st.kerbOnSec[ax] > kKerbEventMaxSec)
-                        {
-                            st.kerbLastRef[ax] = st.kerbRef[ax]; st.kerbLastSide[ax] = st.kerbSide[ax]; st.kerbSinceOff[ax] = 0.0;
-                            st.kerbOn[ax] = false; st.kerbSide[ax] = 0; st.kerbQuietSec[ax] = 0.0;
-                        }
-                    }
-                    if (k <= 0.0) continue;
-                    if (st.kerbSide[ax] != 2) lvl[l] = std::max(lvl[l], k);
-                    if (st.kerbSide[ax] != 1) lvl[r] = std::max(lvl[r], k);
-                }
-            }
+            const double c = mag(NcxValues::Curbs, FxType::Kerb);
+            if (c >= kKerbCurbsOn) { st.kerbCurbs = (st.kerbCurbsSec > 0.0) ? std::max(st.kerbCurbs, c) : c; st.kerbCurbsSec = kKerbHoldSec; }
+            else st.kerbCurbsSec = std::max(0.0, st.kerbCurbsSec - dtSec);
+            if (st.kerbCurbsSec <= 0.0) st.kerbCurbs = 0.0;
+            for (double& l : lvl) l = st.kerbCurbs;
         }
-        st.kerbSeen = heights;
         for (int w = 0; w < WHEEL_COUNT; ++w) L.driveKerb(w, lvl[w] * ground[w]);   // a tyre in the air is on no kerb
     }
 

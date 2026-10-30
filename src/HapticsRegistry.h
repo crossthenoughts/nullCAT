@@ -204,14 +204,10 @@ constexpr ParamSpec kTextureParams[] = {        // limiter (flag-driven: nothing
 constexpr ParamSpec kKerbParams[] = {           // kerb: the rumble strip under the tyre
     { "ampPct",   "amp %",     0,   100, 1,    nullptr },
     { "pitchCm",  "pitch cm",  5,   100, 1,    nullptr },   // rib spacing: hums at speed / pitch
-    { "step",     "step",      0,   1,   1,    "off|on" },  // the step up onto the kerb plays (the motion carries most of it)
-    { "riseMm",   "rise mm",   0,   50,  0.5,  nullptr },   // the step up onto the kerb
     { "ribMm",    "rib mm",    0,   20,  0.5,  nullptr },   // rib height
     { "fullMm",   "full mm",   0.5, 50,  0.5,  nullptr },   // kerb movement = 100% on a post
     { "jitter",   "jitter",    0,   1,   0.05, nullptr },   // rib to rib unevenness
-    { "peakPct",  "peak %",    1,   100, 1,    nullptr },   // the single curbs channel
-    { "heights",  "from road heights", 0, 1, 1, "off|on" }, // no kerb surface from the sim: find kerbs in the road heights
-    { "detectMm", "detect mm", 0,   100, 1,    nullptr },   // no surface type: a tyre jumping this far against its mate is on a kerb (0 off)
+    { "peakPct",  "peak %",    1,   100, 1,    nullptr },   // the game's own kerb vibration
 };
 constexpr ParamSpec kSurfaceParams[] = {        // surface: stones, crunch, studs, puddles
     { "ampPct",  "amp %",      0,   100, 1,    nullptr },
@@ -377,17 +373,15 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "(0 = off). Nothing with the throttle shut: there is nothing to cut. Route it to surge and the belt. Needs "
       "the tcActive channel.", nullptr, {} },
     { Effect::Kerb,        "kerb",        "Rumble strip", Kind::Kerb, EventType::COUNT, FxType::Kerb,
-      { "surface*|curbs|roadHeight*", "speedKmh", nullptr }, { 0.0, 16.0, 0.0, 0.4 }, kKerbParams, static_cast<int>(std::size(kKerbParams)),
-      "The rumble of a kerb's ribs under the tyre that is on one: ribs every pitch cm, so they hum at speed / pitch "
-      "and the hum follows speed, each rib a little different (jitter); with step on, also the step up onto the "
-      "kerb (rise mm), which the motion mostly carries already. A post gets the kerb's height (a thud on and off; "
-      "it cannot carry the hum), a belt or shaker the ribs and a kick on and off, stronger with speed. Route with a "
-      "part so the corner on the kerb rumbles. Which tyre is on a kerb comes from the sim's surface type "
-      "(Automobilista 2, Le Mans Ultimate, BeamNG.drive), else the stronger of the curbs channel (Competizione, "
-      "EVO: the game's own; full at peak %, all wheels) and, with from road heights on and detect mm set, a tyre "
-      "jumping that far against its axle mate within a few hundredths of a second on a real road profile: a "
-      "kerb's edge, never the road's camber. A game with neither (Assetto Corsa) has no rumble strip of its own: "
-      "from road heights finds the kerb's step there, more a thump on and off than a rumble.",
+      { "surface*|curbs", "speedKmh", nullptr }, { 0.0, 16.0, 0.0, 0.4 }, kKerbParams, static_cast<int>(std::size(kKerbParams)),
+      "The rumble of a kerb's ribs under the tyre the game says is on one: ribs every pitch cm, so they hum at "
+      "speed / pitch and the hum follows speed, each rib a little different (jitter). The car riding up onto "
+      "the kerb is the motion's. A belt or shaker gets the ribs and a kick on and off, stronger with speed; a "
+      "post a small bump on and off (it cannot carry the hum). Route with a part so the corner on the kerb "
+      "rumbles. Plays only in a game that says when a tyre is on a kerb: its surface type under each tyre "
+      "(Automobilista 2, Le Mans Ultimate, BeamNG.drive), else its own kerb vibration (Competizione, Rally: one "
+      "value for the car, so every wheel, full at peak %). A game that says neither (Assetto Corsa) has no "
+      "rumble strip here: the motion, Road and Impacts carry its kerbs.",
       nullptr, {} },
     { Effect::Driveline,   "driveline",   "Driveline",    Kind::Driveline, EventType::COUNT, FxType::Driveline,
       { "clutchPct", "rpm", "gear", "~speedKmh", "~throttlePct" }, { 0.0, 10.0, 0.0, 0.2 }, kDrivelineParams, static_cast<int>(std::size(kDrivelineParams)),

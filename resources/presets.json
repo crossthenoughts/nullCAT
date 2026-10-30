@@ -8,7 +8,7 @@
         "slipLat": { "peakDeg": 13, "attackMs": 30 },
         "slipLon": { "peakRatio": 0.7, "edgePct": 5, "spin": 0.7 },
         "road":    { "rough": 2, "suspPct": 70, "suspHz": 3.5, "bodyHz": 1.4, "hopHz": 12, "damping": 0.25, "fullMm": 45 },
-        "kerb":    { "fullMm": 13, "detectMm": 15 },
+        "kerb":    { "fullMm": 13 },
         "wheels":  { "balance": 1.2, "judder": 0.6 },
         "impacts": { "freqHz": 35, "durMs": 70 },
         "surface": { "assume": 0, "stones": 0.6 }
@@ -21,7 +21,7 @@
         "slipLat": { "peakDeg": 10, "attackMs": 15 },
         "slipLon": { "peakRatio": 0.55, "edgePct": 4, "spin": 0.9 },
         "road":    { "rough": 1.8, "suspPct": 85, "suspHz": 5, "bodyHz": 2.5, "hopHz": 15, "damping": 0.35, "fullMm": 35 },
-        "kerb":    { "fullMm": 11, "detectMm": 15 },
+        "kerb":    { "fullMm": 11 },
         "wheels":  { "balance": 0.8, "judder": 0.4 },
         "impacts": { "freqHz": 40, "durMs": 55 },
         "surface": { "assume": 0, "stones": 0.6 }
@@ -34,7 +34,7 @@
         "slipLat": { "peakDeg": 8, "attackMs": 5 },
         "slipLon": { "peakRatio": 0.5, "edgePct": 3, "spin": 1 },
         "road":    { "rough": 1.5, "suspPct": 100, "suspHz": 6, "bodyHz": 3, "hopHz": 18, "damping": 0.3, "fullMm": 29 },
-        "kerb":    { "fullMm": 10, "detectMm": 15 },
+        "kerb":    { "fullMm": 10 },
         "wheels":  { "balance": 0.4, "judder": 0.3 },
         "impacts": { "freqHz": 40, "durMs": 50 },
         "surface": { "assume": 0, "stones": 0.6 }
@@ -47,33 +47,33 @@
         "slipLat": { "peakDeg": 5.5, "attackMs": 5 },
         "slipLon": { "peakRatio": 0.4, "edgePct": 2.5, "spin": 1 },
         "road":    { "rough": 1.3, "suspPct": 100, "suspHz": 8, "bodyHz": 5, "hopHz": 20, "damping": 0.5, "fullMm": 18 },
-        "kerb":    { "fullMm": 6.5, "detectMm": 15 },
+        "kerb":    { "fullMm": 6.5 },
         "wheels":  { "balance": 0.3, "judder": 0.1 },
         "impacts": { "freqHz": 55, "durMs": 40 },
         "surface": { "assume": 0, "stones": 0.6 }
       }
     },
     "Rally gravel": {
-      "description": "Rally car on a gravel stage: long-travel suspension, big slow slides on loose ground, stones under the floor. With no surface sent by the sim it plays gravel all the time, and it turns the kerb detection from road heights off (rally roads read as kerbs). A first guess, tuned on AC Rally.",
+      "description": "Rally car on a gravel stage: long-travel suspension, big slow slides on loose ground, stones under the floor. With no surface sent by the sim it plays gravel all the time. A first guess, tuned on AC Rally.",
       "haptics": {
         "beltFullG": 1.0,
         "slipLat": { "peakDeg": 18, "attackMs": 40 },
         "slipLon": { "peakRatio": 0.8, "edgePct": 6, "spin": 0.6 },
         "road":    { "rough": 2.5, "suspPct": 60, "suspHz": 3, "bodyHz": 1.3, "hopHz": 11, "damping": 0.25, "fullMm": 50 },
-        "kerb":    { "fullMm": 13, "detectMm": 0 },
+        "kerb":    { "fullMm": 13 },
         "wheels":  { "balance": 1.2, "judder": 0.5 },
         "impacts": { "freqHz": 30, "durMs": 80 },
         "surface": { "assume": 1, "stones": 0.9 }
       }
     },
     "Rally tarmac": {
-      "description": "Rally car on a tarmac stage: road-car travel, firm, slides earlier than on gravel. Turns the kerb detection from road heights off (broken tarmac reads as kerbs); set detect mm again on the Kerb tile for a circuit. A first guess, tuned on AC Rally.",
+      "description": "Rally car on a tarmac stage: road-car travel, firm, slides earlier than on gravel. A first guess, tuned on AC Rally.",
       "haptics": {
         "beltFullG": 1.2,
         "slipLat": { "peakDeg": 11, "attackMs": 20 },
         "slipLon": { "peakRatio": 0.6, "edgePct": 4, "spin": 0.8 },
         "road":    { "rough": 2.2, "suspPct": 75, "suspHz": 4, "bodyHz": 1.8, "hopHz": 13, "damping": 0.3, "fullMm": 45 },
-        "kerb":    { "fullMm": 11, "detectMm": 0 },
+        "kerb":    { "fullMm": 11 },
         "wheels":  { "balance": 1.0, "judder": 0.4 },
         "impacts": { "freqHz": 35, "durMs": 65 },
         "surface": { "assume": 0, "stones": 0.6 }
@@ -86,7 +86,7 @@
         "slipLat": { "peakDeg": 16, "attackMs": 30 },
         "slipLon": { "peakRatio": 0.7, "edgePct": 5, "spin": 0.7 },
         "road":    { "rough": 2, "suspPct": 70, "suspHz": 3.5, "bodyHz": 1.4, "hopHz": 12, "damping": 0.25, "fullMm": 45 },
-        "kerb":    { "fullMm": 13, "detectMm": 15 },
+        "kerb":    { "fullMm": 13 },
         "wheels":  { "balance": 1.2, "judder": 0.6 },
         "impacts": { "freqHz": 35, "durMs": 70 },
         "surface": { "assume": 0, "stones": 0.6 }
@@ -99,7 +99,7 @@
         "slipLat": { "peakDeg": 12.5, "attackMs": 15 },
         "slipLon": { "peakRatio": 0.55, "edgePct": 4, "spin": 0.9 },
         "road":    { "rough": 1.8, "suspPct": 85, "suspHz": 5, "bodyHz": 2.5, "hopHz": 15, "damping": 0.35, "fullMm": 35 },
-        "kerb":    { "fullMm": 11, "detectMm": 15 },
+        "kerb":    { "fullMm": 11 },
         "wheels":  { "balance": 0.8, "judder": 0.4 },
         "impacts": { "freqHz": 40, "durMs": 55 },
         "surface": { "assume": 0, "stones": 0.6 }
@@ -112,7 +112,7 @@
         "slipLat": { "peakDeg": 9.5, "attackMs": 5 },
         "slipLon": { "peakRatio": 0.5, "edgePct": 3, "spin": 1 },
         "road":    { "rough": 1.5, "suspPct": 100, "suspHz": 6, "bodyHz": 3, "hopHz": 18, "damping": 0.3, "fullMm": 29 },
-        "kerb":    { "fullMm": 10, "detectMm": 15 },
+        "kerb":    { "fullMm": 10 },
         "wheels":  { "balance": 0.4, "judder": 0.3 },
         "impacts": { "freqHz": 40, "durMs": 50 },
         "surface": { "assume": 0, "stones": 0.6 }
@@ -125,7 +125,7 @@
         "slipLat": { "peakDeg": 7.5, "attackMs": 5 },
         "slipLon": { "peakRatio": 0.4, "edgePct": 2.5, "spin": 1 },
         "road":    { "rough": 1.3, "suspPct": 100, "suspHz": 8, "bodyHz": 5, "hopHz": 20, "damping": 0.5, "fullMm": 18 },
-        "kerb":    { "fullMm": 6.5, "detectMm": 15 },
+        "kerb":    { "fullMm": 6.5 },
         "wheels":  { "balance": 0.3, "judder": 0.1 },
         "impacts": { "freqHz": 55, "durMs": 40 },
         "surface": { "assume": 0, "stones": 0.6 }

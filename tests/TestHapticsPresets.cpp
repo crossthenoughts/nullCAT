@@ -150,7 +150,7 @@ private slots:
                 if (named) ++changed;
             }
         }
-        QCOMPARE(changed, 21);   // 2 + 3 + 7 + 2 + 2 + 2 + 2 + the belt g: every listed setting landed
+        QCOMPARE(changed, 20);   // 2 + 3 + 7 + 1 + 2 + 2 + 2 + the belt g: every listed setting landed
         QCOMPARE(c.hapticsBeltFullG, 2.5);
 
         // The listed values, by name...

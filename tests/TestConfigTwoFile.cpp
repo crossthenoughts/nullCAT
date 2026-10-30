@@ -373,7 +373,7 @@ private slots:
         c.hapticsSlipLat = { 0.7, 28.0, 0.4, 9.0, 6.5, 35.0, 1.5, 10.0, 45.0, 0.0, 0.45, 60.0, 40.0, 0.8, 7.5 };
         c.hapticsSlipLon = { 0.9, 8.0, 0.2, 12.0, 0.6 };
         c.hapticsRoad    = { 12.0, 3.5, 0.35, 140.0, 18.0, 2.0, 1.5, 4.0, 18.0, 0.4, 3.0, 65.0, 6.5, 1.0 };
-        c.hapticsKerb    = { 30.0, 10.0, 4.0, 12.0, 15.0 };
+        c.hapticsKerb    = { 30.0, 4.0, 12.0 };
         c.hapticsAbs     = { 0.6, 0.8, 0.4, 0.5, 55.0, 1.0, 0.45, 0.2, 65.0 };
         c.hapticsTc      = { 0.2, 0.9, 0.0, 0.0, 40.0 };
         c.hapticsAbs.holdMs = 120.0; c.hapticsTc.holdMs = 0.0;   // the TC hold off
@@ -443,8 +443,7 @@ private slots:
         QCOMPARE(r.hapticsRoad.model, 2.0);  QCOMPARE(r.hapticsRoad.bodyMm, 1.5); QCOMPARE(r.hapticsRoad.bodyHz, 4.0);
         QCOMPARE(r.hapticsRoad.hopHz, 18.0); QCOMPARE(r.hapticsRoad.damping, 0.4); QCOMPARE(r.hapticsRoad.rough, 3.0);
         QCOMPARE(r.hapticsRoad.suspPct, 65.0); QCOMPARE(r.hapticsRoad.suspHz, 6.5); QCOMPARE(r.hapticsRoad.fullLearn, 1.0);
-        QCOMPARE(r.hapticsKerb.pitchCm, 30.0); QCOMPARE(r.hapticsKerb.riseMm, 10.0); QCOMPARE(r.hapticsKerb.ribMm, 4.0);
-        QCOMPARE(r.hapticsKerb.fullMm, 12.0);  QCOMPARE(r.hapticsKerb.detectMm, 15.0);
+        QCOMPARE(r.hapticsKerb.pitchCm, 30.0); QCOMPARE(r.hapticsKerb.ribMm, 4.0); QCOMPARE(r.hapticsKerb.fullMm, 12.0);
         QVERIFY(r.hapticsFx[static_cast<size_t>(haptics::Effect::Kerb)].routes[1].part == haptics::Part::Front);
         QCOMPARE(r.hapticsAbs.sharp, 0.6); QCOMPARE(r.hapticsAbs.spread, 0.8); QCOMPARE(r.hapticsAbs.slow, 0.4);
         QCOMPARE(r.hapticsAbs.buzz, 0.5);  QCOMPARE(r.hapticsAbs.buzzHz, 55.0);

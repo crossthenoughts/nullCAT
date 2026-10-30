@@ -72,6 +72,7 @@ end
 
 local corner = {}        -- "FL".. -> the wheel
 local matClass, matWet = {}, {}
+local lastSurface, lastWet = {}, {}   -- per corner: the ground it was last on (a tyre in the air keeps it)
 local unknownSurface = {}
 local carName, carId = "", ""
 local wheelbase, trackWidth = nil, nil
@@ -504,10 +505,11 @@ local function build(dt)
       -- works the slip angle out of it)
       add("slipSpeed" .. c, w.lastSlip, "%.3f")
       add("onGround" .. c, (id >= 0) and 1 or 0, "%.0f")
-      if id >= 0 then
-        add("surface" .. c, matClass[id] or 0, "%.0f")
-        if slow then add("wet" .. c, matWet[id] or 0, "%.0f") end
-      end
+      -- every tyre on every line (the protocol: all four or none): one in
+      -- the air keeps the ground it left
+      if id >= 0 then lastSurface[c], lastWet[c] = matClass[id] or 0, matWet[id] or 0 end
+      add("surface" .. c, lastSurface[c] or 0, "%.0f")
+      if slow then add("wet" .. c, lastWet[c] or 0, "%.0f") end
       local np = obj:getNodePosition(w.node1)
       add("suspTravel" .. c, (q * vec3(np)).z * 1000, "%.2f")
       if SEND_HEIGHTS then

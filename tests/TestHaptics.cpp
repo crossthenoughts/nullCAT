@@ -1755,11 +1755,12 @@ int main()
         }
 
         // Kerb: ribs every pitch hum at speed / pitch on a force sink; on
-        // and off within a few ms; a post gets a thud on and off, not a held
+        // and off within a few ms; a post gets a small bump on and off (the
+        // ribs' mean height; the car riding up is the motion's), never a held
         // lift; other corners nothing; stronger with speed.
         {
             EffectParams p; p.ampPct = 100.0; p.jitter = 0.0;
-            const KerbParams k;   // pitch 25 cm, rise 8, rib 3, full 10
+            const KerbParams k;   // pitch 25 cm, rib 3, full 10
             const double dt = 0.0005;
             auto run = [&](double speed, std::vector<double>& f, std::vector<double>& pos, std::vector<double>& lvl, double& rr) {
                 KerbModel m; rr = 0.0;
@@ -1784,30 +1785,12 @@ int main()
             for (size_t i = 1000; i < 1400; ++i) on  = std::max(on,  pos[i]);
             for (size_t i = 3000; i < 3990; ++i) mid = std::max(mid, std::fabs(pos[i]));
             for (size_t i = 4000; i < 4400; ++i) off = std::min(off, pos[i]);
-            CHECK(on > 0.5 && off < -0.4, "kerb post: a thud up as the tyre steps on, one down as it steps off");
+            CHECK(on > 0.05 && on < 0.3 && off < -0.05, "kerb post: a small bump up as the tyre goes on, one down as it comes off (no step: the motion's)");
             CHECK(mid < 0.3 * on, "kerb post: not a held lift while riding along it");
             CHECK(rr < 1e-9, "kerb: the corners off the kerb carry nothing");
             std::vector<double> fs, ps, ls; double rs = 0.0;
             run(8.0, fs, ps, ls, rs);
             CHECK(rms(f, 1600) > 2.0 * rms(fs, 1600), "kerb: the ribs are stronger at speed");
-            // Step off: the thud on and off goes (the motion carries the
-            // step), the ribs' hum stays. Breaks with the tickbox left out
-            // of the model.
-            {
-                KerbParams ko; ko.step = 0.0;
-                KerbModel m; double on2 = 0.0; std::vector<double> f2;
-                for (int i = 0; i < 6000; ++i)
-                {
-                    const double t = i * dt;
-                    m.driveSpeed(20.0); m.drive(WheelFL, (t >= 0.5 && t < 2.0) ? 1.0 : 0.0); m.step(dt, p, ko);
-                    const RoadOut o = m.outputFor(Part::FL);
-                    if (i >= 1000 && i < 1400) on2 = std::max(on2, o.pos);
-                    f2.push_back(o.force);
-                }
-                CHECK(on2 < 0.25 * on, "kerb step off: no thud up as the tyre steps on");
-                int x2 = 0; for (size_t i = 1601; i < 3600; ++i) if ((f2[i] >= 0.0) != (f2[i - 1] >= 0.0)) ++x2;
-                approx(x2 / 2.0, 20.0 / 0.25, 3.0, "kerb step off: the ribs still hum at speed / pitch");
-            }
         }
     }
 

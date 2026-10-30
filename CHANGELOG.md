@@ -78,28 +78,26 @@ each shaker, and BeamNG.drive straight from the game.
   Off by default.
 - Two rally types of car to start from: **Rally gravel** and **Rally
   tarmac** (first guesses, tuned on AC Rally), between Open wheeler and the
-  AMS2 types. Both turn the kerb detection from road heights off: a rally
-  road read as kerbs, about 30 knocks a minute on the shakers on a tarmac
-  stage of AC Rally and 14 on gravel, with none in the replay once the
-  type is applied.
+  AMS2 types.
 - The Surface tile can take the ground the tyres are on when the sim does
   not say (AC Rally, AC EVO, Assetto Corsa): **no surface sent** gravel,
   dirt, snow or sand. The gravel rally type sets gravel, so the stones under
   the floor and the gravel's texture play on a gravel stage exactly as in
   an Automobilista 2 gravel trap. A sim that sends the surface wins, and
   every other type sets tarmac, so it never stays on after a rally stage.
-  Every type now also sets the stones, and the AC and AMS2 circuit types
-  the kerb detection (15 mm).
+  Every type now also sets the stones.
 
 ### Changed
-- The Kerb tile is now **Rumble strip**: the rumble of a kerb's ribs,
-  which is what it is for. Two tickboxes, both on as it always played:
-  **step** (the step up onto the kerb, which your motion software mostly
-  carries already) and **from road heights** (kerbs found in the road
-  heights in a game that does not say which tyre is on one, as Assetto
-  Corsa). In such a game the tile now says so: *no kerb surface* with from
-  road heights off, *from road heights* with it on, as what it finds there
-  is the kerb's edge, more a thump than a rumble.
+- The Kerb tile is now **Rumble strip**: the rumble of a kerb's ribs, which
+  is what it is for, and only where the game says a tyre is on a kerb (its
+  surface under each tyre, or its own kerb vibration). A game that says
+  neither, as plain Assetto Corsa, has none: the tile is dimmed and reads
+  *not in this game*, and the motion, Road and Impacts carry its kerbs. The
+  step up onto the kerb went (the motion carries it), and so did finding
+  kerbs in the road heights: at speed they cannot tell a kerb from the
+  road's own camber (against BeamNG's kerb surface they fired about 45
+  times a minute, 1 in 20 a kerb). A kerb surface that flickers on and off
+  along a kerb, as Le Mans Ultimate's does, now plays as one rumble.
 - A car the car table has no entry for gets the default car settings in
   any game, not only in the games the table covers: a BeamNG.drive car no
   longer keeps the last Assetto Corsa car's engine, gearbox, ABS and TC
@@ -125,7 +123,7 @@ each shaker, and BeamNG.drive straight from the game.
   car** (the starting point: the slips, road, wheels, surface, kerb,
   impacts) and **Other** (gear shift, then the detent click). Each row
   says what the effect is doing under its name, with a lamp (playing,
-  ready, armed with none yet, no input and what it needs, low rate,
+  ready, armed with none yet, no input and what it needs, not in this game,
   unrouted, off, muted, no game), how many times an event has gone off and
   how long ago, a mini scope with a level bar and its recent peak, an amp
   fader and an M key. A **Now** line in the car readout counts what is

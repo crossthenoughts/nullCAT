@@ -475,6 +475,7 @@ int main()
             check(L.slipWheelLevel(haptics::FxType::Skid, WheelFL) > 0.95, "I-7 peak % 25: skid 50 is a full slide");
             v.val[NcxValues::Skid] = 12.5; settle(300);
             check(std::fabs(L.slipWheelLevel(haptics::FxType::Skid, WheelFL) - 0.5) < 0.05, "I-7 peak % 25: skid 12.5 is halfway");
+            v.named[NcxValues::Curbs] = true;   // the game's own kerb vibration (by name)
             v.val[NcxValues::Curbs] = 25.0; settle(200);
             check(L.fxLevel(static_cast<int>(haptics::FxType::Kerb)) > 0.95, "I-7 peak % 25: curbs 25 is a full kerb");
             v.val[NcxValues::Curbs] = 0.0;
@@ -1228,88 +1229,81 @@ int main()
         check(K.fxLevel(static_cast<int>(FxType::Kerb)) > 0.99, "I-9 kerb: the tile level shows the tyre on the kerb");
         surf(SurfTarmac, SurfTarmac, SurfTarmac, SurfTarmac);
         for (int i = 0; i < 50; ++i) { haptics::driveLaws(K, ks, kv, dt); K.step(dt); }
-        check(K.kerbWheelLevel(WheelFL) == 0.0, "I-9 kerb: off the kerb, it lets go");
+        check(K.kerbWheelLevel(WheelFL) > 0.99, "I-9 kerb: off the kerb, held 0.15 s (a flickering kerb class plays as one)");
+        for (int i = 0; i < 100; ++i) { haptics::driveLaws(K, ks, kv, dt); K.step(dt); }
+        check(K.kerbWheelLevel(WheelFL) == 0.0, "I-9 kerb: ...then it lets go");
 
-        // Kerb from the road heights (detect mm): a kerb is a JUMP in an
-        // axle's left-right height difference (its edge, its ribs). The
-        // road's banking, and its camber changing over seconds (Imola: 20 to
-        // 55 mm, which read as a kerb most of a lap against a slowly learned
-        // usual difference), are not. Sim samples at 60 Hz, the laws at 500.
-        haptics::KerbParams kd; kd.detectMm = 20.0; K.configureKerb(kd);
-        for (int w = 0; w < 4; ++w) kv.have[NcxValues::SurfaceFL + w] = false;
-        auto heights = [&](double fl, double fr, double rl, double rr)
-        { const double h[4] = { fl, fr, rl, rr }; for (int w = 0; w < 4; ++w) { kv.have[NcxValues::RoadHeightFL + w] = true; kv.val[NcxValues::RoadHeightFL + w] = h[w]; } };
-        // Drive secs with the heights a function of time, held per 60 Hz
-        // sample; the largest kerb level seen per wheel after `from` s.
-        double kerbPk[4] = {};
-        auto ride = [&](double secs, double from, auto at) {
-            for (double& p : kerbPk) p = 0.0;
-            const int n = static_cast<int>(secs / dt); int lastK = -1;
-            for (int i = 0; i < n; ++i)
-            {
-                const double t = i * dt; const int k = static_cast<int>(t * 60.0);
-                if (k != lastK) { lastK = k; at(k / 60.0); }
-                haptics::driveLaws(K, ks, kv, dt); K.step(dt);
-                if (t >= from) for (int w = 0; w < 4; ++w) kerbPk[w] = std::max(kerbPk[w], K.kerbWheelLevel(w));
-            } };
-        ride(1.0, 0.0, [&](double) { heights(30.0, 0.0, 30.0, 0.0); });
-        check(kerbPk[WheelFL] == 0.0 && kerbPk[WheelFR] == 0.0, "I-9 kerb detect: banking alone is not a kerb");
-        ride(2.0, 0.0, [&](double t) { heights(30.0 + 25.0 * t, 0.0, 30.0 + 25.0 * t, 0.0); });   // 50 mm of camber in 2 s, both axles
-        check(kerbPk[WheelFL] == 0.0 && kerbPk[WheelFR] == 0.0 && kerbPk[WheelRL] == 0.0, "I-9 kerb detect: the camber changing over seconds is no kerb");
-        // A ribbed kerb under FL: 20 mm ribs every other sample for 0.6 s.
-        ride(0.6, 0.05, [&](double t) { const int k = static_cast<int>(t * 60.0 + 0.5); heights((k % 2) ? 100.0 : 80.0, 0.0, 80.0, 0.0); });
-        check(kerbPk[WheelFL] > 0.99 && kerbPk[WheelFR] == 0.0 && kerbPk[WheelRL] == 0.0, "I-9 kerb detect: ribs under FL put FL on a kerb, not FR or the rears");
-        check(K.kerbWheelLevel(WheelFL) > 0.99, "I-9 kerb detect: ...and keep it there while the ribs go on");
-        ride(1.0, 0.6, [&](double) { heights(80.0, 0.0, 80.0, 0.0); });
-        check(kerbPk[WheelFL] == 0.0, "I-9 kerb detect: off the ribs it lets go within half a second");
-        // Ribs under FR straight after the camber has moved (a side taken
-        // from a slowly learned camber lagged it and put the kerb on FL).
-        ride(2.0, 0.0, [&](double t) { heights(80.0 + 25.0 * t, 0.0, 80.0, 0.0); });
-        ride(0.6, 0.05, [&](double t) { const int k = static_cast<int>(t * 60.0 + 0.5); heights(130.0, (k % 2) ? 20.0 : 0.0, 80.0, 0.0); });
-        check(kerbPk[WheelFR] > 0.99 && kerbPk[WheelFL] == 0.0, "I-9 kerb detect: ribs under FR after a camber change are FR's");
-        ride(1.0, 0.0, [&](double) { heights(130.0, 0.0, 80.0, 0.0); });
-        // A flat raised kerb under FL: up 30 mm for a second, then off. The
-        // drop off rumbles FL again, not FR.
-        ride(0.1, 0.0, [&](double) { heights(160.0, 0.0, 80.0, 0.0); });
-        check(kerbPk[WheelFL] > 0.99 && kerbPk[WheelFR] == 0.0, "I-9 kerb detect: up onto a flat kerb, FL");
-        ride(1.0, 0.0, [&](double) { heights(160.0, 0.0, 80.0, 0.0); });
-        ride(0.1, 0.0, [&](double) { heights(130.0, 0.0, 80.0, 0.0); });
-        check(kerbPk[WheelFL] > 0.99 && kerbPk[WheelFR] == 0.0, "I-9 kerb detect: ...and off it, FL again (the same kerb)");
-        ride(1.0, 0.0, [&](double) { heights(130.0, 0.0, 80.0, 0.0); });
-        ride(2.0, 0.0, [&](double t) { heights(130.0 - 25.0 * t, 0.0, 80.0, 0.0); });   // camber back, slowly
-        check(kerbPk[WheelFL] == 0.0 && kerbPk[WheelFR] == 0.0, "I-9 kerb detect: the camber easing back is no kerb");
-        // A chicane: a kerb under FL, up and off, then one under FR.
-        ride(0.3, 0.0, [&](double) { heights(110.0, 0.0, 80.0, 0.0); });
-        check(kerbPk[WheelFL] > 0.99 && kerbPk[WheelFR] == 0.0, "I-9 kerb detect: a chicane: FL's kerb first");
-        ride(0.3, 0.0, [&](double) { heights(80.0, 0.0, 80.0, 0.0); });
-        ride(0.6, 0.0, [&](double) { heights(80.0, 0.0, 80.0, 0.0); });
-        ride(0.3, 0.0, [&](double) { heights(80.0, 30.0, 80.0, 0.0); });
-        check(kerbPk[WheelFR] > 0.99 && kerbPk[WheelFL] == 0.0, "I-9 kerb detect: ...then FR's is FR's");
-        ride(0.3, 0.0, [&](double) { heights(80.0, 0.0, 80.0, 0.0); });
-        ride(1.0, 0.0, [&](double) { heights(80.0, 0.0, 80.0, 0.0); });
-        // A single step up under RR (a raised kerb's edge): on at once, gone
-        // within half a second on its flat top.
-        ride(0.1, 0.0, [&](double) { heights(80.0, 0.0, 80.0, 25.0); });
-        check(kerbPk[WheelRR] > 0.99 && kerbPk[WheelRL] == 0.0 && kerbPk[WheelFL] == 0.0, "I-9 kerb detect: RR stepping up 25 mm is on a kerb");
-        ride(1.0, 0.5, [&](double) { heights(80.0, 0.0, 80.0, 25.0); });
-        check(kerbPk[WheelRR] == 0.0, "I-9 kerb detect: ...for a moment: its flat top is no rumble");
-        // From road heights off: the same ribs under FL find no kerb (a game
-        // with no kerb surface then has no rumble strip). Breaks with the
-        // tickbox left out of the detector's gate.
+        // A kerb class flickering frame to frame (Le Mans Ultimate,
+        // 2026-10-30: a third of its runs one 60 Hz frame long) plays as one
+        // rumble. Breaks with the hold left out.
         {
-            haptics::KerbParams off = kd; off.heights = 0.0; K.configureKerb(off);
-            ride(0.6, 0.0, [&](double t) { const int k = static_cast<int>(t * 60.0 + 0.5); heights((k % 2) ? 100.0 : 80.0, 0.0, 80.0, 25.0); });
-            check(kerbPk[WheelFL] == 0.0 && kerbPk[WheelFR] == 0.0, "I-9 kerb detect: from road heights off, the ribs find no kerb");
-            K.configureKerb(kd);
-            ride(1.0, 0.0, [&](double) { heights(80.0, 0.0, 80.0, 25.0); });
+            double lo = 1.0;
+            for (int i = 0; i < 300; ++i)   // 0.6 s: a kerb one 60 Hz frame in three
+            {
+                const int f = static_cast<int>(i * dt * 60.0);
+                surf((f % 3 == 0) ? SurfKerb : SurfTarmac, SurfTarmac, SurfTarmac, SurfTarmac);
+                haptics::driveLaws(K, ks, kv, dt); K.step(dt);
+                if (i >= 50) lo = std::min(lo, K.kerbWheelLevel(WheelFL));
+            }
+            check(lo > 0.99, "I-9 kerb: a kerb class flickering frame to frame (LMU) plays as one rumble");
+            surf(SurfTarmac, SurfTarmac, SurfTarmac, SurfTarmac);
+            for (int i = 0; i < 150; ++i) { haptics::driveLaws(K, ks, kv, dt); K.step(dt); }
         }
-        // A numbered line pads its kerb channel with 0 (Assetto Corsa sends
-        // none): that 0 must not shut the detector out.
-        kv.have[NcxValues::Curbs] = true; kv.val[NcxValues::Curbs] = 0.0;
-        ride(0.5, 0.0, [&](double) { heights(80.0, 0.0, 80.0, 0.0); });
-        ride(0.1, 0.0, [&](double) { heights(110.0, 0.0, 80.0, 0.0); });
-        check(kerbPk[WheelFL] > 0.99, "I-9 kerb detect: a kerb channel stuck at 0 does not shut the detector out");
-        kv.have[NcxValues::Curbs] = false;
+        // A frame missing one tyre's surface is that tyre off the kerb, never
+        // a switch of source: the kerb vibration, even sent by name, stays
+        // unused. Breaks with the source taken frame by frame.
+        {
+            surf(SurfKerb, SurfTarmac, SurfTarmac, SurfTarmac);
+            kv.have[NcxValues::SurfaceRR] = false;
+            kv.have[NcxValues::Curbs] = true; kv.named[NcxValues::Curbs] = true; kv.val[NcxValues::Curbs] = 100.0;
+            for (int i = 0; i < 100; ++i) { haptics::driveLaws(K, ks, kv, dt); K.step(dt); }
+            check(K.kerbWheelLevel(WheelFL) > 0.99 && K.kerbWheelLevel(WheelFR) == 0.0 && K.kerbWheelLevel(WheelRR) == 0.0,
+                  "I-9 kerb: a frame missing one tyre's surface keeps the surface the source (the kerb vibration unused)");
+            kv.have[NcxValues::Curbs] = kv.named[NcxValues::Curbs] = false;
+            surf(SurfTarmac, SurfTarmac, SurfTarmac, SurfTarmac);
+            for (int i = 0; i < 150; ++i) { haptics::driveLaws(K, ks, kv, dt); K.step(dt); }
+        }
+        // A game with no kerb surface. Road heights, kerb-like or not (ribs
+        // under FL, the camber ramping at 150 km/h), never put a tyre on a
+        // kerb: no detection from heights (2026-10-30, against BeamNG's kerb
+        // surface: 1 hit in 20 a kerb). Its kerb vibration as a numbered slot
+        // does not count (a sender lacking it pads it); sent by name it plays
+        // on every wheel. Car A (a surface, so the surface is its source)
+        // then car B (none): B's kerb vibration plays (the source is the
+        // car's). Breaks with the detector back, with the slot counting, or
+        // with the source kept across a car change.
+        {
+            haptics::LawsState cs; NcxValues cv{}; cv.fresh = true;
+            cv.have[NcxValues::SpeedKmh] = true; cv.val[NcxValues::SpeedKmh] = 150.0;
+            std::strncpy(cv.car, "Car A", NCY_STR_LEN - 1);
+            for (int w = 0; w < 4; ++w) { cv.have[NcxValues::SurfaceFL + w] = true; cv.val[NcxValues::SurfaceFL + w] = SurfTarmac; }
+            for (int i = 0; i < 50; ++i) { haptics::driveLaws(K, cs, cv, dt); K.step(dt); }
+            std::strncpy(cv.car, "Car B", NCY_STR_LEN - 1);
+            for (int w = 0; w < 4; ++w) { cv.have[NcxValues::SurfaceFL + w] = false; cv.have[NcxValues::RoadHeightFL + w] = true; }
+            auto anyKerb = [&]() { double m = 0.0; for (int w = 0; w < 4; ++w) m = std::max(m, K.kerbWheelLevel(w)); return m; };
+            double pk = 0.0;
+            for (int i = 0; i < 1500; ++i)   // 3 s
+            {
+                const int k = static_cast<int>(i * dt * 60.0);
+                cv.val[NcxValues::RoadHeightFL] = (k % 2) ? 100.0 : 80.0;
+                cv.val[NcxValues::RoadHeightFR] = 0.0;
+                cv.val[NcxValues::RoadHeightRL] = 80.0 + 25.0 * i * dt;
+                cv.val[NcxValues::RoadHeightRR] = 0.0;
+                haptics::driveLaws(K, cs, cv, dt); K.step(dt);
+                pk = std::max(pk, anyKerb());
+            }
+            check(pk == 0.0, "I-9 kerb: road heights alone (ribs, a camber ramp at 150 km/h) never put a tyre on a kerb");
+            cv.have[NcxValues::Curbs] = true; cv.val[NcxValues::Curbs] = 100.0;   // a numbered slot
+            for (int i = 0; i < 100; ++i) { haptics::driveLaws(K, cs, cv, dt); K.step(dt); pk = std::max(pk, anyKerb()); }
+            check(pk == 0.0, "I-9 kerb: the kerb vibration as a numbered slot does not count (a sender lacking it pads it)");
+            cv.named[NcxValues::Curbs] = true;
+            for (int i = 0; i < 50; ++i) { haptics::driveLaws(K, cs, cv, dt); K.step(dt); }
+            check(K.kerbWheelLevel(WheelFL) > 0.9 && K.kerbWheelLevel(WheelRR) > 0.9,
+                  "I-9 kerb: car B's own kerb vibration sent by name plays on every wheel (car A's surface source is not B's)");
+            cv.val[NcxValues::Curbs] = 0.0;
+            for (int i = 0; i < 150; ++i) { haptics::driveLaws(K, cs, cv, dt); K.step(dt); }
+            check(anyKerb() == 0.0, "I-9 kerb: ...and lets go");
+        }
 
         // Preview with no sim: the strip at 80 km/h, on 0.6 s in every 1 s.
         {

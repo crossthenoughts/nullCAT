@@ -44,6 +44,7 @@ struct NcxValues : NcxTok
 {
     bool   fresh = false;             // channel stream alive (<500 ms)
     bool   have[TokenCount] = {};     // token bound AND present in the packet
+    bool   named[TokenCount] = {};    // ...sent by name (NULLCATY), not a numbered slot (a slot a sender lacks is padded 0)
     double val[TokenCount]  = {};
     char   game[NCY_STR_LEN] = {};    // NULLCATY identity, empty when unsent
     char   car[NCY_STR_LEN]  = {};
@@ -108,7 +109,7 @@ public:
         // Named (NULLCATY) values are canonical units by contract: no
         // scale/offset, and they win over a slot binding for the same token.
         for (int t = 0; t < NcxTok::TokenCount; ++t)
-            if (td.ncyHave[t]) { v.have[t] = true; v.val[t] = td.ncy[t]; }
+            if (td.ncyHave[t]) { v.have[t] = true; v.named[t] = true; v.val[t] = td.ncy[t]; }
         std::memcpy(v.game, td.game, NCY_STR_LEN);
         std::memcpy(v.car,  td.car,  NCY_STR_LEN);
         std::memcpy(v.carId, td.carId, NCY_STR_LEN);

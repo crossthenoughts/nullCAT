@@ -402,8 +402,8 @@ private slots:
         cfg.hapticsRoad.suspPct = 70.0;  cfg.hapticsRoad.suspHz = 20.0; QVERIFY2(refused("suspHz"), "susp cut 20 Hz is refused");
         cfg.hapticsRoad.suspHz = 6.0;    QVERIFY(cfg.validate().empty());
         cfg.hapticsKerb.pitchCm = 2.0;  QVERIFY2(refused("pitchCm"), "a 2 cm rib pitch is refused");
-        cfg.hapticsKerb.pitchCm = 30.0; cfg.hapticsKerb.detectMm = 150.0; QVERIFY2(refused("detectMm"), "detect mm 150 is refused");
-        cfg.hapticsKerb.detectMm = 15.0; QVERIFY(cfg.validate().empty());
+        cfg.hapticsKerb.pitchCm = 30.0; cfg.hapticsKerb.ribMm = 25.0; QVERIFY2(refused("ribMm"), "a 25 mm rib is refused");
+        cfg.hapticsKerb.ribMm = 3.0; QVERIFY(cfg.validate().empty());
     }
 
     // The Lateral slip tile's way in: onset %, ease, smooth hz, attack ms.

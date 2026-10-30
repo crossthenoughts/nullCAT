@@ -1440,11 +1440,8 @@ function hapDimFor(k,dv,have,curbsNamed){
   }
   if(k==='kerb'){
     const dim={};
-    if(all('surface')){ dim.peakPct='The sim sends the surface under each tyre: the curbs channel is not used'; dim.detectMm=dim.heights='The sim sends the surface under each tyre: no detection needed'; }
-    else if(curbsNamed) dim.detectMm=dim.heights='The game sends its own kerb channel: no detection needed';
-    else if(all('roadHeight')) dim.peakPct='No curbs channel: kerbs come from the road heights (from road heights, detect mm)';
-    if(!dim.detectMm&&!(Math.round(+dv.heights)===1)) dim.detectMm='From road heights is off: no kerbs are looked for in the road heights';
-    if(!(Math.round(+dv.step)===1)) dim.riseMm='Step is off: only the ribs play';
+    if(all('surface')) dim.peakPct='The game sends the surface under each tyre: its kerb vibration is not used';
+    else if(!curbsNamed) dim.peakPct='This game sends no kerb vibration of its own';
     return dim;
   }
   return null;
@@ -3222,9 +3219,8 @@ setInterval(hapUiRefresh,1000);
    per tile (the mixer row, the editor's head and the rail), its trigger
    count, a level bar under its wave, and the session glass's Now row.
    Muted, off, routed nowhere, no game, no input (a channel it needs is not
-   sent), no kerb surface (the Rumble strip in a game that names none, with
-   from road heights off), a low input rate (Rumble strip on road heights
-   slower than its detector needs), playing, or ready; an event that has not
+   sent), not in this game (the Rumble strip where the game says no tyre is
+   on a kerb), playing, or ready; an event that has not
    happened yet this session (since Reset peaks or the loop start) is armed. */
 const HAP_EVENTS=['tc','abs','limiter','kerb','impacts','gearShift','detentClick'];
 const HAP_MTR={}; let hapMtrRaf=0, hapMtrT=0;
@@ -3250,22 +3246,12 @@ function hapTileState(t,s){
   if(t.fx.k==='kerb'){
     const on=nm=>{ const i=NCX_TOKENS.indexOf(nm); return i>=0&&Array.isArray(s.ncxHave)&&!!s.ncxHave[i]; };
     const surf=['FL','FR','RL','RR'].every(w=>on('surface'+w));
-    const heightsOn=Math.round(+t.dv.heights)===1&&+t.dv.detectMm>0;
-    // A game that names no kerb surface and sends no kerb channel of its own
-    // (by name: the numbered line carries the slot as 0 whatever the game
-    // has) has no rumble strip of its own: said, rather than left to look
-    // broken.
-    if(!surf&&!s.curbsNamed){
-      if(!heightsOn) return {st:'nosurface',lamp:'',cls:'dim',text:'no kerb surface'+cnt,short:'no kerb surface',
-        tip:'This game does not say which tyre is on a kerb, so there is no rumble strip to play. From road heights finds the kerb\'s edge in the road heights instead: a thump on and off rather than a rumble.'};
-      via=' · from road heights';
-      viaTip=' This game does not say which tyre is on a kerb: the kerbs come from the road heights, which find the kerb\'s edge (a thump on and off) rather than its ribs\' rumble.';
-    }
-    // the height detector runs beside a kerbs channel (the stronger of the
-    // two), so a slow rate fires at random whatever the channel does
-    const viaHeights=!surf&&heightsOn, hz=+s.hapHeightsHz||0;
-    if(viaHeights&&hz>0&&hz<150) return {st:'lowrate',lamp:'warn',cls:'warn',text:'low rate · heights '+Math.round(hz)+'/s'+cnt,short:'low rate · '+Math.round(hz)+'/s',
-      tip:'Kerbs are found from the road heights, arriving '+Math.round(hz)+' times a second: too few for a rumble strip\'s ribs (about 110 a second at 100 km/h), so it fires at random. With the SimHub plugin, turn kunosDirectHeights on for the game\'s physics rate.'};
+    // A game that names no kerb surface and sends no kerb vibration of its
+    // own (by name: the numbered line carries the slot as 0 whatever the
+    // game has) has no rumble strip here: said, dimmed, rather than left to
+    // look broken.
+    if(!surf&&!s.curbsNamed) return {st:'notgame',lamp:'',cls:'dim',text:'not in this game'+cnt,short:'not in this game',
+      tip:'This game does not say when a tyre is on a kerb, so there is no rumble strip to play. Its kerbs still come through the motion, Road and Impacts.'};
   }
   const playing=t.fx.transient?(ago>=0&&ago<1):((+t.level||0)>0.05);
   if(playing) return {st:'playing',lamp:'ok',cls:'ok',text:'playing'+cnt+via,short:'playing'+cnt,tip:'Playing now.'+viaTip};

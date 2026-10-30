@@ -278,9 +278,7 @@ constexpr FieldRow<RoadParams> kRoadFields[] = {
     { "suspHz", &RoadParams::suspHz }, { "fullLearn", &RoadParams::fullLearn },
 };
 constexpr FieldRow<KerbParams> kKerbFields[] = {
-    { "pitchCm", &KerbParams::pitchCm }, { "riseMm", &KerbParams::riseMm }, { "ribMm", &KerbParams::ribMm },
-    { "fullMm", &KerbParams::fullMm }, { "detectMm", &KerbParams::detectMm },
-    { "step", &KerbParams::step }, { "heights", &KerbParams::heights },
+    { "pitchCm", &KerbParams::pitchCm }, { "ribMm", &KerbParams::ribMm }, { "fullMm", &KerbParams::fullMm },
 };
 constexpr FieldRow<SurfaceParams> kSurfaceFields[] = {
     { "stones", &SurfaceParams::stones }, { "stonesPerM", &SurfaceParams::stonesPerM },

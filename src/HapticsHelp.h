@@ -312,25 +312,10 @@ constexpr ParamHelp kHelp[] = {
     { "kerb", "pitchCm",
       "Rib spacing on the rumble strip, 5 to 100 cm: the hum's pitch is speed divided by this. Set by the "
       "track, not the car: 20 to 30 for most circuit kerbs, 40 to 60 for road rumble strips." },
-    { "kerb", "step",
-      "Plays the step up onto the kerb (rise mm) as well as the ribs. Your motion software mostly carries the "
-      "step already (the car rides up onto the kerb): off leaves the rumble alone. On is how it always played." },
-    { "kerb", "riseMm",
-      "The step up onto the kerb, 0 to 50 mm. 5 to 10 for flat circuit kerbs, 15 to 30 for sausage kerbs." },
     { "kerb", "ribMm", "Rib height, 0 to 20 mm. 2 to 5 for most circuit kerbs." },
     { "kerb", "fullMm",
       "Kerb movement (mm) that counts as 100% on a seat actuator, 0.5 to 50. Road car: 12 to 15 (soft, rides "
       "it out). GT3: 8 to 12. Single-seater: 5 to 8 (stiff, feels every rib)." },
-    { "kerb", "heights",
-      "For a game that does not say which tyre is on a kerb (Assetto Corsa): find kerbs in the road heights "
-      "under the tyres instead (detect mm sets how big a jump counts). What it finds is the kerb's edge, so it "
-      "plays more a thump on and off than a rumble strip's hum; it needs the heights at the game's physics rate "
-      "(the SimHub plugin's kunosDirectHeights) to find ribs at all. Off: no rumble strip in such a game." },
-    { "kerb", "detectMm",
-      "For sims with no surface type (Assetto Corsa): a tyre jumping this many mm against its axle partner "
-      "within a few hundredths of a second, a kerb's edge or its ribs, puts it on a kerb (from half of it, full "
-      "at it), 0 to 100 (0 = off). The road's camber and banking change too slowly to count. 12 to 20 for "
-      "most; lower if kerbs are missed, higher if bumps read as kerbs. Flat painted kerbs have nothing to find." },
 
     // ---- driveline ----
     { "driveline", "clutch",

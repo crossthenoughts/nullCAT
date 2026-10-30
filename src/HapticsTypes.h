@@ -150,18 +150,14 @@ struct RoadParams
     double fullLearn  = 0.0;
 };
 
-// The Kerb tile: a rumble strip under the tyre that is on one. Ribs at
-// pitch spacing play at speed / pitch, the step up onto the kerb at rise,
-// both through the tyre (RoadModel.h KerbModel).
+// The Rumble strip tile: a rumble strip's ribs under the tyre the game says
+// is on one. Ribs at pitch spacing play at speed / pitch, through the tyre
+// (RoadModel.h KerbModel); the car riding up onto the kerb is the motion's.
 struct KerbParams
 {
     double pitchCm  = 25.0;   // rib spacing
-    double riseMm   = 8.0;    // the step up onto the kerb
     double ribMm    = 3.0;    // rib height
     double fullMm   = 10.0;   // kerb movement that counts as 100% on a position axis
-    double detectMm = 0.0;    // no surface type from the sim: a tyre jumping this much against its axle mate (from half of it) is on a kerb (0 = off)
-    double step     = 1.0;    // the step up onto the kerb plays (1) or not (0): the motion carries most of it, the ribs are the point
-    double heights  = 1.0;    // kerbs found in the road heights where the sim names no kerb surface (1), or never (0)
 };
 
 // The ABS and TC tiles' pulse (PulseModel.h). Both: sharp (the drop's
