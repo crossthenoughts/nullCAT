@@ -17,10 +17,10 @@
 //   NULLCATY,game=..,car=..,carId=..,direct=..     (once a second; direct =
 //            on, off, or none: whether the Kunos direct read below runs)
 //
-//   NULLCATY,accSurge=..,accSway=..,accHeave=..    (optional, the Assetto
-//            Corsa family: the accelerations from the game's shared memory
-//            on every physics step, see KunosDirect.cs; the line above then
-//            leaves them out)
+//   NULLCATY,rpm=..,accSurge=..,wheelSpeedFL=..,... (optional, the Assetto
+//            Corsa family: every channel the game's own physics page has,
+//            from its shared memory on every physics step, see
+//            KunosDirect.cs; the line above then leaves those out)
 //
 // And it hears one line back (protocol 1.9), only from nullCAT (the
 // address it sends to, or nullCAT's telemetry port): NULLCATC,direct=on|off,
@@ -103,36 +103,24 @@ namespace NullcatChannelExporter
             public PresetGroup(string g, string p, double s) { Group = g; Prefix = p; Field = null; Scale = s; }
             public PresetGroup(string g, string p, string f, double s) { Group = g; Prefix = p; Field = f; Scale = s; }
         }
-        // Assetto Corsa's combined slip reads about 1 to 2 as the tyre starts to
-        // slide and 10 and up in a spin (SimHub's own slip LEDs map 1..10):
-        // 6 = let go = 100 on the wire, a starting point the rig's peak % trims.
-        private const double AcSlipScale = 100.0 / 6.0;
-        private static readonly PresetGroup[] PresetAC = {
-            // Assetto Corsa: angular speed (rad/s) for lock/spin, load, the
-            // combined slip for lateral, travel (m -> mm).
-            new PresetGroup("wheelSpeed", "DataCorePlugin.GameRawData.Physics.WheelAngularSpeed", 1),
-            new PresetGroup("load",       "DataCorePlugin.GameRawData.Physics.WheelLoad",         1),
-            new PresetGroup("wheelSlip",  "DataCorePlugin.GameRawData.Physics.WheelSlip",         AcSlipScale),
-            new PresetGroup("suspTravel", "DataCorePlugin.GameRawData.Physics.SuspensionTravel",  1000),
-        };
-        private static readonly PresetGroup[] PresetACC = {
-            // Competizione: a real slip ratio per wheel, the rest as AC, but
-            // no load (the game leaves WheelLoad at zero: not sending it shows
-            // "not sent" on the rig instead of a row of zeros).
-            new PresetGroup("slipRatio",  "DataCorePlugin.GameRawData.Physics.slipRatio",         1),
-            new PresetGroup("wheelSpeed", "DataCorePlugin.GameRawData.Physics.WheelAngularSpeed", 1),
-            new PresetGroup("wheelSlip",  "DataCorePlugin.GameRawData.Physics.WheelSlip",         AcSlipScale),
-            new PresetGroup("suspTravel", "DataCorePlugin.GameRawData.Physics.SuspensionTravel",  1000),
-        };
-        private static readonly PresetGroup[] PresetACEvoRally = {
-            // EVO and Rally ride on Competizione's layout until each gets its
-            // own pass (a real slip ratio per wheel, the rest as AC).
-            new PresetGroup("slipRatio",  "DataCorePlugin.GameRawData.Physics.slipRatio",         1),
-            new PresetGroup("wheelSpeed", "DataCorePlugin.GameRawData.Physics.WheelAngularSpeed", 1),
-            new PresetGroup("load",       "DataCorePlugin.GameRawData.Physics.WheelLoad",         1),
-            new PresetGroup("wheelSlip",  "DataCorePlugin.GameRawData.Physics.WheelSlip",         AcSlipScale),
-            new PresetGroup("suspTravel", "DataCorePlugin.GameRawData.Physics.SuspensionTravel",  1000),
-        };
+        // The Assetto Corsa family: SimHub's raw copy of the game's physics
+        // page, so the groups follow what each title's page fills
+        // (KunosTitle in KunosDirect.cs, the one table of them): angular
+        // speed (rad/s) for lock and spin, the load where the page has it
+        // (not Competizione: not sending it shows "not sent" on the rig
+        // instead of a row of zeros), the combined slip for lateral, travel
+        // (m -> mm), and a real slip ratio per wheel where the page has one.
+        private static PresetGroup[] PresetKunos(KunosTitle t)
+        {
+            const string raw = "DataCorePlugin.GameRawData.Physics.";
+            var list = new System.Collections.Generic.List<PresetGroup>();
+            if (t.SlipRatio) list.Add(new PresetGroup("slipRatio", raw + "slipRatio", 1));
+            list.Add(new PresetGroup("wheelSpeed", raw + "WheelAngularSpeed", 1));
+            if (t.Loads) list.Add(new PresetGroup("load", raw + "WheelLoad", 1));
+            list.Add(new PresetGroup("wheelSlip", raw + "WheelSlip", KunosTitle.SlipScale));
+            list.Add(new PresetGroup("suspTravel", raw + "SuspensionTravel", KunosTitle.TravelScale));
+            return list.ToArray();
+        }
         private static readonly PresetGroup[] PresetAMS2 = {
             // Automobilista 2 (shared memory): tyre rev/s for lock/spin,
             // suspension velocity (m/s -> mm/s), slip speed (m/s; 5 m/s -> 100).
@@ -153,18 +141,40 @@ namespace NullcatChannelExporter
         private static PresetGroup[] PresetFor(string gameName)
         {
             var g = Norm(gameName);
-            if (g == "assettocorsa") return PresetAC;
-            if (g == "assettocorsacompetizione") return PresetACC;
-            if (g == "assettocorsaevo" || g == "assettocorsarally") return PresetACEvoRally;
+            var kunos = KunosTitle.For(g);
+            if (kunos != null) return PresetKunos(kunos);
             if (g == "automobilista2") return PresetAMS2;
             if (g == "lmu") return PresetLMU;
             return null;
         }
-        // The Assetto Corsa family: AC and, riding on its shared memory
-        // layout until each has its own pass, Competizione, EVO and Rally.
+        // The Assetto Corsa family: AC, Competizione, EVO and Rally (the
+        // table in KunosDirect.cs).
         private static bool IsAcFamily(string family)
         {
-            return family == "assettocorsa" || family == "assettocorsacompetizione" || family == "assettocorsaevo" || family == "assettocorsarally";
+            return KunosTitle.For(family) != null;
+        }
+        // The direct line's channel for a per-wheel group, null for one it
+        // never carries.
+        private static KunosDirect.Ch? GroupChannel(string group)
+        {
+            switch (group)
+            {
+                case "slipAngle":  return KunosDirect.Ch.SlipAngle;
+                case "slipRatio":  return KunosDirect.Ch.SlipRatio;
+                case "wheelSpeed": return KunosDirect.Ch.WheelSpeed;
+                case "load":       return KunosDirect.Ch.Load;
+                case "wheelSlip":  return KunosDirect.Ch.WheelSlip;
+                case "suspTravel": return KunosDirect.Ch.SuspTravel;
+                default:           return null;
+            }
+        }
+        // A group the settings file binds on all four wheels (it then wins
+        // over the built-in binding and the direct line alike).
+        private bool FileBound(int g)
+        {
+            var f = _fileProps[g];
+            return !string.IsNullOrWhiteSpace(f[0]) && !string.IsNullOrWhiteSpace(f[1])
+                && !string.IsNullOrWhiteSpace(f[2]) && !string.IsNullOrWhiteSpace(f[3]);
         }
         private static string Norm(string s)
         {
@@ -285,11 +295,23 @@ namespace NullcatChannelExporter
             try { pluginManager.AddProperty("Target", GetType(), _targetText); } catch { }
             try { pluginManager.AddProperty("Game", GetType(), ""); } catch { }
 
-            // The Assetto Corsa family's accelerations from the game's shared
-            // memory (KunosDirect.cs): from the settings file, and flipped
-            // while driving by the ToggleKunosDirect action (bind it to a
-            // button under Controls and events) to compare it with SimHub's.
-            _kunos = new KunosDirect(kunosOn, heightsOn, string.IsNullOrWhiteSpace(_curbsProp), Send, msg => { try { SimHub.Logging.Current.Info(msg); } catch { } });
+            // The Assetto Corsa family straight from the game's shared memory
+            // (KunosDirect.cs): from the settings file, and flipped while
+            // driving by the ToggleKunosDirect action (bind it to a button
+            // under Controls and events) to compare it with SimHub's. What
+            // the settings file binds to properties of its own stays the
+            // file's.
+            var bound = new System.Collections.Generic.List<KunosDirect.Ch>();
+            for (var g = 0; g < Groups.Length; g++)
+            {
+                var ch = GroupChannel(Groups[g]);
+                if (ch.HasValue && FileBound(g)) bound.Add(ch.Value);
+            }
+            // A slip angle bound on the front left already stands in for the
+            // game's own (AppendAcContact).
+            if (!string.IsNullOrWhiteSpace(_fileProps[0][0])) bound.Add(KunosDirect.Ch.SlipAngle);
+            if (!string.IsNullOrWhiteSpace(_curbsProp)) bound.Add(KunosDirect.Ch.Kerb);
+            _kunos = new KunosDirect(kunosOn, heightsOn, bound, Send, msg => { try { SimHub.Logging.Current.Info(msg); } catch { } });
             try { pluginManager.AddProperty("KunosDirect", GetType(), _kunos.Status()); } catch { }
             try
             {
@@ -308,9 +330,7 @@ namespace NullcatChannelExporter
             for (var g = 0; g < Groups.Length; g++)
             {
                 var f = _fileProps[g];
-                var fileBound = !string.IsNullOrWhiteSpace(f[0]) && !string.IsNullOrWhiteSpace(f[1])
-                             && !string.IsNullOrWhiteSpace(f[2]) && !string.IsNullOrWhiteSpace(f[3]);
-                if (fileBound)
+                if (FileBound(g))
                 {
                     for (var w = 0; w < 4; w++) _groupProps[g][w] = f[w];
                     _groupScale[g] = _fileScale[g];
@@ -413,19 +433,32 @@ namespace NullcatChannelExporter
             // older receivers.
             double pit = 0;
             try { pit = Convert.ToDouble(d.PitLimiterOn, CultureInfo.InvariantCulture) > 0 ? 1 : 0; } catch { pit = 0; }
-            var y = new StringBuilder(256);
-            y.Append("NULLCATY,rpm=").Append(d.Rpms.ToString("0.#", CultureInfo.InvariantCulture))
-             .Append(",speedKmh=").Append(d.SpeedKmh.ToString("0.##", CultureInfo.InvariantCulture))
-             .Append(",gear=").Append(gear.ToString("0", CultureInfo.InvariantCulture))
-             .Append(",clutchPct=").Append(d.Clutch.ToString("0.#", CultureInfo.InvariantCulture))
-             .Append(",throttlePct=").Append(d.Throttle.ToString("0.#", CultureInfo.InvariantCulture))
-             .Append(",brakePct=").Append(d.Brake.ToString("0.#", CultureInfo.InvariantCulture))
-             .Append(",absActive=").Append(abs.ToString("0", CultureInfo.InvariantCulture))
-             .Append(",limiter=").Append(limiter.ToString("0", CultureInfo.InvariantCulture))
-             .Append(",tcActive=").Append(tc.ToString("0", CultureInfo.InvariantCulture))
-             .Append(",maxRpm=").Append(maxRpm.ToString("0", CultureInfo.InvariantCulture))
-             .Append(",boost=").Append(boost.ToString("0.###", CultureInfo.InvariantCulture))
-             .Append(",pitLimiter=").Append(pit.ToString("0", CultureInfo.InvariantCulture));
+            var family = Norm(data.GameName);
+            var kunos = _kunos;   // End may clear the field meanwhile
+            if (kunos != null)
+            {
+                kunos.SetGame(KunosTitle.For(family), family != _kunosGame);
+                _kunosGame = family;
+                kunos.SetMaxRpm(maxRpm);
+            }
+            // What the fast line carries is left out here (one source per
+            // channel: two would alternate on the rig).
+            bool Fast(KunosDirect.Ch c) { return kunos != null && kunos.Carries(c); }
+            var y = new StringBuilder(512);
+            y.Append("NULLCATY");
+            if (!Fast(KunosDirect.Ch.Rpm))   y.Append(",rpm=").Append(d.Rpms.ToString("0.#", CultureInfo.InvariantCulture));
+            if (!Fast(KunosDirect.Ch.Speed)) y.Append(",speedKmh=").Append(d.SpeedKmh.ToString("0.##", CultureInfo.InvariantCulture));
+            if (!Fast(KunosDirect.Ch.Gear))  y.Append(",gear=").Append(gear.ToString("0", CultureInfo.InvariantCulture));
+            if (!Fast(KunosDirect.Ch.Pedals))
+                y.Append(",clutchPct=").Append(d.Clutch.ToString("0.#", CultureInfo.InvariantCulture))
+                 .Append(",throttlePct=").Append(d.Throttle.ToString("0.#", CultureInfo.InvariantCulture))
+                 .Append(",brakePct=").Append(d.Brake.ToString("0.#", CultureInfo.InvariantCulture));
+            if (!Fast(KunosDirect.Ch.Abs))     y.Append(",absActive=").Append(abs.ToString("0", CultureInfo.InvariantCulture));
+            if (!Fast(KunosDirect.Ch.Limiter)) y.Append(",limiter=").Append(limiter.ToString("0", CultureInfo.InvariantCulture));
+            if (!Fast(KunosDirect.Ch.Tc))      y.Append(",tcActive=").Append(tc.ToString("0", CultureInfo.InvariantCulture));
+            y.Append(",maxRpm=").Append(maxRpm.ToString("0", CultureInfo.InvariantCulture));
+            if (!Fast(KunosDirect.Ch.Boost))      y.Append(",boost=").Append(boost.ToString("0.###", CultureInfo.InvariantCulture));
+            if (!Fast(KunosDirect.Ch.PitLimiter)) y.Append(",pitLimiter=").Append(pit.ToString("0", CultureInfo.InvariantCulture));
             // Protocol 1.9: the pit flag and the lap, for nullCAT's fresh
             // tyres on a return to the pits or a restart. The pit flag from
             // the game's own field where the plugin knows it, from the start:
@@ -435,17 +468,7 @@ namespace NullcatChannelExporter
             // shown it set: a game SimHub cannot read it for would send a
             // steady 0, which reads as "on track" and turns nullCAT's
             // fallback off.
-            var family = Norm(data.GameName);
             if (family != _pitGame) { _pitGame = family; _pitWorks = false; }
-            var kunos = _kunos;   // End may clear the field meanwhile
-            if (kunos != null)
-            {
-                kunos.SetGame(IsAcFamily(family), family != _kunosGame, family != "assettocorsa");
-                _kunosGame = family;
-                double? surge = null, sway = null, heaveAcc = null;
-                try { surge = d.AccelerationSurge; sway = d.AccelerationSway; heaveAcc = d.AccelerationHeave; } catch { }
-                kunos.Observe(surge, sway, heaveAcc, d.SpeedKmh);
-            }
             double inPit = 0;
             try { inPit = Convert.ToDouble(d.IsInPit, CultureInfo.InvariantCulture) > 0 ? 1 : 0; } catch { inPit = 0; }
             var pitKnown = false;
@@ -489,6 +512,8 @@ namespace NullcatChannelExporter
                 var props = _groupProps[g];
                 if (string.IsNullOrWhiteSpace(props[0]) || string.IsNullOrWhiteSpace(props[1]) ||
                     string.IsNullOrWhiteSpace(props[2]) || string.IsNullOrWhiteSpace(props[3])) continue;
+                var gc = GroupChannel(Groups[g]);
+                if (gc.HasValue && Fast(gc.Value)) continue;
                 var vals = new double[4];
                 var ok = true;
                 for (var w = 0; w < 4 && ok; w++) ok = ReadRaw(pluginManager, props[w], out vals[w]);
@@ -497,16 +522,12 @@ namespace NullcatChannelExporter
                     y.Append(',').Append(Groups[g]).Append(Wheels[w]).Append('=')
                      .Append((vals[w] * _groupScale[g]).ToString("0.####", CultureInfo.InvariantCulture));
             }
-            // What the fast line carries is left out here (one source per
-            // channel: two would alternate on the rig).
-            var fastSurge = kunos != null && kunos.Carries(0);
-            var fastSway  = kunos != null && kunos.Carries(1);
-            var fastHeave = kunos != null && kunos.Carries(2);
-            AppendChassis(y, d, !fastHeave);
-            AppendBodyMotion(y, d, !fastSurge, !fastSway);
+            AppendChassis(y, d, !Fast(KunosDirect.Ch.Heave), !Fast(KunosDirect.Ch.Angles));
+            AppendBodyMotion(y, d, !Fast(KunosDirect.Ch.Surge), !Fast(KunosDirect.Ch.Sway),
+                             !Fast(KunosDirect.Ch.YawRate), !Fast(KunosDirect.Ch.PitchRate), !Fast(KunosDirect.Ch.RollRate));
             if (IsAcFamily(family))
             {
-                AppendAcContact(y, d, family, kunos != null && kunos.Carries(3), kunos != null && kunos.Carries(4));
+                AppendAcContact(y, d, family, Fast(KunosDirect.Ch.RoadHeight), Fast(KunosDirect.Ch.Kerb), Fast(KunosDirect.Ch.SlipAngle));
                 if (family == "assettocorsacompetizione") AppendAccWeather(y, pluginManager);
             }
             else if (family == "automobilista2")
@@ -570,13 +591,14 @@ namespace NullcatChannelExporter
         // the accelerations along and across the car (the same unit as
         // accHeave) and the rates the car turns at in yaw, pitch and roll.
         // For nullCAT's belt and haptics; the motion cue stays SimHub's.
-        private static void AppendBodyMotion(StringBuilder y, StatusDataBase d, bool surge, bool sway)
+        // Each flag false while the direct line carries that one.
+        private static void AppendBodyMotion(StringBuilder y, StatusDataBase d, bool surge, bool sway, bool yaw, bool pitch, bool roll)
         {
             if (surge) AppendIfKnown(y, "accSurge",  () => d.AccelerationSurge);
             if (sway)  AppendIfKnown(y, "accSway",   () => d.AccelerationSway);
-            AppendIfKnown(y, "yawRate",   () => d.YawChangeVelocity);
-            AppendIfKnown(y, "pitchRate", () => d.PitchChangeVelocity);
-            AppendIfKnown(y, "rollRate",  () => d.RollChangeVelocity);
+            if (yaw)   AppendIfKnown(y, "yawRate",   () => d.YawChangeVelocity);
+            if (pitch) AppendIfKnown(y, "pitchRate", () => d.PitchChangeVelocity);
+            if (roll)  AppendIfKnown(y, "rollRate",  () => d.RollChangeVelocity);
         }
         private static void AppendIfKnown(StringBuilder y, string token, Func<double?> read)
         {
@@ -586,7 +608,8 @@ namespace NullcatChannelExporter
             y.Append(',').Append(token).Append('=').Append(v.Value.ToString("0.####", CultureInfo.InvariantCulture));
         }
 
-        private static void AppendChassis(StringBuilder y, StatusDataBase d, bool sendHeave)
+        // sendHeave / sendAngles: false while the direct line carries them.
+        private static void AppendChassis(StringBuilder y, StatusDataBase d, bool sendHeave, bool sendAngles)
         {
             double? heave = null;
             try { heave = d.AccelerationHeave; } catch { heave = null; }
@@ -595,8 +618,9 @@ namespace NullcatChannelExporter
             try { pitch = d.OrientationPitch; roll = d.OrientationRoll; } catch { return; }
             if (double.IsNaN(pitch) || double.IsNaN(roll)) return;
             if (sendHeave) y.Append(",accHeave=").Append(heave.Value.ToString("0.###", CultureInfo.InvariantCulture));
-            y.Append(",pitchDeg=").Append(pitch.ToString("0.####", CultureInfo.InvariantCulture))
-             .Append(",rollDeg=").Append(roll.ToString("0.####", CultureInfo.InvariantCulture));
+            if (sendAngles)
+                y.Append(",pitchDeg=").Append(pitch.ToString("0.####", CultureInfo.InvariantCulture))
+                 .Append(",rollDeg=").Append(roll.ToString("0.####", CultureInfo.InvariantCulture));
         }
 
         // Assetto Corsa family: each tyre's contact patch (world position)
@@ -607,23 +631,24 @@ namespace NullcatChannelExporter
         // angle field). Competizione and EVO also give the game's own kerb
         // vibration. Read by reflection, so a SimHub update that renames its
         // reader types disables these channels instead of the plugin.
-        // fastHeights / fastKerb: the direct read's fast line carries them now
-        // (one source per channel: two would alternate on the rig).
-        private void AppendAcContact(StringBuilder y, StatusDataBase d, string game, bool fastHeights, bool fastKerb)
+        // fastHeights / fastKerb / fastSlip: the direct read's fast line
+        // carries them now (one source per channel: two would alternate on
+        // the rig).
+        private void AppendAcContact(StringBuilder y, StatusDataBase d, string game, bool fastHeights, bool fastKerb, bool fastSlip)
         {
             object raw;
             try { raw = d.GetRawDataObject(); } catch { raw = null; }
             var phys = AcPhysics(raw);
             AcDiagnose(game, raw, phys);
             if (phys == null) return;
-            var fileSlip = !string.IsNullOrWhiteSpace(_fileProps[0][0]);
-            if (!AppendAcPatches(y, d, phys, fastHeights, fileSlip))
+            var sendSlip = string.IsNullOrWhiteSpace(_fileProps[0][0]) && !fastSlip;
+            if (!AppendAcPatches(y, d, phys, fastHeights, sendSlip))
             {
                 _hadContact = false;
                 // No contact points from this game: its own slip angles
                 // where its page has them (Competizione, EVO, Rally), in
                 // radians on the page.
-                if (!fileSlip && _acSlipAngle != null && d.SpeedKmh > 5.0)
+                if (sendSlip && _acSlipAngle != null && d.SpeedKmh > 5.0)
                 {
                     Array sa = null;
                     try { sa = _acSlipAngle.GetValue(phys) as Array; } catch { sa = null; }
@@ -660,9 +685,10 @@ namespace NullcatChannelExporter
         }
 
         // The contact patches: road heights (unless the fast line carries
-        // them), wheelbase and track, and a slip angle per wheel from where
-        // each patch moved. False when the game gives no usable patches.
-        private bool AppendAcPatches(StringBuilder y, StatusDataBase d, object phys, bool fastHeights, bool fileSlip)
+        // them), wheelbase and track, and with sendSlip a slip angle per
+        // wheel from where each patch moved. False when the game gives no
+        // usable patches.
+        private bool AppendAcPatches(StringBuilder y, StatusDataBase d, object phys, bool fastHeights, bool sendSlip)
         {
             if (_acContactPoint == null) return false;
             var cp = _acContactPoint.GetValue(phys) as Array;
@@ -687,8 +713,9 @@ namespace NullcatChannelExporter
                 y.Append(",wheelbase=").Append(wb.ToString("0.###", CultureInfo.InvariantCulture))
                  .Append(",trackWidth=").Append(tw.ToString("0.###", CultureInfo.InvariantCulture));
 
-            // Slip angle per wheel, unless the settings file binds its own.
-            if (!fileSlip && ch != null && _hadContact && d.SpeedKmh > 5.0)
+            // Slip angle per wheel, unless the settings file binds its own or
+            // the fast line sends the game's.
+            if (sendSlip && ch != null && _hadContact && d.SpeedKmh > 5.0)
             {
                 var ang = new double[4];
                 var all = true;

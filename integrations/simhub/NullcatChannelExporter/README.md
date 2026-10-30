@@ -112,9 +112,10 @@ by itself.
 
 | Game | Sent per wheel, without setup | Feeds |
 |---|---|---|
-| Assetto Corsa | slip angle, wheel speeds, tyre loads, the combined slip, suspension travel, the road height under each tyre, wheelbase and track | Longitudinal slip, Lateral slip, Road, Rumble strip |
+| Assetto Corsa | slip angle, wheel speeds, tyre loads, the combined slip, suspension travel, the road height under each tyre, wheelbase and track (no kerb vibration: the game has none) | Longitudinal slip, Lateral slip, Road |
 | Assetto Corsa Competizione | slip angle, a real slip ratio, wheel speeds, combined slip, suspension travel, road height, wheelbase and track, the game's kerb vibration, the rain and how wet the track is (no loads: the game leaves them at zero) | Longitudinal slip, Lateral slip, Road, Rumble strip, Surface (puddles only: no surface under each tyre) |
-| Assetto Corsa EVO, Rally | slip angle, a real slip ratio, wheel speeds, loads, combined slip, suspension travel, road height, wheelbase and track, the game's kerb vibration | Longitudinal slip, Lateral slip, Road, Rumble strip |
+| Assetto Corsa EVO | the game's own slip angle, a real slip ratio, wheel speeds, loads, combined slip, suspension travel, the game's kerb vibration (no road height, wheelbase or track: the game gives no contact patches) | Longitudinal slip, Lateral slip, Road, Rumble strip |
+| Assetto Corsa Rally | slip angle, a real slip ratio, wheel speeds, loads, combined slip, suspension travel, road height, wheelbase and track, the game's kerb vibration | Longitudinal slip, Lateral slip, Road, Rumble strip |
 | Le Mans Ultimate | wheel speeds, tyre loads, suspension travel, the tyre's slide over the road (nullCAT turns it into a slip angle), the surface under each tyre, punctures, tyre wear, the rain and how wet the track is | Longitudinal slip, Lateral slip, Road, Rumble strip, Surface, Wheels |
 | Automobilista 2 | wheel speeds, suspension velocities, tyre slip speed (nullCAT turns it into a slip angle), the surface under each tyre (snow and ice included), the rain, which tyres are on the ground and which are punctured | Longitudinal slip, Lateral slip, Road, Rumble strip, Surface, Wheels; a tyre in the air goes quiet |
 
@@ -138,23 +139,52 @@ rolling (nothing below 5 km/h). The combined slip magnitude still goes
 along (scaled so that about 6 on the game's own scale, a clear slide, is
 100) and is what Lateral slip uses for a sim without slip angles.
 
-## Optional: Assetto Corsa accelerations at the physics rate
+## Optional: the Assetto Corsa family straight from the game
 
 The Assetto Corsa family (AC, Competizione, EVO and Rally) runs its
 physics at about 333 steps a second, while SimHub passes its values on
 about 60 times a second. Set `"kunosDirect": "on"` in the settings file
-and the plugin reads the car's accelerations (along, across and up)
-straight from the game's own shared memory on every physics step and
-sends them on a short line of their own, for nullCAT's belt and Impacts.
+and the plugin reads the game's own telemetry on every physics step and
+sends nullCAT everything it has, on a line of its own; the regular line
+then leaves those channels out, and SimHub's values go for the rest.
 
 It reads the same telemetry page SimHub reads, for reading only: nothing
 is written and no other program is touched.
 
-Before it sends anything, the plugin matches the game's values against
-SimHub's while you drive (about 10 s above 20 km/h), so they arrive in
-the same units and directions as SimHub's and nothing on the rig needs
-changing. Until they match, and whenever they stop matching, SimHub's
-values go as before.
+What goes straight from the game, in the same units and directions as
+SimHub's, so nothing on the rig needs changing:
+
+| | Assetto Corsa | Competizione | EVO | Rally |
+|---|---|---|---|---|
+| rpm, speed, gear, pedals, turbo boost, the rev limiter, pitch and roll | yes | yes | yes | yes |
+| ABS and TC active, pit limiter | SimHub's (the game gives them another way) | yes | ABS and pit limiter (TC: SimHub's) | yes |
+| the car's accelerations (along, across, up) and the rates it turns at | once checked | once checked | once checked | once checked |
+| wheel speeds, combined slip, suspension travel | yes | yes | yes | yes |
+| tyre loads | yes | none (the game leaves them at zero) | yes | yes |
+| slip ratios | none in this game | yes | yes | yes |
+| slip angles | worked out from the contact patches at SimHub's rate, as before | once checked | yes | once checked |
+| the game's kerb vibration | none in this game | yes | yes | yes |
+| road heights | with `kunosDirectHeights` | with `kunosDirectHeights` | none (no contact patches) | with `kunosDirectHeights` |
+
+The accelerations, the turn rates and, in Competizione and Rally, the
+slip angles go only once the game's own physics agrees with them, after
+about 10 s of driving above 30 km/h with some corners in it: the
+acceleration along the car against how its speed changes, across it
+against the speed times the rate it turns and the side its weight moves
+to, up against how its vertical speed changes, each turn rate against how
+the car's heading, pitch and roll change, and the slip angles against how
+the tyres' contact patches move. Nothing is compared with SimHub's own
+values: in AC Rally SimHub's accelerations are wrong (its sideways one
+reads about a third of what the car does), so there the belt and Impacts
+get the game's instead. A value that passes goes for the rest of the
+session, until another game starts. One whose direction, unit or axis is
+not what the plugin expects stays SimHub's for the session, and SimHub's
+log says which and why. A value that needs movement to judge waits for
+it (on a straight there is nothing to judge a turn rate by), and SimHub's
+goes meanwhile.
+
+A channel you bind to a property of your own in the settings file (a
+per-wheel group below, or `curbsProp`) stays yours.
 
 nullCAT's **direct telemetry** switch (the Haptics strip's Master tile)
 turns it on or off from the rig: the plugin tells nullCAT once a second
@@ -164,17 +194,21 @@ switch, it wins over the settings file. To compare the two while
 driving, bind the SimHub action **ToggleKunosDirect** to a button under
 **Controls and events** (with the switch set, nullCAT turns it back
 within about two seconds). The property `NullcatChannelExporter.KunosDirect`
-shows what it is doing: off, matching, or live with the rate and the
-match it found. When it is not live it says why: the game is not running
-(its shared memory is not open), the game's page is not moving, or no
-clear match yet. Whenever that changes, SimHub's log says it too.
+shows what it is doing: off, or live with the rate, what goes from the
+game and how each check stands (ok, checking, or SimHub's and why). When
+it is not live it says why: the game is not running (its shared memory is
+not open) or the game's page is not moving (paused). Whenever that
+changes, SimHub's log says it too, and each check's verdict goes in the
+log as it is made.
 
-With `"kunosDirectHeights": "on"` as well, the same short line carries
-the height of the road under each tyre and, in Competizione, EVO and
-Rally, the game's own kerb vibration, also at the physics rate. A rumble
-strip's ribs pass under a tyre about 110 times a second at 100 km/h, too
-fast for SimHub's 60 a second to show, so with this on the Rumble strip tile can
-feel them, and the Road tile gets every bump. Off by default.
+The game's own kerb vibration (Competizione, EVO, Rally) is what nullCAT's
+Rumble strip plays in those games; with `kunosDirect` on it goes at the
+physics rate.
+
+With `"kunosDirectHeights": "on"` as well, the same line carries the
+height of the road under each tyre at the physics rate, so the Road tile
+gets every bump (not EVO, which gives no contact patches). Off by
+default.
 
 ## What the plugin reads in the Assetto Corsa family
 

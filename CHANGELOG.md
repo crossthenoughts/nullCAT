@@ -87,10 +87,19 @@ straight from the game.
   (gravel, snow): at 1.5 times the car's braking limit, never earlier than
   before, so on tarmac nothing changes.
 - SimHub plugin: with `"kunosDirectHeights": "on"` beside `"kunosDirect"`,
-  the road heights under the tyres and, in Competizione, EVO and Rally,
-  the game's own kerb vibration go straight from the game at its physics
-  rate, fast enough for the Kerb tile to feel a rumble strip's ribs.
-  Off by default.
+  the road heights under the tyres go straight from the game at its
+  physics rate, so the Road tile gets every bump. Off by default.
+- SimHub plugin, Assetto Corsa family: `"kunosDirect": "on"` sends
+  everything the game's own telemetry has straight from the game at its
+  physics rate, not only the car's g: the engine, pedals and flags, the
+  car's g and the rates it turns at, and per tyre its speed, load, slip
+  and suspension, and in Competizione, EVO and Rally the game's kerb
+  vibration, which is what the Rumble strip plays there. The g, the turn
+  rates and the slip angles go once the game's own physics agrees with
+  them, no longer matched against SimHub's: in AC Rally SimHub's g are
+  wrong (across the car about a third of what the car does), so the belt
+  and Impacts there get the game's. SimHub's log says what goes from the
+  game and why anything does not.
 - Two rally types of car to start from: **Rally gravel** and **Rally
   tarmac** (first guesses, tuned on AC Rally), between Open wheeler and the
   AMS2 types.
