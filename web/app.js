@@ -2878,7 +2878,10 @@ function hapInit(){
       if(dirtyState().count>0&&!confirm('You have unsaved edits on this page; applying a starting point rewrites the saved slip, road, kerb, wheels and impacts settings and the belt g at max and reloads the page state. Continue?')) return;
       try{
         const j=await post('/api/haptics/presets/apply',{name});
-        hapPresetPick='';   // applied: the box shows the type in force once the car row refreshes
+        // Applied: with a car named the box shows the type in force once the
+        // car row refreshes (and this one meanwhile); with none named the
+        // server keeps no type in force, so the pick stays shown.
+        if(hapCarLast&&hapCarLast.car){ hapPresetPick=''; hapTypeInForce=name; } else hapPresetPick=name;
         if(typeof j.gen==='number') hapCarGenLive=j.gen;   // this page reloads itself: the status need not again
         await loadConfig();
         const m=$('hapPresetMsg'); if(m) m.textContent='applied '+name+' (the engine, gearbox, ABS and TC come from the car table)';   // the rebuilt tile's

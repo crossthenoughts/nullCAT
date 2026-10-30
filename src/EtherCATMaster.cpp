@@ -1944,7 +1944,7 @@ void EtherCATMaster::runOPBridge(ecx_contextt* ctx, int64_t ticksPer2Ms, int64_t
             const double gapUs = before > 0 ? (m_lastFrameNs.load(std::memory_order_relaxed) - before) / 1000.0 : -1.0;
             if (i == 0) report->gapToBridgeUs = gapUs;
             else if (gapUs > report->bridgeMaxGapUs) report->bridgeMaxGapUs = gapUs;
-            if (ex == 0 && wkc != m_expectedWKC) ++report->bridgeShort;
+            if (ex == 0 && wkc >= 0 && wkc != m_expectedWKC) ++report->bridgeShort;   // (a frame with no reply is lost, not short)
         }
         if (ex != 0) break;
         PlatformRT::waitUntil(bNext);
@@ -2565,8 +2565,12 @@ void EtherCATMaster::stopPump()
     // and cleared after startPumpBody() returns, with the report written.
     m_pumpStop.store(true, std::memory_order_release);
     while (m_dispatchBusy.load(std::memory_order_acquire))
-        std::this_thread::yield();
-    if (m_pumpActive.exchange(false))
+        std::this_thread::sleep_for(std::chrono::microseconds(100));   // (the loop is not cycling yet; a yield at FIFO yields to equals only)
+    // Stopped inside its bridge (a Start within 22 ms of a Stop, the seat
+    // pass's re-pump before de-init): no pump ran, but frames went out and
+    // the stretch is still reported (held 0.0 s, gaps to the pump "-").
+    const bool pumped = m_pumpActive.exchange(false), bridged = m_pumpBridged.exchange(false);
+    if (pumped || bridged)
     {
 #else
     // Wait for any in-flight dispatch to finish. m_dispatchBusy is set by
@@ -2696,6 +2700,7 @@ void EtherCATMaster::startPumpBody()
     if (m_pumpStop.load(std::memory_order_acquire)) return;   // stopped before it began (the loop took the bus back)
     PlatformRT::timerBegin();
     runOPBridge(ctx, ticksPer2Ms, minGap, &report);
+    m_pumpBridged.store(true, std::memory_order_release);   // frames went out: stopPump reports the stretch, pump or bridge only
     if (!m_pumpStop.load(std::memory_order_acquire))
     {
         m_pumpActive.store(true);

@@ -484,6 +484,7 @@ private:
     std::atomic<bool> m_pumpActive{ false };
     std::atomic<bool> m_pumpCrashed{ false };
     std::atomic<bool> m_pumpStop{ false };     // Linux: stopPump asked; the bridge or pump on the dispatch thread leaves (cleared by startPump)
+    std::atomic<bool> m_pumpBridged{ false };  // Linux: the bridge ran since the last report (a stop inside it still gets its line)
     bool              m_dispatchRt = false;    // Linux: the dispatch thread set up as the pump (besideRtSetup), once for its life
     PumpReport        m_dispatchRtInfo;        // ...how (elevated, priority, core), for each report
     PumpReport        m_pumpReport;   // the last pump's, see lastPumpReport()

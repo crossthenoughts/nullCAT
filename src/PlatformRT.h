@@ -172,8 +172,10 @@ inline void lockProcessMemory()
     // and locked inside its creation, about 13 ms on the Pi with the kernel's
     // memory lock held, and the threads made at a bus hand-over left the
     // drives without frames that long (2026-10-23, 10-29, 10-30). The RT
-    // threads pre-fault their own stacks (threadSetup, besideRtSetup), so
-    // nothing on the cyclic path faults.
+    // threads pre-fault their own stacks (threadSetup, besideRtSetup); a
+    // page nothing touched before the loop (a log ring's first fill) locks
+    // on its first touch, a minor fault of microseconds, as it did before
+    // when untouched.
 #ifndef MCL_ONFAULT
 #define MCL_ONFAULT 4
 #endif

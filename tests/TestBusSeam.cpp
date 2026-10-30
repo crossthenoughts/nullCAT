@@ -329,7 +329,7 @@ int main()
         check(one && who.size() >= 2 && who[1] != who[0], "S-11 Linux: the bridge and the pump run on one thread, not the loop's, nothing created at the hand-over");
         bus.recordFrameTimes(true);
         master.startPump();
-        check(waitFor([&] { return bus.frameTimes().size() >= 3; }, 3000), "S-11 Linux: a second pump runs");
+        check(waitFor([&] { return master.isPumpActive() && bus.frameTimes().size() >= 12; }, 4000), "S-11 Linux: a second pump runs (past its bridge)");
         master.stopPump();
         const std::vector<size_t> again = bus.frameThreads();
         check(!again.empty() && who.size() >= 2 && again.back() == who[1], "S-11 Linux: ...on the same thread as the first (the dispatch thread lives for the session)");

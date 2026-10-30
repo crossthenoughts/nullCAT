@@ -147,7 +147,7 @@ public:
     // Timing: the next frame's owner held up this long after it; when each
     // frame went out (steady clock, ns) while recording.
     void holdUpAfterNextFrame(int ms) { m_holdUpMs = ms; }
-    void recordFrameTimes(bool on) { std::lock_guard<std::mutex> lk(m_mx); m_recordTimes = on; if (on) m_frameNs.clear(); }
+    void recordFrameTimes(bool on) { std::lock_guard<std::mutex> lk(m_mx); m_recordTimes = on; if (on) { m_frameNs.clear(); m_frameThreads.clear(); } }
     std::vector<int64_t> frameTimes() { std::lock_guard<std::mutex> lk(m_mx); return m_frameNs; }
     std::vector<size_t>  frameThreads() { std::lock_guard<std::mutex> lk(m_mx); return m_frameThreads; }   // who sent each recorded frame (a thread id's hash)
     // Every reply from now on with this working counter (the drives out of
