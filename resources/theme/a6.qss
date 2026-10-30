@@ -14,6 +14,10 @@
    is a thicker darker bottom border (keys travel by swapping top/bottom
    widths), glow is baked into the lamp images, uppercase is QFont
    capitalization (Theme.cpp), the brand slant is a hard-stop gradient.
+   JetBrains Mono is named by face ("JetBrains Mono Medium" / "SemiBold"
+   at normal weight): its TTFs declare weights 436 and 472, so a 500 or
+   600 request picks the wrong face or a simulated bold. Sizes are whole
+   px: Qt rounds a fractional one.
    Widgets select by object name and by the tone / lamp / on / kind /
    invalid properties (Theme.h).
    ============================================================ */
@@ -21,7 +25,7 @@
 /* ---- window + panels ---- */
 QMainWindow, QWidget#central { background: #18202a; }
 QDialog, QMessageBox { background: #36465a; }
-QToolTip { color: #f1f4f7; background: #304056; border: 1px solid #1c2631; padding: 4px 6px; font-size: 12.5px; }
+QToolTip { color: #f1f4f7; background: #304056; border: 1px solid #1c2631; padding: 4px 6px; font-size: 13px; }
 
 /* ---- header: hdr band, brand plate with a slanted edge ---- */
 QFrame#hdr { background: #2b3847; border: 1px solid #1c2631; border-radius: 4px; }
@@ -34,11 +38,11 @@ QLabel#catLogo { background: transparent; }
 /* ---- glass: status window, readouts, log (the web's .glass) ---- */
 QWidget#statWin, QLabel#aggPill, QLabel#axisState, QTextEdit#log {
   background: #140a0d; border: 1px solid #07090c; border-bottom-color: #3a4757; border-radius: 3px; }
-QLabel#statCap { color: #a2525b; background: transparent; font: 600 9.5px "JetBrains Mono"; letter-spacing: 1.3px; }
-QLabel#statVal { background: transparent; font: 600 12px "JetBrains Mono"; letter-spacing: 0.9px; }
-QLabel#aggPill { padding: 5px 10px; font: 600 11.5px "JetBrains Mono"; letter-spacing: 1px; }
-QLabel#axisState { padding: 3px 8px; font: 600 11px "JetBrains Mono"; letter-spacing: 0.9px; }
-QTextEdit#log { color: #c8d2dd; font: 11.5px "JetBrains Mono"; padding: 4px 6px; selection-background-color: #2e5060; selection-color: #f1f4f7; }
+QLabel#statCap { color: #a2525b; background: transparent; font: 10px "JetBrains Mono SemiBold"; letter-spacing: 1.3px; }
+QLabel#statVal { background: transparent; font: 12px "JetBrains Mono SemiBold"; letter-spacing: 0.9px; }
+QLabel#aggPill { padding: 5px 10px; font: 12px "JetBrains Mono SemiBold"; letter-spacing: 1px; }
+QLabel#axisState { padding: 3px 8px; font: 11px "JetBrains Mono SemiBold"; letter-spacing: 0.9px; }
+QTextEdit#log { color: #c8d2dd; font: 12px "JetBrains Mono"; padding: 4px 6px; selection-background-color: #2e5060; selection-color: #f1f4f7; }
 
 /* value tones (.vt ok / warn / bad / dim; neutral display = disp). The id rules
    above carry no colour: an id selector outranks [tone] and would pin it. */
@@ -70,14 +74,18 @@ QLabel#axisState[tone="warn"][blink="off"] { color: #865d18; }
 QLabel#axisState[tone="bad"][blink="off"]  { color: #86271f; }
 
 /* ---- keys (.key): gradient cap, 1px ring, 3px depth; press = travel ---- */
+/* No min-height on the main window's keys: a stylesheet min-height overrides
+   their setMinimumHeight (MainWindow.cpp); dialogs set one below. */
 QPushButton {
   color: #e9edf1; font: 600 12px "Barlow"; letter-spacing: 0.8px;
-  padding: 0 11px; min-height: 26px;
+  padding: 0 11px;
   border: 1px solid #0b0d10; border-top-color: #4a5058; border-bottom: 3px solid #0b0d10; border-radius: 3px;
   background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2a313a, stop:0.88 #171c22, stop:1 #171c22); }
 QPushButton:hover:enabled {
   background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #3c434c, stop:0.88 #1b2127, stop:1 #1b2127); }
-QPushButton:pressed, QPushButton[on="true"] {
+/* a latched key keeps its travel under the mouse: :hover:enabled above
+   outranks [on] alone */
+QPushButton:pressed, QPushButton[on="true"], QPushButton[on="true"]:hover:enabled {
   border-top: 3px solid #0b0d10; border-bottom: 1px solid #0b0d10;
   background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #11151a, stop:0.3 #1d232a, stop:1 #191e24); }
 QPushButton:disabled {
@@ -128,14 +136,14 @@ QGroupBox {
 QGroupBox#advGroup { padding-top: 8px; }   /* untitled (Advanced) */
 QGroupBox::title { subcontrol-origin: padding; subcontrol-position: top left; left: 12px; top: 9px;
   color: #a6b5c6; font: 600 11px "Barlow"; letter-spacing: 1.5px; }
-QDialog QLabel { color: #c8d2dd; font-size: 13.5px; }
-QLabel#validation { color: #ff4a3a; font: 500 11.5px "JetBrains Mono"; }
-QMessageBox QLabel { color: #f1f4f7; font-size: 13.5px; }
+QDialog QLabel { color: #c8d2dd; font-size: 14px; }
+QLabel#validation { color: #ff4a3a; font: 12px "JetBrains Mono Medium"; }
+QMessageBox QLabel { color: #f1f4f7; font-size: 14px; }
 QMessageBox QPushButton { min-width: 64px; min-height: 26px; }
 QDialog QPushButton { min-height: 26px; }
 
 QLineEdit, QAbstractSpinBox, QComboBox {
-  color: #f1f4f7; background: #1f2934; font: 500 12.5px "JetBrains Mono";
+  color: #f1f4f7; background: #1f2934; font: 13px "JetBrains Mono Medium";
   border: 1px solid #10161d; border-bottom-color: #3a4757; border-radius: 3px;
   padding: 0 8px; min-height: 26px;
   selection-background-color: #22b9a0; selection-color: #08201b; }
@@ -164,7 +172,7 @@ QComboBox::down-arrow:disabled { image: url(:/theme/arrow-down-off.png); }
 QComboBox::down-arrow:hover { image: url(:/theme/arrow-down-hi.png); }
 QComboBox QAbstractItemView {
   color: #f1f4f7; background: #304056; border: 1px solid #1c2631; outline: 0; padding: 4px;
-  selection-background-color: #2e5060; selection-color: #f1f4f7; font: 500 12.5px "JetBrains Mono"; }
+  selection-background-color: #2e5060; selection-color: #f1f4f7; font: 13px "JetBrains Mono Medium"; }
 
 QCheckBox { color: #c8d2dd; spacing: 8px; background: transparent; }
 QCheckBox:disabled { color: #6f8297; }

@@ -94,10 +94,12 @@ QPalette a6Palette()
 void apply(QApplication& app)
 {
     // TTF only: Qt's font loader cannot read the web's woff2 files. A face
-    // that fails to load falls back to the system font; nothing breaks.
+    // that fails to load falls back to the system font; nothing breaks, but
+    // it says so.
     const QDir fonts(":/fonts");
     for (const QString& f : fonts.entryList({ "*.ttf" }, QDir::Files))
-        QFontDatabase::addApplicationFont(fonts.filePath(f));
+        if (QFontDatabase::addApplicationFont(fonts.filePath(f)) < 0)
+            qWarning("theme: font %s did not load; the system font stands in", qPrintable(f));
 
     app.setStyle(new A6Style);
 #if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)

@@ -44,8 +44,9 @@ struct AxisIndicator
 };
 
 // State -> colour/blink, defined ONCE as data. Renderers map these into their
-// medium (web: webClass; Qt: hex + pattern; NeoPixel: hex + pattern). A renderer
-// given a state has no colour choice -> the surfaces cannot diverge.
+// medium (web: webClass; Qt: webClass via theme::statusTones + pattern;
+// NeoPixel: hex + pattern). A renderer given a state has no colour choice ->
+// the surfaces cannot diverge.
 struct Style
 {
     const char* name;      // "RUNNING" ...

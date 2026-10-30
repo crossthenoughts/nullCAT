@@ -218,9 +218,10 @@ void MainWindow::buildUI()
     brand->setSpacing(2);
     brand->setContentsMargins(0, 0, 0, 0);
     // .bn b: "null" in the mono at .65, "CAT" in Archivo 900 (rich text, so
-    // the two faces sit in one label exactly as the web wordmark does).
+    // the two faces sit in one label exactly as the web wordmark does). The
+    // mono's Medium is named by face at normal weight, as in a6.qss.
     QLabel* wordmark = new QLabel(
-        "<span style=\"font-family:'JetBrains Mono'; font-weight:500; font-size:15px; color:#c1c9d3;\">null</span>"
+        "<span style=\"font-family:'JetBrains Mono Medium'; font-weight:400; font-size:15px; color:#c1c9d3;\">null</span>"
         "<span style=\"font-family:'Archivo'; font-weight:900; font-size:17px; color:#ffffff;\">CAT</span>");
     wordmark->setObjectName("wordmark");
     wordmark->setTextFormat(Qt::RichText);
@@ -1127,13 +1128,18 @@ void MainWindow::onRefreshTimer()
 
 void MainWindow::onNewLogLine(const QString& line, int level)
 {
-    // The web's .log colours: errors and above red, warnings amber, the rest ink2.
+    // The web's .log colours: errors and above red, warnings amber, the rest
+    // ink2. Critical (and DIAG above it) is red in bold, so it still reads
+    // apart from an error. A synthesized bold: the bundled SemiBold is too
+    // close to Regular at this size to tell the two apart.
     QString color = theme::a6::ink2;
-    if (level >= static_cast<int>(LogLevel::LVL_ERROR))        color = theme::a6::bad;
+    QString weight;
+    if (level >= static_cast<int>(LogLevel::LVL_CRITICAL))     { color = theme::a6::bad; weight = "font-weight:bold;"; }
+    else if (level >= static_cast<int>(LogLevel::LVL_ERROR))   color = theme::a6::bad;
     else if (level >= static_cast<int>(LogLevel::LVL_WARNING)) color = theme::a6::warn;
 
-    m_logView->append(QString("<span style='color:%1;'>%2</span>")
-        .arg(color, line.toHtmlEscaped()));
+    m_logView->append(QString("<span style='color:%1;%2'>%3</span>")
+        .arg(color, weight, line.toHtmlEscaped()));
 
     if (++m_logLineCount > MAX_LOG_LINES)
     {
@@ -1496,10 +1502,10 @@ void MainWindow::updateCatLogo(status::Indicator agg)
 
     if (m_labelAgg)
     {
-        // Aggregate readout - tone by state (ESTOP/FAULT bad, ONLINE ok, else dim).
+        // Aggregate readout - text tone through the shared styleOf() web class,
+        // as the axis rows (ESTOP/FAULT bad, ONLINE ok, OFFLINE dim).
         m_labelAgg->setText(label);
-        theme::setTone(m_labelAgg, (agg == status::Indicator::ESTOP || agg == status::Indicator::FAULT) ? "bad"
-                                 : agg == status::Indicator::RUNNING ? "ok" : "dim");
+        theme::setTone(m_labelAgg, theme::statusTones(status::styleOf(agg).webClass).text);
     }
 
     if (m_catLogo)
