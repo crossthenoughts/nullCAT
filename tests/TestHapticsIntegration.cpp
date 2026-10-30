@@ -3773,9 +3773,9 @@ int main()
 
     // ---- I-26: the belt from g, cornering (accSway) and heave (accHeave) ----
     // Each axis of the car folded by its own choice, sway and heave at their
-    // share, added up and mapped as braking alone is; heave counts as its
-    // change from its own running mean (gravity and a steady hill never
-    // tighten); a channel junk for a frame holds, unsent or gone it adds
+    // share, added up and mapped as braking alone is; heave as sent and held
+    // as long as it lasts (any gravity a sender puts in it, learned standing
+    // still, taken off); a channel junk for a frame holds, unsent or gone it adds
     // nothing while another g the belt takes still lives; every g gone is
     // the standby stages; nothing selected sits at min, ONLINE.
     {
@@ -3784,8 +3784,10 @@ int main()
         // cycle (a live sender never repeats a float exactly) unless its bit
         // in still is set (then it is held exactly, as a sender that stopped).
         int tick = 0;
+        double kmh = 80.0;   // the road speed the frames send (0: standing still)
         auto f3 = [&](double surge, double sway, double heave, unsigned unsent = 0, unsigned still = 0) {
             TelemetryData sd = frame(0.0, true, 65535.0);
+            sd.ncx[static_cast<int>(NcxValues::SpeedKmh)] = kmh;
             const double e = (++tick & 1) ? 1e-4 : 0.0;
             sd.ncyHave[NcxTok::AccSurge] = !(unsent & 1); sd.ncy[NcxTok::AccSurge] = surge + ((still & 1) ? 0.0 : e);
             sd.ncyHave[NcxTok::AccSway]  = !(unsent & 2); sd.ncy[NcxTok::AccSway]  = sway  + ((still & 2) ? 0.0 : e);
@@ -3808,7 +3810,7 @@ int main()
             auto mc = std::make_unique<MotionController>();
             mc->configure(cfg); mc->setEmergencyStop(false);
             tensionBelt(*mc);
-            hold(*mc, 0.0, 0.0, 1.0, 400);               // gravity on heave, the car still
+            hold(*mc, 0.0, 0.0, 0.0, 400);               // settled, no g
             return mc;
         };
         const auto near = [](double a, double b) { return std::fabs(a - b) < 1e-3; };
@@ -3833,17 +3835,19 @@ int main()
             check(near(hold(*mo, 0.6, 1.0, 1.0, 100), 27.5), "I-26 cornering off: the cornering g adds nothing");
         }
         {
-            // Heave: the change from its mean, not the g itself.
+            // Heave as sent (senders leave gravity out: 0 standing still),
+            // held as long as it lasts: a crest pulls lift, a compression
+            // press, and a steady g (a banking, a long compression) keeps
+            // pulling. Breaks with the 2 s washout back.
             auto ml = belt("off", "off", 1.0, "lift", 1.0);
-            check(near(hold(*ml, 0.0, 0.0, 1.0, 1500), 5.0), "I-26 heave: gravity alone (1 g, 3 s) never tightens it");
-            const double lift = hold(*ml, 0.0, 0.0, 0.4, 1);
-            check(std::fabs(lift - 27.5) < 0.1, "I-26 heave lift: 0.6 g below the mean (a crest) is half way up");
-            const double settled = hold(*ml, 0.0, 0.0, 0.4, 10000);
-            check(near(settled, 5.0), "I-26 heave: a steady new g (a hill, a banking) fades back to min");
+            check(near(hold(*ml, 0.0, 0.0, 0.0, 1500), 5.0), "I-26 heave: no vertical g, min");
+            check(std::fabs(hold(*ml, 0.0, 0.0, -0.6, 1) - 27.5) < 0.1, "I-26 heave lift: 0.6 g light (a crest) is half way up");
             auto mp = belt("off", "off", 1.0, "press", 1.0);
-            check(near(hold(*mp, 0.0, 0.0, 0.4, 1), 5.0), "I-26 heave press: a crest leaves it at min");
+            check(near(hold(*mp, 0.0, 0.0, -0.6, 1), 5.0), "I-26 heave press: a crest leaves it at min");
+            const double bank = hold(*mp, 0.0, 0.0, 0.6, 10000);
+            check(std::fabs(bank - 27.5) < 0.1, "I-26 heave press: a steady 0.6 g (a banking) still pulls half way after 20 s (no washout)");
             auto mp2 = belt("off", "off", 1.0, "press", 2.0);
-            check(std::fabs(hold(*mp2, 0.0, 0.0, 1.3, 1) - 27.5) < 0.1, "I-26 heave press at a share of 2: 0.3 g into a compression = 0.6 g");
+            check(std::fabs(hold(*mp2, 0.0, 0.0, 0.3, 1) - 27.5) < 0.1, "I-26 heave press at a share of 2: 0.3 g into a compression = 0.6 g");
         }
         {
             // One g the belt takes, unsent: the others still drive it.
@@ -3868,33 +3872,31 @@ int main()
             check(near(hold(*mc, 0.6, 0.4, 1.0, 400, 0, 2), 27.5), "I-26 cornering frozen over 0.5 s: no cornering g");
         }
         {
-            // Parked in the pits: heave exactly 1 g (gravity, as a sender
-            // that rounds it), the stream gone 0.3 s (a pause), then
-            // driving off at about 1 g: the belt stays at min (it was
-            // seeded at 0 g after the gap, a 1 g press).
+            // A sender that puts gravity in heave: parked at 1 g (held
+            // exactly, as a sender that rounds it) for 2 s, its 1 g is
+            // learned and kept through a pause: driving off at about 1 g
+            // leaves the belt at min, and a crest (0.4 g as sent) pulls as
+            // 0.6 g. Breaks with the gravity guard gone.
             auto mc = belt("off", "off", 1.0, "both", 1.0);
-            hold(*mc, 0.0, 0.0, 1.0, 1000, 0, 7);
-            TelemetryData gap = f3(0.0, 0.0, G, 0, 7); gap.ncxFresh = false;
+            kmh = 0.0;
+            hold(*mc, 0.0, 0.0, 1.0, 1000, 0, 4);
+            TelemetryData gap = f3(0.0, 0.0, G, 0, 4); gap.ncxFresh = false;
             run(*mc, gap, 150, 1);
+            kmh = 80.0;   // (a jump from standing: the teleport's hold-off first, 1 s)
+            hold(*mc, 0.0, 0.0, 1.0, 600);
             double hi = 0.0;
-            for (int c = 0; c < 100; ++c) hi = std::max(hi, hold(*mc, 0.0, 0.0, 1.0, 1, 0, 7));
             for (int c = 0; c < 300; ++c) hi = std::max(hi, hold(*mc, 0.0, 0.0, 1.0 + 0.01 * std::sin(c * 0.1), 1));
-            check(hi < 5.0 + 0.5, "I-26 parked with gravity, a pause, then driving off: no pull from gravity");
-        }
-        {
-            // A pause on the crest of a bump: heave's steady part is kept
-            // through it, so back at 1 g after the bump the belt is at min,
-            // not pulled for seconds by a mean started on the crest.
-            auto mc = belt("off", "off", 1.0, "both", 1.0);
-            hold(*mc, 0.0, 0.0, 1.0, 1000);
-            hold(*mc, 0.0, 0.0, 1.5, 3);
-            TelemetryData gap = f3(0.0, 0.0, 1.5 * G); gap.ncxFresh = false;
-            run(*mc, gap, 150, 1);
-            hold(*mc, 0.0, 0.0, 1.5, 1);
-            hold(*mc, 0.0, 0.0, 1.0, 50);
-            double hi = 0.0;
-            for (int c = 0; c < 150; ++c) hi = std::max(hi, hold(*mc, 0.0, 0.0, 1.0, 1));
-            check(hi < 5.0 + 0.5, "I-26 a pause on a bump's crest: heave's steady part kept, back at min after it");
+            check(hi < 5.0 + 0.5, "I-26 gravity in heave: learned standing still, kept through a pause, no pull driving at 1 g");
+            check(std::fabs(hold(*mc, 0.0, 0.0, 0.4, 1) - 27.5) < 0.1, "I-26 gravity in heave: ...a crest (0.4 g as sent) pulls as 0.6 g");
+            // A car dropped on a reset (standing, falling at -1 g for 0.3 s)
+            // is no gravity: never steady for a second. Breaks with the
+            // level taken from a moment.
+            auto md = belt("off", "off", 1.0, "both", 1.0);
+            kmh = 0.0;
+            hold(*md, 0.0, 0.0, 0.0, 1000);
+            hold(*md, 0.0, 0.0, -1.0, 150);
+            kmh = 80.0;   // (past the teleport's hold-off)
+            check(near(hold(*md, 0.0, 0.0, 0.0, 600), 5.0), "I-26 a car dropped on a reset (-1 g for 0.3 s standing) teaches no gravity");
         }
         {
             // The smoothing works on cornering as on braking: 30 ms after a
@@ -3935,16 +3937,21 @@ int main()
                   "I-26 nothing selected: min, still ONLINE after 6 s");
         }
         {
-            // Tension-up starts the heave mean afresh: slacked at 1 g,
-            // tensioned again on a steady 1.5 g, the belt stays at min.
+            // The gravity a sender puts in heave is the sender's, not the
+            // session's: learned standing still, the belt slacked and
+            // tensioned again while driving at 1 g, it stays at min.
+            // Breaks with tension-up forgetting it.
             auto mc = belt("off", "off", 1.0, "both", 1.0);
+            kmh = 0.0;
             hold(*mc, 0.0, 0.0, 1.0, 1000);
+            kmh = 80.0;
+            hold(*mc, 0.0, 0.0, 1.0, 600);   // (past the teleport's hold-off)
             { MotionCommand c; c.type = MotionCommand::Type::SlackBelts; mc->enqueueCommand(c); }
             hold(*mc, 0.0, 0.0, 1.0, 200);
             tensionBelt(*mc);
             double hi = 0.0;
-            for (int c = 0; c < 100; ++c) hi = std::max(hi, hold(*mc, 0.0, 0.0, 1.5, 1));
-            check(hi <= 5.0 + 1e-3, "I-26 tension-up starts the heave mean afresh (no pull from the g before the slack)");
+            for (int c = 0; c < 100; ++c) hi = std::max(hi, hold(*mc, 0.0, 0.0, 1.0, 1));
+            check(hi <= 5.0 + 1e-3, "I-26 tension-up keeps the gravity a sender puts in heave (no pull driving at 1 g)");
         }
     }
 

@@ -65,6 +65,11 @@ straight from the game.
   GT3, 2.5 for an open wheeler), shown under the type on the Haptics
   panel and saved like the tiles, with the loop running. 0 leaves each belt
   on its own g at max.
+- A belt's **Heave** from g now holds as long as the g does: a banking or a
+  long compression keeps pulling (with press). It used to play only the
+  change over the last 2 s, meant to keep gravity out, but no sender puts
+  gravity in it, so all that took out was the banking and long
+  compressions. A sender that does put gravity in it is still read right.
 - A belt on the car's g steadies after a crash: **g after a crash** (default
   50 %). When a crash leaves the car standing with its g still rough a
   second later (a wrecked BeamNG car's physics send noise, which the belt

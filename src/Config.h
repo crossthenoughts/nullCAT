@@ -246,9 +246,9 @@ struct DriveConfig
     //              gives it), "accel" accelerating, "both", "off"
     //   beltGSway  sway:  "left", "right" (corners one way or the other),
     //              "both", "off" (the default)
-    //   beltGHeave heave, its change from its own running mean (gravity
-    //              and the hills off): "lift" (over a crest), "press"
-    //              (into a compression), "both", "off" (the default)
+    //   beltGHeave heave, as sent and held (any gravity in it taken off):
+    //              "lift" (over a crest), "press" (into a compression,
+    //              a banking), "both", "off" (the default)
     // Each g is folded by its choice; sway and heave count at
     // beltGSwayMix and beltGHeaveMix against surge's 1, and the sum is the
     // g that tightens the belt. Tension leaves torqueMinPct

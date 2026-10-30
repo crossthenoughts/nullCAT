@@ -1208,7 +1208,7 @@ void MotionController::tensionBelts()
             rt.beltDwellSec     = 0.0;
             rt.beltRelaxed      = false;
             rt.beltLastTripWhy  = 0;            // card guard flag clears on tension-up
-            for (auto& c : rt.beltGCh) c.live = c.meanLive = false;   // the g filters start afresh (not from the last session's braking)
+            for (auto& c : rt.beltGCh) c.live = false;   // the g filters start afresh (not from the last session's braking)
             rt.resetBeltTeleport();   // ...and the teleport test (a speed from the last session is no jump)
             rt.resetBeltCrash();      // ...and the crash watch (a crash from the last session holds nothing)
             RT_LOG_INFO("MotionController: Axis %d (belt) tensioning -- blending in.", i + 1);
@@ -1370,7 +1370,7 @@ void MotionController::applyPendingBeltG()
         const int was[3] = { ac.beltGMode, ac.beltGSway, ac.beltGHeave };
         const int now[3] = { s[i].mode, s[i].sway, s[i].heave };
         for (int k = 0; k < 3; ++k)
-            if (was[k] == 0 && now[k] != 0) { m_runtime[i].beltGCh[k].live = false; m_runtime[i].beltGCh[k].meanLive = false; }
+            if (was[k] == 0 && now[k] != 0) m_runtime[i].beltGCh[k].live = false;
         const bool same = ac.beltGMode == s[i].mode && ac.beltGSway == s[i].sway && ac.beltGHeave == s[i].heave
                        && ac.beltGSwayMix == s[i].swayMix && ac.beltGHeaveMix == s[i].heaveMix && ac.beltGFromG == s[i].fromG
                        && ac.beltGFullG == s[i].fullG && ac.beltGCurve == s[i].curve && ac.beltGSmoothMs == s[i].smoothMs
@@ -1814,9 +1814,19 @@ static constexpr double kBeltGReseedSec = 0.1;
 // minimum, ONLINE; never the stale stages, which would park a belt slack
 // while the car sits in the pits).
 static constexpr double kBeltGFrozenSec = 0.5;
-// Heave is felt as its change from the steady part (gravity, a long
-// banking, a hill), taken as its mean over about this long.
-static constexpr double kBeltGHeaveMeanSec = 2.0;
+// Heave is the vertical g as sent, held as long as it lasts (a banking, a
+// long compression; in the air the load factor): every sender so far
+// leaves gravity out (it reads 0 standing still; it was measured against
+// its own 2 s mean, which took nothing but those off). One that puts
+// gravity in reads about +-1 g standing still: that is taken off as a
+// constant, learned once the car has stood (under kBeltGParkedKmh) steady
+// (within kBeltGParkedSteadyG) for kBeltGParkedSec (a car dropped on a
+// reset is neither), its level within kBeltGGravityTolG of 0 or +-1 g, and
+// kept while it drives.
+static constexpr double kBeltGParkedKmh     = 1.0;
+static constexpr double kBeltGParkedSteadyG = 0.05;
+static constexpr double kBeltGParkedSec     = 1.0;
+static constexpr double kBeltGGravityTolG   = 0.3;
 // A teleport (the sim puts the car somewhere else: a reset, a restart, a
 // recovery to the road) brings a g far past any car's that then decays
 // for about half a second (the sender's g is the slope of a velocity that
@@ -2073,7 +2083,7 @@ bool MotionController::beltDemand(int i, const TelemetryData& td, double& tensio
     if (rt.beltTeleportSec > 0.0)
     {
         rt.beltTeleportSec -= dt;
-        for (AxisRuntime::BeltGChan& c : rt.beltGCh) { c.live = false; c.meanLive = false; c.badSec = 0.0; }   // afresh after it
+        for (AxisRuntime::BeltGChan& c : rt.beltGCh) { c.live = false; c.badSec = 0.0; }   // afresh after it
         if (!anyPresent) return false;   // the stream gone as well: the standby, as ever
         tension = beltGTension(i, 0.0);
         return true;
@@ -2086,37 +2096,42 @@ bool MotionController::beltDemand(int i, const TelemetryData& td, double& tensio
         AxisRuntime::BeltGChan& c = rt.beltGCh[k];
         if (!usable[k])
         {
-            // Held as it was for a junk frame, dropped after a real gap;
-            // heave's mean kept through a pause, dropped after a long one.
+            // Held as it was for a junk frame, dropped after a real gap.
             c.badSec += dt;
-            if (c.badSec > kBeltGReseedSec)    c.live = false;
-            if (c.badSec > kBeltGHeaveMeanSec) c.meanLive = false;
+            if (c.badSec > kBeltGReseedSec) c.live = false;
         }
         else
         {
             c.badSec = 0.0;
             const double raw = v.val[kTok[k]];
             const double rawG = raw / 9.80665;
-            double g = rawG;
-            // Unchanged too long: no g, through the smoothing (no step
-            // either way): surge and sway 0, heave its steady part (the
-            // value itself while there is none yet, so a parked car's
-            // gravity never reads as a g).
-            if (raw != c.lastRaw) { c.lastRaw = raw; c.sameSec = 0.0; }
-            else if ((c.sameSec += dt) > kBeltGFrozenSec)
-                g = (k != 2) ? 0.0 : c.meanLive ? c.mean : rawG;
-            if (!c.live) c.f = g;
-            else         c.f += (g - c.f) * smoothA;
+            // Heave: any gravity in it, from its level standing still and
+            // steady (kBeltGParked*), taken off.
             if (k == 2)
             {
-                if (!c.meanLive)  c.mean = g;
-                else if (c.live)  c.mean += (g - c.mean) * (dt / (kBeltGHeaveMeanSec + dt));
-                c.meanLive = true;
+                const bool standing = v.have[NcxValues::SpeedKmh] && std::isfinite(v.val[NcxValues::SpeedKmh])
+                                   && std::fabs(v.val[NcxValues::SpeedKmh]) < kBeltGParkedKmh;
+                if (!standing) c.parkSec = 0.0;
+                else if (c.parkSec > 0.0 && std::fabs(rawG - c.parkG) <= kBeltGParkedSteadyG) c.parkSec += dt;
+                else { c.parkG = rawG; c.parkSec = dt; }
+                if (c.parkSec >= kBeltGParkedSec)
+                {
+                    if (std::fabs(c.parkG) <= kBeltGGravityTolG)              c.grav = 0.0;
+                    else if (std::fabs(c.parkG - 1.0) <= kBeltGGravityTolG)  c.grav = 1.0;
+                    else if (std::fabs(c.parkG + 1.0) <= kBeltGGravityTolG)  c.grav = -1.0;
+                }
             }
+            double g = rawG - ((k == 2) ? c.grav : 0.0);
+            // Unchanged too long: no g, through the smoothing (no step
+            // either way).
+            if (raw != c.lastRaw) { c.lastRaw = raw; c.sameSec = 0.0; }
+            else if ((c.sameSec += dt) > kBeltGFrozenSec) g = 0.0;
+            if (!c.live) c.f = g;
+            else         c.f += (g - c.f) * smoothA;
             c.live = true;
         }
         if (!c.live) continue;
-        const double s = (k == 2) ? c.f - c.mean : c.f;
+        const double s = c.f;
         const double folded = (mode[k] == 1) ? std::max(0.0, s)
                             : (mode[k] == 2) ? std::max(0.0, -s)
                             : std::fabs(s);
@@ -3008,7 +3023,7 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
                 rt.beltDwellSec     = 0.0;
                 rt.beltRelaxed      = false;
                 rt.beltLastTripWhy  = 0;
-                for (auto& c : rt.beltGCh) c.live = c.meanLive = false;
+                for (auto& c : rt.beltGCh) c.live = false;
                 rt.resetBeltTeleport();
                 rt.resetBeltCrash();
 

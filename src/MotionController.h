@@ -574,10 +574,13 @@ private:
         struct BeltGChan
         {
             double f       = 0.0;   // the g, low-passed
-            double mean    = 0.0;   // heave: its running mean (gravity and the hills, taken off)
             bool   live    = false; // seeded by a live sample (afresh after a gap or tension-up)
-            bool   meanLive = false;// heave's mean seeded (kept through a short gap, afresh after a long one or tension-up)
             double badSec  = 0.0;   // how long it has been unusable (a gap past kBeltGReseedSec re-seeds)
+            // Heave: any gravity in the sender's value (0, or +-1 g), taken
+            // off; learned from its level standing still and steady (the
+            // level, and how long it has held), kept while the car drives.
+            double grav    = 0.0;
+            double parkG   = 0.0, parkSec = 0.0;
             double lastRaw = 0.0;   // the last value sent, and how long it has stayed exactly so
             double sameSec = 0.0;
         };
