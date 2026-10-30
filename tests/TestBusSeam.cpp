@@ -31,7 +31,14 @@
 //       holds the bus (the drives out of OP), and frames with no reply,
 //       each in its report;
 //   S-10 the schedule rule itself: late by less than a period less the
-//       least gap keeps it, later drops whole periods on the same grid.
+//       least gap keeps it, later drops whole periods on the same grid;
+//   S-11 the bus never falls quiet across a hand-over to the pump: the
+//       gaps from the loop's last frame to the bridge, inside it, to the
+//       pump and inside it are all on the pump's report and short; on
+//       Linux the bridge and the pump run on one thread for the bus
+//       session (the dispatch thread), nothing created at the hand-over
+//       (a new thread's stack took 13 ms to lock on the Pi, the drives'
+//       sync loss).
 // Windows are generous (a slow emulated arm64 CI runner): a waitFor ends
 // as soon as its condition holds.
 #include "FakeBus.h"
@@ -293,6 +300,47 @@ int main()
         check(afterHoldUp(bus.frameTimes()) >= 500000,
               "S-8 ...and drops the frames it missed: its next one is not straight after");
         bus.recordFrameTimes(false);
+    }
+
+    // ---- S-11 no quiet bus at a hand-over, nothing born there ----
+    {
+        check(master.attachTestBus(&bus).ok, "S-11 (setup) OP");
+        bus.recordFrameTimes(true);
+        master.sendReceive();   // the loop's last frame
+        master.startPump();
+        check(waitFor([&] { return bus.frameTimes().size() >= 14; }, 4000), "S-11 the bridge (10 frames) and the pump run");
+        master.stopPump();
+        const EtherCATMaster::PumpReport r = master.lastPumpReport();
+        std::printf("  S-11 gaps (ms): to the bridge %.2f, in it %.2f, to the pump %.2f, in it %.2f; bridge short %d\n",
+                    r.gapToBridgeUs / 1000.0, r.bridgeMaxGapUs / 1000.0, r.gapToPumpUs / 1000.0, r.pumpMaxGapUs / 1000.0, r.bridgeShort);
+        // About 2 ms each (the bridge starts a period on); 15 ms is the
+        // Pi's fault and a slow runner's worst, so the bound sits between.
+        check(r.gapToBridgeUs >= 0.0 && r.gapToBridgeUs < 15000.0 && r.bridgeMaxGapUs >= 0.0 && r.bridgeMaxGapUs < 15000.0,
+              "S-11 the bridge follows the loop's last frame and keeps its cadence (every gap under 15 ms)");
+        check(r.gapToPumpUs >= 0.0 && r.gapToPumpUs < 15000.0 && r.pumpMaxGapUs >= 0.0 && r.pumpMaxGapUs < 15000.0,
+              "S-11 the pump follows the bridge and keeps its cadence (every gap under 15 ms)");
+        check(r.bridgeShort == 0, "S-11 the bridge's replies in full, on record");
+        const std::vector<size_t> who = bus.frameThreads();
+#ifndef _WIN32
+        // Linux: one thread for the bridge and the pump, and the same one
+        // next time: the dispatch thread, for the bus session.
+        bool one = who.size() >= 14;
+        for (size_t i = 2; i < who.size() && one; ++i) one = (who[i] == who[1]);
+        check(one && who.size() >= 2 && who[1] != who[0], "S-11 Linux: the bridge and the pump run on one thread, not the loop's, nothing created at the hand-over");
+        bus.recordFrameTimes(true);
+        master.startPump();
+        check(waitFor([&] { return bus.frameTimes().size() >= 3; }, 3000), "S-11 Linux: a second pump runs");
+        master.stopPump();
+        const std::vector<size_t> again = bus.frameThreads();
+        check(!again.empty() && who.size() >= 2 && again.back() == who[1], "S-11 Linux: ...on the same thread as the first (the dispatch thread lives for the session)");
+#else
+        // Windows: the bridge on the dispatch thread, the pump on its own
+        // (the Npcap warm-up), as before.
+        check(who.size() >= 14 && who[1] != who[0] && who.back() != who[1], "S-11 Windows: the bridge and the pump on their own threads, as before");
+#endif
+        bus.recordFrameTimes(false);
+        master.shutdown();
+        check(master.attachTestBus(&bus).ok, "S-11 (teardown) OP again for the sections that follow");
     }
 
     // ---- S-9 the drives leaving OP while the pump holds them are on record ----

@@ -617,10 +617,16 @@ static int safeSendReceive(ecx_contextt* ctx, uint32_t* exceptionCode)
 
 // The cyclic frame (the pump, the OP bridge, sendReceive): SOEM's send and
 // receive, or a test's fake bus when one is attached. Bus owner only.
+int64_t EtherCATMaster::monoNs()
+{
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
 int EtherCATMaster::busExchange(ecx_contextt* ctx, uint32_t* exception)
 {
-    if (m_testBus) { *exception = 0; return m_testBus->exchange(exception); }
-    return safeSendReceive(ctx, exception);
+    const int wkc = m_testBus ? (*exception = 0, m_testBus->exchange(exception)) : safeSendReceive(ctx, exception);
+    m_lastFrameNs.store(monoNs(), std::memory_order_relaxed);
+    return wkc;
 }
 
 int64_t EtherCATMaster::busDcTimeNs(ecx_contextt* ctx) const
@@ -1908,7 +1914,7 @@ void EtherCATMaster::logOPFailureDiagnostics(ecx_contextt* ctx)
     checkSlaveStates();
 }
 
-void EtherCATMaster::runOPBridge(ecx_contextt* ctx, int64_t ticksPer2Ms, int64_t minGapCounts)
+void EtherCATMaster::runOPBridge(ecx_contextt* ctx, int64_t ticksPer2Ms, int64_t minGapCounts, PumpReport* report)
 {
     // Warm-up bridge - run 10 frames on the calling thread before creating
     // the pump thread. Windows/Npcap per-thread send-path state
@@ -1927,10 +1933,19 @@ void EtherCATMaster::runOPBridge(ecx_contextt* ctx, int64_t ticksPer2Ms, int64_t
     PlatformRT::waitUntil(bNext);
     for (int i = 0; i < 10; ++i)
     {
+        if (m_pumpStop.load(std::memory_order_acquire)) break;   // (Linux) the loop is taking the bus back
         PlatformRT::advancePeriod(bNext, ticksPer2Ms);
         serviceStopRequest();   // the bridge owns the bus for its frames (a fault reset waits for the loop)
+        const int64_t before = m_lastFrameNs.load(std::memory_order_relaxed);
         uint32_t ex = 0;
-        busExchange(ctx, &ex);
+        const int wkc = busExchange(ctx, &ex);
+        if (report)
+        {
+            const double gapUs = before > 0 ? (m_lastFrameNs.load(std::memory_order_relaxed) - before) / 1000.0 : -1.0;
+            if (i == 0) report->gapToBridgeUs = gapUs;
+            else if (gapUs > report->bridgeMaxGapUs) report->bridgeMaxGapUs = gapUs;
+            if (ex == 0 && wkc != m_expectedWKC) ++report->bridgeShort;
+        }
         if (ex != 0) break;
         PlatformRT::waitUntil(bNext);
         PlatformRT::skipMissedPeriods(bNext, PlatformRT::now(), ticksPer2Ms, minGapCounts);
@@ -2400,6 +2415,7 @@ InitResult EtherCATMaster::verifyOperationalWKC(ecx_contextt* ctx)
         PlatformRT::advancePeriod(next, ticksPer1Ms);
         uint32_t ex = 0;
         int wkc = safeSendReceive(ctx, &ex);
+        m_lastFrameNs.store(monoNs(), std::memory_order_relaxed);   // the last frames before the pump's bridge (its gap to them is reported)
         PlatformRT::waitUntil(next);
         ++total;
 
@@ -2541,6 +2557,18 @@ InitResult EtherCATMaster::enterOperationalBody()
 
 void EtherCATMaster::stopPump()
 {
+#ifndef _WIN32
+    // Linux: the pump runs on the dispatch thread. Tell it to leave (the
+    // bridge or the pump ends within a period; a request not yet picked up
+    // is dropped by startPumpBody), then wait for that dispatch to be done:
+    // m_dispatchBusy is set by startPump() inside the lock (before notify)
+    // and cleared after startPumpBody() returns, with the report written.
+    m_pumpStop.store(true, std::memory_order_release);
+    while (m_dispatchBusy.load(std::memory_order_acquire))
+        std::this_thread::yield();
+    if (m_pumpActive.exchange(false))
+    {
+#else
     // Wait for any in-flight dispatch to finish. m_dispatchBusy is set by
     // startPump() inside the lock (before notify) and cleared by T4 after
     // startPumpBody() returns. Without this wait, stopPump() can return with
@@ -2554,6 +2582,7 @@ void EtherCATMaster::stopPump()
         m_pumpActive.store(false);
         if (m_pumpThread.joinable())
             m_pumpThread.join();
+#endif
         // One line for the whole stretch (the only line: this runs at the
         // hand-over, just before the loop's first frame).
         const PumpReport& r = m_pumpReport;
@@ -2572,10 +2601,16 @@ void EtherCATMaster::stopPump()
             seen += strf("; %d frame(s) with no reply, the first %.2f s in", r.lostFrames, r.lostFromSec);
         if (r.crashed)
             seen += "; ended by a transport crash";
-        const bool bad = r.shortReplies > 0 || r.lostFrames > 0 || r.crashed;
-        const std::string line = strf("EtherCATMaster: Background pump stopped (held %.1f s%s; latest wake %.2f ms late; %s%s).",
+        // The hand-over, frame to frame: the drives allow a gap of a few
+        // SYNC0 periods (C13.02), so these say whether the bus fell quiet.
+        const auto ms = [](double us) { return us < 0.0 ? std::string("-") : strf("%.1f", us / 1000.0); };
+        const std::string gaps = strf("; gaps to the bridge %s ms, in it up to %s, to the pump %s, in it up to %s%s",
+                                      ms(r.gapToBridgeUs).c_str(), ms(r.bridgeMaxGapUs).c_str(), ms(r.gapToPumpUs).c_str(), ms(r.pumpMaxGapUs).c_str(),
+                                      r.bridgeShort > 0 ? strf(" (%d bridge replies short of WKC %d)", r.bridgeShort, m_expectedWKC).c_str() : "");
+        const bool bad = r.shortReplies > 0 || r.lostFrames > 0 || r.crashed || r.bridgeShort > 0;
+        const std::string line = strf("EtherCATMaster: Background pump stopped (held %.1f s%s; latest wake %.2f ms late; %s%s%s).",
                                       r.heldSec, how.c_str(), r.latestWakeUs / 1000.0, seen.c_str(),
-                                      bad ? "" : "; every reply in full");
+                                      bad ? "" : "; every reply in full", gaps.c_str());
         if (bad) LOG_WARNING(line);
         else     LOG_INFO(line);
     }
@@ -2586,6 +2621,7 @@ void EtherCATMaster::stopPump()
 // calls startPumpBody() so the bridge and pump thread never run on a dying RT thread.
 void EtherCATMaster::startPumpDispatchThread()
 {
+    m_dispatchRt = false;   // (Linux) a new thread: set up as the pump on its first request
     m_pumpDispatchThread = std::thread([this]() {
         std::unique_lock<std::mutex> lk(m_pumpDispatchMu);
         for (;;)
@@ -2634,21 +2670,51 @@ void EtherCATMaster::startPumpBody()
     const int64_t minGap = std::min(PlatformRT::periodCounts(pumpCycNs / 1000.0), ticksPer2Ms / 2);
     const int     rtCore = m_rtCore;
 
+    PumpReport report;
+#ifndef _WIN32
+    // Linux: the pump runs HERE, on this persistent dispatch thread, set up
+    // once as the pump (real-time beside the loop's core: besideRtSetup).
+    // Nothing is created at a hand-over: the pump thread made here each
+    // time had its stack filled and locked inside its creation (mlockall),
+    // about 13 ms with no frame on the bus, and the drives left OP with a
+    // sync loss, whenever no spare stack was to hand (the first Initialize
+    // of a process, a Stop with a recording running: 2026-10-23, 10-29
+    // twice, 10-30 twice). No file I/O between its frames: the logger's
+    // ring has one producer (the loop), so this thread's LOG_* would be
+    // synchronous writes; the stop line reports the whole stretch instead.
+    if (!m_dispatchRt)
+    {
+        const PlatformRT::BesideRt b = PlatformRT::besideRtSetup(rtCore);
+        m_dispatchRtInfo.elevated = b.elevated;
+        m_dispatchRtInfo.priority = b.priority;
+        m_dispatchRtInfo.core     = b.core;
+        m_dispatchRt = true;
+    }
+    report.elevated = m_dispatchRtInfo.elevated;
+    report.priority = m_dispatchRtInfo.priority;
+    report.core     = m_dispatchRtInfo.core;
+    if (m_pumpStop.load(std::memory_order_acquire)) return;   // stopped before it began (the loop took the bus back)
+    PlatformRT::timerBegin();
+    runOPBridge(ctx, ticksPer2Ms, minGap, &report);
+    if (!m_pumpStop.load(std::memory_order_acquire))
+    {
+        m_pumpActive.store(true);
+        m_pumpCrashed.store(false);
+        pumpRun(ctx, ticksPer2Ms, pumpCycNs, minGap, report);
+    }
+    PlatformRT::timerEnd();
+    m_pumpReport = report;   // read by stopPump once this dispatch is done (m_dispatchBusy)
+#else
     // 10-frame bridge on the dispatch thread before launching the pump thread.
     // The dispatch thread has sent frames before (at init or prior restart), so
     // Npcap's per-thread send-path state is already warm - no AV on first pump frame.
     PlatformRT::timerBegin();
-    runOPBridge(ctx, ticksPer2Ms, minGap);
+    runOPBridge(ctx, ticksPer2Ms, minGap, &report);
 
     m_pumpActive.store(true);
     m_pumpCrashed.store(false);
-    m_pumpThread = std::thread([this, ctx, ticksPer2Ms, pumpCycNs, minGap, rtCore]() {
-        // Its priority and CPU (PlatformRT::besideRtSetup). At ordinary
-        // priority on the Pi's housekeeping cores the pump waited behind
-        // other work, caught up in bursts and the drives left OP with a
-        // sync error, each time at the hand-over to the loop (2026-10-23,
-        // 2026-10-29 twice).
-        PumpReport report;
+    m_pumpThread = std::thread([this, ctx, ticksPer2Ms, pumpCycNs, minGap, rtCore, report]() mutable {
+        // Its priority (PlatformRT::besideRtSetup: TIME_CRITICAL on Windows).
         {
             const PlatformRT::BesideRt b = PlatformRT::besideRtSetup(rtCore);
             report.elevated = b.elevated;
@@ -2656,7 +2722,21 @@ void EtherCATMaster::startPumpBody()
             report.core     = b.core;
         }
         PlatformRT::timerBegin();
+        pumpRun(ctx, ticksPer2Ms, pumpCycNs, minGap, report);
+        PlatformRT::timerEnd();
+        m_pumpReport = report;   // read after the join (stopPump)
+    });
 
+    PlatformRT::timerEnd();
+    LOG_INFO("EtherCATMaster: Background pump started.");
+#endif
+}
+
+// The pump's loop: a frame every 2 ms (DC-locked when enabled) until
+// stopPump, every gap between frames on record.
+void EtherCATMaster::pumpRun(ecx_contextt* ctx, int64_t ticksPer2Ms, int64_t pumpCycNs, int64_t minGap, PumpReport& report)
+{
+    {
         // DC phase-lock for the pump cadence (default OFF -> when
         // disabled the period below is the unchanged 2 ms nominal, byte-identical
         // to the free-running pump). The pump holds OP for
@@ -2680,14 +2760,21 @@ void EtherCATMaster::startPumpBody()
 
         const PlatformRT::Timestamp pStart = PlatformRT::now();
         PlatformRT::Timestamp pNext = pStart;
-        while (m_pumpActive.load())
+        bool first = true;
+        while (m_pumpActive.load() && !m_pumpStop.load(std::memory_order_acquire))
         {
             int64_t periodCounts = ticksPer2Ms;
             if (dcLock.enabled()) periodCounts = dcLock.update(pumpPhase);
             PlatformRT::advancePeriod(pNext, periodCounts);
             serviceStopRequest();   // the pump owns the bus while the loop is stopped (a fault reset waits for the loop)
+            const int64_t before = m_lastFrameNs.load(std::memory_order_relaxed);
             uint32_t ex = 0;
             const int wkc = busExchange(ctx, &ex);
+            {
+                const double gapUs = before > 0 ? (m_lastFrameNs.load(std::memory_order_relaxed) - before) / 1000.0 : -1.0;
+                if (first) { report.gapToPumpUs = gapUs; first = false; }
+                else if (gapUs > report.pumpMaxGapUs) report.pumpMaxGapUs = gapUs;
+            }
             if (ex != 0)
             {
                 LOG_ERROR(strf("EtherCATMaster: Pump thread crash (0x%08x) -- EtherCAT transport down.", ex));
@@ -2725,13 +2812,8 @@ void EtherCATMaster::startPumpBody()
                 report.droppedFrames += dropped;
             }
         }
-        PlatformRT::timerEnd();
         report.heldSec = PlatformRT::elapsedMicros(PlatformRT::now(), pStart) / 1e6;
-        m_pumpReport = report;   // read after the join (stopPump)
-    });
-
-    PlatformRT::timerEnd();
-    LOG_INFO("EtherCATMaster: Background pump started.");
+    }
 }
 
 void EtherCATMaster::startPump()
@@ -2743,6 +2825,7 @@ void EtherCATMaster::startPump()
         // Check stop flag under lock before setting m_dispatchBusy to avoid
         // a shutdown deadlock where T4 exits without clearing m_dispatchBusy.
         if (m_pumpDispatchStop) return;
+        m_pumpStop.store(false, std::memory_order_release);   // (Linux) a stop asked before this request does not end it
         m_pumpDispatchReq = true;
         m_dispatchBusy.store(true, std::memory_order_release);  // set before notify
     }

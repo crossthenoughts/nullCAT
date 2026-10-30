@@ -254,6 +254,18 @@ public:
         bool   elevated        = false; // PlatformRT::besideRtSetup
         int    priority        = 0;
         int    core            = -1;
+        // The hand-over, frame to frame (us): from the last frame before the
+        // bridge to its first, the longest inside the bridge, from its last
+        // to the pump's first, the longest inside the pump (-1 = no frame);
+        // and the bridge's replies short of the expected working counter.
+        // The drives count frames: a gap over a few SYNC0 periods is a sync
+        // loss (the Pi's, 2026-10-23 to 30: 13 ms, a thread's stack filled
+        // under mlockall at the hand-over).
+        double gapToBridgeUs   = -1.0;
+        double bridgeMaxGapUs  = -1.0;
+        double gapToPumpUs     = -1.0;
+        double pumpMaxGapUs    = -1.0;
+        int    bridgeShort     = 0;
     };
     PumpReport lastPumpReport() const { return m_pumpReport; }
 
@@ -368,7 +380,9 @@ private:
     // Pump dispatcher - bridge + pump thread always run on a
     // persistent thread regardless of which thread calls startPump().
     void startPumpDispatchThread();  // start (or restart after shutdown) the dispatch thread
-    void startPumpBody();            // bridge + m_pumpThread launch; called only by dispatch thread
+    void startPumpBody();            // bridge + pump: on Linux both on the dispatch thread itself; on Windows the pump on m_pumpThread; called only by dispatch thread
+    void pumpRun(ecx_contextt* ctx, int64_t ticksPer2Ms, int64_t pumpCycNs, int64_t minGapCounts, PumpReport& report);   // the pump's loop, until stopPump
+    static int64_t monoNs();         // a monotonic clock (ns), for the frame gaps
 
     // Init stage methods.
     // discoverAndPrepareSlaves + stagePreOpSettle + stagePDOConfig + stageDCArm live in tryInitOnceBody().
@@ -383,7 +397,7 @@ private:
     InitResult verifyOperationalWKC(ecx_contextt* ctx);                        // 50-cycle WKC validation after OP confirmed
     void runCapabilityScan(ecx_contextt* ctx);                                 // optional diagnostic SDO reads
     void logOPFailureDiagnostics(ecx_contextt* ctx);                           // per-slave ALState/ALCode/dcAct on OP failure
-    void runOPBridge(ecx_contextt* ctx, int64_t ticksPer2Ms, int64_t minGapCounts);   // 10-frame Npcap thread warm-up before pump thread
+    void runOPBridge(ecx_contextt* ctx, int64_t ticksPer2Ms, int64_t minGapCounts, PumpReport* report = nullptr);   // 10-frame Npcap thread warm-up before pump thread
     InitResult pingMailbox(ecx_contextt* ctx);                                 // step 3: mailbox alive check (5 retries × 100ms)
 
     // Initialize SOEM cyclic mailbox queue and register CoE slaves.
@@ -466,10 +480,14 @@ private:
     std::vector<std::unique_ptr<A6Drive>> m_drives;
     std::vector<DriveConfig>              m_driveConfigs;
 
-    std::thread m_pumpThread;
+    std::thread m_pumpThread;         // Windows: the pump's thread (Linux: the pump runs on the dispatch thread)
     std::atomic<bool> m_pumpActive{ false };
     std::atomic<bool> m_pumpCrashed{ false };
-    PumpReport        m_pumpReport;   // the pump thread's, see lastPumpReport()
+    std::atomic<bool> m_pumpStop{ false };     // Linux: stopPump asked; the bridge or pump on the dispatch thread leaves (cleared by startPump)
+    bool              m_dispatchRt = false;    // Linux: the dispatch thread set up as the pump (besideRtSetup), once for its life
+    PumpReport        m_dispatchRtInfo;        // ...how (elevated, priority, core), for each report
+    PumpReport        m_pumpReport;   // the last pump's, see lastPumpReport()
+    std::atomic<int64_t> m_lastFrameNs{ 0 };   // when the last frame went out, whoever owned the bus (monoNs), for the hand-over gaps
 
     std::thread              m_pumpDispatchThread;
     std::mutex               m_pumpDispatchMu;

@@ -209,12 +209,18 @@ straight from the game.
 
 ### Fixed
 - The header's units keep their case: "µs" read as "MS".
-- Pi: the drives could drop out of sync as the control loop took over the
-  bus, leaving the rig unseated at Stop EtherCAT, or faulting every drive
-  just after an Initialize. The frames that hold the drives while the loop
-  is stopped now run at real-time priority beside the loop's core, a late
-  one no longer brings the missed ones straight after it, and no two come
-  close together at the hand-overs. The log says how each stretch went.
+- Pi: the drives could drop out of sync at a hand-over of the bus, faulting
+  every drive just after an Initialize or leaving the rig unseated at Stop
+  EtherCAT. The frames that hold the drives while the loop is stopped came
+  from a thread created afresh at each hand-over, and with the process's
+  memory locked its stack took about 13 ms to set up, the bus silent
+  meanwhile, longer than the drives allow (most often at the first
+  Initialize after a start, or a Stop with a recording running). Those
+  frames now come from one thread for the whole session, created before
+  the drives reach OP and running at real-time priority beside the loop's
+  core; memory is locked as it is touched, so a new thread costs nothing
+  at creation; and the log reports the longest gap between frames at every
+  hand-over, so a quiet bus can be seen.
 - BeamNG.drive: the limiter plays when the engine is on its limiter. The
   mod read it from the rpm against the redline, but each cut drops the rpm
   well below it (200 rpm on a rally car), so it rarely showed; it now takes

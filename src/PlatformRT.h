@@ -167,8 +167,20 @@ inline void lockProcessMemory()
 #ifndef _WIN32
     static std::atomic<bool> s_done{ false };
     if (rtDisabled() || s_done.exchange(true)) return;
-    if (mlockall(MCL_CURRENT | MCL_FUTURE) == 0)
-        LOG_INFO("PlatformRT: mlockall(MCL_CURRENT|MCL_FUTURE) -- process memory locked.");
+    // Locked as it is touched (MCL_ONFAULT, Linux 4.4), not filled at
+    // creation: under MCL_FUTURE alone a new thread's 8 MB stack was filled
+    // and locked inside its creation, about 13 ms on the Pi with the kernel's
+    // memory lock held, and the threads made at a bus hand-over left the
+    // drives without frames that long (2026-10-23, 10-29, 10-30). The RT
+    // threads pre-fault their own stacks (threadSetup, besideRtSetup), so
+    // nothing on the cyclic path faults.
+#ifndef MCL_ONFAULT
+#define MCL_ONFAULT 4
+#endif
+    if (mlockall(MCL_CURRENT | MCL_FUTURE | MCL_ONFAULT) == 0)
+        LOG_INFO("PlatformRT: mlockall(MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) -- process memory locked as it is touched.");
+    else if (mlockall(MCL_CURRENT | MCL_FUTURE) == 0)
+        LOG_WARNING("PlatformRT: mlockall(MCL_CURRENT|MCL_FUTURE) -- process memory locked; no MCL_ONFAULT on this kernel, so a new thread's stack is filled at creation (slow).");
     else
         LOG_WARNING("PlatformRT: mlockall failed (memlock rlimit?) -- RT memory is swappable.");
 #endif
@@ -178,7 +190,8 @@ inline void lockProcessMemory()
 // besideRtSetup()
 // A thread that keeps time for the bus while the control loop is
 // stopped (the background pump, holding the drives in OP). Call on
-// the thread itself, before its first frame.
+// the thread itself, before its first frame. On Linux that is the
+// master's persistent dispatch thread, set up once for its life.
 // Linux: pinned to the CPU just below the loop's (rtCore from
 // resolveRtCore) at SCHED_FIFO 80, below the loop's 90. With the
 // loop on its usual core 3 that is core 2, the other core the Pi
@@ -218,6 +231,14 @@ inline BesideRt besideRtSetup(int rtCore)
     sp.sched_priority = (r.core >= 0) ? 80 : 40;
     r.priority = sp.sched_priority;
     r.elevated = pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) == 0;
+    // Its stack resident before the first frame (memory is locked as it is
+    // touched: lockProcessMemory), as the loop's is.
+    {
+        constexpr int kPrefaultBytes = 64 * 1024;
+        volatile char stackBuf[kPrefaultBytes];
+        for (int i = 0; i < kPrefaultBytes; i += 4096)
+            stackBuf[i] = 0;
+    }
 #endif
     return r;
 }

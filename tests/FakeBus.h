@@ -92,7 +92,7 @@ public:
             for (Slave& s : m_s) step(s);
             ++m_frames;
             m_dcNs = nowNs;
-            if (m_recordTimes) m_frameNs.push_back(nowNs);
+            if (m_recordTimes) { m_frameNs.push_back(nowNs); m_frameThreads.push_back(std::hash<std::thread::id>{}(std::this_thread::get_id())); }
             stall = m_holdUpMs.exchange(0);   // taken with the frame recorded (the test arms it after recording)
         }
         // The owner thread held up right after this frame (behind other
@@ -149,6 +149,7 @@ public:
     void holdUpAfterNextFrame(int ms) { m_holdUpMs = ms; }
     void recordFrameTimes(bool on) { std::lock_guard<std::mutex> lk(m_mx); m_recordTimes = on; if (on) m_frameNs.clear(); }
     std::vector<int64_t> frameTimes() { std::lock_guard<std::mutex> lk(m_mx); return m_frameNs; }
+    std::vector<size_t>  frameThreads() { std::lock_guard<std::mutex> lk(m_mx); return m_frameThreads; }   // who sent each recorded frame (a thread id's hash)
     // Every reply from now on with this working counter (the drives out of
     // OP answer 1 per slave, a lost frame -1); kFullReplies = the expected.
     static constexpr int kFullReplies = -1000;
@@ -280,4 +281,5 @@ private:
     std::atomic<int>     m_replyWkc{kFullReplies};
     bool                 m_recordTimes = false;
     std::vector<int64_t> m_frameNs;
+    std::vector<size_t>  m_frameThreads;   // ...and who sent each (std::hash of the thread id)
 };
