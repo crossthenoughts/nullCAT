@@ -168,20 +168,23 @@ SimHub's, so nothing on the rig needs changing:
 
 The accelerations, the turn rates and, in Competizione and Rally, the
 slip angles go only once the game's own physics agrees with them, after
-about 10 s of driving above 30 km/h with some corners in it: the
-acceleration along the car against how its speed changes, across it
-against the speed times the rate it turns and the side its weight moves
-to, up against how its vertical speed changes, each turn rate against how
-the car's heading, pitch and roll change, and the slip angles against how
-the tyres' contact patches move. Nothing is compared with SimHub's own
-values: in AC Rally SimHub's accelerations are wrong (its sideways one
-reads about a third of what the car does), so there the belt and Impacts
-get the game's instead. A value that passes goes for the rest of the
-session, until another game starts. One whose direction, unit or axis is
-not what the plugin expects stays SimHub's for the session, and SimHub's
-log says which and why. A value that needs movement to judge waits for
-it (on a straight there is nothing to judge a turn rate by), and SimHub's
-goes meanwhile.
+about 10 s of driving above 30 km/h with some corners in it (a replay
+does not count): the acceleration along the car against how its speed
+changes, across it against what the turn and the car's sideways slide
+make of it and the side its weight moves to, up against how its vertical
+speed changes, each turn rate against how the car's heading, pitch and
+roll change, and the slip angles against how the tyres' contact patches
+move. Nothing is compared with SimHub's own values: in AC Rally SimHub's
+accelerations are wrong (SimHub's leaves the turn out: in a steady corner
+it reads almost nothing), so there the belt and Impacts get the game's
+instead. A verdict holds until SimHub restarts or switches to another
+game, through restarts of the game itself. A value that passes goes from
+the game. One whose direction, unit or axis is not what the plugin
+expects, over about ten seconds of driving, stays SimHub's, and SimHub's
+log says which and why; a turn rate that runs the other way to what the
+plugin expects goes the game's own way instead. A value that needs
+movement to judge waits for it (on a straight there is nothing to judge a
+turn rate by), and SimHub's goes meanwhile.
 
 A channel you bind to a property of your own in the settings file (a
 per-wheel group below, or `curbsProp`) stays yours.

@@ -9,8 +9,8 @@
 // flipping it while driving.
 //
 // Read only: the physics page the game publishes for telemetry tools (the
-// one SimHub itself reads), opened for reading; nothing is written and no
-// process is touched.
+// one SimHub itself reads), and the game's status from its graphics page,
+// opened for reading; nothing is written and no process is touched.
 //
 // What goes: every channel the title's physics page has (KunosTitle below:
 // where each value sits, as SimHub's own readers read the page, and how
@@ -27,17 +27,22 @@
 // field SimHub passes on as it is (the accelerations, the turn rates and,
 // where the page also has contact patches, its slip angles) go only once
 // they pass a check against the page's own physics over about half a
-// minute of driving: the acceleration along the car against the change of
-// its speed, across it against the speed times the yaw rate and the side
-// the tyre loads move to, up against the change of the vertical speed,
-// each turn rate against the change of the page's own heading, pitch and
-// roll, the slip angles against the contact patches' own travel. A check
-// decided holds for the game session: passed, the page's value goes;
-// failed (its sign, unit or axis not what the table says), SimHub's goes
-// and SimHub's log says why. Nothing is matched to SimHub's own values: in
-// AC Rally they are wrong (SimHub works its accelerations out of the change
-// of the car's local velocity, which leaves the turn out: its sway read
-// about a third of the speed times the yaw rate).
+// minute of live driving (never a replay: its time runs at another speed,
+// or backwards): the acceleration along the car against the change of its
+// speed, across it against the speed times the yaw rate plus the change of
+// its sideways speed and against the side the load moves to, up against the
+// change of the vertical speed, each turn rate against the change of the
+// page's own heading, pitch and roll, and the slip angles against the
+// contact patches' own travel. A verdict holds until SimHub restarts or
+// SimHub's game changes, through restarts of the game itself: passed, the
+// page's value goes; failed (its direction, unit or axis is not what the
+// table says, for ten decisions in a row), SimHub's goes and SimHub's log
+// says why. A turn rate whose direction is the other way to the table's
+// takes the page's own way instead (they are SimHub's own definitions).
+// Nothing is matched to SimHub's own values: in AC Rally they are wrong
+// (SimHub works its accelerations out of the change of the car's local
+// velocity, which leaves the turn out: in a steady corner its sway reads
+// almost nothing).
 //
 // With "kunosDirectHeights": "on" as well, the same line carries the height
 // of the road under each tyre (the page's contact points), for the Road
@@ -84,7 +89,8 @@ namespace NullcatChannelExporter
         // The page's local angular velocity (rad/s; x pitch, y yaw, z roll)
         // to the turn rates as SimHub gives them (deg/s: yaw the change of
         // the heading, a right turn positive; pitch minus the change of the
-        // pitch; roll the change of SimHub's roll). Assumed, checked.
+        // pitch; roll the change of SimHub's roll). Assumed: the check
+        // settles each sign against those changes.
         public double YawSign, PitchSign, RollSign;
 
         // The page, in bytes (verified for every title: SimHub's struct
@@ -96,6 +102,10 @@ namespace NullcatChannelExporter
                          Clutch = 364, TyreContactPoint = 420, TyreContactHeading = 516, LocalVelocity = 568,
                          SlipRatioField = 640, SlipAngleField = 656, KerbVibration = 784;
         public const int PageAc = 580, PageExt = 800;
+        // The graphics page (Local\acpmf_graphics): the game's status right
+        // after its packet counter, 2 = live (0 off, 1 replay, 3 paused);
+        // verified, every title.
+        public const int GraphicsStatus = 4, StatusLive = 2;
 
         // Scales the wire wants, one place for the direct line and the
         // plugin's built-in bindings alike. The combined slip reads about 1
@@ -140,7 +150,7 @@ namespace NullcatChannelExporter
                              Loads = true, Contacts = true, SlipRatio = true, SlipAngle = true, CheckSlipAngle = true,
                              Kerb = true, KerbNanIsZero = true,
                              Abs = true, Tc = true, PitLimiter = true, RollDeg = -1, RpmCap = 10000,
-                             YawSign = -1, PitchSign = 1, RollSign = 1 },
+                             YawSign = -1, PitchSign = 1, RollSign = -1 },
         };
 
         // The title for SimHub's game name (letters and digits, lower case),
@@ -164,7 +174,7 @@ namespace NullcatChannelExporter
             Count
         }
 
-        private const string MapName = "Local\\acpmf_physics";
+        private const string MapName = "Local\\acpmf_physics", GraphicsName = "Local\\acpmf_graphics";
         // No new physics step for this long: the game paused or stopped, and
         // the main line takes every channel back.
         private const long StillMs = 100;
@@ -172,23 +182,27 @@ namespace NullcatChannelExporter
         private const long MainQuietMs = 150;
         private const double Deg = 180.0 / Math.PI;
 
-        // The checks: blocks of about 50 ms of physics steps above 30 km/h,
-        // in an exponential window of about half a minute of driving;
-        // decided after 10 s of it with enough movement to judge by; given
-        // up after two minutes of movement that never follows.
+        // The checks: blocks of about 50 ms of live physics steps above
+        // 30 km/h, in an exponential window of about half a minute of
+        // driving; decided once a second of driving from 10 s on, with
+        // enough movement to judge by; a failing verdict latched only when
+        // it holds for ten decisions in a row; given up after two minutes of
+        // movement that never follows.
         private const double BlockSec = 0.05, BlockMaxSec = 0.2;
         private const double CheckKmh = 30.0;
         private const double FitWindowSec = 30.0, CheckMinSec = 10.0, CheckGiveUpSec = 120.0;
-        private const double SwayLoadsMin = 0.4;   // the side the load moves to, for sway's sign
+        private const int FailDecisions = 10;
+        private const double SideMin = 0.4;   // the side the load moves to, for sway's direction
 
         private readonly Action<string> _send;
         private readonly Action<string> _log;
         private readonly bool[] _excluded = new bool[(int)Ch.Count];   // bound to a property of its own in the settings file
         private readonly object _mapLock = new object();
-        private MemoryMappedFile _mmf;
-        private MemoryMappedViewAccessor _view;
+        private MemoryMappedFile _mmf, _gfx;
+        private MemoryMappedViewAccessor _view, _gfxView;
+        private KunosTitle _viewTitle;   // the title the view was sized for
         private int _viewBytes;
-        private DateTime _nextOpenTry = DateTime.MinValue;
+        private DateTime _nextOpenTry = DateTime.MinValue, _nextGfxTry = DateTime.MinValue;
 
         private volatile bool _enabled;
         private readonly bool _heights;    // the road heights ride the fast line too
@@ -196,12 +210,13 @@ namespace NullcatChannelExporter
         private volatile bool _openTried, _openOk;
         private volatile bool _live;       // the fast line is sending now
         private volatile bool _run = true;
-        private volatile bool _resetPending = true;   // the reader starts the session's checks over
+        private volatile bool _resetPending = true;   // the reader starts the checks over
+        private volatile int _gameStatus = -1;        // the graphics page's status, -1 not open
         private double _maxRpm;            // SimHub's, for the limiter (written by the main tick)
         private readonly long[] _sentMs = new long[(int)Ch.Count];
         private int _sentThisSecond, _rate;
         private string _lastLogged = "";
-        private double _lastLogSec = -100;
+        private double _lastLogSec = -100, _lastErrorSec = -100;
         private readonly Stopwatch _clock = Stopwatch.StartNew();
         private long _mainMs = long.MinValue / 2;   // when the main line last went
         private readonly Thread _thread;
@@ -302,8 +317,16 @@ namespace NullcatChannelExporter
             if (checks.Length > 0)
             {
                 sb.Append("; checked:");
+                var open = false;
                 for (var i = 0; i < checks.Length; i++)
+                {
                     sb.Append(i > 0 ? ", " : " ").Append(checks[i].Token).Append(' ').Append(checks[i].Short());
+                    open |= checks[i].State == 0;
+                }
+                var st = _gameStatus;
+                if (open && st != KunosTitle.StatusLive)
+                    sb.Append(st < 0 ? "; the checks wait for the game's status (" + GraphicsName + " is not open)"
+                                     : "; the checks wait: the game is not live (a replay?)");
             }
             return sb.ToString();
         }
@@ -413,27 +436,74 @@ namespace NullcatChannelExporter
             }
         }
 
-        // One consistent copy of the page: the packet counter the same before
-        // and after. False when the page is not open or cannot be read.
-        private bool ReadPage(KunosTitle t, byte[] buf, out int n)
+        // One consistent copy of the page for the running game (the packet
+        // counter the same before and after), in one copy of the mapped
+        // bytes, and the game's status. False when the page is not open or
+        // cannot be read; readFor: the title the view was sized for.
+        private bool ReadPage(byte[] buf, out int n, out KunosTitle readFor)
         {
-            n = 0;
+            n = 0; readFor = null;
             lock (_mapLock)
             {
+                var t = _title;
+                if (t == null) return false;
+                if (_view != null && _viewTitle != t) CloseLocked();   // another game since it opened
                 if (_view == null && (!_enabled || !Open(t))) return false;
                 try
                 {
                     n = Math.Min(_viewBytes, buf.Length);
-                    for (var attempt = 0; attempt < 3; attempt++)
+                    var ok = false;
+                    for (var attempt = 0; attempt < 3 && !ok; attempt++)
                     {
                         var p1 = _view.ReadInt32(KunosTitle.PacketId);
-                        _view.ReadArray(0, buf, 0, n);
-                        if (_view.ReadInt32(KunosTitle.PacketId) == p1) return true;
+                        CopyView(_view, buf, n);
+                        ok = _view.ReadInt32(KunosTitle.PacketId) == p1;
                     }
-                    return false;
+                    if (!ok) return false;
+                    readFor = t;
+                    ReadStatusLocked();
+                    return true;
                 }
                 catch { CloseLocked(); return false; }
             }
+        }
+
+        // The view's bytes in one copy (an element at a time costs about
+        // 8 us for the page).
+        private static void CopyView(MemoryMappedViewAccessor view, byte[] buf, int n)
+        {
+            var h = view.SafeMemoryMappedViewHandle;
+            var added = false;
+            try
+            {
+                h.DangerousAddRef(ref added);
+                Marshal.Copy(new IntPtr(h.DangerousGetHandle().ToInt64() + view.PointerOffset), buf, 0, n);
+            }
+            finally { if (added) h.DangerousRelease(); }
+        }
+
+        // The game's status from its graphics page, opened beside the
+        // physics page (retried once a second while it is not there).
+        private void ReadStatusLocked()
+        {
+            if (_gfxView == null)
+            {
+                if (DateTime.UtcNow < _nextGfxTry) { _gameStatus = -1; return; }
+                try
+                {
+                    _gfx = MemoryMappedFile.OpenExisting(GraphicsName, MemoryMappedFileRights.Read);
+                    _gfxView = _gfx.CreateViewAccessor(0, 8, MemoryMappedFileAccess.Read);
+                }
+                catch
+                {
+                    CloseGfxLocked();
+                    _nextGfxTry = DateTime.UtcNow.AddSeconds(1);
+                    _gameStatus = -1;
+                    return;
+                }
+            }
+            try { _gameStatus = _gfxView.ReadInt32(KunosTitle.GraphicsStatus); }
+            catch { CloseGfxLocked(); _gameStatus = -1; }
         }
 
         private bool Open(KunosTitle t)
@@ -451,6 +521,7 @@ namespace NullcatChannelExporter
                     _view = _mmf.CreateViewAccessor(0, bytes, MemoryMappedFileAccess.Read);
                 }
                 _viewBytes = bytes;
+                _viewTitle = t;
                 _openOk = true;
                 _log("nullCAT Channel Exporter: Kunos direct, " + t.Name + ": the game's page is open (" + bytes + " bytes read)");
                 return true;
@@ -468,15 +539,23 @@ namespace NullcatChannelExporter
         {
             try { if (_view != null) _view.Dispose(); } catch { }
             try { if (_mmf != null) _mmf.Dispose(); } catch { }
-            _view = null; _mmf = null;
+            _view = null; _mmf = null; _viewTitle = null;
             _openOk = false;
+            CloseGfxLocked();
+        }
+        private void CloseGfxLocked()
+        {
+            try { if (_gfxView != null) _gfxView.Dispose(); } catch { }
+            try { if (_gfx != null) _gfx.Dispose(); } catch { }
+            _gfxView = null; _gfx = null;
         }
 
         // ---- the fast line ---------------------------------------------------
 
         private void Loop()
         {
-            var tick = new FineTick();
+            FineTick tick = null;
+            try { tick = new FineTick(); } catch { tick = null; }
             var buf = new byte[KunosTitle.PageExt];
             var last = new byte[KunosTitle.PageExt];
             var lastN = 0;
@@ -487,48 +566,67 @@ namespace NullcatChannelExporter
             KunosTitle checksFor = null;
             while (_run)
             {
-                var t = _title;
-                if (!_enabled || t == null || !MainFlowing())
+                // Nothing here may end SimHub: an unexpected failure is logged
+                // (at most every 10 s), the page closed and tried again in 1 s.
+                try
                 {
-                    _live = false;
-                    Thread.Sleep(20);
-                    continue;
-                }
-                if (_resetPending || checksFor != t)
-                {
-                    _resetPending = false;
-                    checksFor = t;
-                    _checks = NewChecks(t);
-                    block.Reset();
-                    lastN = 0;
-                }
-                int n;
-                if (!ReadPage(t, buf, out n))
-                {
-                    _live = false;
-                    Thread.Sleep(20);   // not open: Open retries once a second
-                    continue;
-                }
-                if (n != lastN || !Same(buf, last, n))
-                {
-                    Buffer.BlockCopy(buf, 0, last, 0, n);
-                    lastN = n;
-                    sinceStep.Restart();
-                    Parse(buf, n, s);
-                    AddToChecks(t, s, _clock.Elapsed.TotalSeconds, block);
-                    sb.Clear().Append("NULLCATY");
-                    Build(t, s, sb, _clock.ElapsedMilliseconds);
-                    if (sb.Length > 8)
+                    var t = _title;
+                    if (!_enabled || t == null || !MainFlowing())
                     {
-                        _send(sb.ToString());
-                        Interlocked.Increment(ref _sentThisSecond);
-                        _live = true;
+                        _live = false;
+                        Thread.Sleep(20);
+                        continue;
                     }
+                    if (_resetPending || checksFor != t)
+                    {
+                        _resetPending = false;
+                        checksFor = t;
+                        _checks = NewChecks(t);
+                        block.Reset();
+                        lastN = 0;
+                    }
+                    int n; KunosTitle readFor;
+                    if (!ReadPage(buf, out n, out readFor))
+                    {
+                        _live = false;
+                        Thread.Sleep(20);   // not open: Open retries once a second
+                        continue;
+                    }
+                    if (readFor != t) continue;   // the game changed between the two looks
+                    if (n != lastN || !Same(buf, last, n))
+                    {
+                        Buffer.BlockCopy(buf, 0, last, 0, n);
+                        lastN = n;
+                        sinceStep.Restart();
+                        Parse(buf, n, s);
+                        AddToChecks(t, s, _clock.Elapsed.TotalSeconds, block, _gameStatus == KunosTitle.StatusLive);
+                        sb.Clear().Append("NULLCATY");
+                        Build(t, s, sb, _clock.ElapsedMilliseconds);
+                        if (sb.Length > 8)
+                        {
+                            _send(sb.ToString());
+                            Interlocked.Increment(ref _sentThisSecond);
+                            _live = true;
+                        }
+                    }
+                    else if (sinceStep.ElapsedMilliseconds > StillMs) _live = false;
+                    if (tick != null) tick.Wait(); else Thread.Sleep(1);
                 }
-                else if (sinceStep.ElapsedMilliseconds > StillMs) _live = false;
-                tick.Wait();
+                catch (Exception ex)
+                {
+                    _live = false;
+                    ForgetSent();
+                    try { Close(); } catch { }
+                    var now = _clock.Elapsed.TotalSeconds;
+                    if (now - _lastErrorSec >= 10)
+                    {
+                        _lastErrorSec = now;
+                        try { _log("nullCAT Channel Exporter: Kunos direct stopped on " + ex.GetType().Name + " (" + ex.Message + "): SimHub's values go, trying again in 1 s"); } catch { }
+                    }
+                    try { Thread.Sleep(1000); } catch { }
+                }
             }
-            tick.Dispose();
+            if (tick != null) tick.Dispose();
         }
 
         private static bool Same(byte[] a, byte[] b, int n)
@@ -548,76 +646,85 @@ namespace NullcatChannelExporter
                 case Ch.PitLimiter: return t.PitLimiter;
                 case Ch.Load: return t.Loads;
                 case Ch.SlipRatio: return t.SlipRatio && s.Ext;
-                case Ch.SlipAngle: return t.SlipAngle && s.Ext && (!t.CheckSlipAngle || Passed(Ch.SlipAngle));
+                case Ch.SlipAngle: return t.SlipAngle && s.Ext && (!t.CheckSlipAngle || Passed(Ch.SlipAngle) != 0);
                 case Ch.Kerb: return t.Kerb && s.Ext;
                 case Ch.RoadHeight: return t.Contacts && _heights;
                 case Ch.Surge: case Ch.Sway: case Ch.Heave: case Ch.YawRate: case Ch.PitchRate: case Ch.RollRate:
-                    return Passed(c);
+                    return Passed(c) != 0;
                 default: return true;
             }
         }
 
-        private bool Passed(Ch c)
+        // A check passed: the sign its value goes with (+1, or -1 for a turn
+        // rate the other way to the table's); 0 while it has not.
+        private int Passed(Ch c)
         {
-            foreach (var k in _checks) if (k.Chan == c) return k.State > 0;
-            return false;
+            foreach (var k in _checks) if (k.Chan == c) return k.State > 0 ? k.Sign : 0;
+            return 0;
         }
 
         private void Mark(Ch c, long nowMs) { Interlocked.Exchange(ref _sentMs[(int)c], nowMs); }
 
         private static bool Finite(double v) { return !(double.IsNaN(v) || double.IsInfinity(v)); }
 
-        private static void Put(StringBuilder sb, string token, double v, string fmt)
+        // key: ",token=" (built once, below).
+        private static void Put(StringBuilder sb, string key, double v, string fmt)
         {
-            sb.Append(',').Append(token).Append('=').Append(v.ToString(fmt, CultureInfo.InvariantCulture));
+            sb.Append(key).Append(v.ToString(fmt, CultureInfo.InvariantCulture));
         }
 
         // A per-wheel group, all four or none (all four at exactly 0, with
         // zeroIsEmpty: a page that does not fill it).
-        private static bool PutWheels(StringBuilder sb, string token, double[] v, double scale, string fmt, bool zeroIsEmpty)
+        private static bool PutWheels(StringBuilder sb, string[] keys, double[] v, double scale, string fmt, bool zeroIsEmpty)
         {
             for (var w = 0; w < 4; w++) if (!Finite(v[w])) return false;
             if (zeroIsEmpty && v[0] == 0 && v[1] == 0 && v[2] == 0 && v[3] == 0) return false;
-            for (var w = 0; w < 4; w++) Put(sb, token + Wheels[w], v[w] * scale, fmt);
+            for (var w = 0; w < 4; w++) Put(sb, keys[w], v[w] * scale, fmt);
             return true;
         }
-        private static readonly string[] Wheels = { "FL", "FR", "RL", "RR" };
+        private static string[] Keys(string token)
+        {
+            return new[] { "," + token + "FL=", "," + token + "FR=", "," + token + "RL=", "," + token + "RR=" };
+        }
+        private static readonly string[] KWheelSpeed = Keys("wheelSpeed"), KLoad = Keys("load"), KWheelSlip = Keys("wheelSlip"),
+                                         KSuspTravel = Keys("suspTravel"), KSlipRatio = Keys("slipRatio"),
+                                         KSlipAngle = Keys("slipAngle"), KRoadHeight = Keys("roadHeight");
 
         // The line for one physics step: each channel the title has, in the
         // unit and sign SimHub gives it (see KunosTitle), marked as carried.
         private void Build(KunosTitle t, Sample s, StringBuilder sb, long nowMs)
         {
             // The engine, the pedals, the flags: SimHub's own formulas
-            // (verified, every title).
-            var rpm = t.RpmCap > 0 ? Math.Min(s.Rpm, t.RpmCap) : s.Rpm;
-            if (Allowed(t, s, Ch.Rpm)) { Put(sb, "rpm", rpm, "0.#"); Mark(Ch.Rpm, nowMs); }
-            if (Allowed(t, s, Ch.Speed) && Finite(s.SpeedKmh)) { Put(sb, "speedKmh", s.SpeedKmh, "0.##"); Mark(Ch.Speed, nowMs); }
+            // (verified, every title; SimHub sends the speed's size).
+            var rpm = Math.Max(0, t.RpmCap > 0 ? Math.Min(s.Rpm, t.RpmCap) : s.Rpm);
+            if (Allowed(t, s, Ch.Rpm)) { Put(sb, ",rpm=", rpm, "0.#"); Mark(Ch.Rpm, nowMs); }
+            if (Allowed(t, s, Ch.Speed) && Finite(s.SpeedKmh)) { Put(sb, ",speedKmh=", Math.Abs(s.SpeedKmh), "0.##"); Mark(Ch.Speed, nowMs); }
             // The page's gear: 0 reverse, 1 neutral, 2 first; the wire's -1, 0, 1.
-            if (Allowed(t, s, Ch.Gear)) { Put(sb, "gear", s.Gear - 1, "0"); Mark(Ch.Gear, nowMs); }
+            if (Allowed(t, s, Ch.Gear)) { Put(sb, ",gear=", s.Gear - 1, "0"); Mark(Ch.Gear, nowMs); }
             if (Allowed(t, s, Ch.Pedals) && Finite(s.Gas) && Finite(s.Brake) && Finite(s.Clutch))
             {
-                Put(sb, "throttlePct", s.Gas * 100.0, "0.#");
-                Put(sb, "brakePct", s.Brake * 100.0, "0.#");
-                Put(sb, "clutchPct", 100.0 - s.Clutch * 100.0, "0.#");   // the page's clutch is 1 with the pedal up
+                Put(sb, ",throttlePct=", s.Gas * 100.0, "0.#");
+                Put(sb, ",brakePct=", s.Brake * 100.0, "0.#");
+                Put(sb, ",clutchPct=", 100.0 - s.Clutch * 100.0, "0.#");   // the page's clutch is 1 with the pedal up
                 Mark(Ch.Pedals, nowMs);
             }
-            if (Allowed(t, s, Ch.Boost) && Finite(s.Turbo)) { Put(sb, "boost", s.Turbo, "0.###"); Mark(Ch.Boost, nowMs); }
-            if (Allowed(t, s, Ch.Abs)) { Put(sb, "absActive", s.Abs > 0 ? 1 : 0, "0"); Mark(Ch.Abs, nowMs); }
-            if (Allowed(t, s, Ch.Tc)) { Put(sb, "tcActive", s.Tc > 0 ? 1 : 0, "0"); Mark(Ch.Tc, nowMs); }
-            if (Allowed(t, s, Ch.PitLimiter)) { Put(sb, "pitLimiter", s.PitLim > 0 ? 1 : 0, "0"); Mark(Ch.PitLimiter, nowMs); }
+            if (Allowed(t, s, Ch.Boost) && Finite(s.Turbo)) { Put(sb, ",boost=", s.Turbo, "0.###"); Mark(Ch.Boost, nowMs); }
+            if (Allowed(t, s, Ch.Abs)) { Put(sb, ",absActive=", s.Abs > 0 ? 1 : 0, "0"); Mark(Ch.Abs, nowMs); }
+            if (Allowed(t, s, Ch.Tc)) { Put(sb, ",tcActive=", s.Tc > 0 ? 1 : 0, "0"); Mark(Ch.Tc, nowMs); }
+            if (Allowed(t, s, Ch.PitLimiter)) { Put(sb, ",pitLimiter=", s.PitLim > 0 ? 1 : 0, "0"); Mark(Ch.PitLimiter, nowMs); }
             // The limiter as the main line works it out (rpm within 1.5 % of
             // SimHub's max rpm), from the page's rpm.
             if (Allowed(t, s, Ch.Rpm) && Allowed(t, s, Ch.Limiter))
             {
                 var max = Interlocked.CompareExchange(ref _maxRpm, 0.0, 0.0);
-                Put(sb, "limiter", max > 0 && rpm >= max * 0.985 ? 1 : 0, "0");
+                Put(sb, ",limiter=", max > 0 && rpm >= max * 0.985 ? 1 : 0, "0");
                 Mark(Ch.Limiter, nowMs);
             }
             // Pitch and roll, degrees, SimHub's signs (verified).
             if (Allowed(t, s, Ch.Angles) && Finite(s.Pitch) && Finite(s.Roll))
             {
-                Put(sb, "pitchDeg", s.Pitch * Deg, "0.####");
-                Put(sb, "rollDeg", t.RollDeg * s.Roll * Deg, "0.####");
+                Put(sb, ",pitchDeg=", s.Pitch * Deg, "0.####");
+                Put(sb, ",rollDeg=", t.RollDeg * s.Roll * Deg, "0.####");
                 Mark(Ch.Angles, nowMs);
             }
 
@@ -626,30 +733,31 @@ namespace NullcatChannelExporter
             // left turn positive), heave its g up, m/s^2 (verified in
             // SimHub's readers for AC, Competizione and EVO, and seen in
             // recordings; the same convention assumed for Rally). The turn
-            // rates as KunosTitle says.
-            if (Allowed(t, s, Ch.Surge) && Finite(s.AccG[2])) { Put(sb, "accSurge", -s.AccG[2] * KunosTitle.G, "0.####"); Mark(Ch.Surge, nowMs); }
-            if (Allowed(t, s, Ch.Sway) && Finite(s.AccG[0])) { Put(sb, "accSway", s.AccG[0] * KunosTitle.G, "0.####"); Mark(Ch.Sway, nowMs); }
-            if (Allowed(t, s, Ch.Heave) && Finite(s.AccG[1])) { Put(sb, "accHeave", s.AccG[1] * KunosTitle.G, "0.####"); Mark(Ch.Heave, nowMs); }
-            if (Allowed(t, s, Ch.YawRate) && Finite(s.AngVel[1])) { Put(sb, "yawRate", t.YawSign * s.AngVel[1] * Deg, "0.####"); Mark(Ch.YawRate, nowMs); }
-            if (Allowed(t, s, Ch.PitchRate) && Finite(s.AngVel[0])) { Put(sb, "pitchRate", t.PitchSign * s.AngVel[0] * Deg, "0.####"); Mark(Ch.PitchRate, nowMs); }
-            if (Allowed(t, s, Ch.RollRate) && Finite(s.AngVel[2])) { Put(sb, "rollRate", t.RollSign * s.AngVel[2] * Deg, "0.####"); Mark(Ch.RollRate, nowMs); }
+            // rates with the sign their check settled.
+            if (Allowed(t, s, Ch.Surge) && Finite(s.AccG[2])) { Put(sb, ",accSurge=", -s.AccG[2] * KunosTitle.G, "0.####"); Mark(Ch.Surge, nowMs); }
+            if (Allowed(t, s, Ch.Sway) && Finite(s.AccG[0])) { Put(sb, ",accSway=", s.AccG[0] * KunosTitle.G, "0.####"); Mark(Ch.Sway, nowMs); }
+            if (Allowed(t, s, Ch.Heave) && Finite(s.AccG[1])) { Put(sb, ",accHeave=", s.AccG[1] * KunosTitle.G, "0.####"); Mark(Ch.Heave, nowMs); }
+            if (Allowed(t, s, Ch.YawRate) && Finite(s.AngVel[1])) { Put(sb, ",yawRate=", Passed(Ch.YawRate) * t.YawSign * s.AngVel[1] * Deg, "0.####"); Mark(Ch.YawRate, nowMs); }
+            if (Allowed(t, s, Ch.PitchRate) && Finite(s.AngVel[0])) { Put(sb, ",pitchRate=", Passed(Ch.PitchRate) * t.PitchSign * s.AngVel[0] * Deg, "0.####"); Mark(Ch.PitchRate, nowMs); }
+            if (Allowed(t, s, Ch.RollRate) && Finite(s.AngVel[2])) { Put(sb, ",rollRate=", Passed(Ch.RollRate) * t.RollSign * s.AngVel[2] * Deg, "0.####"); Mark(Ch.RollRate, nowMs); }
 
-            // Per wheel, at the scales of the plugin's built-in bindings.
-            if (Allowed(t, s, Ch.WheelSpeed) && PutWheels(sb, "wheelSpeed", s.WheelSpeed, 1.0, "0.####", false)) Mark(Ch.WheelSpeed, nowMs);
-            if (Allowed(t, s, Ch.Load) && PutWheels(sb, "load", s.Load, 1.0, "0.####", true)) Mark(Ch.Load, nowMs);
-            if (Allowed(t, s, Ch.WheelSlip) && PutWheels(sb, "wheelSlip", s.WheelSlip, KunosTitle.SlipScale, "0.####", false)) Mark(Ch.WheelSlip, nowMs);
-            if (Allowed(t, s, Ch.SuspTravel) && PutWheels(sb, "suspTravel", s.Travel, KunosTitle.TravelScale, "0.####", false)) Mark(Ch.SuspTravel, nowMs);
-            if (Allowed(t, s, Ch.SlipRatio) && PutWheels(sb, "slipRatio", s.SlipRatio, 1.0, "0.####", false)) Mark(Ch.SlipRatio, nowMs);
+            // Per wheel, at the scales of the plugin's built-in bindings. A
+            // row of zero loads goes too: every tyre in the air.
+            if (Allowed(t, s, Ch.WheelSpeed) && PutWheels(sb, KWheelSpeed, s.WheelSpeed, 1.0, "0.####", false)) Mark(Ch.WheelSpeed, nowMs);
+            if (Allowed(t, s, Ch.Load) && PutWheels(sb, KLoad, s.Load, 1.0, "0.####", false)) Mark(Ch.Load, nowMs);
+            if (Allowed(t, s, Ch.WheelSlip) && PutWheels(sb, KWheelSlip, s.WheelSlip, KunosTitle.SlipScale, "0.####", false)) Mark(Ch.WheelSlip, nowMs);
+            if (Allowed(t, s, Ch.SuspTravel) && PutWheels(sb, KSuspTravel, s.Travel, KunosTitle.TravelScale, "0.####", false)) Mark(Ch.SuspTravel, nowMs);
+            if (Allowed(t, s, Ch.SlipRatio) && PutWheels(sb, KSlipRatio, s.SlipRatio, 1.0, "0.####", false)) Mark(Ch.SlipRatio, nowMs);
             // Slip angles from 5 km/h, as the main line sends them.
-            if (Allowed(t, s, Ch.SlipAngle) && s.SpeedKmh > 5.0 && PutWheels(sb, "slipAngle", s.SlipAngle, Deg, "0.###", false)) Mark(Ch.SlipAngle, nowMs);
+            if (Allowed(t, s, Ch.SlipAngle) && Math.Abs(s.SpeedKmh) > 5.0 && PutWheels(sb, KSlipAngle, s.SlipAngle, Deg, "0.###", false)) Mark(Ch.SlipAngle, nowMs);
             // The road under each tyre, mm (hills and all: nullCAT filters).
-            if (Allowed(t, s, Ch.RoadHeight) && PutWheels(sb, "roadHeight", s.CpY, 1000.0, "0.##", true)) Mark(Ch.RoadHeight, nowMs);
+            if (Allowed(t, s, Ch.RoadHeight) && PutWheels(sb, KRoadHeight, s.CpY, 1000.0, "0.##", true)) Mark(Ch.RoadHeight, nowMs);
             // The game's own kerb vibration, 0..100: what nullCAT's Rumble
             // strip plays in the titles that have it.
             var kerb = !Finite(s.Kerb) && t.KerbNanIsZero ? 0.0 : s.Kerb;
             if (Allowed(t, s, Ch.Kerb) && Finite(kerb))
             {
-                Put(sb, "curbs", Math.Max(0, Math.Min(100, kerb * 100.0)), "0.#");
+                Put(sb, ",curbs=", Math.Max(0, Math.Min(100, kerb * 100.0)), "0.#");
                 Mark(Ch.Kerb, nowMs);
             }
         }
@@ -685,19 +793,22 @@ namespace NullcatChannelExporter
         {
             public Ch Chan; public string Token, Against;
             public double RMin, KLo, KHi, Floor;   // the correlation it needs, the range of the ratio, the movement to judge by
-            public bool SizeOnly;                  // judged on the size alone, its sign from Loads (sway)
+            public bool SizeOnly;                  // judged on the size alone, its direction from the side the load moves to (sway)
+            public bool Flippable;                 // a turn rate: the page's own direction settles its sign
             public readonly Fit Fit = new Fit();
-            public Fit Loads;                      // sway: against the side the load moves to
-            public string LoadsWhat;
-            public double Driven, NextDecide = CheckMinSec;
+            public Fit Alt; public string FitWhat, AltWhat;    // sway: the sideways slide added to the turn, or taken off
+            public Fit Loads, Travel;              // sway: the side the load moves to, by the tyre loads or the suspension travel
+            public double Driven, MovingSec, NextDecide = CheckMinSec;
+            public int Streak;                     // decisions in a row a failing (or flipping) verdict has held
             public volatile int State;             // 0 checking, 1 passed, -1 failed
+            public volatile int Sign = 1;          // the sign it passed with
             public volatile int Pct;               // of the first 10 s of driving
             public volatile bool Still;            // too little movement yet to judge by
             public volatile string Note = "";
 
             public string Short()
             {
-                if (State > 0) return "ok";
+                if (State > 0) return Sign < 0 ? "ok (the other way to the table's)" : "ok";
                 if (State < 0) return "SimHub's (" + Note + ")";
                 if (Pct < 100) return "checking (" + Pct + " %)";
                 return Still ? "checking (waiting for more movement)" : "checking (not clear yet)";
@@ -711,18 +822,22 @@ namespace NullcatChannelExporter
 
         private static Check[] NewChecks(KunosTitle t)
         {
-            var sway = NewCheck(Ch.Sway, "accSway", "the speed times the yaw rate", 0.7, 0.6, 1.6, 1.0);
+            var sway = NewCheck(Ch.Sway, "accSway", "the car's sideways acceleration (the speed times the yaw rate and the sideways slide)", 0.7, 0.6, 1.6, 1.0);
             sway.SizeOnly = true;
-            sway.Loads = new Fit();
-            sway.LoadsWhat = t.Loads ? "the tyre loads" : "the suspension travel";
+            sway.Alt = new Fit();
+            sway.FitWhat = "the slide added to the turn"; sway.AltWhat = "the slide taken off the turn";
+            if (t.Loads) sway.Loads = new Fit();
+            sway.Travel = new Fit();
+            var yaw = NewCheck(Ch.YawRate, "yawRate", "the change of the heading", 0.7, 0.7, 1.4, 3.0);
+            var pitch = NewCheck(Ch.PitchRate, "pitchRate", "the change of the pitch", 0.5, 0.6, 1.6, 0.5);
+            var roll = NewCheck(Ch.RollRate, "rollRate", "the change of the roll", 0.5, 0.6, 1.6, 0.5);
+            yaw.Flippable = pitch.Flippable = roll.Flippable = true;
             var list = new List<Check>
             {
                 NewCheck(Ch.Surge, "accSurge", "the change of speed", 0.7, 0.6, 1.6, 0.5),
                 sway,
                 NewCheck(Ch.Heave, "accHeave", "the change of the vertical speed", 0.6, 0.6, 1.6, 0.3),
-                NewCheck(Ch.YawRate, "yawRate", "the change of the heading", 0.7, 0.7, 1.4, 3.0),
-                NewCheck(Ch.PitchRate, "pitchRate", "the change of the pitch", 0.5, 0.6, 1.6, 0.5),
-                NewCheck(Ch.RollRate, "rollRate", "the change of the roll", 0.5, 0.6, 1.6, 0.5),
+                yaw, pitch, roll,
             };
             if (t.CheckSlipAngle) list.Add(NewCheck(Ch.SlipAngle, "slipAngle", "the contact patches' travel", 0.6, 0.6, 1.6, 0.5));
             return list.ToArray();
@@ -730,11 +845,13 @@ namespace NullcatChannelExporter
 
         // About 50 ms of physics steps: the first and last of each value the
         // checks take the change of, and the sums of those they average.
+        // A value the page sends as NaN leaves only the checks that use it
+        // out of that block.
         private sealed class Block
         {
-            public int N;
-            public double T0, T1, Speed0, Speed1, Vy0, Vy1, Head0, Head1, Pitch0, Pitch1, Roll0, Roll1;
-            public double SAx, SAy, SAz, SWx, SWy, SWz, SVw, SLt;
+            public int N, NLoads, NTravel;
+            public double T0, T1, Speed0, Speed1, Vy0, Vy1, Head0, Head1, Pitch0, Pitch1, Roll0, Roll1, Lx0, Lx1;
+            public double SAx, SAy, SAz, SWx, SWy, SWz, STurn, SLoads, STravel;
             public bool CpOk;
             public readonly double[] Cx0 = new double[4], Cz0 = new double[4], Hx0 = new double[4], Hz0 = new double[4],
                                      Cx1 = new double[4], Cz1 = new double[4], Hx1 = new double[4], Hz1 = new double[4],
@@ -743,16 +860,17 @@ namespace NullcatChannelExporter
         }
 
         // The side the load moves to, right minus left: the outside of a
-        // turn (the right in a left turn) whatever the game's axes. The
-        // tyre loads where the page has them, else the suspension travel
+        // turn (the right in a left turn) whatever the game's axes. By the
+        // tyre loads (NaN when they read nothing: every tyre in the air, or
+        // a page that does not fill them), and by the suspension travel
         // (more compressed on the outside).
-        private static double LoadSide(KunosTitle t, Sample s)
+        private static double LoadsSide(Sample s)
         {
-            if (t.Loads)
-            {
-                var tot = s.Load[0] + s.Load[1] + s.Load[2] + s.Load[3];
-                return tot > 0 ? ((s.Load[1] + s.Load[3]) - (s.Load[0] + s.Load[2])) / tot : double.NaN;
-            }
+            var tot = s.Load[0] + s.Load[1] + s.Load[2] + s.Load[3];
+            return tot > 0 ? ((s.Load[1] + s.Load[3]) - (s.Load[0] + s.Load[2])) / tot : double.NaN;
+        }
+        private static double TravelSide(Sample s)
+        {
             return (s.Travel[1] + s.Travel[3]) - (s.Travel[0] + s.Travel[2]);
         }
 
@@ -763,49 +881,54 @@ namespace NullcatChannelExporter
             return d;
         }
 
-        private void AddToChecks(KunosTitle t, Sample s, double now, Block b)
+        // live: the game's status says live (never a replay or a pause:
+        // their time is not the page's physics time).
+        private void AddToChecks(KunosTitle t, Sample s, double now, Block b, bool live)
         {
             var checks = _checks;
             var open = false;
             foreach (var k in checks) if (k.State == 0) { open = true; break; }
             if (!open) return;
-            var lt = LoadSide(t, s);
-            if (!(Finite(s.SpeedKmh) && Finite(s.Vel[1]) && Finite(s.Heading) && Finite(s.Pitch) && Finite(s.Roll) && Finite(lt)
-                  && Finite(s.AccG[0]) && Finite(s.AccG[1]) && Finite(s.AccG[2]) && Finite(s.LocVel[2])
-                  && Finite(s.AngVel[0]) && Finite(s.AngVel[1]) && Finite(s.AngVel[2])))
-            { b.Reset(); return; }
+            if (!live) { b.Reset(); return; }
             if (b.N > 0 && now - b.T1 > BlockMaxSec) b.Reset();   // a gap: start afresh
             var cpOk = t.CheckSlipAngle && s.Ext;
             for (var w = 0; w < 4 && cpOk; w++)
                 cpOk = Finite(s.CpX[w]) && Finite(s.CpZ[w]) && Finite(s.HdX[w]) && Finite(s.HdZ[w]) && Finite(s.SlipAngle[w]);
             if (b.N == 0) Begin(b, s, now, cpOk);
-            Accumulate(b, s, now, lt, cpOk);
+            Accumulate(t, b, s, now, cpOk);
             if (b.N >= 3 && b.T1 - b.T0 >= BlockSec)
             {
                 Finish(t, b, checks);
                 // This step ends one block and starts the next.
                 Begin(b, s, now, cpOk);
-                Accumulate(b, s, now, lt, cpOk);
+                Accumulate(t, b, s, now, cpOk);
             }
         }
 
         private static void Begin(Block b, Sample s, double now, bool cpOk)
         {
-            b.N = 0; b.T0 = now;
-            b.Speed0 = s.SpeedKmh / 3.6; b.Vy0 = s.Vel[1]; b.Head0 = s.Heading; b.Pitch0 = s.Pitch; b.Roll0 = s.Roll;
-            b.SAx = b.SAy = b.SAz = b.SWx = b.SWy = b.SWz = b.SVw = b.SLt = 0;
+            b.N = b.NLoads = b.NTravel = 0; b.T0 = now;
+            b.Speed0 = Math.Abs(s.SpeedKmh) / 3.6; b.Vy0 = s.Vel[1]; b.Head0 = s.Heading; b.Pitch0 = s.Pitch; b.Roll0 = s.Roll;
+            b.Lx0 = s.LocVel[0];
+            b.SAx = b.SAy = b.SAz = b.SWx = b.SWy = b.SWz = b.STurn = b.SLoads = b.STravel = 0;
             b.CpOk = cpOk;
             for (var w = 0; w < 4; w++) { b.Cx0[w] = s.CpX[w]; b.Cz0[w] = s.CpZ[w]; b.Hx0[w] = s.HdX[w]; b.Hz0[w] = s.HdZ[w]; b.SSlip[w] = 0; }
         }
 
-        private static void Accumulate(Block b, Sample s, double now, double lt, bool cpOk)
+        private static void Accumulate(KunosTitle t, Block b, Sample s, double now, bool cpOk)
         {
             b.N++; b.T1 = now;
-            b.Speed1 = s.SpeedKmh / 3.6; b.Vy1 = s.Vel[1]; b.Head1 = s.Heading; b.Pitch1 = s.Pitch; b.Roll1 = s.Roll;
+            b.Speed1 = Math.Abs(s.SpeedKmh) / 3.6; b.Vy1 = s.Vel[1]; b.Head1 = s.Heading; b.Pitch1 = s.Pitch; b.Roll1 = s.Roll;
+            b.Lx1 = s.LocVel[0];
             b.SAx += s.AccG[0]; b.SAy += s.AccG[1]; b.SAz += s.AccG[2];
             b.SWx += s.AngVel[0]; b.SWy += s.AngVel[1]; b.SWz += s.AngVel[2];
-            b.SVw += s.LocVel[2] * s.AngVel[1];
-            b.SLt += lt;
+            // The turn's part of the sideways acceleration (x of the angular
+            // velocity crossed with the velocity): yaw rate times forward
+            // speed, less roll rate times vertical speed.
+            b.STurn += s.AngVel[1] * s.LocVel[2] - s.AngVel[2] * s.LocVel[1];
+            if (t.Loads) { var l = LoadsSide(s); if (Finite(l)) { b.SLoads += l; b.NLoads++; } }
+            var tr = TravelSide(s);
+            if (Finite(tr)) { b.STravel += tr; b.NTravel++; }
             b.CpOk &= cpOk;
             for (var w = 0; w < 4; w++)
             {
@@ -814,40 +937,56 @@ namespace NullcatChannelExporter
             }
         }
 
+        private static bool TooBig(double v, double max) { return Finite(v) && Math.Abs(v) > max; }
+
         // A block's values against what the page's own physics says they
-        // should be, into each open check.
+        // should be, into each open check whose inputs the block has.
         private void Finish(KunosTitle t, Block b, Check[] checks)
         {
             var dt = b.T1 - b.T0;
             if (dt <= 0 || dt > BlockMaxSec) return;
             var kmh = CheckKmh / 3.6;
-            if (b.Speed0 < kmh || b.Speed1 < kmh) return;   // driving only
+            if (!(b.Speed0 >= kmh && b.Speed1 >= kmh)) return;   // driving only
             var n = (double)b.N;
             var dv = (b.Speed1 - b.Speed0) / dt;
             var dvy = (b.Vy1 - b.Vy0) / dt;
+            var dvx = (b.Lx1 - b.Lx0) / dt;
             var dHead = Unwrap(b.Head1 - b.Head0) / dt * Deg;
             var dPitch = Unwrap(b.Pitch1 - b.Pitch0) / dt * Deg;
             var dRoll = Unwrap(b.Roll1 - b.Roll0) / dt * Deg;
             // A reset, a jump to the pits, a crash's spike: nothing a car does
             // in 50 ms of driving.
-            if (Math.Abs(dv) > 50 || Math.Abs(dvy) > 50 || Math.Abs(dHead) > 200 || Math.Abs(dPitch) > 200 || Math.Abs(dRoll) > 200) return;
+            if (TooBig(dv, 50) || TooBig(dvy, 50) || TooBig(dvx, 50) || TooBig(dHead, 200) || TooBig(dPitch, 200) || TooBig(dRoll, 200)) return;
             var g = KunosTitle.G;
             foreach (var k in checks)
             {
                 if (k.State != 0) continue;
+                var fed = false;
                 switch (k.Chan)
                 {
-                    case Ch.Surge: k.Fit.Add(-b.SAz / n * g, -dv, dt); break;
+                    case Ch.Surge: fed = Feed(k.Fit, -b.SAz / n * g, -dv, dt); break;
                     case Ch.Sway:
-                        k.Fit.Add(b.SAx / n * g, b.SVw / n, dt);
-                        k.Loads.Add(b.SAx / n * g, b.SLt / n, dt);
+                    {
+                        // Under the table's axes (x left, y up, z forward, the
+                        // turn's angular velocity the right-hand way) the car's
+                        // sideways acceleration is the change of its sideways
+                        // velocity plus the turn's part; with the angular
+                        // velocity the other way round, the turn's part less
+                        // that change. The check judges by the one the page
+                        // follows better and says which.
+                        var x = b.SAx / n * g; var turn = b.STurn / n;
+                        fed = Feed(k.Fit, x, turn + dvx, dt);
+                        Feed(k.Alt, x, turn - dvx, dt);
+                        if (k.Loads != null && b.NLoads == b.N) Feed(k.Loads, x, b.SLoads / n, dt);
+                        if (b.NTravel == b.N) Feed(k.Travel, x, b.STravel / n, dt);
                         break;
-                    case Ch.Heave: k.Fit.Add(b.SAy / n * g, dvy, dt); break;
-                    case Ch.YawRate: k.Fit.Add(t.YawSign * b.SWy / n * Deg, dHead, dt); break;
-                    case Ch.PitchRate: k.Fit.Add(t.PitchSign * b.SWx / n * Deg, -dPitch, dt); break;
-                    case Ch.RollRate: k.Fit.Add(t.RollSign * b.SWz / n * Deg, t.RollDeg * dRoll, dt); break;
+                    }
+                    case Ch.Heave: fed = Feed(k.Fit, b.SAy / n * g, dvy, dt); break;
+                    case Ch.YawRate: fed = Feed(k.Fit, t.YawSign * b.SWy / n * Deg, dHead, dt); break;
+                    case Ch.PitchRate: fed = Feed(k.Fit, t.PitchSign * b.SWx / n * Deg, -dPitch, dt); break;
+                    case Ch.RollRate: fed = Feed(k.Fit, t.RollSign * b.SWz / n * Deg, t.RollDeg * dRoll, dt); break;
                     case Ch.SlipAngle:
-                        if (!b.CpOk) continue;
+                        if (!b.CpOk) break;
                         for (var w = 0; w < 4; w++)
                         {
                             // The angle between where the tyre points (halfway
@@ -858,49 +997,90 @@ namespace NullcatChannelExporter
                             if (Math.Sqrt(dx * dx + dz * dz) < 0.2 || (hx == 0 && hz == 0)) continue;
                             var a = Math.Atan2(Math.Abs(hx * dz - hz * dx), hx * dx + hz * dz) * Deg;
                             if (a > 90.0) a = 180.0 - a;   // rolling backwards: the same slip, mirrored
-                            var page = b.SSlip[w] / n * Deg;
-                            if (a > 45) continue;   // a spin: the patches say little
-                            k.Fit.Add(page, a, dt / 4);
+                            if (a > 45) continue;          // a spin: the patches say little
+                            fed |= Feed(k.Fit, b.SSlip[w] / n * Deg, a, dt / 4);
                         }
                         break;
                 }
+                if (!fed) continue;
                 k.Driven += dt;
                 k.Pct = Math.Min(100, (int)(k.Driven * 100 / CheckMinSec));
                 Decide(t, k);
             }
         }
 
+        private static bool Feed(Fit f, double s, double h, double dt)
+        {
+            if (!Finite(s) || !Finite(h)) return false;
+            f.Add(s, h, dt);
+            return true;
+        }
+
+        private static string R2(double v) { return v.ToString("0.00", CultureInfo.InvariantCulture); }
+
         private void Decide(KunosTitle t, Check k)
         {
             if (k.Driven < k.NextDecide) return;
             k.NextDecide = k.Driven + 1.0;
-            k.Still = k.Fit.N < 100 || Math.Sqrt(k.Fit.Vh) < k.Floor;
+            // Sway: the way of reckoning the page follows better.
+            var fit = k.Fit; var how = k.FitWhat;
+            if (k.Alt != null && Math.Abs(k.Alt.R) > Math.Abs(k.Fit.R)) { fit = k.Alt; how = k.AltWhat; }
+            k.Still = fit.N < 100 || Math.Sqrt(fit.Vh) < k.Floor;
             if (k.Still) return;   // never judged on a page that barely moves
-            var r = k.Fit.R; var ratio = k.Fit.K;
-            if (k.SizeOnly) { r = Math.Abs(r); ratio = Math.Abs(ratio); }
-            var why = "r " + r.ToString("0.00", CultureInfo.InvariantCulture) + ", x" + ratio.ToString("0.00", CultureInfo.InvariantCulture)
-                    + (k.Loads != null ? ", " + k.LoadsWhat + " r " + k.Loads.R.ToString("0.00", CultureInfo.InvariantCulture) : "");
-            if (k.Loads != null && k.Loads.N >= 100 && k.Loads.R <= -SwayLoadsMin)
-            { Fail(t, k, "the other way to the side the load moves to, by " + k.LoadsWhat + " (" + why + ")"); return; }
-            if (r <= -k.RMin) { Fail(t, k, "the other way to " + k.Against + " (" + why + ")"); return; }
-            if (r >= k.RMin && (ratio < k.KLo || ratio > k.KHi)) { Fail(t, k, "at another scale than " + k.Against + ": another unit or axis (" + why + ")"); return; }
-            var loadsOk = k.Loads == null || (k.Loads.N >= 100 && k.Loads.R >= SwayLoadsMin);
-            if (r >= k.RMin && loadsOk)
+            k.MovingSec += 1.0;
+            var r = fit.R; var ratio = fit.K;
+            var size = k.SizeOnly || k.Flippable;
+            var rs = size ? Math.Abs(r) : r; var ks = size ? Math.Abs(ratio) : ratio;
+            // The side the load moves to, by the tyre loads where the page
+            // has them this session, else by the suspension travel.
+            Fit side = null; var sideWhat = "";
+            if (k.Loads != null && k.Loads.N >= 100) { side = k.Loads; sideWhat = "the tyre loads"; }
+            else if (k.Travel != null && k.Travel.N >= 100) { side = k.Travel; sideWhat = "the suspension travel"; }
+            var why = "r " + R2(r) + ", x" + R2(ratio) + (how != null ? ", " + how : "")
+                    + (side != null ? ", " + sideWhat + " r " + R2(side.R) : "");
+            var needSide = k.Travel != null;
+            var sideOk = !needSide || (side != null && side.R >= SideMin);
+
+            string failing = null;
+            var flip = false;
+            if (needSide && side != null && side.R <= -SideMin)
+                failing = "the other way to the side the load moves to, by " + sideWhat;
+            else if (!size && r <= -k.RMin)
+                failing = "the other way to " + k.Against;
+            else if (rs >= k.RMin && (ks < k.KLo || ks > k.KHi))
+                failing = "at another scale than " + k.Against + ": another unit or axis";
+            else if (rs >= k.RMin && sideOk)
             {
-                k.Note = why;
-                k.State = 1;
-                _log("nullCAT Channel Exporter: Kunos direct, " + t.Name + ": " + k.Token + " from the page from now on (against "
-                     + k.Against + ": " + why + ")");
+                if (k.Flippable && r < 0) flip = true;
+                else { Pass(t, k, 1, why); return; }
+            }
+            if (failing == null && !flip) { k.Streak = 0; }
+            else if (++k.Streak >= FailDecisions)
+            {
+                if (flip) Pass(t, k, -1, why);
+                else Fail(t, k, failing + " (" + why + ")");
                 return;
             }
-            if (k.Driven >= CheckGiveUpSec) Fail(t, k, "apart from " + k.Against + " (" + why + ")");
+            if (k.MovingSec >= CheckGiveUpSec)
+                Fail(t, k, "apart from " + (rs >= k.RMin && !sideOk ? "the side the load moves to, by " + (side != null ? sideWhat : "the tyre loads and travel") : k.Against)
+                           + " (" + why + ")");
+        }
+
+        private void Pass(KunosTitle t, Check k, int sign, string why)
+        {
+            k.Note = why;
+            k.Sign = sign;
+            k.State = 1;
+            _log("nullCAT Channel Exporter: Kunos direct, " + t.Name + ": " + k.Token + " from the page from now on"
+                 + (sign < 0 ? ", the other way to the table's sign (the page's own way)" : "")
+                 + " (against " + k.Against + ": " + why + ")");
         }
 
         private void Fail(KunosTitle t, Check k, string why)
         {
             k.Note = why;
             k.State = -1;
-            _log("nullCAT Channel Exporter: Kunos direct, " + t.Name + ": " + k.Token + " stays SimHub's this session: the page's runs " + why);
+            _log("nullCAT Channel Exporter: Kunos direct, " + t.Name + ": " + k.Token + " stays SimHub's: the page's runs " + why);
         }
 
         // A 1 ms wait between looks at the page. Windows' sleep runs on a

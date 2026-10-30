@@ -97,9 +97,9 @@ straight from the game.
   vibration, which is what the Rumble strip plays there. The g, the turn
   rates and the slip angles go once the game's own physics agrees with
   them, no longer matched against SimHub's: in AC Rally SimHub's g are
-  wrong (across the car about a third of what the car does), so the belt
-  and Impacts there get the game's. SimHub's log says what goes from the
-  game and why anything does not.
+  wrong (SimHub's leaves the turn out: in a steady corner it reads almost
+  nothing across the car), so the belt and Impacts there get the game's.
+  SimHub's log says what goes from the game and why anything does not.
 - Two rally types of car to start from: **Rally gravel** and **Rally
   tarmac** (first guesses, tuned on AC Rally), between Open wheeler and the
   AMS2 types.
