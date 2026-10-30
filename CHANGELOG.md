@@ -112,6 +112,9 @@ straight from the game.
   Every type now also sets the stones.
 
 ### Changed
+- The desktop window takes the console's look: the slate housing, keys
+  with lamps, dark value wells and the console's fonts, in the main window,
+  Application Settings and the message boxes. It works exactly as before.
 - The Kerb tile is now **Rumble strip**: the rumble of a kerb's ribs, which
   is what it is for, and only where the game says a tyre is on a kerb (its
   surface under each tyre, or its own kerb vibration). A game that says
@@ -194,6 +197,7 @@ straight from the game.
   instead, and Setup is its own view.
 
 ### Fixed
+- The header's units keep their case: "µs" read as "MS".
 - Pi: the drives could drop out of sync as the control loop took over the
   bus, leaving the rig unseated at Stop EtherCAT, or faulting every drive
   just after an Initialize. The frames that hold the drives while the loop
