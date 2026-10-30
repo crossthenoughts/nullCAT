@@ -200,7 +200,7 @@ Road-only fields. `model` picks how the body's movement is made; when the sim se
 | `surfaceHz` | `12` | The surface texture's carrier (Hz, 4 to 40): its own, so it can sit low enough for a position axis to carry while the `roadNoise` texture keeps `freqHz`. |
 | `surfaceKmh` | `100` | Road speed (km/h, 20 to 300) by which the surface texture is at its full mix; it rises from nothing at a standstill. |
 
-Rumble strip fields (`kerb`, the Rumble strip tile). Which tyre is on a kerb, as the game says it: `surface*` = 2 (each kerb frame held 0.15 s; the surface is the car's source once all four tyres have named one), else the game's own `curbs` channel sent by name (all wheels, full at `peakPct`, held at its peak 0.15 s). A game that says neither (Assetto Corsa) has no rumble strip (the tile reads *not in this game*); road heights are not used for kerbs. `freqHz` is kept in the object but unused; the retired `step`, `riseMm`, `heights` and `detectMm` are ignored if a file still has them.
+Rumble strip fields (`kerb`, the Rumble strip tile). Which tyre is on a kerb, as the game says it: `surface*` = 2 (each kerb frame held 0.15 s; the surface is the car's source once all four tyres have named one), else the game's own `curbs` channel sent by name (all wheels, full at `peakPct`; a peak held 0.15 s after the last frame at or above it, then following the value down). A game that says neither (Assetto Corsa) has no rumble strip (the tile reads *not in this game*); road heights are not used for kerbs. `freqHz` is kept in the object but unused; the retired `step`, `riseMm`, `heights` and `detectMm` are ignored if a file still has them.
 
 | Field | Default | Notes |
 |---|---|---|

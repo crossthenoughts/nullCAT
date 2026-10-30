@@ -1300,6 +1300,22 @@ int main()
             for (int i = 0; i < 50; ++i) { haptics::driveLaws(K, cs, cv, dt); K.step(dt); }
             check(K.kerbWheelLevel(WheelFL) > 0.9 && K.kerbWheelLevel(WheelRR) > 0.9,
                   "I-9 kerb: car B's own kerb vibration sent by name plays on every wheel (car A's surface source is not B's)");
+            // A hard entry (100) then the kerb itself lighter (20): the peak
+            // holds 0.15 s past its last frame, then the level follows the
+            // value down. A peak before a gap in the stream does not carry
+            // over it. Breaks with the peak held as long as the kerb lasts,
+            // or kept over a gap.
+            cv.val[NcxValues::Curbs] = 20.0;
+            for (int i = 0; i < 250; ++i) { haptics::driveLaws(K, cs, cv, dt); K.step(dt); }
+            check(K.kerbWheelLevel(WheelFL) < 0.3 && K.kerbWheelLevel(WheelFL) > 0.1,
+                  "I-9 kerb: the kerb vibration's peak holds 0.15 s, then the level follows it down (100 then 20: 0.2)");
+            cv.val[NcxValues::Curbs] = 100.0;
+            for (int i = 0; i < 20; ++i) { haptics::driveLaws(K, cs, cv, dt); K.step(dt); }
+            cv.fresh = false;
+            for (int i = 0; i < 25; ++i) { haptics::driveLaws(K, cs, cv, dt); K.step(dt); }
+            cv.fresh = true; cv.val[NcxValues::Curbs] = 20.0;
+            haptics::driveLaws(K, cs, cv, dt); K.step(dt);
+            check(cs.kerbCurbs < 0.3, "I-9 kerb: a peak from before a gap in the stream does not carry over it");
             cv.val[NcxValues::Curbs] = 0.0;
             for (int i = 0; i < 150; ++i) { haptics::driveLaws(K, cs, cv, dt); K.step(dt); }
             check(anyKerb() == 0.0, "I-9 kerb: ...and lets go");

@@ -119,7 +119,7 @@ struct LawsState
     bool   air[WHEEL_COUNT] = {};
     // The car the sim last named, and its id: a different one (either
     // differs) starts the per-car learning over (rolling factor, usual
-    // load, kerb detector, the engine's redline, the tyres).
+    // load, the slip limits, the engine's redline, the tyres).
     char   lastCar[NCY_STR_LEN] = {};
     char   lastCarId[NCY_STR_LEN] = {};
     bool   carSeen = false;
@@ -1587,12 +1587,17 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
         }
         else if (live && v.named[NcxValues::Curbs])
         {
+            // The most of it over the last kKerbHoldSec (under kKerbCurbsOn
+            // is none): a peak holds that long after the last frame at or
+            // above it, then the level follows the value down (it held the
+            // entry's peak for the whole kerb).
             const double c = mag(NcxValues::Curbs, FxType::Kerb);
-            if (c >= kKerbCurbsOn) { st.kerbCurbs = (st.kerbCurbsSec > 0.0) ? std::max(st.kerbCurbs, c) : c; st.kerbCurbsSec = kKerbHoldSec; }
-            else st.kerbCurbsSec = std::max(0.0, st.kerbCurbsSec - dtSec);
-            if (st.kerbCurbsSec <= 0.0) st.kerbCurbs = 0.0;
+            const double x = (c >= kKerbCurbsOn) ? c : 0.0;
+            if (x >= st.kerbCurbs) { st.kerbCurbs = x; st.kerbCurbsSec = kKerbHoldSec; }
+            else if ((st.kerbCurbsSec -= dtSec) <= 0.0) { st.kerbCurbs = x; st.kerbCurbsSec = kKerbHoldSec; }
             for (double& l : lvl) l = st.kerbCurbs;
         }
+        if (!live) st.kerbCurbs = st.kerbCurbsSec = 0.0;   // nothing from before a gap carries over it
         for (int w = 0; w < WHEEL_COUNT; ++w) L.driveKerb(w, lvl[w] * ground[w]);   // a tyre in the air is on no kerb
     }
 
