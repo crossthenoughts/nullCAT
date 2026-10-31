@@ -289,8 +289,9 @@ private:
     // A car on the defaults: the sender's engine description and type of
     // car on top, once per car (status thread, after carIdentity).
     void senderCarFacts(const TelemetryData& td);
-    // The starting point in force for the car the sim names, and where it
-    // came from ("game", "you"); remembered with the car (carstate.json).
+    // The starting point in force on the tiles, a car named or not, and
+    // where it came from ("game", "you", "last car": the game's, for the
+    // car before); remembered with the car (carstate.json).
     void setCarType(const std::string& type, const std::string& from);
     // Direct telemetry (protocol 1.9): the rig's choice for the channel
     // sender's direct source, -1 = left to the sender, 0 off, 1 on. Kept

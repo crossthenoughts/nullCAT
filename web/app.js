@@ -2363,7 +2363,7 @@ async function hapPresetsRender(sel){
 }
 // Car table: the Master tile's car line (what the sim names, the entry
 // found for it and where from) and the Engine tile's folded notes.
-function hapCarTypeText(c){ return c&&c.type?('type '+c.type+(c.typeFrom==='game'?' from the game':c.typeFrom==='you'?' (yours)':'')):''; }
+function hapCarTypeText(c){ return c&&c.type?('type '+c.type+(c.typeFrom==='game'?' from the game':c.typeFrom==='you'?' (yours)':c.typeFrom==='last car'?' (kept from the last car)':'')):''; }
 function hapCarText(c){
   if(!c||!c.car) return '(none)';
   const type=hapCarTypeText(c)?' · '+hapCarTypeText(c):'';
@@ -2380,17 +2380,19 @@ function hapCarRow(c){
     // What the sim sent, exactly (the name and the id), and the entry it
     // matched: what a car table entry must be keyed by.
     const sent=(c&&c.car)?'\nThe sim sends: "'+c.car+'"'+(c.carId?', id "'+c.carId+'"':'')+(c.game?' ('+c.game+')':'')+(c.key?'; matched '+c.key:'; no entry matches'):'';
-    now.title=(((c&&c.defaults)?'The car table has no entry for '+c.car+', so follow car put the engine, limiter, driveline, ABS and TC on their defaults (the pink settings) rather than keep the last car\'s'+(c.described?', with the engine the game describes on top':'')+(c.type?'; the '+c.type+' starting point '+(c.typeFrom==='game'?'came from the game\'s type of car':'was applied by you'):'')+'. Pick a car like it in the preset box and apply it, or tune them and save for this car.'
+    now.title=(((c&&c.defaults)?'The car table has no entry for '+c.car+', so follow car put the engine, limiter, driveline, ABS and TC on their defaults (the pink settings) rather than keep the last car\'s'+(c.described?', with the engine the game describes on top':'')+(c.type?'; the '+c.type+' starting point '+(c.typeFrom==='game'?'came from the game\'s type of car':c.typeFrom==='last car'?'stays from the last car (the game\'s type of car for it)':'was applied by you'):'')+'. Pick a car like it in the preset box and apply it, or tune them and save for this car.'
       :(c&&c.near)?'No entry under this exact name: the table\'s '+(c.name||c.key)+' is the nearest (the name the sim gives starts with it). Save for this car to file your own under the sim\'s name.':'')+sent).trim();
   }
-  // The Type box shows the type in force for this car (from the game, or
-  // applied by you) unless you have picked another and not applied it yet.
+  // The Type box shows the type in force for this car (from the game,
+  // applied by you, or kept from the last car: a car change leaves the
+  // starting point on the tiles) unless you have picked another and not
+  // applied it yet.
   const ts=$('hapPresetSel');
   if(ts&&c&&c.car){ const inForce=c.type||'';
     if(!hapPresetPick||hapPresetPick===hapTypeInForce){ hapPresetPick=''; ts.value=[...ts.options].some(o=>o.value===inForce)?inForce:''; }
     hapTypeInForce=inForce;
     const o=ts.options[ts.selectedIndex];
-    ts.title=(o&&o.value&&o.value===inForce)?('In force for this car'+(c.typeFrom==='game'?', from the game':c.typeFrom==='you'?', applied by you':'')+(o.title?'. '+o.title:'')):((o&&o.title)||''); }
+    ts.title=(o&&o.value&&o.value===inForce)?('In force for this car'+(c.typeFrom==='game'?', from the game':c.typeFrom==='you'?', applied by you':c.typeFrom==='last car'?', kept from the last car (the game\'s type of car for it)':'')+(o.title?'. '+o.title:'')):((o&&o.title)||''); }
   // Forget drops yours for THIS car: a near match is another car's entry.
   const fb=$('hapCarForget'); if(fb) fb.disabled=!(c&&c.source==='user'&&!c.near);
   const pb=$('hapCarPull'); if(pb) pb.disabled=!(c&&c.source);

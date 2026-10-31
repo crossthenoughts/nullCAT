@@ -789,6 +789,11 @@ int main()
         const int gen0 = genNow();
         check(has(post("/api/haptics/presets/apply", "{\"name\":\"Open wheeler\"}"), "\"ok\":true"),
               "POST /api/haptics/presets/apply applies a known one");
+        // With no car named it is still the type in force (2026-10-30: one
+        // applied before Le Mans Ultimate's car came was not shown).
+        check(has(get("/api/status"), "\"hapCar\":\"\"") && has(get("/api/status"), "\"hapCarType\":\"Open wheeler\"")
+              && has(get("/api/status"), "\"hapCarTypeFrom\":\"you\""),
+              "...the type in force with no car named (status hapCarType, from you)");
         std::string rig = get("/api/rig");
         rig.erase(std::remove(rig.begin(), rig.end(), ' '), rig.end());
         check(has(rig, "\"peakDeg\":5.5") && has(rig, "\"fullMm\":18") && has(rig, "\"cylinders\":8")
@@ -832,6 +837,8 @@ int main()
         const std::string cars = get("/api/cars");
         check(has(cars, "\"car\":\"Mystery Car\"") && has(cars, "\"source\":\"\"") && has(cars, "\"defaults\":true"),
               "GET /api/cars: the car has no entry and the defaults are in use");
+        check(has(cars, "\"type\":\"Open wheeler\"") && has(cars, "\"typeFrom\":\"you\""),
+              "...and the starting point, on the tiles through two car changes, is still the type in force");
         // Save for this car files the saved five tiles under the current
         // car in the user layer (cars.local.json): the entry is then the
         // car's own, applied, and listed; forget drops it and the row
@@ -888,6 +895,24 @@ int main()
             std::string r2 = get("/api/rig");
             r2.erase(std::remove(r2.begin(), r2.end(), ' '), r2.end());
             check(has(r2, "\"cylinders\":8") && !has(r2, "\"cylinders\":6"), "...once: the same car described otherwise later changes nothing");
+            // Another car, described with no type of car: the game's type
+            // stays on the tiles, the last car's.
+            {
+                bool seen = false;
+                for (int t = 0, rpm = 3000; t < 10000 && !seen; t += 100, rpm += 7)
+                {
+                    const std::string line = std::string("NULLCATY,game=BeamNG.drive,car=bastion base,carId=bastion/base,engCylinders=6,engLayout=1,engLitres=3.0,rpm=")
+                        + std::to_string(rpm);
+                    TelemetryData td;
+                    if (TelemetryInput::parsePacket(line.c_str(), static_cast<int>(line.size()), td)) telemetry.ingest(td);
+                    const std::string c = get("/api/cars");
+                    seen = has(c, "\"carId\":\"bastion/base\"") && has(c, "\"described\":true");
+                    if (!seen) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
+                check(seen && has(get("/api/cars"), "\"type\":\"Cup car\"") && has(get("/api/cars"), "\"typeFrom\":\"last car\"")
+                      && has(get("/api/cars"), "\"typed\":false"),
+                      "a car change keeps the game's type of car in force, as the last car's (typeFrom last car)");
+            }
             // A type applied by hand is the type in force, yours. Breaks
             // with setCarType not called from the starting-point apply.
             check(has(post("/api/haptics/presets/apply", "{\"name\":\"Rally tarmac\"}"), "\"ok\":true")
@@ -897,8 +922,10 @@ int main()
         // (after the described car: the checks below run on this AC car)
         check(nameCar(telemetry, "AssettoCorsa", "Mazda 787B Le Mans", "\"hapCarKey\":\"ac:ks_mazda_787b\"", 10000)
               && has(get("/api/cars"), "\"near\":true") && has(get("/api/status"), "\"hapCarDefault\":false")
-              && has(get("/api/status"), "\"hapCarApplied\":true") && has(get("/api/cars"), "\"type\":\"\""),
+              && has(get("/api/status"), "\"hapCarApplied\":true"),
               "follow car: a name that starts with an entry's is a near match, applied");
+        check(has(get("/api/cars"), "\"type\":\"Rally tarmac\"") && has(get("/api/cars"), "\"typeFrom\":\"you\""),
+              "...its entry sets the car's own settings: the starting point applied by hand stays the type in force");
         // A save that moves a setting the car table owns (the engine's amp)
         // means the tiles no longer carry the entry: the car row stops
         // claiming it. One that moves nothing the car owns (the master
@@ -951,6 +978,8 @@ int main()
         // itself; then both profiles go, the binding with them.
         check(nameCar(telemetry, "iRacing", "Test Car", "\"hapProfile\":\"Bench\"", 10000),
               "the sim naming the bound car loads its profile (status hapProfile)");
+        check(waitStatus("\"hapCar\":\"Test Car\"", 5000) && has(get("/api/cars"), "\"type\":\"\""),
+              "...which replaces the whole set: no starting point in force");
         check(has(post("/api/haptics/profiles/delete", "{\"name\":\"Bench\"}"), "\"ok\":true")
               && has(post("/api/haptics/profiles/delete", "{\"name\":\"Other\"}"), "\"ok\":true")
               && has(get("/api/haptics/profiles"), "\"profiles\":[]") && !has(get("/api/haptics/profiles"), "car:Test Car"),
@@ -1331,7 +1360,8 @@ int main()
                   "...and the type in force is remembered across the restart (carstate.json)");
             check(nameCar(telemetry, "AssettoCorsa", "Ferrari F40", "\"hapCarApplied\":true", 10000) && genNow() == gen2 + 1,
                   "a different car after the restart is applied as ever");
-            check(has(get("/api/cars"), "\"type\":\"\""), "...with no type in force yet (a car change)");
+            check(has(get("/api/cars"), "\"type\":\"Open wheeler\"") && has(get("/api/cars"), "\"typeFrom\":\"you\""),
+                  "...the remembered starting point still in force (a car change leaves it on the tiles)");
 
             // ---- direct telemetry across the restart, and end to end ----
             // The choice (off, set before the restart) is remembered; the

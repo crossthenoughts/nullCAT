@@ -128,8 +128,13 @@ straight from the game.
   `not applied` beside the entry's `stock` or `yours`, and for a car the
   table has no entry for, `engine from the game` and `type Road car from
   the game` (or `type Rally tarmac (yours)` once you apply one) in place
-  of a bare `defaults`. The Type box shows the type in force for the car,
-  and remembers it across a restart.
+  of a bare `defaults`. The Type box shows the type in force, and
+  remembers it across a restart. A type stays in force through a car
+  change (a car's entry or the defaults set the car's own settings, never
+  the type's), so the next car shows it too, `(kept from the last car)`
+  when the game gave it for the car before; a type applied before the
+  game names its car shows as soon as it does, and loading a profile
+  clears it.
 - The desktop window takes the console's look: the slate housing, keys
   with lamps, dark value wells and the console's fonts, in the main window,
   Application Settings and the message boxes. It works exactly as before.

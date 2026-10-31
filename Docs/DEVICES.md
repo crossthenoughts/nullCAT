@@ -375,7 +375,11 @@ naming and what plays for it, in small tags: `stock` or `yours` (whose
 entry it is) with `applied` or `not applied`, `near match`, or `no
 entry`; and for a car the game describes, `engine from the game` and
 `type Road car from the game` (`type Rally tarmac (yours)` once you apply
-a type by hand). The **Type** box shows the type in force for the car.
+a type by hand). The **Type** box shows the type in force. A type stays
+in force when you change car, because a car's entry only sets the car's
+own settings, so the next car shows it too (`kept from the last car`
+when the game gave it for the car before) until its game gives its own
+or you apply another; loading a profile clears it.
 The **Car** row under it has **Re-apply**,
 which applies that entry to the five tiles again, and **More** with
 **save as mine** and **forget mine**. **Follow car** (on
