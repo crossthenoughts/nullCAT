@@ -39,8 +39,9 @@ straight from the game.
   sends direct telemetry (the BeamNG mod does), nullCAT takes the haptic
   channels from it and sets the others' aside, so the SimHub plugin can
   stay on for BeamNG; motion is never touched. When that sender stops,
-  the others are used again once one of them moves to another game, or
-  after five minutes: a game paused in a menu sends nothing, and the
+  the others are used again five seconds later once any of them names
+  another game (a game you start after it is picked up within seconds),
+  or after five minutes: a game paused in a menu sends nothing, and the
   SimHub plugin's own read of it no longer takes over and flips the car.
   The Haptics strip says *another sender set aside* while it happens, and
   *always on with this sender* for a sender like the mod, which the direct

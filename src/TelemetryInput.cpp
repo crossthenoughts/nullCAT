@@ -335,6 +335,20 @@ static void senderText(uint64_t s, char (&out)[24])
     std::snprintf(out, sizeof out, "%u.%u.%u.%u:%u", b[0], b[1], b[2], b[3], static_cast<unsigned>(ntohs(p)));
 }
 
+// Two names of one game, as different senders spell it (BeamNG.drive and
+// BeamNgDrive): the letters and digits, case aside.
+static bool sameGame(const char* a, const char* b)
+{
+    for (;;)
+    {
+        while (*a && !std::isalnum(static_cast<unsigned char>(*a))) ++a;
+        while (*b && !std::isalnum(static_cast<unsigned char>(*b))) ++b;
+        if (!*a || !*b) return !*a && !*b;
+        if (std::tolower(static_cast<unsigned char>(*a)) != std::tolower(static_cast<unsigned char>(*b))) return false;
+        ++a; ++b;
+    }
+}
+
 bool TelemetryInput::admitChannelLine(const TelemetryData& parsed, uint64_t sender, int64_t nowMs)
 {
     if (parsed.packetType != TelemetryPacketType::Ncx && parsed.packetType != TelemetryPacketType::Ncy) return true;
@@ -349,9 +363,18 @@ bool TelemetryInput::admitChannelLine(const TelemetryData& parsed, uint64_t send
         m_directLastMs   = nowMs;
         m_setAsideLogged = false;
         m_sourceChanged  = true;
+        m_directGame[0]  = '\0';
         m_asideGame[0]   = '\0';
         m_asideSender    = 0;
         m_lastHolder     = 0;
+    };
+    // The direct sender's own game, as it names it.
+    const auto holderGame = [&]() {
+        if (parsed.packetType == TelemetryPacketType::Ncy && parsed.game[0])
+        {
+            std::memcpy(m_directGame, parsed.game, NCY_STR_LEN);
+            m_directGame[NCY_STR_LEN - 1] = '\0';
+        }
     };
     if ((said == 'y' || said == 'o') && sender != 0)
     {
@@ -362,6 +385,7 @@ bool TelemetryInput::admitChannelLine(const TelemetryData& parsed, uint64_t send
             take();
         }
         m_directLastMs = nowMs;
+        holderGame();
         return true;
     }
     // The sender whose hold ran out sending again (a game back from a long
@@ -372,12 +396,14 @@ bool TelemetryInput::admitChannelLine(const TelemetryData& parsed, uint64_t send
         senderText(sender, who);
         RT_LOG_INFO("TelemetryInput: %s sends again: other senders' channel lines are set aside again.", who);
         take();
+        holderGame();
         return true;
     }
     if (m_directSender != 0 && sender == m_directSender)
     {
         // Its own line keeps it the source, after any gap.
         m_directLastMs = nowMs;
+        holderGame();
         if (said != 0)   // off or none: its own source, no longer direct
         {
             senderText(sender, who);
@@ -389,20 +415,23 @@ bool TelemetryInput::admitChannelLine(const TelemetryData& parsed, uint64_t send
     }
     if (m_directSender != 0)
     {
-        // The game the set-aside lines name under this hold, as the first
-        // sender to name one named it, and whether that sender now names
-        // another: the direct sender's game has closed and another started.
+        // Another game than the direct sender's own named in a set-aside
+        // line: the direct sender's game has closed and another started.
+        // Until the direct sender has named its game: the game the first
+        // sender to name one named, and that sender naming another.
         bool otherGame = false;
         if (parsed.packetType == TelemetryPacketType::Ncy && parsed.game[0])
         {
-            if (!m_asideGame[0])
+            if (m_directGame[0])
+                otherGame = !sameGame(parsed.game, m_directGame);
+            else if (!m_asideGame[0])
             {
                 std::memcpy(m_asideGame, parsed.game, NCY_STR_LEN);
                 m_asideGame[NCY_STR_LEN - 1] = '\0';
                 m_asideSender = sender;
             }
             else if (sender == m_asideSender)
-                otherGame = std::strncmp(parsed.game, m_asideGame, NCY_STR_LEN) != 0;
+                otherGame = !sameGame(parsed.game, m_asideGame);
         }
         const int64_t quiet = nowMs - m_directLastMs;
         if (quiet >= kDirectHoldMs || (otherGame && quiet >= kDirectQuietMs))

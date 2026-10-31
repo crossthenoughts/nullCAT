@@ -183,8 +183,13 @@ public:
     // source after any gap; it lets go when it says off or none, when
     // another sender's line comes kDirectHoldMs after its last (the game
     // closed, the mod switched off), or sooner, kDirectQuietMs or more
-    // after its last, when the first sender to name a game in a set-aside
-    // line names another than it did (another game started): the others
+    // after its last, when a set-aside line names another game than the
+    // direct sender's own (names compared without case or punctuation:
+    // BeamNgDrive is BeamNG.drive), from any sender: another game started
+    // (2026-10-30: Le Mans Ultimate's lines after Assetto Corsa Rally's came
+    // from a new socket and waited 38 s for the hold to run out). Until the
+    // direct sender has named its game, the first sender to name one in a
+    // set-aside line naming another than it did counts instead. The others
     // are used again. A game paused in a menu sends nothing for as long as
     // it sits there (BeamNG 2026-10-29: 42 s, and twice about 2 minutes)
     // while the SimHub plugin goes on sending its own read of the same
@@ -312,12 +317,14 @@ private:
     std::atomic<uint64_t> m_ncySender{0};
     std::atomic<char>     m_senderDirect{0};
     // admitChannelLine: the direct sender (0 = none), its last channel
-    // line, the game the set-aside lines first named under its hold and
-    // the sender that named it, the sender whose hold last ran out, and a
-    // change of source for the next ingest to start the store clean on
-    // (receive path only); when a line was last set aside.
+    // line, the game it names (empty until it does), the game the
+    // set-aside lines first named under its hold and the sender that named
+    // it, the sender whose hold last ran out, and a change of source for
+    // the next ingest to start the store clean on (receive path only);
+    // when a line was last set aside.
     uint64_t              m_directSender   = 0;
     int64_t               m_directLastMs   = 0;
+    char                  m_directGame[NCY_STR_LEN] = {};
     char                  m_asideGame[NCY_STR_LEN] = {};
     uint64_t              m_asideSender    = 0;
     uint64_t              m_lastHolder     = 0;

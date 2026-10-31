@@ -477,12 +477,12 @@ int main()
     // sending its own read of it (BeamNG 2026-10-29: 42 s in a menu, twice
     // about 2 minutes; the plugin's 'beam' car took over at 5 s and flipped
     // the car): the hold lasts kDirectHoldMs after the direct sender's last
-    // line, and ends sooner, from kDirectQuietMs, only when the first sender
-    // to name a game in a set-aside line names another (another game
+    // line, and ends sooner, from kDirectQuietMs, only when a set-aside line
+    // names another game than the direct sender's own (another game
     // started). Breaks with the hold at 5 s or a minute, with any game name
-    // ending it, with another game ending it while the direct sender still
-    // sends, with a third sender's game ending it, or with a takeover
-    // keeping the last hold's game.
+    // ending it, with the same game spelt another way ending it (the mod's
+    // BeamNG.drive, the plugin's BeamNgDrive), or with another game ending
+    // it while the direct sender still sends.
     {
         TelemetryInput ti;
         const uint64_t mod = (uint64_t(1) << 48) | 0x0101A8C00001ull, plugin = (uint64_t(1) << 48) | 0x0101A8C00002ull;
@@ -515,8 +515,9 @@ int main()
     // A hold run out (a pause past kDirectHoldMs): the others are used; the
     // direct sender back takes the source with its first line, before its
     // identity names its source again (no line of the others mixed in).
-    // A third sender naming its own game ends nothing; a takeover starts
-    // the game the set-aside lines name afresh.
+    // A third sender naming the direct sender's game ends nothing; a
+    // takeover by a sender that has not named its game yet starts the game
+    // the set-aside lines name afresh.
     {
         TelemetryInput ti;
         const uint64_t mod = (uint64_t(1) << 48) | 0x0101A8C00001ull, plugin = (uint64_t(1) << 48) | 0x0101A8C00002ull,
@@ -530,23 +531,72 @@ int main()
         send(mod, "NULLCATY,game=BeamNG.drive,car=vivace,carId=vivace/x,direct=only");
         check(!send(plugin, "NULLCATY,game=BeamNgDrive,car=beam,direct=none"), "held: (setup) the plugin's lines set aside");
         now += 7000;
-        check(!send(third, "NULLCATY,game=SomeOtherSim,car=y,direct=none") && !send(plugin, "NULLCATY,rpm=900"),
-              "held: a third sender naming its own game ends nothing (only the first sender's game counts)");
+        check(!send(third, "NULLCATY,game=BEAMNG DRIVE,car=y,direct=none") && !send(plugin, "NULLCATY,rpm=900"),
+              "held: a third sender naming the direct sender's game (spelt its own way) ends nothing");
         now += TelemetryInput::kDirectHoldMs;
         check(send(plugin, "NULLCATY,rpm=950"), "held: a pause past the hold: the others are used again");
         check(send(mod, "NULLCATY,rpm=1300,speedKmh=0") && !send(plugin, "NULLCATY,rpm=960"),
               "held: the direct sender back takes the source with its first line (no identity yet): the others set aside again");
         check(ti.getLatestData().ncy[NcxTok::Rpm] == 1300.0, "held: ...and the store holds its values, not the others'");
-        // A takeover: the plugin first names IRacing under the mod's hold;
-        // AC's own sender takes over; under its hold the plugin naming
-        // BeamNgDrive is that hold's first game, not another one.
+        // A takeover: the plugin first names IRacing under the mod's hold
+        // (the mod back, its game not named again yet); AC's own sender
+        // takes over before naming its game; under its hold the plugin
+        // naming BeamNgDrive is that hold's first game, not another one.
         check(!send(plugin, "NULLCATY,game=IRacing,car=x,direct=none"), "takeover: (setup) a game named under the first hold");
-        check(send(ac, "NULLCATY,game=AssettoCorsa,car=z,direct=on") && !send(mod, "NULLCATY,rpm=1"), "takeover: another direct sender takes over");
+        check(send(ac, "NULLCATY,car=z,direct=on") && !send(mod, "NULLCATY,rpm=1"), "takeover: another direct sender takes over");
         now += 6000;
         check(!send(plugin, "NULLCATY,game=BeamNgDrive,car=beam,direct=none"),
               "takeover: under the new hold the first game named is its own (the last hold's IRacing forgotten)");
         check(send(plugin, "NULLCATY,game=IRacing,car=x,direct=none"),
               "takeover: ...so the plugin then naming another game ends the new hold (AC's sender quiet 6 s)");
+    }
+    // Another game started on a sender of its own (2026-10-30: the SimHub
+    // plugin's Le Mans Ultimate lines came from a new socket while Assetto
+    // Corsa Rally's direct read, quiet since the rally ended, still held;
+    // they waited 38 s for the hold to run out): a set-aside line from any
+    // sender naming another game than the direct sender's own ends the hold
+    // kDirectQuietMs after its last line. Until the direct sender names its
+    // game, only the first sender to name one naming another counts (a
+    // third sender's own game ends nothing). Breaks with only the first
+    // set-aside sender's game counting, or with the fallback dropped.
+    {
+        TelemetryInput ti;
+        const uint64_t rally = (uint64_t(1) << 48) | 0x0101A8C00001ull, lmu = (uint64_t(1) << 48) | 0x0101A8C00002ull;
+        int64_t now = 1000;
+        auto send = [&](uint64_t from, const char* line) {
+            TelemetryData p; TelemetryInput::parsePacket(line, (int)std::strlen(line), p);
+            const bool in = ti.admitChannelLine(p, from, now);
+            if (in) ti.ingest(p);
+            return in; };
+        check(send(rally, "NULLCATY,game=AssettoCorsaRally,car=audi,direct=on") && send(rally, "NULLCATY,rpm=6000"),
+              "new game: (setup) the rally's direct read holds");
+        now += 1000;
+        check(!send(lmu, "NULLCATY,game=LMU,car=tf,carId=GT3_TF,direct=none"), "new game: another game named 1 s after the holder's last line: set aside");
+        now += 3000;
+        check(!send(lmu, "NULLCATY,game=LMU,car=tf,carId=GT3_TF,direct=none"), "new game: ...4 s after: still set aside");
+        now += 1000;
+        check(send(lmu, "NULLCATY,game=LMU,car=tf,carId=GT3_TF,direct=none") && send(lmu, "NULLCATY,rpm=7000"),
+              "new game: 5 s after the holder's last line, the new sender's game (never another of its own) ends the hold");
+        check(std::string(ti.getLatestData().carId) == "GT3_TF" && ti.getLatestData().ncy[NcxTok::Rpm] == 7000.0,
+              "new game: ...and the store holds the new game's car and values");
+    }
+    {
+        TelemetryInput ti;
+        const uint64_t mod = (uint64_t(1) << 48) | 0x0101A8C00001ull, plugin = (uint64_t(1) << 48) | 0x0101A8C00002ull,
+                       third = (uint64_t(1) << 48) | 0x0101A8C00003ull;
+        int64_t now = 1000;
+        auto send = [&](uint64_t from, const char* line) {
+            TelemetryData p; TelemetryInput::parsePacket(line, (int)std::strlen(line), p);
+            const bool in = ti.admitChannelLine(p, from, now);
+            if (in) ti.ingest(p);
+            return in; };
+        check(send(mod, "NULLCATY,car=vivace,direct=only") && !send(plugin, "NULLCATY,game=BeamNgDrive,car=beam,direct=none"),
+              "unnamed holder: (setup) a direct sender that names no game holds; the plugin's game is the first named");
+        now += 7000;
+        check(!send(third, "NULLCATY,game=SomeOtherSim,car=y,direct=none") && !send(plugin, "NULLCATY,rpm=900"),
+              "unnamed holder: a third sender naming its own game ends nothing (only the first sender's game counts)");
+        check(send(plugin, "NULLCATY,game=IRacing,car=x,direct=none"),
+              "unnamed holder: the first sender naming another game ends the hold (the holder quiet 7 s)");
     }
     // One sender that says direct=on (the SimHub plugin's Assetto Corsa
     // read): everything it sends is used, nothing is set aside.
