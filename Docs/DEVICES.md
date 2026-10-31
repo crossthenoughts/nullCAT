@@ -562,7 +562,7 @@ still carry; a belt or shaker takes a finer one). The rears give
 its own mix and carrier. **peak deg** is the slip angle at which a tyre is
 fully gone (7 for most cars; lower for slicks, higher for road tyres);
 the slide starts at **onset %** of it (40 by default; below that is
-normal cornering). **ease** shapes the way in: 0 rises straight up to a
+normal cornering) when learn onset, below, is off. **ease** shapes the way in: 0 rises straight up to a
 full slide at peak deg, 1 (the default) starts as a light scrub and
 builds, 2 starts lighter still. **smooth hz** steadies the slip angle the
 sim sends (8 by default; 0 = as sent): it arrives about 60 times a
@@ -578,16 +578,25 @@ sideways g against how far its tyres slip: the g rises with the slip up
 to the tyres' limit and then stops rising, and that limit is learned for
 the fronts and the rears apart. Every car has its own (2 to 13 degrees
 on the recordings, more on a combined slip), so one fixed onset plays too
-early in some cars and too late in others. The slide then starts at
-**learned onset %** of the limit (80 by default: a light scrub as the
-tyres reach it) and is full at **learned full x** it (2 by default). It
-learns in steady corners above 60 km/h and trusts a limit only once you
-have driven past it a few times, usually within the first minute or two;
-until then onset % and peak deg play, and so they do with learn onset
-off. The learn onset row shows the limit found for each axle. It needs
-the car's g and turn rate from the sim; a game whose sideways g does not
-match the car's turning is not learned from, and the row says so. A
-different car is learned afresh.
+early in some cars and too late in others. The slide starts at **learned
+onset %** of the limit (80 by default: a light scrub as the tyres reach
+it) and is full at **learned full x** it (2 by default), or where the
+tyre's grip falls away past its best if that is later: some tyres keep
+their grip over a wide range of slip (a GT3's fronts in Le Mans Ultimate
+from 2 to 8 degrees), and a corner taken at their best then grows through
+the scrub instead of sitting at full. The limit starts from **peak deg**
+over learned full x (so a full slide at peak deg, which the type of car
+sets) and moves to the car's own as it learns: about half way after 5
+seconds at or past the limit (a minute or so of driving), most of the
+way within a few minutes, never in a jump. Onset % is not used with learn onset on;
+with it off, onset % and peak deg play as before. The learn onset row
+shows the limit in use for each axle and how far it is the car's own. It
+needs the car's g and turn rate from the sim; a game without them, or
+whose sideways g does not match the car's turning, plays onset % and
+peak deg as with learn onset off (a car it had already learned keeps
+what it learned), and the row says so. What it learns is kept while
+nullCAT runs (through pauses and pit stops) and learned afresh for a
+different car.
 
 **grip budget** (on by default) treats each tyre's grip as one budget
 shared between cornering and braking or driving, as a real tyre's is.

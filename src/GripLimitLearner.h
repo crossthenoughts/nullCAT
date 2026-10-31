@@ -26,6 +26,16 @@
 //     g, corners at one g whatever the angle and straights at none, is a
 //     step, and taught a limit at the first cornering bin: a full slide in
 //     every corner).
+//   - Past its peak, where the g falls away (to kFallShare of the
+//     plateau): the far end of the tyre's best (fall; 0 = not seen). A tyre
+//     with a long flat top (Le Mans Ultimate's GT3 fronts: 90 % of the top
+//     at 1.9 deg, the top at 5.6, falling past 8) has it far past its knee.
+//   - The evidence for the limit: the seconds spent at or past it
+//     (nearSec); weight() leans the limit in use from a preset to the
+//     learned one by it, half way at kEvidenceHalfSec (5 s: Le Mans
+//     Ultimate's rears spend about 6 s a minute there; at 30 s they played
+//     3 to 5 % of the time on the replays, against 17 to 26 % on the
+//     learned limit as it was).
 //   - Trusted only once the car has been past it, pastSec in the bins at
 //     kPastX x the limit or more (a driver who has not found the limit
 //     yet shows no plateau); after that it eases to each new estimate
@@ -52,6 +62,8 @@ struct GripLimitLearner
     static constexpr int    kMinBins     = 4;
     static constexpr double kClimbLo     = 0.3, kClimbHi = 0.85;
     static constexpr int    kClimbBins   = 2;
+    static constexpr double kFallShare   = 0.97;
+    static constexpr double kEvidenceHalfSec = 5.0;
 
     explicit GripLimitLearner(double from = 0.25, double ratio = 1.13) : x0(from), step(ratio) {}
     // The bins by what is learned: a slip angle (deg, 0.25 to about 20),
@@ -63,10 +75,15 @@ struct GripLimitLearner
     double x0, step;                    // bin i spans x0 x step^i .. x0 x step^(i+1)
     double sec[BINS] = {}, g[BINS] = {};
     double limit  = 0.0;                // the slip at the limit; 0 = not learned yet
+    double fall   = 0.0;                // past the peak, where the g has fallen away; 0 = not seen
+    double nearSec = 0.0;               // seconds of samples at or past the limit (its evidence)
     double fedSec = 0.0;                // seconds of samples in all (for the tile)
     double evalIn = 0.0;
 
     bool learned() const { return limit > 0.0; }
+    // How far to trust the learned limit over a preset: 0 not learned, then
+    // half way at kEvidenceHalfSec at or past it, towards 1.
+    double weight() const { return learned() ? nearSec / (nearSec + kEvidenceHalfSec) : 0.0; }
     double centre(int i) const { return x0 * std::pow(step, i + 0.5); }
 
     // One sample: the slip and the car's g (both positive), held dtSec.
@@ -110,6 +127,19 @@ struct GripLimitLearner
         double past = 0.0;
         for (int i = 0; i < BINS; ++i) if (centre(i) >= kPastX * at) past += sec[i];
         if (past < pastSec) return;
-        limit = learned() ? limit + std::min(1.0, kEvalSec / kEaseSec) * (at - limit) : at;
+        const double ease = std::min(1.0, kEvalSec / kEaseSec);
+        limit = learned() ? limit + ease * (at - limit) : at;
+        double atLimit = 0.0;
+        for (int i = 0; i < BINS; ++i) if (centre(i) >= limit) atLimit += sec[i];
+        nearSec = atLimit;
+        int peak = 0;
+        for (int k = 1; k < n; ++k) if (sm[k] > sm[peak]) peak = k;
+        for (int k = peak + 1; k < n; ++k)
+            if (sm[k] <= kFallShare * plateau)
+            {
+                const double f = centre(idx[k]);
+                fall = (fall > 0.0) ? fall + ease * (f - fall) : f;
+                break;
+            }
     }
 };

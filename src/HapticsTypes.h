@@ -107,11 +107,13 @@ struct SlipParams
     double baseDegF = 0.0;
     double baseDegR = 0.0;
     // Slip from the car's g (GripLimitLearner.h): learn 1 = the onset
-    // taken from where this car's g stops rising with its slip, per axle,
-    // once that is learned (the Lateral tile: a slide from learnOnsetPct %
-    // of that limit, full at learnFullX x it; the Longitudinal tile: the
-    // lock from 1.5 x the braking limit, never below its usual 0.15); the
-    // fixed onset until then, and with learn 0.
+    // taken from where this car's g stops rising with its slip, per axle
+    // (the Lateral tile: a slide from learnOnsetPct % of the limit in use,
+    // which starts at peak / learnFullX and moves to the learned one by its
+    // evidence, full at learnFullX x it or where the grip falls away; the
+    // Longitudinal tile: the lock from 1.5 x the braking limit, never below
+    // its usual 0.15, the fixed onset until that is learned); with learn 0,
+    // the fixed onset.
     double learn         = 1.0;
     double learnOnsetPct = 80.0;
     double learnFullX    = 2.0;

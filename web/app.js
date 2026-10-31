@@ -2587,13 +2587,16 @@ function hapLive(s){
           if(+s.hapLatSrc!==3){ dim=true; why='Only for a sim that sends a slip speed rather than a slip angle (Automobilista 2, Le Mans Ultimate)'; }
           else if(key!=='baseMode'&&Math.round(+t.dv.baseMode)!==2){ dim=true; why='Used with baseline fixed only'; }
         }
-        // Learn onset: once this car is learned its own onset and full slide
-        // play; the learned % and x only matter with it on.
+        // Learn onset: onset % is not used with it on (the slide starts at
+        // learned onset % of the grip limit, which starts at peak deg over
+        // learned full x); the learned % and x only matter with it on, and
+        // not in a game it cannot learn from (onset % and peak deg play).
         if(k==='slipLat'){
-          const learnOn=Math.round(+t.dv.learn)===1, g=s.hapGrip||{}, gs=+g.src||0;
-          const used=learnOn&&gs>0&&gs===(+s.hapLatSrc||0)&&+g.f>0&&+g.r>0;
+          const learnOn=Math.round(+t.dv.learn)===1, gg=s.hapGrip||{}, gt=+gg.turn, gs=+gg.src||0;
+          const fixedNow=gs!==0&&Math.max(+gg.wf||0,+gg.wr||0)<0.05&&(gt===-1||gt===2);
           if(!learnOn&&(key==='learnOnsetPct'||key==='learnFullX')){ dim=true; why='Learn onset is off'; }
-          else if(used&&!dim&&(key==='onsetPct'||key==='peakDeg'||key==='peakPct')){ dim=true; why='Learn onset is on and this car is learned: its slide starts at learned onset % of its grip limit and is full at learned full x it (the limit is on the learn onset row). Yours plays until a car is learned, and with learn onset off.'; }
+          else if(learnOn&&fixedNow&&(key==='learnOnsetPct'||key==='learnFullX')){ dim=true; why='Onset % and peak deg play: learn onset cannot learn from this game (the learn onset row says why)'; }
+          else if(learnOn&&gs!==0&&!fixedNow&&!dim&&key==='onsetPct'){ dim=true; why='Learn onset is on: the slide starts at learned onset % of the grip limit, which starts at peak deg over learned full x and moves to the car\'s own as it learns (the limit is on the learn onset row). Onset % plays with learn onset off, and in a game it cannot learn from.'; }
         }
         row.classList.toggle('dim',dim);
         titled(row,why);
@@ -2642,14 +2645,21 @@ function hapLive(s){
       if(lr){
         let txt='', warn=false;
         if(k==='slipLat'){
-          const src=+g.src||0, u=src===2?'':'°', f=+g.f||0, r=+g.r||0, turn=+g.turn;
-          const val=(x)=>x>0?x.toFixed(1)+u:'-';
-          txt=(f>0||r>0)?' (grip limit F '+val(f)+' R '+val(r)+')'
-             :turn===-1?' (needs the car\'s g and turn rate)'
-             :src===0?' (needs a slip per wheel)'
-             :turn===2?' (not learning: the car\'s sideways g does not match its turning)'
-             :' (learning'+(+g.sec>0?', '+(+g.sec).toFixed(0)+' s':'')+')';
-          warn=on&&!(f>0||r>0);
+          // The limit in use per axle: the preset until the car's g moves it
+          // (wf, wr: how far the learned one weighs in it).
+          const src=+g.src||0, u=src===2?'':'°', turn=+g.turn, wf=+g.wf||0, wr=+g.wr||0;
+          const ax=(x,w)=>(x>0?x.toFixed(1)+u:'-')+(w<0.05?' the preset':w<0.9?' '+Math.round(w*100)+' % the car\'s own':' the car\'s own');
+          const lim='F '+ax(+g.f||0,wf)+', R '+ax(+g.r||0,wr);
+          // A game it cannot learn from plays onset % and peak deg (unless
+          // a limit was learned before it said so).
+          const none=Math.max(wf,wr)<0.05;
+          const why=turn===2?'; not learning more: the car\'s sideways g does not match its turning'
+                   :Math.min(wf,wr)<0.9?'; learning'+(+g.sec>0?', '+(+g.sec).toFixed(0)+' s':''):'';
+          txt=src===0?' (needs a slip per wheel)'
+             :none&&turn===-1?' (onset % and peak deg play: it needs the car\'s g and turn rate to learn)'
+             :none&&turn===2?' (onset % and peak deg play: the car\'s sideways g does not match its turning)'
+             :' (grip limit '+lim+why+')';
+          warn=on&&src!==0&&none;
         } else {
           const lon=+g.lon||0, lock=+g.lock||0.15;
           txt=lon>0?(' (grip limit '+(lon*100).toFixed(0)+' %'+(on?', lock from '+(lock*100).toFixed(0)+' %':'')+')'):' (learning)';

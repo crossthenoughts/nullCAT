@@ -163,9 +163,9 @@ struct LawsState
     // g, and whether last cycle had them); the cornering that shows whether
     // its sideways g matches its turning (seconds at kGripTurnG or more by
     // the turn rate, and those with the g within kGripTurnTol of it), and
-    // whether the sim has sent the g and turn rate at all; how far each
-    // learned limit is blended in (0 the tile's fixed onset .. 1 learned);
-    // the lock onset in force (for the tile).
+    // whether the sim has sent the g and turn rate at all; the lateral
+    // slide's onset, full point and limit in use (beside them); the lock
+    // onset in force (for the tile).
     GripLimitLearner gripLat[3][2] = { { GripLimitLearner::angle(),    GripLimitLearner::angle() },
                                        { GripLimitLearner::combined(), GripLimitLearner::combined() },
                                        { GripLimitLearner::angle(),    GripLimitLearner::angle() } };
@@ -175,7 +175,10 @@ struct LawsState
     bool   gripAySeen = false, gripAxSeen = false;
     bool   gripGSent = false;
     double gripTurnSec = 0.0, gripTurnOkSec = 0.0;
-    double gripBlend[3][2] = {}, gripLockBlend = 0.0;
+    double gripOnUse[3][2] = {}, gripPkUse[3][2] = {};   // the learned way's onset and full slide per source and axle, eased (0 = none yet: set at once)
+    double gripBlend[3][2] = {};                         // ...and how far it plays over the tile's onset % and peak deg (0 .. 1)
+    double gripUse[2] = {}, gripWeight[2] = {};          // the limit in use for the source in use, and the weight of the learned one in it (the tile)
+    double gripLockBlend = 0.0;
     double gripLockOnset = 0.0;
     // The g as last seen and how long neither has moved (a paused game
     // resending its last frame teaches nothing); the fixed baseline the
@@ -189,6 +192,7 @@ struct LawsState
 inline void forgetGripSlipSpeed(LawsState& st)
 {
     st.gripLat[2][0] = st.gripLat[2][1] = GripLimitLearner::angle();
+    st.gripOnUse[2][0] = st.gripOnUse[2][1] = st.gripPkUse[2][0] = st.gripPkUse[2][1] = 0.0;
     st.gripBlend[2][0] = st.gripBlend[2][1] = 0.0;
 }
 
@@ -517,11 +521,16 @@ inline int gripTurnState(const LawsState& st)
     if (st.gripTurnSec < laws_k::kGripTurnSec) return 0;
     return gripTurnOk(st) ? 1 : 2;
 }
-// For the tile: an axle's sideways limit for the lateral source last in
-// use (0 = not learned, or no source yet), and the seconds it learned from.
+// For the tile: an axle's sideways limit in use for the lateral source last
+// in use (the preset until the car's g moves it; 0 = no source yet), how far
+// the learned one weighs in it (0 .. 1), and the seconds it learned from.
 inline double gripLatLimit(const LawsState& st, int axle)
 {
-    return (st.gripSrc > 0) ? st.gripLat[st.gripSrc - 1][axle].limit : 0.0;
+    return (st.gripSrc > 0) ? st.gripUse[axle] : 0.0;
+}
+inline double gripLatWeight(const LawsState& st, int axle)
+{
+    return (st.gripSrc > 0) ? st.gripWeight[axle] : 0.0;
 }
 inline double gripLatSec(const LawsState& st)
 {
@@ -1306,16 +1315,38 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 for (int w = 0; w < WHEEL_COUNT; ++w) st.slipF[w] = in[w];
                 st.slipSrc = src;
             }
-            // Slip from the car's g: where each axle's grip runs out, learned
-            // (below, after the smoothing) for each source in its own units;
-            // a moment on another source, or a gap in the stream (no source),
-            // keeps what this one learned. With learn on, once an axle is
-            // learned its slide starts at learned onset % of that limit and
-            // is full at learned full x it, blended in over kGripBlendSec; the
-            // tile's onset and peak until then, and with learn off.
+            // Slip from the car's g, learned (below, after the smoothing) for
+            // each source in its own units; a moment on another source, or a
+            // gap in the stream (no source), keeps what this one has. With
+            // learn on, each axle's limit starts at the preset (peak deg, or
+            // peak % on a combined slip, over learned full x: a full slide at
+            // peak) and leans to the learned one as the evidence builds
+            // (GripLimitLearner::weight); the slide starts at learned onset %
+            // of it and is full at learned full x it or, once seen, where the
+            // g falls away past its peak, whichever is later (Le Mans
+            // Ultimate's GT3 fronts, a long flat top, sat at full through
+            // every corner taken at the tyre's best), eased (kGripBlendSec,
+            // no jump). Never from the tile's onset % (0 played every slip
+            // until a car was learned). Learn off, and a game it cannot learn
+            // from (no g and turn rate, or a sideways g that does not match
+            // the turning, nothing learned on either axle: AC Rally's gravel
+            // kept its light scrub from onset 0 on the replays): the tile's
+            // onset % and peak deg, at once (an edit while driving lands at
+            // once). Between the two, blended over kGripBlendSec; a new car
+            // or source starts on its way at once.
             if (src != 0) st.gripSrc = src;
             const double lOn   = std::max(0.3, std::min(1.0, sp.learnOnsetPct / 100.0));
             const double lFull = std::max(1.2, std::min(4.0, sp.learnFullX));
+            bool learnPath = false;
+            if (src != 0)
+            {
+                // (this frame's g counts: the flag is set further on, and
+                // a car's first frame would take the tile's way).
+                int turn = gripTurnState(st);
+                if (turn == -1 && v.have[NcxValues::AccSway] && v.have[NcxValues::YawRate] && v.have[NcxValues::AccSurge]) turn = 0;
+                const double wAny = std::max(st.gripLat[src - 1][0].weight(), st.gripLat[src - 1][1].weight());
+                learnPath = sp.learn >= 0.5 && (wAny > 0.0 || (turn != -1 && turn != 2));
+            }
             double onAx[2], pkAx[2];   // the onset and full slide per axle (0 front, 1 rear), in the source's units
             for (int a = 0; a < 2; ++a)
             {
@@ -1323,11 +1354,25 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                 onAx[a] = fixOn; pkAx[a] = fixPk;
                 if (src == 0) continue;
                 const GripLimitLearner& g = st.gripLat[src - 1][a];
-                double& b = st.gripBlend[src - 1][a];
-                b = (sp.learn >= 0.5 && g.learned()) ? std::min(1.0, b + dtSec / kGripBlendSec)
-                                                     : std::max(0.0, b - dtSec / kGripBlendSec);
-                onAx[a] = fixOn + b * (lOn * g.limit - fixOn);
-                pkAx[a] = fixPk + b * (lFull * g.limit - fixPk);
+                const double w     = g.weight();
+                const double prior = fixPk / lFull;
+                const double lim   = prior + w * (g.limit - prior);
+                const double full  = fixPk + w * (std::max(lFull * g.limit, g.fall) - fixPk);
+                st.gripUse[a] = lim; st.gripWeight[a] = w;
+                const double tOn = lOn * lim, tPk = std::max(full, 1.2 * tOn);
+                double& uo = st.gripOnUse[src - 1][a];
+                double& up = st.gripPkUse[src - 1][a];
+                double& b  = st.gripBlend[src - 1][a];
+                if (up <= 0.0) { uo = tOn; up = tPk; b = learnPath ? 1.0 : 0.0; }
+                else
+                {
+                    const double k = std::min(1.0, dtSec / kGripBlendSec);
+                    uo += k * (tOn - uo);
+                    up += k * (tPk - up);
+                    b = learnPath ? std::min(1.0, b + dtSec / kGripBlendSec) : std::max(0.0, b - dtSec / kGripBlendSec);
+                }
+                onAx[a] = fixOn + b * (uo - fixOn);
+                pkAx[a] = fixPk + b * (up - fixPk);
             }
             const auto curve = [ease](double lin) { return std::pow(std::max(0.0, std::min(1.0, lin)), 1.0 + ease); };
             // An angle from a slip speed fades in with road speed (below
