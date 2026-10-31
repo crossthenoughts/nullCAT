@@ -313,12 +313,25 @@ int main()
         const EtherCATMaster::PumpReport r = master.lastPumpReport();
         std::printf("  S-11 gaps (ms): to the bridge %.2f, in it %.2f, to the pump %.2f, in it %.2f; bridge short %d\n",
                     r.gapToBridgeUs / 1000.0, r.bridgeMaxGapUs / 1000.0, r.gapToPumpUs / 1000.0, r.pumpMaxGapUs / 1000.0, r.bridgeShort);
-        // About 2 ms each (the bridge starts a period on); 15 ms is the
-        // Pi's fault and a slow runner's worst, so the bound sits between.
-        check(r.gapToBridgeUs >= 0.0 && r.gapToBridgeUs < 15000.0 && r.bridgeMaxGapUs >= 0.0 && r.bridgeMaxGapUs < 15000.0,
-              "S-11 the bridge follows the loop's last frame and keeps its cadence (every gap under 15 ms)");
-        check(r.gapToPumpUs >= 0.0 && r.gapToPumpUs < 15000.0 && r.pumpMaxGapUs >= 0.0 && r.pumpMaxGapUs < 15000.0,
-              "S-11 the pump follows the bridge and keeps its cadence (every gap under 15 ms)");
+        // About 2 ms each (the bridge starts a period on); 13 ms was the
+        // Pi's fault. 15 ms on Linux. Windows 11 may ignore a windowless
+        // console process's timer request, so its sleeps take the system
+        // tick (15.6 ms): there the bound adds the tick measured here.
+        double tickUs = 0.0;
+#ifdef _WIN32
+        for (int i = 0; i < 10; ++i)
+        {
+            const auto a = std::chrono::steady_clock::now();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            tickUs = std::max(tickUs, std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - a).count());
+        }
+#endif
+        const double boundUs = 15000.0 + tickUs;
+        std::printf("  S-11 bound %.1f ms (timer tick %.1f ms)\n", boundUs / 1000.0, tickUs / 1000.0);
+        check(r.gapToBridgeUs >= 0.0 && r.gapToBridgeUs < boundUs && r.bridgeMaxGapUs >= 0.0 && r.bridgeMaxGapUs < boundUs,
+              "S-11 the bridge follows the loop's last frame and keeps its cadence (every gap under 15 ms, plus a coarse timer's tick)");
+        check(r.gapToPumpUs >= 0.0 && r.gapToPumpUs < boundUs && r.pumpMaxGapUs >= 0.0 && r.pumpMaxGapUs < boundUs,
+              "S-11 the pump follows the bridge and keeps its cadence (every gap under 15 ms, plus a coarse timer's tick)");
         check(r.bridgeShort == 0, "S-11 the bridge's replies in full, on record");
         const std::vector<size_t> who = bus.frameThreads();
 #ifndef _WIN32
