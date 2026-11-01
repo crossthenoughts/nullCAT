@@ -9,9 +9,11 @@ middle number carries breaking changes and the last carries fixes.
 ## [0.9.10] - 2026-10-26
 
 The UI overhaul release. The web page is a new instrument console: the
-same controls, settings, saves and readouts as 0.9.9, laid out as a
+same controls, settings, saves and readouts as before, laid out as a
 console of glowing displays, lamps and keys, in three housings. Going
-back to 0.9.9 brings the old page back, without the additions below.
+back to 0.9.8 brings the old page back, without the additions below and
+without 0.9.9's (that version was never published; its changes ship with
+this one).
 
 With it: a belt on the car's g whose g settings apply on Save with the loop
 running and whose g at max follows the type of car, two rally types of car,
