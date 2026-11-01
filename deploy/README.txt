@@ -22,8 +22,9 @@ RUN
   * Logs are written to logs\app.log next to the exe.
 
 WEB UI (optional on the desktop; primary on a NUC)
-  * Click "Enable Web UI" in the app, then "Open Web UI" - or set
-    "webUIEnabled": true in host.json. Default bind is localhost (127.0.0.1).
+  * Switch the web server on with the Off/On key in the app, then click
+    "Web UI" - or set "webUIEnabled": true in host.json. Default bind is
+    localhost (127.0.0.1).
   * On the desktop the host settings are read-only in the browser (the app owns
     them); axes + tuning are edited there.
 

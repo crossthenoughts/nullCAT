@@ -1001,7 +1001,7 @@ void MainWindow::onOpenWebUI()
     if (!m_webServer->isRunning())
     {
         QMessageBox::information(this, "Web UI",
-            "The web UI is not running. Click \"Enable Web UI\" first.");
+            "The web server is off. Switch it on with the Off/On key beside \"Web UI\" first.");
         return;
     }
     // Bind addr 0.0.0.0 means "all interfaces"; browse to loopback locally.
