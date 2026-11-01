@@ -99,4 +99,13 @@ dist/
 .local/
 **/integrations/**/bin/
 **/integrations/**/obj/
-Docs/spike-report.txt
+
+# Loose files dropped straight into Docs/ (captures, screenshots, config
+# copies, design handoffs) are local working material, never published.
+# At that level only Markdown is tracked; the shipped assets live in the
+# three folders named below.
+Docs/*
+!Docs/*.md
+!Docs/media/
+!Docs/drive_profiles/
+!Docs/drive-reference/
