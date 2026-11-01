@@ -221,6 +221,11 @@ straight from the game.
 
 ### Fixed
 - The header's units keep their case: "µs" read as "MS".
+- The docs say what the code does: 92 channel tokens and 96 channel slots
+  (not 86 and 48), which saves apply live and which wait for Initialize or
+  a restart, Qt 6 with an untested Qt 5 fallback, 500 Hz as the verified
+  Windows rate rather than a fixed one, six drives tested on Windows, and
+  the senders' real channel rates.
 - Pi: the drives could drop out of sync at a hand-over of the bus, faulting
   every drive just after an Initialize or leaving the rig unseated at Stop
   EtherCAT. The frames that hold the drives while the loop is stopped came

@@ -1,5 +1,5 @@
 # ============================================================
-# install-task.ps1  (Build 71)
+# install-task.ps1
 #
 # Creates a Windows Task Scheduler task that runs
 # nullCATWatchdog.exe with administrator privileges.

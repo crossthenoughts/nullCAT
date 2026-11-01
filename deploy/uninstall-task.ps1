@@ -1,5 +1,5 @@
 # ============================================================
-# uninstall-task.ps1  (Build 71)
+# uninstall-task.ps1
 #
 # Removes the nullCAT scheduled task and desktop shortcut.
 # Run as Administrator.

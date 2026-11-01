@@ -193,8 +193,10 @@ finer.
 ## Rates
 
 Send at a steady fixed rate from a high-priority thread. 100-500 Hz is the
-well-trodden range for motion; channels may run slower (60-100 Hz is
-plenty). The receiver measures arrival and new-frame rates and hints its
+well-trodden range for motion. Channels run at whatever rate the sender has:
+SimHub's tick is 60 Hz, a direct feed runs at the game's physics rate (about
+333 Hz for the Assetto Corsa family); both work. The receiver measures
+arrival and new-frame rates and hints its
 conditioning mode from them.
 
 ## Sender templates

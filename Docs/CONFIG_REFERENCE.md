@@ -143,7 +143,7 @@ Top level: `configVersion`, `numDrives` (1 to 10, must match `axes[]`),
 | `blendTimeSec` | double | `2.0` | Smoothing time constant for cross-axis blended motion. |
 | `blendMaxVelocityMmS` | double | `20.0` | Cap on the blended-axis velocity contribution. |
 | `requireUserFaultReset` | bool | `false` | If true, faulted drives need a manual reset from the UI before motion resumes. Safety policy, so it travels with the rig. |
-| `ncxBindings` | array | all 86 tokens, slots 0 to 85 | NULLCATX channel bindings for the device and haptic effects. Each entry is `{"token", "slot", "scale", "offset"}`: the wire's numbered channel `slot` (0 to 95) maps onto the semantic `token`, with `value = raw * scale + offset`. Tokens: `rpm`, `speedKmh`, `gear`, `clutchPct` (0 = pedal up, 100 = floored), `throttlePct`, `brakePct`, `absActive`, `skid`, `lockup`, `roadNoise`, `limiter`, `tcActive`, `curbs`, `maxRpm`, and the per-wheel groups `slipAngleFL..RR`, `slipRatioFL..RR`, `wheelSpeedFL..RR`, `loadFL..RR`, `suspVelFL..RR`, `boost`, `pitLimiter`, `wheelSlipFL..RR`, `suspTravelFL..RR`, `roadHeightFL..RR`, `surfaceFL..RR`, `accHeave`, `pitchDeg`, `rollDeg`, `wheelbase`, `trackWidth`, `rain`, `wet`, `wetFL..RR`, `onGroundFL..RR`, `deflatedFL..RR`, `slipSpeedFL..RR`, `inPit`, `lap`, `tyreWearFL..RR`, `accSurge`, `accSway`, `yawRate`, `pitchRate` and `rollRate` (see Docs/PROTOCOL.md for units). Each token binds at most once. The default matches the SimHub plugin's channel order, so it needs no editing; the Sim channels section of the web Setup view edits it and can reset it. An unbound token leaves the effects that use it silent. Bindings only apply to NULLCATX; a NULLCATY line names its tokens directly in canonical units. |
+| `ncxBindings` | array | all 92 tokens, slots 0 to 91 | NULLCATX channel bindings for the device and haptic effects. Each entry is `{"token", "slot", "scale", "offset"}`: the wire's numbered channel `slot` (0 to 95) maps onto the semantic `token`, with `value = raw * scale + offset`. Tokens: `rpm`, `speedKmh`, `gear`, `clutchPct` (0 = pedal up, 100 = floored), `throttlePct`, `brakePct`, `absActive`, `skid`, `lockup`, `roadNoise`, `limiter`, `tcActive`, `curbs`, `maxRpm`, and the per-wheel groups `slipAngleFL..RR`, `slipRatioFL..RR`, `wheelSpeedFL..RR`, `loadFL..RR`, `suspVelFL..RR`, `boost`, `pitLimiter`, `wheelSlipFL..RR`, `suspTravelFL..RR`, `roadHeightFL..RR`, `surfaceFL..RR`, `accHeave`, `pitchDeg`, `rollDeg`, `wheelbase`, `trackWidth`, `rain`, `wet`, `wetFL..RR`, `onGroundFL..RR`, `deflatedFL..RR`, `slipSpeedFL..RR`, `inPit`, `lap`, `tyreWearFL..RR`, `accSurge`, `accSway`, `yawRate`, `pitchRate` and `rollRate` (see Docs/PROTOCOL.md for units). Each token binds at most once. The default matches the SimHub plugin's channel order, so it needs no editing; the Sim channels section of the web Setup view edits it and can reset it. An unbound token leaves the effects that use it silent. Bindings only apply to NULLCATX; a NULLCATY line names its tokens directly in canonical units. |
 | `haptics` | object | all effects off | Haptic effect layer tuning, one entry per effect plus `masterGain` and `positionBudget`. See below; normally edited on the web Haptics strip. |
 | `shakerShaping` | array | `[]` | Each shaker's EQ and compressor, applied at the sound card. See `global.shakerShaping` below; normally edited on the web page's Shakers / audio page. Saves apply live, with no restart or re-initialize. |
 
@@ -483,13 +483,14 @@ A second line format on the SAME port feeds the force-device effects
     NULLCATX,<ch0>,<ch1>,...,<chN>
 
 - Same parsing rules as motion lines (decimal CSV, case-insensitive
-  header, skipped fields compact). At most **48** channels are read.
+  header, skipped fields compact). At most **96** channels are read.
 - The channels are plain numbers in whatever units the sender has; the
   rig's `ncxBindings` config says which channel means what and rescales
   it. Send raw sim values (rpm, speed, gear, clutch) - no shaping on the
   sender side.
 - Independent of the motion stream: either runs without the other, at
-  its own rate (100 to 400 Hz is plenty). A NULLCATX packet never counts
+  its own rate (the reference senders run between 60 Hz, SimHub's tick, and
+  about 333 Hz, the direct feed). A NULLCATX packet never counts
   as motion telemetry - it cannot hold off the motion-loss standby.
 - If the channel stream stops for 500 ms, every state effect drops out
   and devices fall back to their plain configured feel.
@@ -501,8 +502,9 @@ A second line format on the SAME port feeds the force-device effects
 
 - The reference JSONs ship next to the executable, so you can check every
   default on the target machine without the repo.
-- After changing config from the web UI, the header shows a
-  pending-restart pill until the service restarts; saves do not hot-apply
-  (buttons.json is the exception).
+- After a save from the web page: haptics, shaker and device tuning apply
+  live; a change to the rig's axes applies on the next Initialize; host.json
+  changes need a restart. The header shows a pending pill until the change is
+  in, and says which of the two it is waiting for. buttons.json applies live.
 - To minimise RT-thread logging cost while keeping error visibility:
   `"logMinLevel": "warning"`, `"diagEnabled": false`.

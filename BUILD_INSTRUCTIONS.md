@@ -65,8 +65,9 @@ cmake -S pi -B pi/build
 cmake --build pi/build -j2
 ```
 
-Keep `-j2` on a Pi: 2 schedulable cores and 2 GB RAM. Higher parallelism can
-swap-thrash the box hard enough to drop it off the network.
+Match `-j` to the Pi's RAM, about one compile job per GB: `-j2` on a 2 GB
+board, `-j4` on 4 GB or 8 GB. Overshooting can swap-thrash the box hard enough
+to drop it off the network.
 
 Outputs in `pi/build/`: `nullcat-pi` (the daemon), `provision` (drive
 provisioning tool), and the test binaries. The `web/`, `logs/`, and
@@ -90,8 +91,11 @@ web UI as `http://nullcat.local:8080` (install instructions in the file).
 ctest --test-dir pi/build
 ```
 
-The default build includes the core suites (homing, status model, torque path,
-telemetry parsing, WKC monitor, command contract, HTTP contract). The CMake option
+The default build includes the 14 core suites (homing and the seat pre-flight,
+the haptics integration run, telemetry parsing, the shaker DSP and shaker bank,
+the e-stop filter, log routing, the command queue and bus requests, status
+model, torque path, WKC monitor, the command contract and the HTTP contract).
+The CMake option
 `NULLCAT_FULL_TESTS` (default `OFF`) additionally builds the extended logic
 suites; it requires Qt6 Test:
 
@@ -111,7 +115,7 @@ Default OFF keeps local builds fast; CI configures with it ON.
 |---|---|
 | 1 | Visual Studio 2022 (C++ Desktop workload) |
 | 2 | CMake 3.20+ |
-| 3 | Qt 6.x (Qt 5.15+ also supported) |
+| 3 | Qt 6.x (releases are built with 6.10.2; CMake falls back to Qt 5.15 when no Qt 6 is found, but that path is not tested) |
 | 4 | SOEM (fetched and built from source, below - not bundled with this repo) |
 | 5 | Npcap runtime **and** Npcap SDK (for SOEM raw Ethernet on Windows) |
 
@@ -228,8 +232,9 @@ cmake -B build -G "Visual Studio 17 2022" -A x64 ^
   -DNPCAP_SDK="C:/libs/npcap-sdk"
 ```
 
-Replace paths with your actual installation paths. For Qt 5, pass
-`-DQt5_DIR="C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5"` instead of `Qt6_DIR`.
+Replace paths with your actual installation paths. When no Qt 6 is found, CMake
+looks for Qt 5.15 (`-DQt5_DIR="C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5"` instead
+of `Qt6_DIR`); no release is built or tested that way.
 `-DNPCAP_SDK` can be omitted if you extracted the SDK to the default
 `C:/libs/npcap-sdk`. If either dependency is missing, CMake stops at
 configure time with a message naming the expected files.
@@ -377,7 +382,7 @@ the position layout. Use the vendor manual to inspect the object dictionary.
 ### "WKC mismatch" errors
 - One or more slaves are not responding correctly
 - Check EtherCAT cable integrity
-- On Windows the loop is fixed at 500 Hz: it is not a real-time OS, and 500 is the fastest rate that runs stably there (1000 was unstable in testing). The Pi build is the path to higher rates.
+- On Windows, 500 Hz is the only loop rate verified stable (it is not a real-time OS; 1000 Hz was unstable in testing). The desktop settings dialog keeps it at 500; other values accepted by host.json or the web page are untested there. The Pi build is the path to higher rates.
 - Check that slave indices in `rig.json` match actual slave positions
 
 ### Web UI returns 421 "Host not allowed"

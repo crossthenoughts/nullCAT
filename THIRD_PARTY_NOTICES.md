@@ -26,7 +26,7 @@ documented on the image itself under /usr/share/doc/<package>/copyright.
 ## cpp-httplib
 
 - https://github.com/yhirose/cpp-httplib
-- MIT License. Vendored as `src/httplib.h` (single header, unmodified; the
+- MIT License. Vendored as `src/httplib.h` (v0.41.0, single header, unmodified; the
   license text is embedded in the header itself).
 
 ## miniaudio

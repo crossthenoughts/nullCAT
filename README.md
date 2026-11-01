@@ -59,7 +59,7 @@ force-device shifter) on both platforms. **Looking for beta testers with A6-EC h
   be yours. Compatibility reports are very welcome
   ([Contributing](#contributing)).
 - **Tested scale:** 6 drives on a Raspberry Pi 4B (the author's daily rig
-  and a tester's hexapod), 5 drives on Windows. Nothing in the code caps
+  and a tester's hexapod), 6 drives on Windows. Nothing in the code caps
   the count or the loop rate;
   [KNOWN_LIMITATIONS](KNOWN_LIMITATIONS.md) records what each platform has
   proven in practice.
