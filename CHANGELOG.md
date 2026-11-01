@@ -6,7 +6,7 @@ middle number carries breaking changes and the last carries fixes.
 
 ## [Unreleased]
 
-## [0.9.10] - 2026-10-26
+## [0.9.10] - 2026-11-02
 
 The UI overhaul release. The web page is a new instrument console: the
 same controls, settings, saves and readouts as before, laid out as a
