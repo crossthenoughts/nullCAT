@@ -279,6 +279,26 @@ int main()
             CHECK(!a.transitional && !a.allParked,
                   "agg motion: BLENDING NOT transitional (pinned legacy)");
         }
+        // stopGate: Stop Loop is greyed while an axis is mid-UNPARK or
+        // mid-BLEND (a stop there strands axes at centre). HOMING does not
+        // gate it: the loop-stop path force-parks homing axes, and gating on
+        // it once left the page with no way out of a stalled rehome. Both
+        // UIs read this one flag instead of matching the axes' state names.
+        {   MS st[2] = { MS::PARKED, MS::UNPARKING };
+            CHECK(deriveMotionAggregates(st, 2).stopGate, "agg motion: UNPARKING sets stopGate");
+        }
+        {   MS st[2] = { MS::ONLINE, MS::BLENDING };
+            CHECK(deriveMotionAggregates(st, 2).stopGate, "agg motion: BLENDING sets stopGate");
+        }
+        {   MS st[3] = { MS::HOMING, MS::PARKING, MS::ESTOPPING };
+            CHECK(!deriveMotionAggregates(st, 3).stopGate, "agg motion: HOMING, PARKING and ESTOPPING do not gate Stop");
+        }
+        {   MS st[2] = { MS::ONLINE, MS::PARKED };
+            CHECK(!deriveMotionAggregates(st, 2).stopGate, "agg motion: settled axes: stopGate false");
+        }
+        {   MS st[2] = { MS::TESTING, MS::ONLINE };
+            CHECK(!deriveMotionAggregates(st, 2).stopGate, "agg motion: TESTING does not gate Stop");
+        }
 
         // ---- belt aggregates ----
         {   bool tq[2] = { false, false };

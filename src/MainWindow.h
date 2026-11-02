@@ -127,6 +127,7 @@ private:
     // updateButtonStates only re-applies the stylesheet on an actual change.
     int m_initBtnStyle  = -1;            // -1 unset, 0 neutral, 1 primary-green
     int m_startBtnStyle = -1;
+    bool m_estopKeyOn   = false;         // the E-STOP key's face, re-applied on change
     bool m_beltsSlack   = false;         // last-computed belt aggregate (all torque axes PARKED)
     int  m_beltsBtnStyle = -1;           // belt button style cache (-1/0/1)
     bool m_parked       = false;         // last-computed rig aggregate (every axis PARKED)

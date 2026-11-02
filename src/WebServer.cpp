@@ -456,6 +456,7 @@ std::string WebServer::buildStatusJson() const
     }
     s += "\"needsRehome\":"  + jsonBool(ms.needsRehome)       + ",";
     s += "\"homing\":"       + jsonBool(anyHoming)            + ",";
+    s += "\"stopGate\":"     + jsonBool(magg.stopGate)        + ",";
     s += "\"parked\":"       + jsonBool(allParked)            + ",";
     s += "\"hasBelts\":"     + jsonBool(hasBelts)             + ",";
     s += "\"beltsSlack\":"   + jsonBool(beltsSlack)           + ",";

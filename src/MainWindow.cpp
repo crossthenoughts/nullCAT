@@ -763,37 +763,8 @@ void MainWindow::onApplicationSettings()
     // include any concurrent web axis edits) rather than this app's in-memory
     // copy, so saving host settings can't clobber a web tuning change.
     adoptDiskAxes(newCfg);
-
-    // A sim -> real transition resets axes to a single 'default' axis.
-    // Sim-mode configs typically have throwaway axes that don't match the
-    // user's actual hardware; carrying them into hardware mode is dangerous
-    // and confusing. Confirm with the user before doing it.
-    const bool simToReal = (oldCfg.simulationMode && !newCfg.simulationMode);
-    if (simToReal)
-    {
-        auto reply = QMessageBox::question(this, "Switching out of Simulation",
-            "Switching out of simulation mode will RESET the axes to a single "
-            "default axis. Any sim-mode axis configuration will be lost.\n\n"
-            "Continue?",
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-        if (reply != QMessageBox::Yes)
-        {
-            // Back out the simulationMode change; keep everything else.
-            newCfg.simulationMode = true;
-        }
-        else
-        {
-            DriveConfig defaultAxis;
-            defaultAxis.slaveIndex = 1;
-            defaultAxis.name       = "default";
-            Config::recomputeDerivedFields(defaultAxis);
-            newCfg.drives.clear();
-            newCfg.drives.push_back(defaultAxis);
-            newCfg.numDrives = 1;
-            LOG_INFO("Application settings: simulation -> hardware mode; "
-                     "axes reset to single 'default' axis.");
-        }
-    }
+    // A switch out of simulation mode no longer resets the axes: they are
+    // rig.json's in both modes, as the page shows them.
 
     m_config->get() = newCfg;
 
@@ -868,21 +839,9 @@ void MainWindow::onApplicationSettings()
     if (shakersChanged)
         LOG_INFO("Application settings: shaker settings saved -- they apply at the next nullCAT start.");
 
-    if (simToReal)
-    {
-        // drives[] changed -- rebuild the per-axis chips and re-configure
-        // the motion controller so the UI and engine match the new axis set.
-        buildAxisChips();
-        if (m_motion) m_motion->configure(m_config->get());
-        statusBar()->showMessage(
-            "Switched to hardware mode. Axes reset to single 'default' axis.");
-    }
-    else
-    {
-        statusBar()->showMessage(shakersChanged
-            ? "Application settings saved. Shaker settings apply at the next nullCAT start."
-            : "Application settings saved (live-applied where supported).");
-    }
+    statusBar()->showMessage(shakersChanged
+        ? "Application settings saved. Shaker settings apply at the next nullCAT start."
+        : "Application settings saved (live-applied where supported).");
 }
 
 // Host/rig write safety: the web UI owns drives[]. Before any Qt-side host
@@ -1046,6 +1005,22 @@ void MainWindow::updateWebButtons()
 
 void MainWindow::onEmergencyStop()
 {
+    // One key, two acts, decided by the input's state as the page does it:
+    // held, the click releases the input (the trip holds until Initialize);
+    // not held, the click trips. The key's face follows the state in
+    // updateButtonStates, so an e-stop raised from the page, a GPIO line or
+    // a button box reads the same here, and a release from elsewhere clears
+    // it. (It used to keep its own click state and rewire its signal.)
+    if (m_motion && m_motion->isEstopInputHeld())
+    {
+        LOG_INFO("GUI: Emergency stop released.");
+        m_motion->setEmergencyStop(false, MotionController::EstopSource::App);
+        if (m_motion->isEstopTripped())
+            statusBar()->showMessage("E-STOP released. The drives stay stopped: re-initialize them to resume.");
+        updateButtonStates();
+        return;
+    }
+
     LOG_WARNING("GUI: EMERGENCY STOP button pressed!");
 
     // The motion e-stop first (the cycle that carries out the stop then
@@ -1053,24 +1028,6 @@ void MainWindow::onEmergencyStop()
     // its next frame.
     if (m_motion) m_motion->setEmergencyStop(true, MotionController::EstopSource::App);
     if (m_master) m_master->requestStopAll();
-
-    m_btnEmergency->setText("⚡ E-STOP ACTIVE - click to clear");
-    theme::setOn(m_btnEmergency, true);
-
-    disconnect(m_btnEmergency, &QPushButton::clicked, this, &MainWindow::onEmergencyStop);
-    connect(m_btnEmergency, &QPushButton::clicked, this, [this]()
-        {
-            LOG_INFO("GUI: Emergency stop released.");
-            if (m_motion) m_motion->setEmergencyStop(false, MotionController::EstopSource::App);
-            if (m_motion && m_motion->isEstopTripped())
-                statusBar()->showMessage("E-STOP released. The drives stay stopped: re-initialize them to resume.");
-
-            m_btnEmergency->setText("⚡  EMERGENCY STOP");
-            theme::setOn(m_btnEmergency, false);
-            disconnect(m_btnEmergency, nullptr, nullptr, nullptr);
-            connect(m_btnEmergency, &QPushButton::clicked, this, &MainWindow::onEmergencyStop);
-            updateButtonStates();
-        });
 
     updateButtonStates();
     statusBar()->showMessage("EMERGENCY STOP - ramping to halt.");
@@ -1299,32 +1256,40 @@ void MainWindow::updateButtonStates()
         m_btnInitEC->setText("Initialize EtherCAT");
     }
 
+    // The engine's state once, and the shared StatusModel aggregates: the
+    // same derivations the web page reads from /api/status and the
+    // /api/*-toggle endpoints resolve with, so no surface can disagree.
+    const bool estop = (m_motion && m_motion->isEmergencyStop());
+    const MotionStatus ms = m_motion ? m_motion->getMotionStatus() : MotionStatus{};
+    const status::MotionAggregates magg =
+        status::deriveMotionAggregates(ms.axisState, ms.numDrives);
+
     // ---- Start/Stop Loop - one context-aware button (mirror web app.js) ----
-    // Start enabled when OP && stopped; Stop enabled when running && !settling
-    // (settling = an axis still homing / unparking / blending - greys Stop like
-    // the web UI so the user can't interrupt the auto-home -> unpark blend).
-    bool settling = false;
-    if (loopRun && m_motion)
-    {
-        MotionStatus ms = m_motion->getMotionStatus();
-        for (int i = 0; i < ms.numDrives; ++i)
-        {
-            const QString n = QString::fromStdString(ms.axisStateName[i]);
-            if (n.contains("homing",    Qt::CaseInsensitive) ||
-                n.contains("unparking", Qt::CaseInsensitive) ||
-                n.contains("blending",  Qt::CaseInsensitive))
-            { settling = true; break; }
-        }
-    }
+    // Start enabled when OP && stopped. Stop greyed only while the status
+    // model says so (stopGate: an axis mid-UNPARK or mid-BLEND, where a stop
+    // strands axes at centre). HOMING does not gate Stop: the loop-stop path
+    // force-parks homing axes, and gating on it once left this window with no
+    // way out of a stalled rehome but the e-stop. The page reads the same flag.
     if (loopRun)
     {
         m_btnStart->setText("Stop Loop");
-        m_btnStart->setEnabled(!settling);
+        m_btnStart->setEnabled(!magg.stopGate);
     }
     else
     {
         m_btnStart->setText("Start Loop");
         m_btnStart->setEnabled(ecOp);
+    }
+
+    // The E-STOP key's face follows the input, whoever holds it (this window,
+    // the page, a GPIO line, a button box): latched while held, re-applied on
+    // change only (this runs at 5 Hz).
+    const bool estopHeld = (m_motion && m_motion->isEstopInputHeld());
+    if (estopHeld != m_estopKeyOn)
+    {
+        m_estopKeyOn = estopHeld;
+        m_btnEmergency->setText(estopHeld ? "⚡ E-STOP ACTIVE - click to clear" : "⚡  EMERGENCY STOP");
+        theme::setOn(m_btnEmergency, estopHeld);
     }
 
     m_btnStartHoming->setEnabled(ecOp && loopRun);
@@ -1344,12 +1309,6 @@ void MainWindow::updateButtonStates()
     // web UI and the /api/*-toggle endpoints use -- so no surface can disagree
     // about what a click will do. (These replaced a local copy of the belt
     // logic here, which was free to drift from the server's.)
-    const bool estop = (m_motion && m_motion->isEmergencyStop());
-    const MotionStatus ms = m_motion ? m_motion->getMotionStatus() : MotionStatus{};
-
-    const status::MotionAggregates magg =
-        status::deriveMotionAggregates(ms.axisState, ms.numDrives);
-
     // Belt mask: belt-typed torque axes only (Stage C re-key; matches
     // WebServer::beltAxisMask so both surfaces derive identical aggregates).
     bool isBelt[MAX_DRIVES] = {};

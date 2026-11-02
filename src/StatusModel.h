@@ -99,6 +99,13 @@ struct MotionAggregates
     // park-toggle during a blend resolves "park", and startPark handles
     // BLENDING axes).
     bool transitional = false;
+    // Any axis UNPARKING or BLENDING: Stop Loop is greyed (a stop there
+    // strands axes at centre, park timed out, and the seat pass then
+    // false-latches a mid-stroke hold). HOMING is left out on purpose: the
+    // loop-stop path force-parks homing axes, and gating on it once left the
+    // page with no way out of a stalled rehome but the e-stop. Both UIs read
+    // this flag (/api/status stopGate) instead of matching state names.
+    bool stopGate     = false;
 };
 MotionAggregates deriveMotionAggregates(const AxisMotionState* states, int numDrives);
 

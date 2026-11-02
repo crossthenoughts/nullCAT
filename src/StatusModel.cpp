@@ -186,6 +186,8 @@ MotionAggregates deriveMotionAggregates(const AxisMotionState* states, int numDr
         if (st == AxisMotionState::PARKING || st == AxisMotionState::UNPARKING ||
             st == AxisMotionState::HOMING  || st == AxisMotionState::ESTOPPING)
             a.transitional = true;
+        if (st == AxisMotionState::UNPARKING || st == AxisMotionState::BLENDING)
+            a.stopGate = true;
     }
     return a;
 }

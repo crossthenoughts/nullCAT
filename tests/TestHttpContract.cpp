@@ -999,6 +999,10 @@ int main()
     check(has(post("/api/start"), "\"ok\":true"), "POST /api/start accepted");
     check(waitStatus("\"loopRunning\":true", 5000), "status reaches loopRunning:true");
     check(waitStatus("\"hasBelts\":true", 2000),    "status: hasBelts:true");
+    // The Stop Loop gate is the server's (StatusModel stopGate), read by
+    // both UIs; it is false once the auto-home and unpark have settled.
+    check(has(get("/api/status"), "\"stopGate\":"), "status carries stopGate");
+    check(waitStatus("\"stopGate\":false", 10000),  "status: stopGate false once the rig has settled");
 
     // ---- mutes read back (the loop publishes hapMuted / hapMute[]) ----
     // The master mute lands; a garbage body, {} and a string "on" are

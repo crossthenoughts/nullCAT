@@ -180,15 +180,14 @@ function applyState(s){
   else if(op){ ecatMode=null; btn.init.disabled=true; btn.init.textContent='EtherCAT: OP'; }
   else { ecatMode='init'; btn.init.disabled=false; btn.init.textContent='Initialize EtherCAT'; }
   btn.init.classList.toggle('btn-warn', ecatMode==='deinit');
-  // Grey Stop Loop only while an axis is mid-UNPARK or mid-BLEND: stopping
-  // there strands axes at centre (park timed out) and the seat then
-  // false-latches a drive on its mid-stroke hold. HOMING deliberately does
-  // NOT gate Stop -- the loop-stop path force-parks homing axes, and gating
-  // on it deadlocked the UI when the post-e-stop-release rehome stalled
-  // (the only way forward was re-engaging the e-stop). E-STOP stays live
-  // as the escape throughout.
-  const stopGate=(s.drives||[]).some(d=>/unparking|blending/i.test(d.state||''));
-  const settling=(s.drives||[]).some(d=>/homing|unparking|blending/i.test(d.state||''));
+  // Stop Loop is greyed while the server says so (stopGate: an axis
+  // mid-UNPARK or mid-BLEND, where a stop strands axes at centre; HOMING
+  // deliberately does not gate it, so a stalled rehome always has Stop as
+  // a way out). The rule lives in the status model, not in a match on the
+  // axes' state names here. Home waits for a settled rig: no homing, no
+  // unpark or blend in flight. E-STOP stays live as the escape throughout.
+  const stopGate=!!s.stopGate;
+  const settling=!!s.homing||stopGate;
   btn.start.disabled=running||!op; btn.stop.disabled=!running||stopGate;
   btn.home.disabled=!running||estop||settling;
   // Park toggles to Unpark once all axes are parked (no rehome needed to resume).

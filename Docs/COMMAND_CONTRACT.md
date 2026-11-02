@@ -16,7 +16,7 @@ in the same commit.
 2. **Therefore: outcome truth comes from `/api/status` polling, never from
    the command response.** Binder LED feedback and UI state must key off
    status fields (loopRunning, masterOp, estop, parked, beltsSlack, homing,
-   guard states), not off POST results.
+   stopGate, guard states), not off POST results.
 3. **Toggles are SERVER-resolved, guarded, and first-class.** One physical
    button per stateful pair binds a `-toggle` token; the server resolves it
    against canonical engine state, so button and rig cannot drift apart.
