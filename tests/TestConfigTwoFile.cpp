@@ -808,6 +808,42 @@ private slots:
         QVERIFY2(errs.empty(), errs.empty() ? "" : errs[0].c_str());
     }
 
+    // A rig.json or host.json that is there but cannot be read is never
+    // written over by a web save either: POST /api/rig and /api/host go
+    // through these validators, which refuse first, naming the file and the
+    // reason, so the caller writes nothing. Each gates its own file only: a
+    // broken rig.json does not hold a host save hostage, nor the reverse.
+    // Reverting the gate makes a valid body pass here while the file on
+    // disk is unreadable, and the web save then replaces it.
+    void validateBodies_refuseWhileTheFileOnDiskIsUnreadable()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        Config cfg; QVERIFY(cfg.load(anchor(dir).toStdString()));   // writes the pair
+        const QByteArray rig  = readBytes(dir.path() + "/rig.json");
+        const QByteArray host = readBytes(dir.path() + "/host.json");
+        QVERIFY(rig.size() > 100 && host.size() > 20);
+        QVERIFY(Config::validateRigBody(anchor(dir).toStdString(), rig.toStdString()).empty());
+        QVERIFY(Config::validateHostBody(anchor(dir).toStdString(), host.toStdString()).empty());
+
+        // rig.json truncated mid-object, as a crash during a write leaves it.
+        writeText(dir.path() + "/rig.json", rig.left(rig.size() / 2));
+        auto errs = Config::validateRigBody(anchor(dir).toStdString(), rig.toStdString());
+        QVERIFY2(!errs.empty(), "a valid rig body is refused while rig.json on disk cannot be read");
+        QVERIFY2(errs[0].find("rig.json") != std::string::npos && errs[0].find("nothing was saved") != std::string::npos,
+                 errs[0].c_str());
+        QVERIFY2(Config::validateHostBody(anchor(dir).toStdString(), host.toStdString()).empty(),
+                 "a host save is not held up by a broken rig.json");
+        writeText(dir.path() + "/rig.json", rig);
+
+        // host.json that is not JSON at all (a hand edit gone wrong).
+        writeText(dir.path() + "/host.json", "{ not json");
+        errs = Config::validateHostBody(anchor(dir).toStdString(), host.toStdString());
+        QVERIFY2(!errs.empty(), "a valid host body is refused while host.json on disk cannot be read");
+        QVERIFY2(errs[0].find("host.json") != std::string::npos, errs[0].c_str());
+        QVERIFY2(Config::validateRigBody(anchor(dir).toStdString(), rig.toStdString()).empty(),
+                 "a rig save is not held up by a broken host.json");
+    }
+
     // followingErrorWindowMm is PER-AXIS: it lands in rig.axes (never
     // rig.global) and per-axis edits round-trip independently.
     void followingError_perAxisRoundtrip()

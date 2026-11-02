@@ -185,6 +185,7 @@ public:
 
     void setDriveConfigs(const std::vector<DriveConfig>& configs);
     void setControlLoopHz(int hz)             { m_controlLoopHz = hz; }
+    int  controlLoopHz() const                { return m_controlLoopHz; }
     void setDcSyncOffsetNs(int offsetNs)      { m_dcSyncOffsetNs = offsetNs; }
     // DC phase-lock compensator parameters (default OFF). Applied
     // to the background pump's cadence; the control loop reads them from config

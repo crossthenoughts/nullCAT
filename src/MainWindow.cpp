@@ -609,6 +609,9 @@ void MainWindow::onInitializeEtherCAT()
     // applyConfig() called at startup in main.cpp; call again here so that
     // any config reload via onConfigureAxes() is picked up before re-init.
     m_master->applyConfig(cfg);
+    // ...and the loop's own copy (its fault-lockout policy, the seat-pass axis
+    // kinds), with the loop stopped; the web's init worker does the same.
+    if (m_loop && !m_loopRunning) m_loop->setConfig(cfg);
 
     // ...and the same for the motion controller. A web rig.json save made while
     // EtherCAT was up is reloaded into memory by reloadConfigFromWeb(), but that

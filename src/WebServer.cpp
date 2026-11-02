@@ -855,6 +855,11 @@ bool WebServer::requestInit()
     { setRefusal("already operational -- run Stop EtherCAT first"); return false; }
     if (m_initBusy.load())
     { setRefusal("an init/de-init is already in progress"); return false; }
+    // The desktop window runs its Initialize on its own thread and refuses
+    // while this worker's is in flight; the same courtesy the other way, so
+    // the worker never re-applies the config under a running desktop init.
+    if (m_master->isInitializing())
+    { setRefusal("an Initialize is already in progress (the desktop app's)"); return false; }
 
     m_initBusy.store(true);
     {
@@ -980,6 +985,17 @@ bool WebServer::start()
                         LOG_WARNING("WebServer: config reload from disk failed -- "
                                     "initializing with the in-memory config.");
                     m_motion->configure(*m_config);
+                    // The loop and the master keep copies of the config as
+                    // well (the loop reads its fault-lockout policy and the
+                    // seat-pass axis kinds from its own; the master its drive
+                    // list, loop rate, DC and watchdog settings). Re-apply
+                    // them too, with the loop stopped (the guard above), or a
+                    // save made while EtherCAT was up reached the motion
+                    // controller alone and those keys kept their boot values
+                    // until a restart, while the page said "applies on the
+                    // next Initialize".
+                    if (m_loop)   m_loop->setConfig(*m_config);
+                    if (m_master) m_master->applyConfig(*m_config);
                 }
 
                 std::string nicName = m_config ? m_config->nicName : "";

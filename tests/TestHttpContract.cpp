@@ -1260,6 +1260,78 @@ int main()
               "no Access-Control-Allow-Origin on any response");
     }
 
+    // ---- a rig.json or host.json that cannot be read is never written over ----
+    // A hand edit over ssh gone wrong, or a save a crash interrupted, leaves
+    // a file that does not parse. Config::load refuses to start on it; the
+    // web saves refuse too: 400 naming the file, the bytes on disk as they
+    // were. Reverting the gate in Config::validateRigBody / validateHostBody
+    // makes the POST a 200 and the file the page's body.
+    {
+        auto slurp = [](const std::filesystem::path& p) {
+            QFile f(QString::fromStdString(p.string()));
+            return f.open(QIODevice::ReadOnly) ? f.readAll().toStdString() : std::string();
+        };
+        auto spill = [](const std::filesystem::path& p, const std::string& s) {
+            QFile f(QString::fromStdString(p.string()));
+            if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) f.write(s.data(), static_cast<qint64>(s.size()));
+        };
+        const std::filesystem::path rigPath = cfgDir / "rig.json";
+        std::string body; int gen = -1;
+        check(getRig(body, gen) && !body.empty(), "unreadable-file gate: a valid rig body to post");
+        const std::string good   = slurp(rigPath);
+        const std::string broken = good.substr(0, good.size() / 2);
+        spill(rigPath, broken);
+        const Reply r = postHdr("/api/rig", rigWith(body, nullptr, "masterGain", 0.55), {});
+        check(r.status == 400 && has(r.body, "rig.json") && has(r.body, "nothing was saved"),
+              "POST /api/rig over a rig.json that cannot be read: 400 naming the file");
+        check(slurp(rigPath) == broken, "...and the file's bytes are as they were");
+        spill(rigPath, good);
+        const Reply again = postHdr("/api/rig", rigWith(body, nullptr, "masterGain", 0.55), {});
+        check(again.status == 200 && has(again.body, "\"changed\":true"),
+              "...and the gate lifts once the file reads again: the same save lands");
+        spill(rigPath, good);   // the file as the sections after this expect it
+
+        const std::filesystem::path hostPath = cfgDir / "host.json";
+        const std::string goodHost = slurp(hostPath);
+        spill(hostPath, "{ not json");
+        const Reply h = postHdr("/api/host", "{\"controlLoopHz\":100}", {});
+        if (h.status == 403)
+            check(true, "POST /api/host is the native app's here (403); the host gate is pinned by TestConfigTwoFile");
+        else
+        {
+            check(h.status == 400 && has(h.body, "host.json"), "POST /api/host over a host.json that cannot be read: 400 naming the file");
+            check(slurp(hostPath) == "{ not json", "...and the file's bytes are as they were");
+        }
+        spill(hostPath, goodHost);
+    }
+
+    // ---- a re-initialize re-applies the reloaded config to the loop and the master ----
+    // The loop and the master keep their own copies (the loop reads its
+    // fault-lockout policy from its copy). A rig.json save while EtherCAT was
+    // up used to reach the motion controller alone on the next Initialize,
+    // and the loop ran on its boot copy until a restart while the page said
+    // "applies on the next Initialize". The reloader stands in for the
+    // reload from disk. Reverting the re-apply in the init worker leaves
+    // loop.config() and master.controlLoopHz() at their boot values. Runs
+    // here, with the server up and the master OP; it leaves the loop
+    // stopped and the master OP, as the stop -> deinit section expects.
+    {
+        check(!loop.config().requireUserFaultReset && master.controlLoopHz() == 100,
+              "re-apply: the loop's and the master's copies hold the boot values");
+        web.setConfigReloader([&cfg]() -> bool { cfg.requireUserFaultReset = true; cfg.controlLoopHz = 200; return true; });
+        if (loop.isRunning()) { post("/api/stop"); waitStatus("\"loopRunning\":false", 10000); }
+        check(has(post("/api/deinit"), "\"ok\":true") && waitStatus("\"masterOp\":false", 15000), "re-apply: Stop EtherCAT");
+        check(has(post("/api/init"), "\"ok\":true") && waitStatus("\"masterOp\":true", 15000), "re-apply: re-initialize");
+        check(loop.config().requireUserFaultReset, "the loop's copy follows the reloaded config on re-initialize");
+        check(master.controlLoopHz() == 200, "the master's copy follows the reloaded config on re-initialize");
+        // Back to the boot values for the sections after this (the loop is
+        // stopped, so its copy can be set directly).
+        web.setConfigReloader(nullptr);
+        cfg.requireUserFaultReset = false;
+        cfg.controlLoopHz = 100;
+        loop.setConfig(cfg);
+    }
+
     // ---- stop -> deinit ----
     check(has(post("/api/stop"), "\"ok\":true"), "POST /api/stop accepted");
     check(waitStatus("\"loopRunning\":false", 10000), "status reaches loopRunning:false");

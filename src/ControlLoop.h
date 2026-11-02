@@ -172,6 +172,8 @@ public:
     );
 
     void setConfig(const AppConfig& config);
+    // The configuration the next start() runs with (setConfig's copy).
+    const AppConfig& config() const { return m_config; }
     // The loop thread's CPU (host.json rtCore/rtPinCore), taken by the next
     // start(): the desktop settings dialog changes it with the loop stopped.
     void setRtCore(int core, bool pin) { m_config.rtCore = core; m_config.rtPinCore = pin; }

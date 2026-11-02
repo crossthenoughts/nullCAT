@@ -1213,9 +1213,23 @@ bool Config::save(const std::string& anchorPath) const
 // already on disk, then run the single unified validator. Cross-field checks
 // (e.g. controlLoopHz host vs per-axis trackingWnHz rig) stay meaningful.
 
+// The file a body would replace must be readable first: a rig.json or
+// host.json that is there but cannot be read (truncated by a crash, a hand
+// edit gone wrong) is never written over, by any path. Both validators
+// refuse naming the file and the reason; the caller writes nothing.
+static std::vector<std::string> unreadableOnDisk(const QString& path, const char* which)
+{
+    QJsonObject existing;
+    QString why;
+    if (readJsonObject(path, existing, &why) != JsonRead::Unreadable) return {};
+    return { std::string(which) + " on disk cannot be read (" + why.toStdString()
+             + "): nothing was saved. Fix or move the file, then save again." };
+}
+
 std::vector<std::string> Config::validateRigBody(const std::string& anchorPath,
                                                  const std::string& rigJsonBody)
 {
+    if (auto gate = unreadableOnDisk(rigFile(configDir(anchorPath)), "rig.json"); !gate.empty()) return gate;
     AppConfig c;
     QJsonObject hostObj;
     if (readJsonObject(hostFile(configDir(anchorPath)), hostObj) == JsonRead::Ok)
@@ -1254,6 +1268,7 @@ bool Config::parseRigBodyAxes(const std::string& rigJsonBody,
 std::vector<std::string> Config::validateHostBody(const std::string& anchorPath,
                                                   const std::string& hostJsonBody)
 {
+    if (auto gate = unreadableOnDisk(hostFile(configDir(anchorPath)), "host.json"); !gate.empty()) return gate;
     AppConfig c;
     QJsonObject rigObj;
     if (readJsonObject(rigFile(configDir(anchorPath)), rigObj) == JsonRead::Ok)
