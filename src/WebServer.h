@@ -50,6 +50,7 @@
 #include <ctime>
 #include <chrono>
 #include <vector>
+#include <map>
 
 // Forward declaration - avoids pulling the heavy httplib.h into every TU
 // that includes WebServer.h.
@@ -144,6 +145,18 @@ public:
     // list of maybes.
     std::string lastRefusal() const;
 
+    // The command table: every command a surface can press (the HID button
+    // boxes, the GPIO panel, the page's keys) runs through here by name,
+    // the same code its HTTP route runs: one place for the guards and the
+    // reply. A reader in this process calls it directly, so the web token
+    // stays a gate for the network alone. The reply is the route's: 200 or
+    // 400 and its JSON body; 404 for a name the table does not know (the
+    // power and update endpoints are routes only, never commands). Filled
+    // in start() before the server thread exists; callable from any thread
+    // from then on, with or without the listener up.
+    struct CommandReply { int status = 404; std::string body; };
+    CommandReply runCommand(const std::string& cmd);
+
     // Per-drive BELT mask from config, consumed by the StatusModel
     // aggregate derivations (buildStatusJson + belts-toggle). A belt is a
     // belt-typed torque axis (Stage C re-key): torque mode alone must not
@@ -212,6 +225,9 @@ private:
     std::atomic<long long> m_rigKnownMtime{0};    // 0 = use m_processStart
     std::atomic<long long> m_hostKnownMtime{0};
     ButtonBackendHooks m_buttonHooks;
+    std::map<std::string, std::function<CommandReply()>> m_commands;   // see runCommand
+    void fillCommandTable();                                              // start(), before its thread
+    CommandReply enqueueMotion(MotionCommand::Type type, int axisIndex);   // for the RT thread; -1: every axis
     int         m_port      = 8080;
     std::string m_bindAddr  = "127.0.0.1";
 

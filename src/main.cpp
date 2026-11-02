@@ -255,8 +255,9 @@ int main(int argc, char* argv[])
     // HTTP dashboard.
     // Button backend (DirectInputButtons): USB game-controller capture +
     // runtime reader for the web binding wizard. Only meaningful with the web UI
-    // up (the wizard lives there; runtime presses POST to the local server). The
-    // thread sleeps unless bindings exist or a capture is armed; its dtor stops it.
+    // up (the wizard lives there; a press runs a command through the server's
+    // command table, in this process). The thread sleeps unless bindings exist
+    // or a capture is armed; its dtor stops it.
     // Declared here so it outlives the run and destructs before webServer.
     DirectInputButtons buttons;
     if (cfg.webUIEnabled)
@@ -272,7 +273,8 @@ int main(int argc, char* argv[])
 
         // buttons.json is the sibling of config.json (same dir), matching the
         // WebServer's siblingFile(configPath, "buttons.json") save path.
-        buttons.start(exeDir.toStdString() + "/buttons.json", webServer.port());
+        buttons.start(exeDir.toStdString() + "/buttons.json",
+                      [&webServer](const std::string& cmd) { return webServer.runCommand(cmd).body; });
     }
     else
     {
@@ -337,8 +339,10 @@ int main(int argc, char* argv[])
         loop.waitForStop();
     }
 
-    // Stop the web server before SOEM/PDO teardown so its worker thread
+    // The button reader first (a press runs a command in this process),
+    // then the web server, before SOEM/PDO teardown so its worker thread
     // can't dereference PDO pointers cleared by master.shutdown().
+    buttons.stop();
     webServer.stop();
 
     if (master.isInitialized())

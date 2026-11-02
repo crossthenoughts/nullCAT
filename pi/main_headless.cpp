@@ -275,7 +275,8 @@ int main(int argc, char* argv[])
 
     // Headless: the web UI is the ONLY control surface, so always start it.
     webServer.start();
-    buttons.start(dir + "/buttons.json", webServer.port());
+    buttons.start(dir + "/buttons.json",
+                  [&webServer](const std::string& cmd) { return webServer.runCommand(cmd).body; });
     LOG_INFO(strf("WebServer listening on %s:%d", cfg.webBindAddr.c_str(), webServer.port()));
     if (cfg.webBindAddr == "127.0.0.1")
         LOG_WARNING("webBindAddr=127.0.0.1 - web UI only reachable locally. "
@@ -303,57 +304,26 @@ int main(int argc, char* argv[])
         pins.useLeds    = (gpioMode == "estop_led" || gpioMode == "full");
         pins.useButtons = (gpioMode == "full");
 
-        // Buttons fire the same actions as the web endpoints.
+        // Buttons run the same commands as the web routes and the HID boxes:
+        // the server's command table, by name, with its guards and its
+        // reply (a refusal goes to the log; the panel has no screen).
+        const auto run = [&webServer](const char* name)
+        {
+            const WebServer::CommandReply r = webServer.runCommand(name);
+            if (r.status != 200)
+                LOG_WARNING(std::string("GpioPanel: ") + name + " refused: " + r.body);
+        };
         PanelActions acts;
-        acts.init  = [&webServer]() { webServer.requestInit(); };
-        acts.deinit = [&webServer]() { webServer.requestDeinit(); };
-        acts.start = [&loop, &master, &motion]()
-        {
-            if (master.isOperational() && !loop.isRunning())
-            {
-                if (motion.isEmergencyStop())
-                    LOG_WARNING("GpioPanel: RUN refused -- E-STOP tripped; re-initialize the drives to resume.");
-                else
-                    loop.start();
-            }
-        };
-        acts.stop = [&loop]()
-        {
-            if (loop.isRunning())
-                loop.stop();
-        };
-        acts.park = [&motion]()
-        {
-            MotionCommand c;
-            c.type = MotionCommand::Type::StartPark;
-            motion.enqueueCommand(c);
-        };
-        acts.unpark = [&motion]()
-        {
-            MotionCommand c;
-            c.type = MotionCommand::Type::StartUnpark;
-            motion.enqueueCommand(c);
-        };
-        acts.beltSlack = [&motion]()
-        {
-            MotionCommand c; c.type = MotionCommand::Type::SlackBelts;
-            motion.enqueueCommand(c);
-        };
-        acts.beltTension = [&motion]()
-        {
-            MotionCommand c; c.type = MotionCommand::Type::TensionBelts;
-            motion.enqueueCommand(c);
-        };
-        acts.deviceEngage = [&motion]()
-        {
-            MotionCommand c; c.type = MotionCommand::Type::EngageDevice; c.intVal = -1;
-            motion.enqueueCommand(c);
-        };
-        acts.deviceRelease = [&motion]()
-        {
-            MotionCommand c; c.type = MotionCommand::Type::ReleaseDevice; c.intVal = -1;
-            motion.enqueueCommand(c);
-        };
+        acts.init          = [run]() { run("init"); };
+        acts.deinit        = [run]() { run("deinit"); };
+        acts.start         = [run]() { run("start"); };
+        acts.stop          = [run]() { run("stop"); };
+        acts.park          = [run]() { run("park"); };
+        acts.unpark        = [run]() { run("unpark"); };
+        acts.beltSlack     = [run]() { run("belts/slack"); };
+        acts.beltTension   = [run]() { run("belts/tension"); };
+        acts.deviceEngage  = [run]() { run("device/engage"); };
+        acts.deviceRelease = [run]() { run("device/release"); };
         acts.estop = [&motion, &master]()
         {
             // A software stop: the bus owner (the RT loop, or the pump

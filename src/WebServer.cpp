@@ -848,6 +848,240 @@ std::string WebServer::lastRefusal() const
     return m_lastRefusal.empty() ? std::string("request refused") : m_lastRefusal;
 }
 
+WebServer::CommandReply WebServer::runCommand(const std::string& cmd)
+{
+    const auto it = m_commands.find(cmd);
+    if (it == m_commands.end())
+    {
+        CommandReply r;
+        r.status = 404;
+        r.body   = "{\"ok\":false,\"error\":" + jsonStr("not a command: " + cmd) + "}";
+        return r;
+    }
+    return it->second();
+}
+
+// ---- The command table ----
+// The reply helpers mirror the routes' okResp / errResp for a command run
+// by name.
+namespace {
+WebServer::CommandReply cmdReply(int status, std::string body)
+{
+    WebServer::CommandReply r;
+    r.status = status;
+    r.body   = std::move(body);
+    return r;
+}
+WebServer::CommandReply cmdOk()                         { return cmdReply(200, "{\"ok\":true}"); }
+WebServer::CommandReply cmdErr(const std::string& msg)  { return cmdReply(400, "{\"ok\":false,\"error\":" + WebServer::jsonStr(msg) + "}"); }
+WebServer::CommandReply cmdResolved(const char* action) { return cmdReply(200, std::string("{\"ok\":true,\"resolved\":\"") + action + "\"}"); }
+// A toggle's cooldown: 1.5 s per toggle swallows a double press and a
+// bouncing contact's flip-flop.
+bool toggleReady(std::atomic<int64_t>& lastMs)
+{
+    const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (now - lastMs.load() < 1500) return false;
+    lastMs.store(now);
+    return true;
+}
+} // namespace
+
+WebServer::CommandReply WebServer::enqueueMotion(MotionCommand::Type type, int axisIndex)
+{
+    if (!m_motion) return cmdErr("Motion controller not ready.");
+    MotionCommand cmd;
+    cmd.type   = type;
+    cmd.intVal = axisIndex;   // -1: every axis
+    m_motion->enqueueCommand(cmd);
+    return cmdOk();
+}
+
+void WebServer::fillCommandTable()
+{
+    if (!m_commands.empty()) return;   // a server started again keeps its table
+
+    // Initialize: async, returns at once; progress is in /api/status
+    // (initBusy, masterOp). De-initialize: the inverse, the loop stopped
+    // first, the drives OP to INIT and the master closed, so they leave OP
+    // cleanly (no DC-sync fault) and Initialize re-enables.
+    m_commands["init"] = [this]() -> CommandReply
+    {
+        if (!requestInit()) return cmdErr(lastRefusal());
+        return cmdReply(200, "{\"ok\":true,\"status\":\"starting\"}");
+    };
+    m_commands["deinit"] = [this]() -> CommandReply
+    {
+        if (!requestDeinit()) return cmdErr(lastRefusal());
+        return cmdReply(200, "{\"ok\":true,\"status\":\"stopping\"}");
+    };
+
+    // Start the loop (the master must be operational) and stop it.
+    m_commands["start"] = [this]() -> CommandReply
+    {
+        if (!m_loop) return cmdErr("Components not ready.");
+        if (!m_master || !m_master->isOperational()) return cmdErr("EtherCAT not operational. Run /api/init first.");
+        if (m_loop->isRunning()) return cmdOk();
+        if (m_motion && m_motion->isEmergencyStop()) return cmdErr("E-STOP tripped -- re-initialize the drives to resume.");
+        m_loop->start();
+        return cmdOk();
+    };
+    m_commands["stop"] = [this]() -> CommandReply
+    {
+        if (m_onStopRequested) m_onStopRequested();
+        return cmdOk();
+    };
+
+    m_commands["estop"] = [this]() -> CommandReply
+    {
+        if (!m_motion || !m_master) return cmdErr("Components not ready.");
+        // The motion e-stop first: the cycle that carries out the stop
+        // below then disables in process() too. The bus owner disables
+        // every drive before its next frame (the RT loop, or the pump
+        // while the loop is stopped). The hardware e-stop stays the
+        // safety layer.
+        m_motion->setEmergencyStop(true, MotionController::EstopSource::Web);
+        m_master->requestStopAll();
+        return cmdOk();
+    };
+
+    // Home every axis (the route also homes one axis: hexapods home their
+    // legs one at a time); park and unpark; the belt pair and the device
+    // pair, two explicit idempotent commands each, NOT a toggle, so a
+    // physical button bound to "tension" can never slack you mid-lap
+    // because UI state drifted. Belts: torque axes only. Devices: the
+    // shifter and pedal families only (the RT side filters on
+    // caps.isDevice()); the pair is the GPIO panel's DEVICE key, a box
+    // binds device-toggle.
+    m_commands["home"]           = [this]() { return enqueueMotion(MotionCommand::Type::StartHoming,   -1); };
+    m_commands["park"]           = [this]() { return enqueueMotion(MotionCommand::Type::StartPark,     -1); };
+    m_commands["unpark"]         = [this]() { return enqueueMotion(MotionCommand::Type::StartUnpark,   -1); };
+    m_commands["belts/slack"]    = [this]() { return enqueueMotion(MotionCommand::Type::SlackBelts,    -1); };
+    m_commands["belts/tension"]  = [this]() { return enqueueMotion(MotionCommand::Type::TensionBelts,  -1); };
+    m_commands["device/engage"]  = [this]() { return enqueueMotion(MotionCommand::Type::EngageDevice,  -1); };
+    m_commands["device/release"] = [this]() { return enqueueMotion(MotionCommand::Type::ReleaseDevice, -1); };
+
+    m_commands["reset-fault"] = [this]() -> CommandReply
+    {
+        if (!m_master || !m_loop) return cmdErr("Components not ready.");
+        // Two-step: clear physical drive faults via EtherCAT (the RT
+        // loop runs the reset sequence), then clear software lockout
+        m_master->requestFaultResetAll();
+        m_loop->clearFaultLockout(-1);
+        return cmdOk();
+    };
+
+    // ---- Toggles: ONE physical button per stateful pair (the dashboard
+    // and the GPIO panel's park button). Resolution happens HERE against
+    // canonical engine state (server-side: cannot drift), with two guards
+    // a single button needs that a pair doesn't:
+    //   1. transitions are NO-OPS, never reversals - a toggle only acts
+    //      from a settled state (press during PARKING must not unpark);
+    //   2. a per-toggle cooldown swallows double-press/bounce flip-flops.
+    // Discrete commands stay for the dashboard, scripts, and legacy maps.
+    m_commands["init-toggle"] = [this]() -> CommandReply
+    {
+        static std::atomic<int64_t> last{0};
+        if (!toggleReady(last)) return cmdErr("Toggle cooldown.");
+        // requestInit/requestDeinit already refuse while busy - guard 1 is
+        // inherited for the whole bring-up/teardown window.
+        if (m_master && m_master->isOperational())
+        {
+            if (!requestDeinit()) return cmdErr(lastRefusal());
+            return cmdResolved("deinit");
+        }
+        if (!requestInit()) return cmdErr(lastRefusal());
+        return cmdResolved("init");
+    };
+
+    m_commands["run-toggle"] = [this]() -> CommandReply
+    {
+        if (!m_loop) return cmdErr("Components not ready.");
+        static std::atomic<int64_t> last{0};
+        if (!toggleReady(last)) return cmdErr("Toggle cooldown.");
+        if (m_loop->isRunning())
+        {
+            if (m_onStopRequested) m_onStopRequested();
+            return cmdResolved("stop");
+        }
+        if (!m_master || !m_master->isOperational()) return cmdErr("EtherCAT not operational. Run init first.");
+        if (m_motion && m_motion->isEmergencyStop()) return cmdErr("E-STOP tripped -- re-initialize the drives to resume.");
+        m_loop->start();
+        return cmdResolved("start");
+    };
+
+    m_commands["park-toggle"] = [this]() -> CommandReply
+    {
+        if (!m_motion) return cmdErr("Motion controller not ready.");
+        static std::atomic<int64_t> last{0};
+        if (!toggleReady(last)) return cmdErr("Toggle cooldown.");
+        MotionStatus ms = m_motion->getMotionStatus();
+        // Single-source aggregates (StatusModel): identical
+        // derivation to /api/status, pinned by TestStatusModel.
+        const status::MotionAggregates agg =
+            status::deriveMotionAggregates(ms.axisState, ms.numDrives);
+        if (agg.transitional) return cmdErr("Transitioning -- toggle ignored.");
+        if (agg.allParked && m_motion->isEmergencyStop())
+            return cmdErr("E-STOP tripped -- re-initialize the drives to resume.");
+        MotionCommand c;
+        c.type = agg.allParked ? MotionCommand::Type::StartUnpark : MotionCommand::Type::StartPark;
+        m_motion->enqueueCommand(c);
+        return cmdResolved(agg.allParked ? "unpark" : "park");
+    };
+
+    m_commands["belts-toggle"] = [this]() -> CommandReply
+    {
+        if (!m_motion) return cmdErr("Motion controller not ready.");
+        static std::atomic<int64_t> last{0};
+        if (!toggleReady(last)) return cmdErr("Toggle cooldown.");
+        MotionStatus ms = m_motion->getMotionStatus();
+        // Single-source aggregates (StatusModel): identical
+        // derivation to /api/status, pinned by TestStatusModel.
+        bool beltMask[MAX_DRIVES] = {};
+        const int nCfg = beltAxisMask(beltMask);
+        const status::BeltAggregates agg =
+            status::deriveBeltAggregates(ms.axisState, ms.numDrives, beltMask, nCfg);
+        const bool beltsSlack = agg.beltsSlack;
+        if (!agg.hasBelts)    return cmdErr("No torque axes on this rig.");
+        if (agg.transitional) return cmdErr("Belt transitioning -- toggle ignored.");
+        // Make the e-stop refusal VISIBLE here (the engine would refuse
+        // silently): a blind press must not read as accepted.
+        if (beltsSlack && m_motion->isEmergencyStop())
+            return cmdErr("E-STOP tripped -- re-initialize the drives to resume.");
+        MotionCommand c;
+        c.type = beltsSlack ? MotionCommand::Type::TensionBelts : MotionCommand::Type::SlackBelts;
+        m_motion->enqueueCommand(c);
+        return cmdResolved(beltsSlack ? "belts/tension" : "belts/slack");
+    };
+
+    // The three-state device button: unhomed devices home (the press IS
+    // the deliberate authorization - devices never home with the rig),
+    // homed+limp engage, any engaged releases. One resolution for web,
+    // HID binds, and the GPIO panel via the shared StatusModel derivation.
+    m_commands["device-toggle"] = [this]() -> CommandReply
+    {
+        if (!m_motion) return cmdErr("Motion controller not ready.");
+        static std::atomic<int64_t> last{0};
+        if (!toggleReady(last)) return cmdErr("Toggle cooldown.");
+        MotionStatus ms = m_motion->getMotionStatus();
+        bool devMask[MAX_DRIVES] = {};
+        const int nCfg = deviceAxisMask(devMask);
+        const status::DeviceAggregates agg =
+            status::deriveDeviceAggregates(ms.axisState, ms.numDrives, ms.homed, devMask, nCfg);
+        if (!agg.hasDevices)   return cmdErr("No device axes on this rig.");
+        if (agg.transitional)  return cmdErr("Device transitioning -- toggle ignored.");
+        if (!agg.anyEngaged && m_motion->isEmergencyStop())
+            return cmdErr("E-STOP tripped -- re-initialize the drives to resume.");
+        MotionCommand c;
+        c.type   = agg.anyEngaged ? MotionCommand::Type::ReleaseDevice
+                                  : MotionCommand::Type::EngageDevice;
+        c.intVal = -1;
+        m_motion->enqueueCommand(c);
+        return cmdResolved(agg.anyEngaged ? "device/release"
+                           : agg.allHomed  ? "device/engage" : "device/home");
+    };
+}
+
 bool WebServer::requestInit()
 {
     if (!m_master || !m_config)
@@ -1056,6 +1290,11 @@ bool WebServer::start()
                 m_effectStatus.save(m_configPath);
         }
     });
+
+    // The command table before the server thread exists: a reader's press
+    // (a HID box, the GPIO panel) may run a command the moment start()
+    // returns, and the routes below are wrappers over the same entries.
+    fillCommandTable();
 
     m_thread = std::thread([this]()
     {
@@ -1379,31 +1618,24 @@ bool WebServer::start()
             res.status = 400;
         };
 
-        // /api/init - async EtherCAT init. Returns immediately with {"ok":true,"status":"starting"}
-        // or {"ok":false,"error":"..."} if already initializing/operational.
-        // Progress is visible via the initBusy + masterOp fields in /api/status and WS push.
-        postCmd("/api/init", [this, errResp](const httplib::Request&, httplib::Response& res)
+        // ---- The commands' routes: thin wrappers over the table ----
+        // The table itself is filled before this thread exists
+        // (fillCommandTable); each entry gets its route here, so a route and
+        // a reader's press (a HID box, the GPIO panel) run the same code and
+        // get the same reply. Three routes are their own below, because they
+        // also take an axis from the body: home, device/engage, device/release.
+        auto sendReply = [](httplib::Response& res, const CommandReply& r)
         {
-            if (!requestInit())
-            {
-                errResp(res, lastRefusal());
-                return;
-            }
-            res.set_content("{\"ok\":true,\"status\":\"starting\"}", "application/json");
-        });
-
-        // /api/deinit - async EtherCAT de-init (inverse of /api/init). Stops the
-        // loop if running, then brings the drives OP→INIT and closes the master,
-        // so they leave OP cleanly (no DC-sync fault) and Initialize re-enables.
-        postCmd("/api/deinit", [this, errResp](const httplib::Request&, httplib::Response& res)
+            res.status = r.status;
+            res.set_content(r.body, "application/json");
+        };
+        for (const auto& entry : m_commands)
         {
-            if (!requestDeinit())
-            {
-                errResp(res, lastRefusal());
-                return;
-            }
-            res.set_content("{\"ok\":true,\"status\":\"stopping\"}", "application/json");
-        });
+            const std::string name = entry.first;
+            if (name == "home" || name == "device/engage" || name == "device/release") continue;
+            postCmd("/api/" + name, [this, name, sendReply](const httplib::Request&, httplib::Response& res)
+            { sendReply(res, runCommand(name)); });
+        }
 
         // Shared: validate `body` for namespace `which` against the other
         // namespace on disk, then atomically replace <which>.json. Single
@@ -1588,36 +1820,9 @@ bool WebServer::start()
                             "application/json");
         });
 
-        // /api/start - start the control loop (drive must already be operational)
-        postCmd("/api/start", [this, okResp, errResp](const httplib::Request&, httplib::Response& res)
-        {
-            if (!m_loop) { errResp(res, "Components not ready."); return; }
-            if (!m_master || !m_master->isOperational()) { errResp(res, "EtherCAT not operational. Run /api/init first."); return; }
-            if (m_loop->isRunning()) { okResp(res); return; }
-            if (m_motion && m_motion->isEmergencyStop()) { errResp(res, "E-STOP tripped -- re-initialize the drives to resume."); return; }
-            m_loop->start();
-            okResp(res);
-        });
-
-        postCmd("/api/stop", [this, okResp](const httplib::Request&, httplib::Response& res)
-        {
-            if (m_onStopRequested) m_onStopRequested();
-            okResp(res);
-        });
-
-        postCmd("/api/estop", [this, okResp, errResp](const httplib::Request&, httplib::Response& res)
-        {
-            if (!m_motion || !m_master) { errResp(res, "Components not ready."); return; }
-            // The motion e-stop first: the cycle that carries out the stop
-            // below then disables in process() too. The bus owner disables
-            // every drive before its next frame (the RT loop, or the pump
-            // while the loop is stopped). The hardware e-stop stays the
-            // safety layer.
-            m_motion->setEmergencyStop(true, MotionController::EstopSource::Web);
-            m_master->requestStopAll();
-            okResp(res);
-        });
-
+        // start, stop and estop: table entries with their routes from the
+        // loop above. The e-stop release stays a route alone (desktop-only
+        // re-arm: it needs eyes on the rig, so no box binds it).
         postCmd("/api/estop/release", [this, okResp](const httplib::Request&, httplib::Response& res)
         {
             // Releases the input only: the trip holds until the drives are
@@ -1626,112 +1831,50 @@ bool WebServer::start()
             okResp(res);
         });
 
-        postCmd("/api/home", [this, okResp, errResp](const httplib::Request& req, httplib::Response& res)
+        // The route's optional {"axis": N} (1-based, chain order): -1 when
+        // absent or 0, the index when in range, and a refusal (false) when
+        // out of range.
+        auto axisFromBody = [this, errResp](const httplib::Request& req, httplib::Response& res, int& axisIndex) -> bool
+        {
+            axisIndex = -1;
+            if (req.body.empty()) return true;
+            QJsonParseError pe;
+            const QJsonDocument doc = QJsonDocument::fromJson(
+                QByteArray(req.body.c_str(), (int)req.body.size()), &pe);
+            if (pe.error != QJsonParseError::NoError || !doc.isObject()) return true;
+            const int axis = doc.object().value("axis").toInt(0);
+            if (axis == 0) return true;
+            const int n = m_config ? (int)m_config->drives.size() : 0;
+            if (axis < 1 || axis > n) { errResp(res, "axis out of range."); return false; }
+            axisIndex = axis - 1;
+            return true;
+        };
+
+        // Home: the command homes every axis; the route also homes one axis.
+        // Hexapods need that: six coupled legs torque-searching at once can
+        // trip each other's thresholds, so legs home one at a time.
+        postCmd("/api/home", [this, errResp, axisFromBody, sendReply](const httplib::Request& req, httplib::Response& res)
         {
             if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
-            MotionCommand cmd;
-            cmd.type   = MotionCommand::Type::StartHoming;
-            cmd.intVal = -1;                    // default: all axes
-            // Optional {"axis": N} homes one axis (1-based, chain order).
-            // Hexapods need this: six coupled legs torque-searching at once
-            // can trip each other's thresholds, so legs home one at a time.
-            if (!req.body.empty())
-            {
-                QJsonParseError pe;
-                const QJsonDocument doc = QJsonDocument::fromJson(
-                    QByteArray(req.body.c_str(), (int)req.body.size()), &pe);
-                if (pe.error == QJsonParseError::NoError && doc.isObject())
-                {
-                    const int axis = doc.object().value("axis").toInt(0);
-                    if (axis != 0)
-                    {
-                        const int n = m_config ? (int)m_config->drives.size() : 0;
-                        if (axis < 1 || axis > n)
-                        { errResp(res, "axis out of range."); return; }
-                        cmd.intVal = axis - 1;
-                    }
-                }
-            }
-            m_motion->enqueueCommand(cmd);
-            okResp(res);
+            int axisIndex = -1;
+            if (!axisFromBody(req, res, axisIndex)) return;
+            sendReply(res, enqueueMotion(MotionCommand::Type::StartHoming, axisIndex));
         });
 
-        postCmd("/api/park", [this, okResp, errResp](const httplib::Request&, httplib::Response& res)
-        {
-            if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
-            MotionCommand cmd;
-            cmd.type = MotionCommand::Type::StartPark;
-            m_motion->enqueueCommand(cmd);
-            okResp(res);
-        });
-
-        postCmd("/api/unpark", [this, okResp, errResp](const httplib::Request&, httplib::Response& res)
-        {
-            if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
-            MotionCommand cmd;
-            cmd.type = MotionCommand::Type::StartUnpark;
-            m_motion->enqueueCommand(cmd);
-            okResp(res);
-        });
-
-        // Belt don/doff (torque axes only; position axes untouched). Two explicit
-        // idempotent endpoints -- NOT a toggle -- so a physical button bound to
-        // "tension" (GPIO panel or HID button box) can never slack you mid-lap
-        // because UI state drifted.
-        postCmd("/api/belts/slack", [this, okResp, errResp](const httplib::Request&, httplib::Response& res)
-        {
-            if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
-            MotionCommand cmd;
-            cmd.type = MotionCommand::Type::SlackBelts;
-            m_motion->enqueueCommand(cmd);
-            okResp(res);
-        });
-        postCmd("/api/belts/tension", [this, okResp, errResp](const httplib::Request&, httplib::Response& res)
-        {
-            if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
-            MotionCommand cmd;
-            cmd.type = MotionCommand::Type::TensionBelts;
-            m_motion->enqueueCommand(cmd);
-            okResp(res);
-        });
-
-        // Device engage/release (shifter/pedal families ONLY; every other
-        // axis untouched -- the RT side filters on caps.isDevice()). Same
-        // idempotent two-endpoint shape as the belt pair, for the same
-        // reason: a physical button bound to one of these can never do the
-        // opposite because UI state drifted. Optional {"axis": N} targets
-        // one device (1-based, chain order); default all device axes.
-        const auto deviceCmd = [this, okResp, errResp](
+        // Device engage / release: the routes also take {"axis": N} for one
+        // device; the commands (and the GPIO panel) take every device axis.
+        const auto deviceRoute = [this, errResp, axisFromBody, sendReply](
             MotionCommand::Type type, const httplib::Request& req, httplib::Response& res)
         {
             if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
-            MotionCommand cmd;
-            cmd.type   = type;
-            cmd.intVal = -1;
-            if (!req.body.empty())
-            {
-                QJsonParseError pe;
-                const QJsonDocument doc = QJsonDocument::fromJson(
-                    QByteArray(req.body.c_str(), (int)req.body.size()), &pe);
-                if (pe.error == QJsonParseError::NoError && doc.isObject())
-                {
-                    const int axis = doc.object().value("axis").toInt(0);
-                    if (axis != 0)
-                    {
-                        const int n = m_config ? (int)m_config->drives.size() : 0;
-                        if (axis < 1 || axis > n)
-                        { errResp(res, "axis out of range."); return; }
-                        cmd.intVal = axis - 1;
-                    }
-                }
-            }
-            m_motion->enqueueCommand(cmd);
-            okResp(res);
+            int axisIndex = -1;
+            if (!axisFromBody(req, res, axisIndex)) return;
+            sendReply(res, enqueueMotion(type, axisIndex));
         };
-        postCmd("/api/device/engage", [deviceCmd](const httplib::Request& req, httplib::Response& res)
-        { deviceCmd(MotionCommand::Type::EngageDevice, req, res); });
-        postCmd("/api/device/release", [deviceCmd](const httplib::Request& req, httplib::Response& res)
-        { deviceCmd(MotionCommand::Type::ReleaseDevice, req, res); });
+        postCmd("/api/device/engage", [deviceRoute](const httplib::Request& req, httplib::Response& res)
+        { deviceRoute(MotionCommand::Type::EngageDevice, req, res); });
+        postCmd("/api/device/release", [deviceRoute](const httplib::Request& req, httplib::Response& res)
+        { deviceRoute(MotionCommand::Type::ReleaseDevice, req, res); });
 
         // Haptics Test button: fires the detent click (effect=detentClick) or
         // previews one continuous effect at full level for ~2 s. Enqueued so
@@ -2404,15 +2547,6 @@ bool WebServer::start()
             okResp(res);
         });
 
-        postCmd("/api/reset-fault", [this, okResp, errResp](const httplib::Request&, httplib::Response& res)
-        {
-            if (!m_master || !m_loop) { errResp(res, "Components not ready."); return; }
-            // Two-step: clear physical drive faults via EtherCAT (the RT
-            // loop runs the reset sequence), then clear software lockout
-            m_master->requestFaultResetAll();
-            m_loop->clearFaultLockout(-1);
-            okResp(res);
-        });
 
         // ---- Commissioning test mode ----
         // The browser sends a compact spec (mode + axis selections + params);
@@ -2587,136 +2721,6 @@ bool WebServer::start()
             res.set_content(s, "application/json");
         });
 
-        // ---- Toggle endpoints: ONE physical button per stateful pair
-        // (mirrors the dashboard and the GPIO panel's park
-        // button). Resolution happens HERE against canonical engine state
-        // (server-side: cannot drift), with two guards a single button needs
-        // that a pair doesn't:
-        //   1. transitions are NO-OPS, never reversals - a toggle only acts
-        //      from a settled state (press during PARKING must not unpark);
-        //   2. a per-toggle cooldown swallows double-press/bounce flip-flops.
-        // Discrete endpoints stay for the dashboard, scripts, and legacy maps.
-        auto toggleReady = [](std::atomic<int64_t>& lastMs) -> bool
-        {
-            const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now().time_since_epoch()).count();
-            if (now - lastMs.load() < 1500) return false;
-            lastMs.store(now);
-            return true;
-        };
-        auto resolvedResp = [](httplib::Response& res, const char* action)
-        {
-            res.set_content(std::string("{\"ok\":true,\"resolved\":\"") + action + "\"}",
-                            "application/json");
-        };
-
-        postCmd("/api/init-toggle", [this, errResp, toggleReady, resolvedResp](const httplib::Request&, httplib::Response& res)
-        {
-            static std::atomic<int64_t> last{0};
-            if (!toggleReady(last)) { errResp(res, "Toggle cooldown."); return; }
-            // requestInit/requestDeinit already refuse while busy - guard 1 is
-            // inherited for the whole bring-up/teardown window.
-            if (m_master && m_master->isOperational())
-            {
-                if (!requestDeinit()) { errResp(res, lastRefusal()); return; }
-                resolvedResp(res, "deinit");
-            }
-            else
-            {
-                if (!requestInit()) { errResp(res, lastRefusal()); return; }
-                resolvedResp(res, "init");
-            }
-        });
-
-        postCmd("/api/run-toggle", [this, errResp, toggleReady, resolvedResp](const httplib::Request&, httplib::Response& res)
-        {
-            if (!m_loop) { errResp(res, "Components not ready."); return; }
-            static std::atomic<int64_t> last{0};
-            if (!toggleReady(last)) { errResp(res, "Toggle cooldown."); return; }
-            if (m_loop->isRunning())
-            {
-                if (m_onStopRequested) m_onStopRequested();
-                resolvedResp(res, "stop");
-            }
-            else
-            {
-                if (!m_master || !m_master->isOperational()) { errResp(res, "EtherCAT not operational. Run init first."); return; }
-                if (m_motion && m_motion->isEmergencyStop()) { errResp(res, "E-STOP tripped -- re-initialize the drives to resume."); return; }
-                m_loop->start();
-                resolvedResp(res, "start");
-            }
-        });
-
-        postCmd("/api/park-toggle", [this, errResp, toggleReady, resolvedResp](const httplib::Request&, httplib::Response& res)
-        {
-            if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
-            static std::atomic<int64_t> last{0};
-            if (!toggleReady(last)) { errResp(res, "Toggle cooldown."); return; }
-            MotionStatus ms = m_motion->getMotionStatus();
-            // Single-source aggregates (StatusModel): identical
-            // derivation to /api/status, pinned by TestStatusModel.
-            const status::MotionAggregates agg =
-                status::deriveMotionAggregates(ms.axisState, ms.numDrives);
-            if (agg.transitional) { errResp(res, "Transitioning -- toggle ignored."); return; }
-            if (agg.allParked && m_motion->isEmergencyStop())
-            { errResp(res, "E-STOP tripped -- re-initialize the drives to resume."); return; }
-            MotionCommand c;
-            c.type = agg.allParked ? MotionCommand::Type::StartUnpark : MotionCommand::Type::StartPark;
-            m_motion->enqueueCommand(c);
-            resolvedResp(res, agg.allParked ? "unpark" : "park");
-        });
-
-        postCmd("/api/belts-toggle", [this, errResp, toggleReady, resolvedResp](const httplib::Request&, httplib::Response& res)
-        {
-            if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
-            static std::atomic<int64_t> last{0};
-            if (!toggleReady(last)) { errResp(res, "Toggle cooldown."); return; }
-            MotionStatus ms = m_motion->getMotionStatus();
-            // Single-source aggregates (StatusModel): identical
-            // derivation to /api/status, pinned by TestStatusModel.
-            bool beltMask[MAX_DRIVES] = {};
-            const int nCfg = beltAxisMask(beltMask);
-            const status::BeltAggregates agg =
-                status::deriveBeltAggregates(ms.axisState, ms.numDrives, beltMask, nCfg);
-            const bool beltsSlack = agg.beltsSlack;
-            if (!agg.hasBelts)    { errResp(res, "No torque axes on this rig."); return; }
-            if (agg.transitional) { errResp(res, "Belt transitioning -- toggle ignored."); return; }
-            // Make the e-stop refusal VISIBLE here (the engine would refuse
-            // silently): a blind press must not read as accepted.
-            if (beltsSlack && m_motion->isEmergencyStop())
-            { errResp(res, "E-STOP tripped -- re-initialize the drives to resume."); return; }
-            MotionCommand c;
-            c.type = beltsSlack ? MotionCommand::Type::TensionBelts : MotionCommand::Type::SlackBelts;
-            m_motion->enqueueCommand(c);
-            resolvedResp(res, beltsSlack ? "belts/tension" : "belts/slack");
-        });
-
-        // The three-state device button: unhomed devices home (the press IS
-        // the deliberate authorization - devices never home with the rig),
-        // homed+limp engage, any engaged releases. One resolution for web,
-        // HID binds, and the GPIO panel via the shared StatusModel derivation.
-        postCmd("/api/device-toggle", [this, errResp, toggleReady, resolvedResp](const httplib::Request&, httplib::Response& res)
-        {
-            if (!m_motion) { errResp(res, "Motion controller not ready."); return; }
-            static std::atomic<int64_t> last{0};
-            if (!toggleReady(last)) { errResp(res, "Toggle cooldown."); return; }
-            MotionStatus ms = m_motion->getMotionStatus();
-            bool devMask[MAX_DRIVES] = {};
-            const int nCfg = deviceAxisMask(devMask);
-            const status::DeviceAggregates agg =
-                status::deriveDeviceAggregates(ms.axisState, ms.numDrives, ms.homed, devMask, nCfg);
-            if (!agg.hasDevices)   { errResp(res, "No device axes on this rig."); return; }
-            if (agg.transitional)  { errResp(res, "Device transitioning -- toggle ignored."); return; }
-            if (!agg.anyEngaged && m_motion->isEmergencyStop())
-            { errResp(res, "E-STOP tripped -- re-initialize the drives to resume."); return; }
-            MotionCommand c;
-            c.type   = agg.anyEngaged ? MotionCommand::Type::ReleaseDevice
-                                      : MotionCommand::Type::EngageDevice;
-            c.intVal = -1;
-            m_motion->enqueueCommand(c);
-            resolvedResp(res, agg.anyEngaged ? "device/release"
-                             : agg.allHomed  ? "device/engage" : "device/home");
-        });
 
         // ---- User device presets: hand-crafted feels saved by name ----
         // devicepresets.json beside the configs. Authored state like the

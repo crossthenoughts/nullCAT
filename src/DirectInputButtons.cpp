@@ -3,7 +3,7 @@
 // ============================================================
 // DirectInputButtons.cpp - see DirectInputButtons.h. Windows-only (DirectInput8).
 // The Windows counterpart to pi/EvdevButtons.cpp: same three hooks, same
-// buttons.json contract, same POST-to-local-webserver runtime path.
+// buttons.json contract, same in-process command path (WebServer::runCommand).
 // ============================================================
 #include "DirectInputButtons.h"
 
@@ -25,10 +25,9 @@
 #  define NOMINMAX
 #endif
 #define DIRECTINPUT_VERSION 0x0800
-#include <winsock2.h>    // before windows.h so httplib's winsock2 stays clean
+#include <winsock2.h>    // before windows.h (the winsock header order)
 #include <windows.h>
 #include <dinput.h>
-#include "httplib.h"
 
 #include <chrono>
 #include <cstdio>
@@ -70,10 +69,11 @@ BOOL WINAPI enumCb(const DIDEVICEINSTANCEA* inst, void* pv)
 } // namespace
 
 // ---- lifecycle -------------------------------------------------------------
-void DirectInputButtons::start(const std::string& buttonsJsonPath, int localWebPort)
+void DirectInputButtons::start(const std::string& buttonsJsonPath,
+                               std::function<std::string(const std::string&)> runCommand)
 {
     m_path = buttonsJsonPath;
-    m_port = localWebPort;
+    m_run  = std::move(runCommand);
     loadBindings();
     m_stop = false;
     m_thread = std::thread(&DirectInputButtons::threadMain, this);
@@ -245,11 +245,13 @@ void DirectInputButtons::execCommand(const std::string& cmd)
         LOG_WARNING(strf("DirectInputButtons: refusing non-bindable command '%s'.", cmd.c_str()));
         return;
     }
-    httplib::Client cli("127.0.0.1", m_port);
-    cli.set_read_timeout(5, 0);
-    auto r = cli.Post(("/api/" + cmd).c_str(), "", "application/json");
-    LOG_INFO(strf("DirectInputButtons: button -> %s => %s", cmd.c_str(),
-                  r ? r->body.c_str() : "(no response)"));
+    if (!m_run)
+    {
+        LOG_WARNING(strf("DirectInputButtons: no command path; '%s' ignored.", cmd.c_str()));
+        return;
+    }
+    const std::string reply = m_run(cmd);
+    LOG_INFO(strf("DirectInputButtons: button -> %s => %s", cmd.c_str(), reply.c_str()));
 }
 
 // ---- worker thread ---------------------------------------------------------

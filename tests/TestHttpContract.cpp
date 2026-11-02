@@ -1264,6 +1264,24 @@ int main()
               "no Access-Control-Allow-Origin on any response");
     }
 
+    // ---- a button box press is the server's command table, not a request ----
+    // The HID readers and the GPIO panel run a command by name through
+    // WebServer::runCommand: the same code the route runs, the same reply,
+    // the same engine outcome (the rig here is a belt, so slack and tension
+    // are the pair that moves it). Names that are routes only (power,
+    // update, the desktop-only e-stop release) and unknown names are 404.
+    {
+        const WebServer::CommandReply s = web.runCommand("belts/slack");
+        check(s.status == 200 && has(s.body, "\"ok\":true"), "runCommand(belts/slack): the route's reply");
+        check(waitStatus("\"beltsSlack\":true", 5000), "...and the belt goes slack, as the POST has it");
+        const WebServer::CommandReply t = web.runCommand("belts/tension");
+        check(t.status == 200 && waitStatus("\"beltsSlack\":false", 5000), "runCommand(belts/tension): tensioned again");
+        check(web.runCommand("shutdown").status == 404 && web.runCommand("restart").status == 404
+              && web.runCommand("update/start").status == 404 && web.runCommand("nope").status == 404,
+              "the table knows only commands: shutdown, restart, update and an unknown name are 404");
+        check(web.runCommand("estop/release").status == 404, "estop/release is a route, not a command");
+    }
+
     // ---- a rig.json or host.json that cannot be read is never written over ----
     // A hand edit over ssh gone wrong, or a save a crash interrupted, leaves
     // a file that does not parse. Config::load refuses to start on it; the
@@ -1374,6 +1392,12 @@ int main()
             check(r3 && r3->status == 401, "auth on: wrong token is 401");
             auto r4 = cli.Post("/api/stop", "", "application/json");
             check(r4 && r4->status == 401, "auth on: POST without token is 401");
+            // A button box press takes the in-process command path, not a
+            // request: it runs with the token on. (The readers once POSTed
+            // to loopback without the header, and every press was that 401.)
+            const WebServer::CommandReply press = aweb.runCommand("stop");
+            check(press.status == 200 && has(press.body, "\"ok\":true"),
+                  "auth on: a reader's in-process command runs (the token gates the network alone)");
             auto r5 = cli.Get("/");
             check(r5 && r5->status != 401, "auth on: static page stays reachable (prompt can render)");
             aweb.stop();

@@ -92,6 +92,11 @@ Notes:
   as is.
 - The bindable-command set is enforced server-side when saving button
   bindings: a crafted POST cannot bind restart, shutdown, or e-stop release.
+- A button-box press and a GPIO panel key run a command by name through
+  the server's own command table, the same code the route runs, inside the
+  process: the web token (`webAuthToken`) gates network requests only, and
+  a press never carries one. The power and update endpoints are routes
+  only, never commands.
 
 ## Request-level security guards
 

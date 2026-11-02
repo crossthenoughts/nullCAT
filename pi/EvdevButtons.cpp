@@ -6,7 +6,6 @@
 #include "EvdevButtons.h"
 #include "Logging.h"
 #include "Config.h"     // isBindableCommand - defense in depth at exec time
-#include "httplib.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -54,10 +53,11 @@ static bool hasPadButtons(int fd)
     return false;
 }
 
-void EvdevButtons::start(const std::string& buttonsJsonPath, int localWebPort)
+void EvdevButtons::start(const std::string& buttonsJsonPath,
+                         std::function<std::string(const std::string&)> runCommand)
 {
     m_path = buttonsJsonPath;
-    m_port = localWebPort;
+    m_run  = std::move(runCommand);
     loadBindings();
     m_stop = false;
     m_thread = std::thread(&EvdevButtons::threadMain, this);
@@ -177,11 +177,13 @@ void EvdevButtons::execCommand(const std::string& cmd)
         LOG_WARNING(strf("EvdevButtons: refusing non-bindable command '%s'.", cmd.c_str()));
         return;
     }
-    httplib::Client cli("127.0.0.1", m_port);
-    cli.set_read_timeout(5, 0);
-    auto r = cli.Post(("/api/" + cmd).c_str(), "", "application/json");
-    LOG_INFO(strf("EvdevButtons: button -> %s => %s", cmd.c_str(),
-                  r ? r->body.c_str() : "(no response)"));
+    if (!m_run)
+    {
+        LOG_WARNING(strf("EvdevButtons: no command path; '%s' ignored.", cmd.c_str()));
+        return;
+    }
+    const std::string reply = m_run(cmd);
+    LOG_INFO(strf("EvdevButtons: button -> %s => %s", cmd.c_str(), reply.c_str()));
 }
 
 void EvdevButtons::threadMain()

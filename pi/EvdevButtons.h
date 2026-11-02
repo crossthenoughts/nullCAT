@@ -26,13 +26,17 @@
 #include <mutex>
 #include <atomic>
 #include <condition_variable>
+#include <functional>
 
 class EvdevButtons
 {
 public:
-    // buttonsJsonPath: the web-owned buttons.json; localWebPort: our own
-    // web server (commands are POSTed to 127.0.0.1:port/api/<cmd>).
-    void start(const std::string& buttonsJsonPath, int localWebPort);
+    // buttonsJsonPath: the web-owned buttons.json; runCommand: the server's
+    // command table (WebServer::runCommand) by name, in this process; the
+    // reply's JSON body comes back for the log. A press never leaves the
+    // process, so the web token, a gate for the network, does not apply.
+    void start(const std::string& buttonsJsonPath,
+               std::function<std::string(const std::string&)> runCommand);
     void stop();
 
     // WebServer::ButtonBackendHooks targets.
@@ -51,7 +55,7 @@ private:
     void execCommand(const std::string& cmd);
 
     std::string m_path;
-    int         m_port = 8080;
+    std::function<std::string(const std::string&)> m_run;   // the command table
 
     std::thread             m_thread;
     std::mutex              m_mu;         // guards bindings/capture/flags below
