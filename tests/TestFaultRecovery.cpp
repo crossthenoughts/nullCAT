@@ -18,6 +18,7 @@
 #include <QtTest>
 #include "../src/MotionController.h"
 #include "../src/MockA6Drive.h"
+#include "../src/DriveFaultMonitor.h"
 #include "../src/Config.h"
 #include "../src/Logging.h"
 #include <algorithm>
@@ -620,6 +621,113 @@ private slots:
         QVERIFY2(worstMm < 1.0,
                  qPrintable(QString("PARKED hold after a failed re-home commands %1 mm away from the drive "
                                     "(its home offset is %2)").arg(worstMm).arg(drive.getHomeOffset())));
+    }
+
+    // ----------------------------------------------------------------
+    // One owner of the fault-reset pulse. DriveFaultMonitor steps
+    // stepFaultReset() for every drive every cycle (ControlLoop runs it
+    // before the homing check). HomingSequence used to step it as well
+    // while a faulted drive sat in EnablingDrive, the case of a drive
+    // faulted at loop start with a re-home pending: two callers per cycle
+    // halved the pulse phases and brought the drive's 100-cycle give-up to
+    // 50. Breaks when HomingSequence::step resets a fault again.
+    // ----------------------------------------------------------------
+    void faultedDriveAtHomingStart_resetPulsedByTheMonitorAlone()
+    {
+        AppConfig cfg = makeSingleAxisConfig();
+        MotionController mc;
+        mc.configure(cfg);
+
+        MockA6Drive drive;
+        drive.configure(1, 0.0, 1.0);
+        drive.setHardstop(-50.0, true, 50.0);
+        DriveFaultMonitor monitor;
+        monitor.configure(1);
+
+        drive.injectFault();      // faulted before the loop's auto-home
+        mc.startHoming();
+        QCOMPARE(mc.getAxisState(0), AxisMotionState::HOMING);
+
+        // ControlLoop's order each cycle: process(), then per drive its
+        // status and the monitor.
+        TelemetryData empty{};
+        A6Drive* drives[1] = { &drive };
+        int worstPerCycle = 0;
+        int clearedAt     = -1;
+        for (int cycle = 1; cycle <= 50; ++cycle)
+        {
+            const int before = drive.getFaultResetCalls();
+            MotionOutput out{};
+            mc.process(empty, out, drives, 1);
+            drive.updateStatus();
+            monitor.step(0, &drive, drive.getState(), static_cast<uint64_t>(cycle));
+            worstPerCycle = std::max(worstPerCycle, drive.getFaultResetCalls() - before);
+            if (clearedAt < 0 && !drive.isFault()) clearedAt = cycle;
+        }
+        QVERIFY2(clearedAt > 0, "the monitor's pulse train clears the fault");
+        QVERIFY2(worstPerCycle == 1,
+                 qPrintable(QString("stepFaultReset was called %1 times in one cycle; the monitor is its only owner")
+                                .arg(worstPerCycle)));
+        // Homing did run on from the wait: nothing else in this harness
+        // enables the drive (the loop's enable machine is not here).
+        QVERIFY2(drive.isEnabled(), "homing enabled the drive once the monitor had cleared the fault");
+    }
+
+    // ----------------------------------------------------------------
+    // The same ownership, seen from the lockout: once the monitor has spent
+    // its retries on a fault that keeps coming back, the drive is locked out
+    // and nothing pulses it until the lockout is cleared (a user, or an
+    // e-stop release). Homing started on that drive used to reset it anyway,
+    // around the budget. Breaks when HomingSequence::step resets a fault
+    // again.
+    // ----------------------------------------------------------------
+    void lockedOutDrive_isNotResetByHoming()
+    {
+        AppConfig cfg = makeSingleAxisConfig();
+        MotionController mc;
+        mc.configure(cfg);
+
+        MockA6Drive drive;
+        drive.configure(1, 0.0, 1.0);
+        drive.setHardstop(-50.0, true, 50.0);
+        DriveFaultMonitor monitor;
+        monitor.configure(1);
+
+        // A fault that returns after every reset, until the monitor gives up.
+        uint64_t cycle = 0;
+        while (!monitor.isLocked(0) && cycle < 2000)
+        {
+            ++cycle;
+            if (!drive.isFault()) drive.injectFault();
+            drive.updateStatus();
+            monitor.step(0, &drive, drive.getState(), cycle);
+        }
+        QVERIFY2(monitor.isLocked(0), "setup: the monitor locks the drive out after its retries");
+        QCOMPARE(monitor.getRetryCount(0), DriveFaultMonitor::MAX_FAULT_RETRIES);
+        QVERIFY(drive.isFault());
+
+        // Homing on the locked-out drive: the monitor answers disable only,
+        // and nobody else may pulse the reset.
+        const int callsAtLockout = drive.getFaultResetCalls();
+        mc.startHoming();
+        QCOMPARE(mc.getAxisState(0), AxisMotionState::HOMING);
+        TelemetryData empty{};
+        A6Drive* drives[1] = { &drive };
+        for (int i = 0; i < 100; ++i)
+        {
+            ++cycle;
+            MotionOutput out{};
+            mc.process(empty, out, drives, 1);
+            drive.updateStatus();
+            monitor.step(0, &drive, drive.getState(), cycle);
+        }
+        QVERIFY2(drive.getFaultResetCalls() == callsAtLockout,
+                 qPrintable(QString("%1 reset call(s) reached a locked-out drive from homing")
+                                .arg(drive.getFaultResetCalls() - callsAtLockout)));
+        QVERIFY2(drive.isFault(), "a locked-out drive stays faulted until the lockout is cleared");
+        // ...and homing is still waiting for it, not parked or searching.
+        QCOMPARE(mc.getAxisStateName(0),
+                 std::string("HOMING[") + HomingSequence::stateName(HomingSequence::State::EnablingDrive) + "]");
     }
 };
 

@@ -49,6 +49,7 @@ public:
         m_qsaInjected     = false;
         m_enableStep      = 0;
         m_faultResetStep  = 0;
+        m_faultResetCalls = 0;
         m_hardstopActive        = false;
         m_mockHomeOffset        = 0.0;
         m_mockFrameSign         = 1.0;
@@ -115,6 +116,7 @@ public:
     // the raw target it was last told, as the drive itself would see it.
     double getSimActualPos() const { return m_actualPos; }
     double getSimTargetPos() const { return m_targetPos; }
+    int    getFaultResetCalls() const { return m_faultResetCalls; }
 
     // ---- A6Drive virtual overrides ----
 
@@ -200,9 +202,11 @@ public:
         return false;
     }
 
-    // Fault reset -- clears fault after a few cycles.
+    // Fault reset -- clears fault after a few cycles. Every call is counted
+    // (getFaultResetCalls), so a test can see how many callers pulse it.
     bool stepFaultReset() override
     {
+        ++m_faultResetCalls;
         ++m_faultResetStep;
         if (m_faultResetStep >= 3)
         {
@@ -315,6 +319,7 @@ private:
     int        m_enableStep         = 0;
     int        m_enableCyclesToComplete = 3;
     int        m_faultResetStep     = 0;
+    int        m_faultResetCalls    = 0;
     bool       m_useIntermediateStates = false;  // step through DS402 states
     int        m_stepsPerState         = 1;
 

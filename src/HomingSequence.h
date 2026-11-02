@@ -174,11 +174,13 @@ public:
             // ---------------------------------------------------
         case State::EnablingDrive:
         {
-            if (drive->isFault())
-            {
-                drive->stepFaultReset();
-            }
-            else
+            // A faulted drive waits here. The fault-reset pulse has one owner,
+            // DriveFaultMonitor: the loop steps it each cycle, with a retry
+            // budget and a lockout. A second caller from here
+            // halved the pulse phases (the drive's 100-cycle give-up came in
+            // 50) and reset drives the monitor had locked out. The enable
+            // timeout below still ends a wait that never clears.
+            if (!drive->isFault())
             {
                 bool enabled = drive->stepEnableStateMachine();
                 if (enabled)
