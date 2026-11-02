@@ -163,7 +163,11 @@ jobs:
 
   linux-arm64:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # The full suite under emulation: the default 14 suites took about 23
+    # minutes with the build; the logic suites, TestBusSeam (the one test of
+    # the real pump, bridge and hand-over code) and TestTrackingFilter now
+    # run on the shipped toolchain as well.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -178,7 +182,7 @@ jobs:
             cd /root/SOEM && git checkout -q '"$SOEM_REV"'
             cmake -S . -B build >/dev/null && cmake --build build -j2 >/dev/null
             cd /src
-            cmake -S pi -B build-arm64 -DSOEM_ROOT=/root/SOEM
+            cmake -S pi -B build-arm64 -DSOEM_ROOT=/root/SOEM -DNULLCAT_FULL_TESTS=ON
             cmake --build build-arm64 -j2
             cd build-arm64 && ctest --output-on-failure
           '
