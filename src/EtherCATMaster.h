@@ -186,6 +186,16 @@ public:
     void setDriveConfigs(const std::vector<DriveConfig>& configs);
     void setControlLoopHz(int hz)             { m_controlLoopHz = hz; }
     int  controlLoopHz() const                { return m_controlLoopHz; }
+
+    // The SYNC0 verdict after an arm, from the two register reads
+    // (DCSTART0, DCSYSTIME) and their working counters: +1 alive (the start
+    // advancing, a margin within two cycles), 0 dead (the start frozen in
+    // the past), -1 unavailable (a dropped or empty read, or a margin of
+    // DC-epoch magnitude: junk despite a good working counter). The one
+    // rule for the OP transition and the recovery scan; pinned by
+    // TestInitSequence.
+    static int sync0VerdictFrom(int wkcStart, int wkcSys, int64_t startNs, int64_t sysNs,
+                                uint32_t cycleNs, int64_t* marginOut);
     void setDcSyncOffsetNs(int offsetNs)      { m_dcSyncOffsetNs = offsetNs; }
     // DC phase-lock compensator parameters (default OFF). Applied
     // to the background pump's cadence; the control loop reads them from config
@@ -396,6 +406,14 @@ private:
     InitResult stageSafeOpEntry(ecx_contextt* ctx);                            // watchdog config + drive mode SDOs in SafeOp
     InitResult stagePreOpPump(ecx_contextt* ctx);                              // SDO finalisation + 4000-cycle pre-OP pump
     InitResult stageOPTransition(ecx_contextt* ctx);                           // OP request + 5000-cycle pump + bridge + pump thread
+    // sync0VerdictFrom on the registers read now (once more on a dropped
+    // read); and the two waits around a re-arm that the OP transition and
+    // the recovery scan share: SOEM's start delay before a pulse unit shows
+    // life, and the pulse train with cyclic data a drive's sync supervision
+    // wants before OP.
+    int sync0Verdict(ecx_contextt* ctx, int slave, uint32_t cycleNs, int64_t* marginOut) const;
+    static constexpr int kSync0StartDelayMs = 150;
+    static constexpr int kSync0SettleMs     = 700;
     InitResult verifyOperationalWKC(ecx_contextt* ctx);                        // 50-cycle WKC validation after OP confirmed
     void runCapabilityScan(ecx_contextt* ctx);                                 // optional diagnostic SDO reads
     void logOPFailureDiagnostics(ecx_contextt* ctx);                           // per-slave ALState/ALCode/dcAct on OP failure
@@ -418,8 +436,9 @@ private:
 
     // Per-slave reconfig attempt cap. Indexed by slave
     // number (element 0 unused); sized in startRecoveryThread(). Touched only
-    // on the recovery thread - no atomics needed. Reset per slave on
-    // successful reconfig and on address recovery (slave power-cycled back).
+    // on the recovery thread - no atomics needed. Reset per slave when a
+    // reconfig walk hands the slave to OP (a walk whose SYNC0 stays dead
+    // counts) and on address recovery (slave power-cycled back).
     static constexpr int kMaxRecoveryReconfigAttempts = 5;
     std::vector<int> m_recoveryReconfigFails;
 

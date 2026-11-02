@@ -45,6 +45,7 @@ extern "C" {
 #include "soem/ec_print.h"   // ec_ALstatuscode2string, ecx_err2string, ecx_elist2string
 }
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 
@@ -1952,6 +1953,34 @@ void EtherCATMaster::runOPBridge(ecx_contextt* ctx, int64_t ticksPer2Ms, int64_t
     }
 }
 
+int EtherCATMaster::sync0VerdictFrom(int wkcStart, int wkcSys, int64_t startNs, int64_t sysNs,
+                                     uint32_t cycleNs, int64_t* marginOut)
+{
+    if (marginOut) *marginOut = 0;
+    if (wkcStart <= 0 || wkcSys <= 0 || startNs == 0 || sysNs == 0) return -1;
+    const int64_t m = startNs - sysNs;
+    if (marginOut) *marginOut = m;
+    // A real margin is within seconds of now; DC-epoch magnitudes mean one
+    // read returned junk despite its working counter.
+    if (m > 1000000000LL || m < -1000000000LL) return -1;
+    return (m > -2 * static_cast<int64_t>(cycleNs)) ? +1 : 0;
+}
+
+int EtherCATMaster::sync0Verdict(ecx_contextt* ctx, int slave, uint32_t cycleNs, int64_t* marginOut) const
+{
+    const uint16_t cfgAddr = ctx->slavelist[slave].configadr;
+    for (int attempt = 0; attempt < 2; ++attempt)
+    {
+        int64_t startPost = 0, sysPost = 0;
+        const int wS = ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSTART0,  8, &startPost, EC_TIMEOUTRET);
+        const int wT = ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSYSTIME, 8, &sysPost,   EC_TIMEOUTRET);
+        if (wS > 0 && wT > 0 && startPost != 0 && sysPost != 0)
+            return sync0VerdictFrom(wS, wT, startPost, sysPost, cycleNs, marginOut);
+    }
+    if (marginOut) *marginOut = 0;
+    return -1;
+}
+
 InitResult EtherCATMaster::stageOPTransition(ecx_contextt* ctx)
 {
     // NOT idempotent: calls timerEnd() (paired with timerBegin() in stagePreOpPump).
@@ -2053,30 +2082,11 @@ InitResult EtherCATMaster::stageOPTransition(ecx_contextt* ctx)
     {
         // Post-re-arm verdict, wkc-gated like the pre-check (2708 field
         // lesson: the naked reads here produced +/-(DC epoch) garbage
-        // margins that verdicted a healthy slave STILL DEAD). Returns:
-        // +1 alive (sub-cycle margin), 0 dead (start frozen in the past),
-        // -1 verdict unavailable (reads failed twice or garbage magnitude).
-        auto sync0Verdict = [&](int i, int64_t* marginOut) -> int
-        {
-            uint16_t cfgAddr = ctx->slavelist[i].configadr;
-            int64_t startPost = 0, sysPost = 0;
-            for (int attempt = 0; attempt < 2; ++attempt)
-            {
-                int wS = ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSTART0,  8, &startPost, EC_TIMEOUTRET);
-                int wT = ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSYSTIME, 8, &sysPost,   EC_TIMEOUTRET);
-                if (wS > 0 && wT > 0 && startPost != 0 && sysPost != 0)
-                {
-                    const int64_t m = startPost - sysPost;
-                    *marginOut = m;
-                    // A real margin is within seconds of now; DC-epoch
-                    // magnitudes mean one read returned junk despite wkc.
-                    if (m > 1000000000LL || m < -1000000000LL) return -1;
-                    return (m > -2 * (int64_t)s_dcSyncNs) ? +1 : 0;
-                }
-            }
-            *marginOut = 0;
-            return -1;
-        };
+        // margins that verdicted a healthy slave STILL DEAD): +1 alive, 0
+        // dead, -1 unavailable (sync0Verdict, the one rule, shared with the
+        // recovery scan).
+        const auto verdictOf = [&](int i, int64_t* marginOut) -> int
+        { return sync0Verdict(ctx, i, s_dcSyncNs, marginOut); };
 
         // Wait out SOEM's SyncDelay (~100ms) so the new start time passes,
         // then verify each re-armed pulse unit actually started: a live
@@ -2085,14 +2095,14 @@ InitResult EtherCATMaster::stageOPTransition(ecx_contextt* ctx)
         // wedged -- but the 2708 session proved the wedge CLEARS through a
         // disarm/re-arm state cycle (five manual Initialize retries did it
         // by hand), so recycle in-attempt before giving up.
-        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        std::this_thread::sleep_for(std::chrono::milliseconds(kSync0StartDelayMs));
         bool needsRecycle[EC_MAXSLAVE] = {};
         int  deadCount = 0;
         for (int i = 1; i <= m_slaveCount && i < EC_MAXSLAVE; ++i)
         {
             if (!rearmed[i]) continue;
             int64_t m = 0;
-            const int v = sync0Verdict(i, &m);
+            const int v = verdictOf(i, &m);
             if (v > 0)
                 LOG_INFO(strf("  Slave %d: SYNC0 revived after re-arm (margin=%lld ns)",
                     i, (long long)m));
@@ -2146,12 +2156,12 @@ InitResult EtherCATMaster::stageOPTransition(ecx_contextt* ctx)
                 ecx_writestate(ctx, i);
                 ecx_statecheck(ctx, i, EC_STATE_SAFE_OP, 200000);
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(150));
+            std::this_thread::sleep_for(std::chrono::milliseconds(kSync0StartDelayMs));
             for (int i = 1; i <= m_slaveCount && i < EC_MAXSLAVE; ++i)
             {
                 if (!needsRecycle[i]) continue;
                 int64_t m = 0;
-                if (sync0Verdict(i, &m) > 0)
+                if (verdictOf(i, &m) > 0)
                 {
                     LOG_INFO(strf("  Slave %d: SYNC0 revived by recycle round %d (margin=%lld ns)",
                         i, round, (long long)m));
@@ -2172,11 +2182,11 @@ InitResult EtherCATMaster::stageOPTransition(ecx_contextt* ctx)
                     "usually clears this); power-cycle the drive as a last resort.",
                     i, m_sync0RecycleRounds > 0 ? " and recycle" : ""));
 
-        // Short settle pump: ~700ms of 1ms frames so the drives' sync
-        // supervision sees pulses + cyclic data together before OP.
-        LOG_INFO("EtherCATMaster: settling re-armed SYNC0 with a 700ms frame pump before OP request...");
+        // Short settle pump: 1ms frames for kSync0SettleMs so the drives'
+        // sync supervision sees pulses + cyclic data together before OP.
+        LOG_INFO(strf("EtherCATMaster: settling re-armed SYNC0 with a %dms frame pump before OP request...", kSync0SettleMs));
         PlatformRT::Timestamp pt = PlatformRT::now();
-        for (int k = 0; k < 700; ++k)
+        for (int k = 0; k < kSync0SettleMs; ++k)
         {
             PlatformRT::advancePeriod(pt, ticksPer1Ms);
             uint32_t ex = 0;
@@ -3003,11 +3013,16 @@ int EtherCATMaster::processCyclicMailbox(int limit)
 //   Branch 1: state == SAFE_OP + ERROR  → write ACK
 //   Branch 2: state == SAFE_OP          → request OP again
 //   Branch 3: state >  NONE             → disarm SYNC0, ecx_reconfig_slave
-//                                          (full walk); only if the walk
-//                                          reaches SAFE_OP: re-arm DC (with
-//                                          margin verify) + request OP.
-//                                          Capped at kMaxRecoveryReconfigAttempts
-//                                          per slave; cap resets on address
+//                                          (full walk; its hook arms SYNC0);
+//                                          only if the walk reaches SAFE_OP:
+//                                          re-arm a channel that is not live,
+//                                          wait out the start delay, verdict,
+//                                          settle, request OP; a channel still
+//                                          dead goes back to INIT for the next
+//                                          scan. Capped at
+//                                          kMaxRecoveryReconfigAttempts per
+//                                          slave; the count clears when the
+//                                          slave is handed to OP and on address
 //                                          recovery (slave physically returned).
 //   Branch 4: !islost && state == NONE  → mark as lost, zero PDO inputs
 //   Tail:     islost && state <= INIT   → ecx_recover_slave (address recovery)
@@ -3218,6 +3233,21 @@ void EtherCATMaster::doRecoveryScan()
     int slaveCount = m_slaveCount;
     uint32_t dcSyncNs = (m_controlLoopHz > 0)
         ? (1000000000u / static_cast<uint32_t>(m_controlLoopHz)) : 1000000u;
+    // A wait inside a scan, in slices, so a stop request ends it promptly.
+    // Never under m_soemAccessMutex: the bus owner's frames go on meanwhile.
+    const auto recoveryWait = [this](int ms) -> bool
+    {
+        for (int waited = 0; waited < ms; waited += 50)
+        {
+            if (m_recoveryStop.load(std::memory_order_acquire)) return false;
+            std::this_thread::sleep_for(std::chrono::milliseconds(std::min(50, ms - waited)));
+        }
+        return !m_recoveryStop.load(std::memory_order_acquire);
+    };
+    // One more failed attempt at bringing a slave back (the cap is checked
+    // at the top of branch 3); the count it reached.
+    const auto failedAttempt = [this](int i) -> int
+    { return (i < (int)m_recoveryReconfigFails.size()) ? ++m_recoveryReconfigFails[i] : 0; };
 
     for (int i = 1; i <= slaveCount; ++i)
     {
@@ -3295,35 +3325,117 @@ void EtherCATMaster::doRecoveryScan()
             }
             if (rc >= EC_STATE_SAFE_OP)
             {
-                if (i < (int)m_recoveryReconfigFails.size())
-                    m_recoveryReconfigFails[i] = 0;
-                std::lock_guard<std::mutex> lk(m_soemAccessMutex);
-                s->islost = FALSE;
+                {
+                    std::lock_guard<std::mutex> lk(m_soemAccessMutex);
+                    s->islost = FALSE;
+                }
                 if (s->hasdc)
                 {
-                    // Re-arm at SafeOp, then verify the start-time margin the
-                    // same way stageDCArm does at init - a thin
-                    // margin here rolls the same Er74.1 dice the init path
-                    // was hardened against.
-                    int64_t marginNs = 0;
-                    PlatformRT::safeCall([&]()
+                    // The walk armed SYNC0 through the registered hook at
+                    // PreOp. From here the OP transition's doctrine applies
+                    // unchanged, and this path had kept both defects it fixed
+                    // (reads never checked, the OP request inside SOEM's start
+                    // delay: a re-armed slave asked for OP at once refused it
+                    // 27 of 27 times, parked in SAFE-OP with AL code 0). So:
+                    // re-arm only a channel that is not live, since rewriting
+                    // a live one at SafeOp is the thing the doctrine forbids;
+                    // wait out the start delay; take the verdict with checked
+                    // reads (the shared rule); let the drive's sync
+                    // supervision see the pulse train with cyclic data for the
+                    // time the init path pumps, the bus owner's frames doing
+                    // the pumping here; then OP. A channel still dead goes
+                    // back to INIT for the next scan's rebuild, the rebuild
+                    // the field data says revives a wedged pulse unit, under
+                    // the attempt cap. A dropped read is no reason to touch a
+                    // channel that may be pulsing (the init path's rule:
+                    // never act on a bad read; re-arming on one is how live
+                    // syncs got rewritten at SafeOp): the verdict decides.
+                    // The waits are never under the mutex: the loop or the
+                    // pump keeps its frames going.
+                    uint8_t dcAct      = 0;
+                    int     wkcA       = 0;
+                    int64_t marginPre  = 0;
+                    int     pre        = -1;
+                    bool    armCrashed = false;
                     {
-                        ecx_dcsync0(ctx, (uint16)i, TRUE, dcSyncNs, m_dcSyncOffsetNs);
-                        uint16_t cfgAddr = s->configadr;
-                        int64_t startTime = 0, sysTime = 0;
-                        ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSTART0,  8, &startTime, EC_TIMEOUTRET);
-                        ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSYSTIME, 8, &sysTime,   EC_TIMEOUTRET);
-                        marginNs = startTime - sysTime;
-                        if (marginNs < 1000000LL)  // < 1ms: re-arm with fresh DC time
+                        std::lock_guard<std::mutex> lk(m_soemAccessMutex);
+                        PlatformRT::safeCall([&]()
                         {
-                            ecx_dcsync0(ctx, (uint16)i, TRUE, dcSyncNs, m_dcSyncOffsetNs);
-                            ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSTART0,  8, &startTime, EC_TIMEOUTRET);
-                            ecx_FPRD(&ctx->port, cfgAddr, ECT_REG_DCSYSTIME, 8, &sysTime,   EC_TIMEOUTRET);
-                            marginNs = startTime - sysTime;
+                            wkcA = ecx_FPRD(&ctx->port, s->configadr, ECT_REG_DCSYNCACT, 1, &dcAct, EC_TIMEOUTRET);
+                            pre  = sync0Verdict(ctx, i, dcSyncNs, &marginPre);
+                        }, &exCode);
+                    }
+                    // Dropped reads (a crash, no working counter, or the
+                    // verdict's two attempts both empty: margin 0 with no
+                    // verdict) are unreadable; a margin of junk magnitude is
+                    // read and reported, and re-armed like a dead one.
+                    const bool unreadable = (exCode != 0 || wkcA <= 0 || (pre < 0 && marginPre == 0));
+                    const bool live       = (!unreadable && dcAct == 0x03 && pre > 0);
+                    if (live)
+                    {
+                        LOG_INFO(strf("RecoveryThread: slave %d reconfigured (rc=%d), SYNC0 armed by the walk and live "
+                                      "(margin=%lld ns) -- left as it is", i, rc, (long long)marginPre));
+                    }
+                    else if (unreadable)
+                    {
+                        LOG_WARNING(strf("RecoveryThread: slave %d reconfigured (rc=%d), SYNC0 state unreadable after the walk "
+                                         "(wkc=%d ex=0x%08x) -- left alone for the verdict", i, rc, wkcA, exCode));
+                    }
+                    else
+                    {
+                        LOG_WARNING(strf("RecoveryThread: slave %d reconfigured (rc=%d), SYNC0 %s after the walk "
+                                         "(0x0981=0x%02x margin=%lld ns) -- re-arming",
+                                         i, rc,
+                                         dcAct != 0x03 ? "not armed" : pre == 0 ? "dead" : "margin of junk magnitude",
+                                         dcAct, (long long)marginPre));
+                        {
+                            std::lock_guard<std::mutex> lk(m_soemAccessMutex);
+                            PlatformRT::safeCall([&]() { ecx_dcsync0(ctx, (uint16)i, TRUE, dcSyncNs, m_dcSyncOffsetNs); }, &exCode);
                         }
-                    }, &exCode);
-                    LOG_INFO(strf("RecoveryThread: slave %d reconfigured + DC re-armed (rc=%d marginNs=%lld ex=0x%08x)",
-                                  i, rc, (long long)marginNs, exCode));
+                        // A crash here takes the same exit as a dead verdict
+                        // below: the channel is not one to ask for OP on.
+                        armCrashed = (exCode != 0);
+                        if (armCrashed)
+                            LOG_ERROR(strf("RecoveryThread: SYNC0 arm for slave %d crashed (0x%08x)", i, exCode));
+                    }
+                    int64_t marginNs = 0;
+                    int     verdict  = -1;
+                    if (!armCrashed)
+                    {
+                        if (!recoveryWait(kSync0StartDelayMs)) return;
+                        std::lock_guard<std::mutex> lk(m_soemAccessMutex);
+                        PlatformRT::safeCall([&]() { verdict = sync0Verdict(ctx, i, dcSyncNs, &marginNs); }, &exCode);
+                    }
+                    if (armCrashed || exCode != 0 || verdict <= 0)
+                    {
+                        // Not a channel to ask for OP on: the refusal would be
+                        // silent and certain. Disarm and walk it back to INIT
+                        // so the next scan rebuilds it (branch 3), until the
+                        // attempt cap gives up on it.
+                        const uint32_t verdictEx = exCode;
+                        {
+                            std::lock_guard<std::mutex> lk(m_soemAccessMutex);
+                            PlatformRT::safeCall([&]()
+                            {
+                                ecx_dcsync0(ctx, (uint16)i, FALSE, 0, 0);
+                                s->state = EC_STATE_INIT;
+                                ecx_writestate(ctx, (uint16)i);
+                            }, &exCode);
+                        }
+                        const int fails = failedAttempt(i);
+                        LOG_WARNING(strf("RecoveryThread: slave %d SYNC0 %s (margin=%lld ns ex=0x%08x) -- "
+                                         "disarmed and walked to INIT for the next scan's rebuild (walk ex=0x%08x; attempt %d/%d%s)",
+                                         i, armCrashed   ? "arm crashed"
+                                            : verdict == 0 ? "still dead after the start delay"
+                                                           : "verdict unavailable after the start delay (bad reads)",
+                                         (long long)marginNs, verdictEx, exCode, fails, kMaxRecoveryReconfigAttempts,
+                                         fails >= kMaxRecoveryReconfigAttempts
+                                             ? "; giving up until re-init or a power cycle, SYNC0 left disarmed" : ""));
+                        continue;
+                    }
+                    LOG_INFO(strf("RecoveryThread: slave %d SYNC0 alive (margin=%lld ns); settling %d ms before the OP request",
+                                  i, (long long)marginNs, kSync0SettleMs));
+                    if (!recoveryWait(kSync0SettleMs)) return;
                 }
                 else
                 {
@@ -3336,8 +3448,17 @@ void EtherCATMaster::doRecoveryScan()
                 // RT loop handle PP profile via its own existing path on next
                 // cycle. Note: a future iteration may move reapplyPPProfile
                 // inside the lock with care for nested-lock avoidance.
-                s->state = EC_STATE_OPERATIONAL;
-                PlatformRT::safeCall([ctx, i]() { ecx_writestate(ctx, (uint16)i); }, &exCode);
+                //
+                // The attempt count clears only here, with the slave handed to
+                // OP: a walk that reaches SafeOp but whose SYNC0 stays dead
+                // still counts, or the cap could never engage.
+                if (i < (int)m_recoveryReconfigFails.size())
+                    m_recoveryReconfigFails[i] = 0;
+                {
+                    std::lock_guard<std::mutex> lk(m_soemAccessMutex);
+                    s->state = EC_STATE_OPERATIONAL;
+                    PlatformRT::safeCall([ctx, i]() { ecx_writestate(ctx, (uint16)i); }, &exCode);
+                }
             }
             else
             {

@@ -15,6 +15,7 @@
 //   IS-5  isInitializing() clears on success and on failure
 //   IS-6  NicNotFound: bogus NIC name → InitError::NicNotFound, detail non-empty
 //   IS-7  DCConfigFailed injection: setSimulatedStageError propagates correctly
+//   IS-8  the SYNC0 verdict after an arm (one rule for the OP transition and recovery)
 // ============================================================
 
 #include <QtTest>
@@ -217,6 +218,46 @@ private Q_SLOTS:
         QVERIFY(!result.detail.empty());
         QVERIFY(!master.isOperational());
         QVERIFY(!master.isInitializing());
+    }
+
+    // ---- IS-8: the SYNC0 verdict after an arm ----
+    // One rule for the OP transition and the recovery scan: alive when
+    // DCSTART0 has advanced to within two cycles of now, dead when the
+    // start is frozen in the past, unavailable on a dropped or empty read
+    // or a margin of DC-epoch magnitude (junk despite a good working
+    // counter). Breaks when the bounds move or a path grows its own copy.
+    void test_IS8_sync0VerdictRules()
+    {
+        const uint32_t cycle = 2000000;   // 2 ms
+        int64_t m = -1;
+        // The next pulse 1 ms out: alive, margin reported.
+        QCOMPARE(EtherCATMaster::sync0VerdictFrom(1, 1, 5000000, 4000000, cycle, &m), +1);
+        QCOMPARE(m, (int64_t)1000000);
+        // The start 1.5 cycles in the past (the last pulse's): still alive.
+        QCOMPARE(EtherCATMaster::sync0VerdictFrom(1, 1, 1000000, 4000000, cycle, &m), +1);
+        // 2.5 cycles in the past: frozen, dead.
+        QCOMPARE(EtherCATMaster::sync0VerdictFrom(1, 1, -1000000, 4000000, cycle, &m), 0);
+        QCOMPARE(m, (int64_t)-5000000);
+        // The edge: exactly two cycles in the past is dead, one ns less is alive.
+        QCOMPARE(EtherCATMaster::sync0VerdictFrom(1, 1, 0, 4000000, cycle, &m), -1);          // (0 is an empty read, not the edge)
+        QCOMPARE(EtherCATMaster::sync0VerdictFrom(1, 1, 4000000 - 4000000 + 1, 4000000 + 1, cycle, &m), 0);
+        QCOMPARE(EtherCATMaster::sync0VerdictFrom(1, 1, 2, 4000000 + 1, cycle, &m), +1);
+        // A dropped read, an empty read: no verdict, margin 0.
+        QCOMPARE(EtherCATMaster::sync0VerdictFrom(0, 1, 5000000, 4000000, cycle, &m), -1);
+        QCOMPARE(m, (int64_t)0);
+        QCOMPARE(EtherCATMaster::sync0VerdictFrom(1, 0, 5000000, 4000000, cycle, &m), -1);
+        QCOMPARE(EtherCATMaster::sync0VerdictFrom(1, 1, 0, 4000000, cycle, &m), -1);
+        QCOMPARE(EtherCATMaster::sync0VerdictFrom(1, 1, 5000000, 0, cycle, &m), -1);
+        // DC-epoch magnitude: junk despite the working counters, no verdict,
+        // the margin still reported (the init log prints it).
+        QCOMPARE(EtherCATMaster::sync0VerdictFrom(1, 1, 5000000000LL, 1000, cycle, &m), -1);
+        QCOMPARE(m, (int64_t)5000000000LL - 1000);
+        QCOMPARE(EtherCATMaster::sync0VerdictFrom(1, 1, 1000, 5000000000LL, cycle, &m), -1);
+        // A faster loop: the alive window follows the cycle (2 x 0.5 ms).
+        QCOMPARE(EtherCATMaster::sync0VerdictFrom(1, 1, 4000000 - 900000, 4000000, 500000, &m), +1);
+        QCOMPARE(EtherCATMaster::sync0VerdictFrom(1, 1, 4000000 - 1100000, 4000000, 500000, &m), 0);
+        // A null margin pointer is fine.
+        QCOMPARE(EtherCATMaster::sync0VerdictFrom(1, 1, 5000000, 4000000, cycle, nullptr), +1);
     }
 };
 
