@@ -254,6 +254,7 @@ public:
         bool   elevated        = false; // PlatformRT::besideRtSetup
         int    priority        = 0;
         int    core            = -1;
+        int    masterStateAtStart = -1; // the master's ECState as the pump took the bus (-1: it never ran)
         // The hand-over, frame to frame (us): from the last frame before the
         // bridge to its first, the longest inside the bridge, from its last
         // to the pump's first, the longest inside the pump (-1 = no frame);

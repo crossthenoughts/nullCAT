@@ -2612,8 +2612,19 @@ void EtherCATMaster::stopPump()
                                       ms(r.gapToBridgeUs).c_str(), ms(r.bridgeMaxGapUs).c_str(), ms(r.gapToPumpUs).c_str(), ms(r.pumpMaxGapUs).c_str(),
                                       r.bridgeShort > 0 ? strf(" (%d bridge replies short of WKC %d)", r.bridgeShort, m_expectedWKC).c_str() : "");
         const bool bad = r.shortReplies > 0 || r.lostFrames > 0 || r.crashed || r.bridgeShort > 0;
-        const std::string line = strf("EtherCATMaster: Background pump stopped (held %.1f s%s; latest wake %.2f ms late; %s%s%s).",
-                                      r.heldSec, how.c_str(), r.latestWakeUs / 1000.0, seen.c_str(),
+        std::string taken;
+        switch (static_cast<ECState>(r.masterStateAtStart))
+        {
+        case ECState::None:   taken = "no state"; break;
+        case ECState::Init:   taken = "INIT";     break;
+        case ECState::PreOp:  taken = "PRE-OP";   break;
+        case ECState::SafeOp: taken = "SAFE-OP";  break;
+        case ECState::Op:     taken = "OP";       break;
+        case ECState::Error:  taken = "ERROR";    break;
+        default:              taken = strf("state %d", r.masterStateAtStart); break;
+        }
+        const std::string line = strf("EtherCATMaster: Background pump stopped (held %.1f s%s, taken in %s; latest wake %.2f ms late; %s%s%s).",
+                                      r.heldSec, how.c_str(), taken.c_str(), r.latestWakeUs / 1000.0, seen.c_str(),
                                       bad ? "" : "; every reply in full", gaps.c_str());
         if (bad) LOG_WARNING(line);
         else     LOG_INFO(line);
@@ -2656,11 +2667,11 @@ void EtherCATMaster::startPumpBody()
     ecx_contextt* ctx = static_cast<ecx_contextt*>(m_ctx);
     if (!ctx && !m_testBus) return;   // a test bus runs without a SOEM context
 
-    Logger::instance().logDiag(strf(
-        "DIAG | start_pump_body | masterState=%d | pumpActive=%d | rtLoopActive=%d",
-        m_masterState.load(std::memory_order_relaxed),
-        m_pumpActive.load() ? 1 : 0,
-        m_rtLoopActive.load(std::memory_order_acquire) ? 1 : 0));
+    // No log line from here to the bridge's first frame: this thread is
+    // about to send it, and a DIAG write is the logger's mutex, a file
+    // append and, with the loop not armed, a flush to the card, inside the
+    // gap the drives count. The one fact that line carried, the master
+    // state the pump takes the bus in, rides the report to the stop line.
 
     const int64_t ticksPer2Ms = PlatformRT::periodCounts(2000.0);
     // SYNC0 period (phase mod base). At the documented 500 Hz this
@@ -2675,6 +2686,7 @@ void EtherCATMaster::startPumpBody()
     const int     rtCore = m_rtCore;
 
     PumpReport report;
+    report.masterStateAtStart = m_masterState.load(std::memory_order_relaxed);
 #ifndef _WIN32
     // Linux: the pump runs HERE, on this persistent dispatch thread, set up
     // once as the pump (real-time beside the loop's core: besideRtSetup).

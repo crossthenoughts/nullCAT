@@ -333,6 +333,12 @@ int main()
         check(r.gapToPumpUs >= 0.0 && r.gapToPumpUs < boundUs && r.pumpMaxGapUs >= 0.0 && r.pumpMaxGapUs < boundUs,
               "S-11 the pump follows the bridge and keeps its cadence (every gap under 15 ms, plus a coarse timer's tick)");
         check(r.bridgeShort == 0, "S-11 the bridge's replies in full, on record");
+        // The master state the pump took the bus in used to be a DIAG line
+        // written inside the hand-over (file I/O in the gap the drives
+        // count); it rides the report now. Breaks when startPumpBody stops
+        // filling it (the default is -1).
+        check(r.masterStateAtStart == static_cast<int>(ECState::Op),
+              "S-11 the report says the pump took the bus in OP");
         const std::vector<size_t> who = bus.frameThreads();
 #ifndef _WIN32
         // Linux: one thread for the bridge and the pump, and the same one
