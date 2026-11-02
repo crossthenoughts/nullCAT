@@ -111,8 +111,10 @@ public:
     // How many stepEnableStateMachine() calls until OperationEnabled.
     void setEnableCycles(int n) { m_enableCyclesToComplete = n; }
 
-    // Direct position read (for test assertions).
+    // Direct position reads (for test assertions): where the drive is, and
+    // the raw target it was last told, as the drive itself would see it.
     double getSimActualPos() const { return m_actualPos; }
+    double getSimTargetPos() const { return m_targetPos; }
 
     // ---- A6Drive virtual overrides ----
 

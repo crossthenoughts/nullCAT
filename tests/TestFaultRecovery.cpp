@@ -20,6 +20,8 @@
 #include "../src/MockA6Drive.h"
 #include "../src/Config.h"
 #include "../src/Logging.h"
+#include <algorithm>
+#include <cmath>
 
 // ---- Helpers ----
 
@@ -560,6 +562,64 @@ private slots:
         }
         QVERIFY2(allOnline2, "Phase 3: did not reach all-ONLINE after rehome");
         QVERIFY(!mc.needsRehome());
+    }
+
+    // ----------------------------------------------------------------
+    // A re-home that fails leaves the previous home's offset on the drive
+    // (nothing clears it; drives are rebuilt only at initialize). The PARKED
+    // hold that follows goes out through setTargetPosition(), which applies
+    // that offset, so the hold must be expressed in the drive's frame.
+    // Latched raw, as it was, the first PARKED cycle commanded raw plus
+    // offset: one offset away in a single cycle, a following-error fault on
+    // a real drive. Breaks when a park-hold latch in processAxis or
+    // processHomingAxis reads the raw position again.
+    // ----------------------------------------------------------------
+    void failedRehome_parkHoldStaysInDriveFrame()
+    {
+        AppConfig cfg = makeSingleAxisConfig();
+        MotionController mc;
+        mc.configure(cfg);
+
+        MockA6Drive drive;
+        drive.configure(1, 0.0, 1.0);
+        drive.setHardstop(-50.0, true, 50.0);
+        QVERIFY2(driveToOnline(mc, &drive) > 0, "Did not reach ONLINE");
+        QVERIFY2(drive.isHomeOffsetSet() && std::abs(drive.getHomeOffset()) > 10.0,
+                 "setup: the first home must leave a visible offset on the drive");
+
+        // ControlLoop's fault path: park every axis, re-home required.
+        mc.setNeedsRehome(true);
+        mc.startPark();
+        runCycles(mc, &drive, 100);
+        QCOMPARE(mc.getAxisState(0), AxisMotionState::PARKED);
+
+        // The re-home fails: the stop is out of reach, so the stroke guard
+        // trips with the drive enabled (HomingSequence FatalError).
+        drive.setHardstop(-1000.0, true, 50.0);
+        mc.startHoming();
+        QCOMPARE(mc.getAxisState(0), AxisMotionState::HOMING);
+
+        // From the cycle PARKED returns, write the output as the loop does
+        // and compare what the drive is told with where it is.
+        TelemetryData empty{};
+        A6Drive* drives[1] = { &drive };
+        int    parkedCycles = 0;
+        double worstMm      = 0.0;
+        for (int i = 0; i < 20000 && parkedCycles < 20; ++i)
+        {
+            drive.updateStatus();
+            MotionOutput out{};
+            mc.process(empty, out, drives, 1);
+            if (mc.getAxisState(0) != AxisMotionState::PARKED) continue;
+            ++parkedCycles;
+            drive.setTargetPosition(out.positions[0]);
+            worstMm = std::max(worstMm, std::abs(drive.getSimTargetPos() - drive.getActualPositionRaw()));
+        }
+        QVERIFY2(parkedCycles == 20, "the failed re-home did not land in PARKED");
+        QVERIFY(!mc.isAxisHomed(0));
+        QVERIFY2(worstMm < 1.0,
+                 qPrintable(QString("PARKED hold after a failed re-home commands %1 mm away from the drive "
+                                    "(its home offset is %2)").arg(worstMm).arg(drive.getHomeOffset())));
     }
 };
 

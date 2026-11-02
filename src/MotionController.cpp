@@ -2958,8 +2958,15 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
         case AxisMotionState::PARKED:
             if (!rt.homed)
             {
-                // Drive not yet homed -- homeOffset invalid, so hold at the
-                // physical resting position (not parkPos, which would jump → Er87).
+                // Not homed: hold at the physical resting position (not
+                // parkPos, which would jump: Er87), read in the drive's frame.
+                // The loop writes this hold through setTargetPosition(), which
+                // applies the drive's home offset. Before a first home that
+                // offset is zero and the frame is the raw one; after a failed
+                // re-home the previous home's offset is still on the drive
+                // (nothing clears it until the next initialize), and a raw
+                // value sent through it landed one offset away in a single
+                // cycle (further on a reversed frame).
                 //
                 // CRITICAL: latch that position ONCE. Re-reading the live encoder
                 // every cycle and writing it straight back as the target makes
@@ -2970,7 +2977,7 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
                 if (!rt.parkHoldLatched)
                 {
                     A6Drive* pd = (drives && i < numHwDrives) ? drives[i] : nullptr;
-                    rt.currentPos = pd ? pd->getActualPositionRaw() : rt.currentPos;
+                    rt.currentPos = pd ? pd->getActualPosition() : rt.currentPos;
                     rt.parkHoldLatched = true;
                     RT_LOG_INFO("MotionController: Axis %d unhomed park-hold latched at %.4f.",
                                 i + 1, rt.currentPos);
@@ -3271,7 +3278,11 @@ void MotionController::processHomingAxis(int i, A6Drive* drive, MotionOutput& ou
 
     HomingSequence::State hs = m_homing[i].step(drive);
 
-    rt.currentPos = drive->getActualPositionRaw();
+    // In the drive's frame (the previous home's, or raw before a first home).
+    // The loop skips a HOMING axis's target, but when the Error or FatalError
+    // branch below parks the axis this is the hold it leaves, and that goes
+    // out through setTargetPosition(), which applies the drive's offset.
+    rt.currentPos = drive->getActualPosition();
 
     if (hs == HomingSequence::State::Complete)
     {
@@ -3315,8 +3326,7 @@ void MotionController::processHomingAxis(int i, A6Drive* drive, MotionOutput& ou
     else if (hs == HomingSequence::State::Error)
     {
         RT_LOG_ERROR("MotionController: Axis %d homing ERROR -- axis PARKED at current position.", i + 1);
-        rt.currentPos = drive->getActualPositionRaw();
-        m_axisState[i] = AxisMotionState::PARKED;
+        m_axisState[i] = AxisMotionState::PARKED;   // the hold is rt.currentPos as read above
     }
     else if (hs == HomingSequence::State::FatalError)
     {
@@ -3324,8 +3334,7 @@ void MotionController::processHomingAxis(int i, A6Drive* drive, MotionOutput& ou
         // Requires explicit startHoming() call (user action) to retry.
         RT_LOG_ERROR("MotionController: Axis %d homing FATAL ERROR -- "
             "manual re-home required. Call startHoming() to retry.", i + 1);
-        rt.currentPos = drive->getActualPositionRaw();
-        m_axisState[i] = AxisMotionState::PARKED;
+        m_axisState[i] = AxisMotionState::PARKED;   // the hold is rt.currentPos as read above
     }
 
     output.positions[i] = rt.currentPos;
