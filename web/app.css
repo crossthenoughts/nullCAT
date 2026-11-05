@@ -493,8 +493,10 @@ body[data-view="setup"] .ws{display:none}body[data-view="setup"] .su{display:gri
 .sr .hap-game select{flex:1;max-width:none}
 .sg{display:grid;grid-template-columns:40px minmax(0,1fr);gap:6px 10px;align-items:center;padding:9px 12px}
 .sg .vt{overflow:hidden;text-overflow:ellipsis}
-#hapSesCar{display:flex;align-items:center;gap:6px;min-width:0}
-#hapSesCar .cn{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#hapSesCar{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;min-width:0}
+/* The name has the line to itself and wraps rather than cut: the tags, which never shrink, go under it. */
+#hapSesCar .cn{flex:1 1 100%;min-width:0;white-space:normal;overflow-wrap:anywhere;line-height:1.35}
+.sg>.dl:first-child{align-self:start;margin-top:2px}   /* "Car" beside the name's line, not half way down the tags */
 #hapSesCar .ctag{flex:none;padding:0 5px;border-radius:2px;font:600 9px/15px var(--mono);letter-spacing:.08em;color:var(--acc);text-shadow:none;box-shadow:inset 0 0 0 1px currentColor}
 #hapSesCar .ctag.w{color:var(--warn)}
 #hapSesCar .ctag.ok{color:var(--ok)}
