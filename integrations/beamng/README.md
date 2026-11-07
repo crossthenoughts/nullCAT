@@ -59,6 +59,10 @@ setup and in BeamNG's protocol settings.
   in BeamNG keeps those tiles quiet).
 - The car's g along, across and up, how fast it turns, pitches and rolls,
   and its pitch and roll.
+- How fast the car moves forward and sideways. nullCAT itself does not
+  use it: it is there for motion software that takes the mod's line (the
+  mod sends to it, and it passes the line on to nullCAT) and plays a slide
+  from it.
 - Per tyre: its speed, its load, how fast it slides over the road, whether
   it touches the ground, the surface under it (tarmac, kerb, gravel,
   grass, dirt, sand, cobbles, snow, ice, mud, standing water) and whether

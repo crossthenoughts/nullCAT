@@ -6,6 +6,12 @@ middle number carries breaking changes and the last carries fixes.
 
 ## [Unreleased]
 
+### Added
+- **BeamNG.drive mod**: sends how fast the car moves forward and sideways
+  (protocol 1.12, `velSurge` and `velSway`), for motion software that
+  reads the mod's line to play a slide. nullCAT itself does not use them,
+  and 0.9.10 ignores them, so the new mod works with it too.
+
 ## [0.9.10] - 2026-11-02
 
 The UI overhaul release. The web page is a new instrument console: the

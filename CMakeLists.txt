@@ -556,7 +556,7 @@ add_test(NAME TestEstopFilter COMMAND TestEstopFilter)
 # and the socket part is Winsock-guarded in TelemetryInput.cpp.
 add_executable(TestTelemetryParse tests/TestTelemetryParse.cpp src/TelemetryInput.cpp src/Logging.cpp)
 target_include_directories(TestTelemetryParse PRIVATE ${TEST_INCLUDE_DIRS})
-target_compile_definitions(TestTelemetryParse PRIVATE ${TEST_COMPILE_DEFS})
+target_compile_definitions(TestTelemetryParse PRIVATE ${TEST_COMPILE_DEFS} NULLCAT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_options(TestTelemetryParse PRIVATE /W3 /Zc:__cplusplus)
 target_link_libraries(TestTelemetryParse PRIVATE ws2_32)
 add_test(NAME TestTelemetryParse COMMAND TestTelemetryParse)

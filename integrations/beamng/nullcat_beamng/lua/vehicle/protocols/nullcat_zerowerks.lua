@@ -5,7 +5,9 @@
 -- that sends nullCAT's named-channel line (NULLCATY, nullCAT's
 -- docs/PROTOCOL.md) straight to the rig, for its haptics and belts. Motion
 -- software (SimHub, SimTools, FlyPT Mover, ...) keeps reading BeamNG's own
--- MotionSim protocol; this is only what nullCAT plays. It says direct=only
+-- MotionSim protocol; this is what nullCAT plays, plus the car's own
+-- velocity for motion software that takes this line instead and passes it
+-- on to nullCAT. It says direct=only
 -- with the car's name (it is a direct source and cannot switch), so
 -- nullCAT takes the channels from it and sets aside another sender's for
 -- the game (the SimHub plugin can stay on). Only the car you are in
@@ -491,6 +493,13 @@ local function build(dt)
   local pitch, roll = p.pitchPosSmoothed or p.pitchPos, p.rollPosSmoothed or p.rollPos
   if pitch ~= nil then add("pitchDeg", pitch * RAD2DEG, "%.2f") end
   if roll ~= nil then add("rollDeg", roll * RAD2DEG, "%.2f") end
+  -- the car's own velocity (protocol 1.12), m/s in its frame: forward
+  -- above zero (reversing below), to the left above zero (the frame's x
+  -- is to the right). For motion software reading this line (a slide's
+  -- angle); nullCAT itself does not use it.
+  local lv = q * vec3(vel)
+  add("velSurge", lv.y, "%.3f")
+  add("velSway", -lv.x, "%.3f")
 
   -- each tyre
   local slow = slowSec >= SLOW_EVERY_SEC

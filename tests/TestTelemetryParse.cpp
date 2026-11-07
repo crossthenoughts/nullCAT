@@ -25,6 +25,11 @@
 #include <vector>
 #include <algorithm>
 #include <atomic>
+#include <cctype>
+#include <fstream>
+#include <iterator>
+#include <regex>
+#include <set>
 
 static int g_fail = 0, g_pass = 0;
 static void check(bool ok, const char* name)
@@ -292,13 +297,21 @@ int main()
               "protocol 1.9: inPit, lap, tyreWearFL..RR, accSurge, accSway and the three rates take slots 75..85, after slipSpeedRR");
         // protocol 1.11: what the car is, appended at 86..91
         check(NcxTok::EngCylinders == 86 && NcxTok::EngLayout == 87 && NcxTok::EngLitres == 88 && NcxTok::EngTurbo == 89
-              && NcxTok::EngLimitHz == 90 && NcxTok::CarType == 91 && NcxTok::TokenCount == 92
+              && NcxTok::EngLimitHz == 90 && NcxTok::CarType == 91
               && std::string(ncxTokenName(NcxTok::EngCylinders)) == "engCylinders" && std::string(ncxTokenName(NcxTok::CarType)) == "carType",
               "protocol 1.11: engCylinders, engLayout, engLitres, engTurbo, engLimitHz and carType take slots 86..91");
         bool okY = false; const TelemetryData e = parse("NULLCATY,engCylinders=8,engLayout=1,engLitres=5.2,engTurbo=0,engLimitHz=7,carType=1", &okY);
         check(okY && e.ncyHave[NcxTok::EngCylinders] && e.ncy[NcxTok::EngCylinders] == 8.0 && e.ncy[NcxTok::EngLitres] == 5.2
               && e.ncyHave[NcxTok::CarType] && e.ncy[NcxTok::CarType] == 1.0,
               "protocol 1.11: the engine description and the type of car parse by name");
+        // protocol 1.12: the car's own velocity, appended at 92..93
+        check(NcxTok::VelSurge == 92 && NcxTok::VelSway == 93 && NcxTok::TokenCount == 94
+              && std::string(ncxTokenName(NcxTok::VelSurge)) == "velSurge" && std::string(ncxTokenName(NcxTok::VelSway)) == "velSway",
+              "protocol 1.12: velSurge and velSway take slots 92 and 93, after carType");
+        bool okV = false; const TelemetryData vel = parse("NULLCATY,velSurge=-3.25,velSway=1.5", &okV);
+        check(okV && vel.ncyHave[NcxTok::VelSurge] && vel.ncy[NcxTok::VelSurge] == -3.25
+              && vel.ncyHave[NcxTok::VelSway] && vel.ncy[NcxTok::VelSway] == 1.5 && !vel.ncyHave[NcxTok::CarType],
+              "protocol 1.12: the car's velocity parses by name with its sign (reversing, sliding left)");
         check(std::string(ncxTokenName(NcxTok::InPit)) == "inPit" && std::string(ncxTokenName(NcxTok::Lap)) == "lap"
               && std::string(ncxTokenName(NcxTok::TyreWearFL)) == "tyreWearFL" && std::string(ncxTokenName(NcxTok::TyreWearRR)) == "tyreWearRR"
               && std::string(ncxTokenName(NcxTok::AccSurge)) == "accSurge" && std::string(ncxTokenName(NcxTok::AccSway)) == "accSway"
@@ -318,6 +331,42 @@ int main()
         d = parse("NULLCATY,rpm=5000,speedKmh=100", &ok);
         check(ok && !d.ncyHave[NcxTok::InPit] && !d.ncyHave[NcxTok::Lap] && !d.ncyHave[NcxTok::TyreWearFL],
               "protocol 1.9: a 1.8 line leaves them absent (unknown, never 0)");
+    }
+
+    // ---- every key the BeamNG.drive mod sends is a token nullCAT knows ----
+    // The mod's keys are typed by hand in Lua, and the receiver skips a key
+    // it does not know without a word, so a misspelled key would leave its
+    // effect silent with every other check green. The identity keys and the
+    // mod's debug keys (d and a capital) are the only others it sends.
+    {
+        const std::string path = std::string(NULLCAT_SOURCE_DIR)
+            + "/integrations/beamng/nullcat_beamng/lua/vehicle/protocols/nullcat_zerowerks.lua";
+        std::ifstream in(path, std::ios::binary);
+        const std::string lua((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        check(lua.size() > 1000, "the BeamNG mod's source is readable from the test");
+        std::vector<std::string> keys;
+        // add("key", ...) and add("prefix" .. c, ...), one per corner
+        const std::regex addRe(R"re(add\("([a-z][A-Za-z]*)"(\s*\.\.\s*c\b)?)re");
+        for (std::sregex_iterator it(lua.begin(), lua.end(), addRe), end; it != end; ++it)
+        {
+            if ((*it)[2].matched) { for (const char* w : { "FL", "FR", "RL", "RR" }) keys.push_back((*it)[1].str() + w); }
+            else keys.push_back((*it)[1].str());
+        }
+        // keys written straight into the line: "game=", "engCylinders=%d", ...
+        const std::regex litRe(R"re("([a-z][A-Za-z]*)=)re");
+        for (std::sregex_iterator it(lua.begin(), lua.end(), litRe), end; it != end; ++it) keys.push_back((*it)[1].str());
+        const std::set<std::string> identity = { "game", "car", "carId", "direct" };
+        std::string unknown;
+        int known = 0;
+        for (const std::string& k : keys)
+        {
+            if (k.size() > 1 && k[0] == 'd' && std::isupper(static_cast<unsigned char>(k[1]))) continue;   // debug keys
+            if (identity.count(k)) continue;
+            if (ncxTokenIndexN(k.c_str(), static_cast<int>(k.size())) >= 0) ++known; else unknown += " " + k;
+        }
+        const std::string what = "every key the BeamNG mod sends is a token nullCAT knows"
+                               + (unknown.empty() ? std::string() : ", unknown:" + unknown);
+        check(unknown.empty() && known >= 50, what.c_str());
     }
 
     // ---- non-finite values never land (A5) ----

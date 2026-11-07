@@ -5,7 +5,7 @@ the nullCAT exporter plugin, or any tool that can emit a text line) and the
 nullCAT controller (the **receiver**). This document is the contract: the
 wire only ever changes here, version-bumped, and senders adapt to it.
 
-**Protocol version: 1.11** (nullCAT 0.9.10). History at the bottom.
+**Protocol version: 1.12** (nullCAT 0.9.11). History at the bottom.
 
 nullCAT does not depend on any particular sender. SimHub with the nullCAT
 plugin, FlyPT Mover, SimTools, a custom feeder reading the game's shared
@@ -119,7 +119,7 @@ NULLCATY,game=Automobilista 2,car=Formula Ultimate Gen2,carId=Formula Ultimate G
 NULLCATY,rpm=11480,speedKmh=212.4,gear=5,throttlePct=100,brakePct=0,slipRatioRL=0.08,slipRatioRR=0.31,slipAngleFL=2.1
 ```
 
-### Token registry (protocol 1.9)
+### Token registry (protocol 1.12)
 
 | Slot | Token | Unit / convention |
 |---|---|---|
@@ -164,6 +164,7 @@ NULLCATY,rpm=11480,speedKmh=212.4,gear=5,throttlePct=100,brakePct=0,slipRatioRL=
 | 83..85 | `yawRate`, `pitchRate`, `rollRate` | the rates the body turns at, **deg/s**, as the sim gives them *(since 1.9)* |
 | 86..90 | `engCylinders`, `engLayout`, `engLitres`, `engTurbo`, `engLimitHz` | what the car's engine is, where the sender knows it: the cylinders (or rotors), **1..16**; the layout, **0 inline, 1 V, 2 flat / boxer, 3 rotary, 4 two-stroke, 5 electric**; the displacement, **litres**; **1** turbocharged, **0** not; the rev limiter's cuts a second. Each optional; send them with the identity. For a car the car table has no entry for, with follow car on, nullCAT puts them on the Engine and Limiter tiles over the defaults, once per car (a table entry, stock or the user's, always wins) *(since 1.11)* |
 | 91 | `carType` | the type of car, where the sender knows it: **0 road, 1 cup / track, 2 GT / race, 3 open wheeler, 4 rally gravel, 5 rally tarmac**. For a car the car table has no entry for, with follow car on, nullCAT applies the matching starting point once per car; the user can change it after *(since 1.11)* |
+| 92, 93 | `velSurge`, `velSway` | the car's own velocity along and across itself, **m/s**, in the car's frame: **forward motion above zero** (reversing below) and **motion to the left above zero** (a car sliding with its tail out in a right-hand corner moves to the left of its nose). These signs are fixed: a sender whose sim counts to the right as positive turns it round. Left positive is how the BeamNG mod's `accSway` already counts (it reads below zero in a right-hand corner); forward positive is the opposite of `accSurge` as the reference senders give it (above zero braking). For motion software reading a sender's line: the slide's angle, for traction loss (it means nothing near a standstill). nullCAT itself does not use them *(since 1.12)* |
 
 Per-wheel groups are always sent as all four or not at all: a group with
 a wheel missing is treated as absent. A sender that only has per-axle
@@ -237,6 +238,12 @@ Unknown keys on the line are ignored *(since 1.9)*.
 
 ## Version history
 
+- **1.12** (nullCAT 0.9.11): added `velSurge` and `velSway`, the car's own
+  velocity forward and to the left, at slots 92 and 93, for motion
+  software that reads a sender's line (the slide's angle, for traction
+  loss). The BeamNG.drive mod sends them. nullCAT does not use them. No
+  change to parsing; every 1.11 sender remains fully compatible, and a 1.11
+  receiver ignores the two keys.
 - **1.11** (nullCAT 0.9.10): added `engCylinders`, `engLayout`,
   `engLitres`, `engTurbo` and `engLimitHz`, what the car's engine is, and
   `carType`, its type of car, at slots 86..91. For a car the car table has

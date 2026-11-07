@@ -61,6 +61,9 @@ struct NcxTok
         EngTurbo,                                               // 1 turbocharged, 0 not
         EngLimitHz,                                             // the rev limiter's cuts a second
         CarType,                                                // 0 road, 1 cup / track, 2 GT / race, 3 open wheeler, 4 rally gravel, 5 rally tarmac
+        // protocol 1.12: the car's own velocity, for motion software that
+        // reads a sender's line (a slide's angle); nullCAT does not use it
+        VelSurge, VelSway,                                      // m/s in the car's frame: forward above 0, to the left above 0
         TokenCount
     };
 };
@@ -102,6 +105,7 @@ inline const char* ncxTokenName(int t)
         "accSurge", "accSway",
         "yawRate", "pitchRate", "rollRate",
         "engCylinders", "engLayout", "engLitres", "engTurbo", "engLimitHz", "carType",
+        "velSurge", "velSway",
     };
     return (t >= 0 && t < NcxTok::TokenCount) ? kNames[t] : "";
 }

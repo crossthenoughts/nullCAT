@@ -261,6 +261,7 @@ add_executable(TestTelemetryParse
     ${CMAKE_CURRENT_SOURCE_DIR}/../tests/TestTelemetryParse.cpp
     ${SRC}/TelemetryInput.cpp)
 target_include_directories(TestTelemetryParse PRIVATE ${SRC})
+target_compile_definitions(TestTelemetryParse PRIVATE NULLCAT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/..")
 target_link_libraries(TestTelemetryParse PRIVATE nullcat_motion_core Threads::Threads)
 add_test(NAME TestTelemetryParse COMMAND TestTelemetryParse)
 
