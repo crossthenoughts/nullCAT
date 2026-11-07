@@ -13,6 +13,10 @@
 # .NET SDK and SimHub installed (its DLLs are the references). The BeamNG.drive
 # mod ships the same way: in the zip's beamng folder (sending to 127.0.0.1)
 # and as dist\nullCAT-v<version>-beamng-pi.zip (sending to 192.168.50.1).
+# A third copy of the mod, dist\simZERO\nullcat_beamng_simZERO.zip, sends to
+# simZERO on the game PC (127.0.0.1, port 4445), which passes the line on to
+# nullCAT: it is handed to the simZERO project for its releases and is NOT
+# a nullCAT release asset.
 #
 # Usage (from a "x64 Native Tools Command Prompt for VS 2022" PowerShell, or any
 # shell where cmake + your Qt install are reachable):
@@ -84,18 +88,36 @@ function Write-ConformantZip([string]$From, [string]$To) {
 # The BeamNG.drive mod: the zip a player drops into BeamNG's mods folder
 # (its protocol file at lua/vehicle/protocols/), sending to $Address.
 # The source sends to 127.0.0.1 (nullCAT on the game PC); a Pi rig's copy
-# is pointed at the Pi (192.168.50.1).
+# is pointed at the Pi (192.168.50.1). Another program's copy ($Tag, on
+# $Port) gets its own address and port lines and names itself and this
+# version in BeamNG's log, so a player can tell which copy is loaded.
 $beamngDir = Join-Path $repo "integrations\beamng"
-function Write-BeamNGMod([string]$Address, [string]$To) {
+# One whole line of the mod, found by its start; it must be there exactly once.
+function Set-ModLine([string]$Text, [string]$Start, [string]$Line) {
+    $rx = '(?m)^' + [regex]::Escape($Start) + '[^\r\n]*'
+    $n  = ([regex]::Matches($Text, $rx)).Count
+    if ($n -ne 1) { throw "BeamNG mod: '$Start' found $n times, expected 1; update Write-BeamNGMod" }
+    return [regex]::Replace($Text, $rx, $Line.Replace('$', '$$'))
+}
+function Write-BeamNGMod([string]$Address, [string]$To, [int]$Port = 0, [string]$Tag = "") {
     $src  = Join-Path $beamngDir "nullcat_beamng\lua\vehicle\protocols\nullcat_zerowerks.lua"
     $line = 'local ADDRESS  = "127.0.0.1"'
     $text = [IO.File]::ReadAllText($src)
     if (-not $text.Contains($line)) { throw "BeamNG mod: the default address line has changed; update Write-BeamNGMod" }
+    if ($Tag -eq "") {
+        $text = $text.Replace($line, "local ADDRESS  = `"$Address`"")
+    } else {
+        $text = Set-ModLine $text 'local ADDRESS  =' ('local ADDRESS  = "' + $Address + '"     -- where ' + $Tag + ' listens: on this PC (it passes the line on to nullCAT, on this PC or the Pi)')
+        $text = Set-ModLine $text 'local PORT     =' ('local PORT     = {0}            -- {1}''s port for this mod' -f $Port, $Tag)
+        $log  = 'say("I", "sending to " .. '
+        if (([regex]::Matches($text, [regex]::Escape($log))).Count -ne 1) { throw "BeamNG mod: the 'sending to' log line has changed; update Write-BeamNGMod" }
+        $text = $text.Replace($log, 'say("I", "' + $Tag + ' build of nullCAT v' + $Version + ': sending to " .. ')
+    }
     $tmp = Join-Path $dist "beamng-mod-stage"
     if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
     $dst = Join-Path $tmp "lua\vehicle\protocols"
     New-Item -ItemType Directory -Force $dst | Out-Null
-    [IO.File]::WriteAllText((Join-Path $dst "nullcat_zerowerks.lua"), $text.Replace($line, "local ADDRESS  = `"$Address`""), (New-Object Text.UTF8Encoding($false)))
+    [IO.File]::WriteAllText((Join-Path $dst "nullcat_zerowerks.lua"), $text, (New-Object Text.UTF8Encoding($false)))
     Write-ConformantZip $tmp $To
     Remove-Item -Recurse -Force $tmp
 }
@@ -217,9 +239,18 @@ Copy-Item (Join-Path $beamngDir "README.md") $bngStage
 $bngZip = "$bngStage.zip"
 Write-ConformantZip $bngStage $bngZip
 
+# The BeamNG.drive mod for simZERO: one copy for both kinds of rig (simZERO
+# runs on the game PC and passes the line on to nullCAT wherever it is).
+# Not a release asset: handed to the simZERO project for its releases.
+$szDir = Join-Path $dist "simZERO"
+New-Item -ItemType Directory -Force $szDir | Out-Null
+$szZip = Join-Path $szDir "nullcat_beamng_simZERO.zip"
+Write-BeamNGMod "127.0.0.1" $szZip 4445 "simZERO"
+
 $size = [math]::Round((Get-Item $zip).Length / 1MB, 1)
 Write-Host "== DONE: $zip ($size MB) ==" -ForegroundColor Green
 Write-Host "== DONE: $plugZip (the SimHub plugin for a Pi rig, host 192.168.50.1) ==" -ForegroundColor Green
 Write-Host "== DONE: $bngZip (the BeamNG.drive mod for a Pi rig, sending to 192.168.50.1) ==" -ForegroundColor Green
+Write-Host "== DONE: $szZip (the BeamNG.drive mod for simZERO, 127.0.0.1 port 4445; for the simZERO project, NOT a release asset) ==" -ForegroundColor Green
 Write-Host "Contents staged in $stage for inspection."
 Write-Host "Reminder: Npcap is a user-installed prerequisite (cannot ship in the zip)."
