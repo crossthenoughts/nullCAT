@@ -397,6 +397,95 @@ try {
     if (reread.previewed || reread.db !== -9 || reread.dirty || !reread.second) fails.push('shaker shaping: an unsaved edit was not put back when the settings were read again ' + JSON.stringify(reread));
   }
 
+  // The axis editor on the belt axis, three columns wide (at two the
+  // pairs happened to line up): every description sits under its own
+  // field (each used to take a grid cell of its own and land beside or
+  // under another field), one per field that has one plus the type of
+  // car's note; the cue-from-g fields show only with the cue from g and
+  // come with it when it is picked; no drive object numbers in the text;
+  // a value between off and a setting's floor takes the floor (the
+  // controller refuses it otherwise).
+  {
+    const before = pageErrors.length;
+    const vp = page.viewport() || { width: 800, height: 600 };
+    await page.setViewport({ width: 1280, height: 900 });
+    await page.evaluate(() => { setView('setup'); setupPage('axes'); });
+    await sleep(500);
+    const ax = await page.evaluate(() => {
+      const r = {};
+      const drives = cfgObj.drives, belt = drives.findIndex(d => d.axisType === 'belt'), d = drives[belt];
+      document.getElementById('axisSel').value = String(belt);
+      const gKeys = AXIS_SPEC.filter(f => /^beltG/.test(f.k)).map(f => f.k);
+      const shown = () => gKeys.filter(k => document.querySelector(`#axisFields [data-k="${k}"]`)).length;
+      d.beltSource = 'motion'; renderAxisFields(belt);
+      r.gKeys = gKeys.length; r.gWithMotion = shown();
+      const src = document.querySelector('#axisFields [data-k="beltSource"]');
+      src.value = 'g'; src.dispatchEvent(new Event('change'));
+      r.gWithG = shown();
+      cfgObj.haptics = Object.assign(cfgObj.haptics || {}, { beltFullG: 2 });
+      renderAxisFields(belt);
+      const host = document.getElementById('axisFields');
+      const rows = [...host.querySelectorAll('.frow')], tips = [...host.querySelectorAll('.fldtip')];
+      // Columns as laid out (a panel not laid out measures 0 wide and
+      // every box at 0, which would pass the placement check unseen).
+      r.width = host.getBoundingClientRect().width;
+      r.cols = new Set(rows.map(x => Math.round(x.getBoundingClientRect().left))).size;
+      r.tips = tips.length;
+      r.tipsWanted = AXIS_SPEC.filter(f => f.tip && axisApplicable(f, d)).length + 1;   // + the type of car's note under g at max
+      r.misplaced = [];
+      for (const t of tips) {
+        let row = null; for (const x of rows) if (x.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING) row = x;
+        const a = row ? row.getBoundingClientRect() : null, b = t.getBoundingClientRect();
+        if (!a || Math.abs(a.left - b.left) > 6 || b.top < a.bottom - 6 || b.top - a.bottom > 200)
+          r.misplaced.push((row ? row.textContent.trim() : '?').slice(0, 24));
+      }
+      r.devWords = tips.map(t => t.textContent).concat([...host.querySelectorAll('.cfg-note')].map(n => n.textContent))
+                       .filter(s => /0x[0-9A-Fa-f]{4}|\bCST\b/.test(s)).length;
+      const fold = document.querySelector('#axisFields [data-k="beltMaxRpm"]');
+      r.foldFloor = AXIS_SPEC.find(f => f.k === 'beltMaxRpm').offMin;
+      const was = d.beltMaxRpm;
+      fold.value = String(r.foldFloor / 2); fold.dispatchEvent(new Event('change'));
+      r.foldSaved = d.beltMaxRpm; r.foldShown = fold.value;
+      fold.value = String(was); fold.dispatchEvent(new Event('change'));
+      fold.value = '-50'; fold.dispatchEvent(new Event('change'));
+      r.negKept = d.beltMaxRpm === was && fold.value === String(was);
+      return r;
+    });
+    // The floors the page holds are the controller's: just under one is
+    // refused on save, the floor itself is taken (each setting in turn on
+    // the belt axis, the rest as loaded).
+    const par = await page.evaluate(async () => {
+      await loadConfig();
+      const belt = cfgObj.drives.findIndex(d => d.axisType === 'belt'), out = [];
+      for (const f of AXIS_SPEC.filter(x => x.offMin != null)) {
+        cfgObj.drives[belt][f.k] = +(f.offMin * 0.9).toFixed(3); await saveConfig();
+        const refused = (document.getElementById('cfgStatus').textContent || '').startsWith('✗ rig');
+        await loadConfig();
+        cfgObj.drives[belt][f.k] = f.offMin; await saveConfig();
+        const st = document.getElementById('cfgStatus').textContent || '';
+        const onFile = (((await (await fetch('/api/rig')).json()).axes || [])[belt] || {})[f.k];
+        out.push({ k: f.k, floor: f.offMin, refused, taken: onFile === f.offMin, st: st.slice(0, 90) });
+        await loadConfig();
+      }
+      return out;
+    });
+    await page.evaluate(() => loadConfig());   // put the edits back
+    await page.setViewport(vp);
+    if (pageErrors.length > before) fails.push('axis editor: page errors ' + pageErrors.slice(before).join(' | '));
+    if (!(ax.width > 0 && ax.cols >= 3)) fails.push(`axis editor: ${ax.cols} columns ${Math.round(ax.width)} px wide at a 1280 px window, the placement check needs 3 or more`);
+    if (!(ax.gKeys >= 10 && ax.gWithMotion === 0 && ax.gWithG === ax.gKeys))
+      fails.push(`axis editor: ${ax.gWithMotion} of ${ax.gKeys} cue-from-g fields show with the cue from motion and ${ax.gWithG} once g is picked, expected none, then all`);
+    if (ax.tips !== ax.tipsWanted) fails.push(`axis editor: ${ax.tips} descriptions, expected ${ax.tipsWanted} (one per field that has one, and the type of car's note)`);
+    if (ax.misplaced.length) fails.push(`axis editor: ${ax.misplaced.length} descriptions are not under their own field (after ${ax.misplaced.join(', ')})`);
+    if (ax.devWords) fails.push(`axis editor: ${ax.devWords} descriptions or notes name drive objects (0x... or CST)`);
+    if (!(ax.foldSaved === ax.foldFloor && ax.foldShown === String(ax.foldFloor)))
+      fails.push(`axis editor: Speed fold ${ax.foldFloor / 2} reads ${ax.foldSaved} (field ${ax.foldShown}), expected the floor ${ax.foldFloor}`);
+    if (!ax.negKept) fails.push('axis editor: Speed fold -50 was taken (a save would turn the guard off), expected the value before');
+    if (par.length < 3) fails.push(`axis editor: ${par.length} off-or-floor settings in the editor, expected 3 (Travel cap, Speed fold, Relaxer)`);
+    for (const p of par)
+      if (!(p.refused && p.taken)) fails.push(`axis editor: ${p.k} floor ${p.floor} is not the controller's (just under it refused: ${p.refused}; the floor saved: ${p.taken}; "${p.st}")`);
+  }
+
   // A page left on the tests page, with an effect's editor open and Motion
   // on the rail loads again: each stored choice used to stop the script at
   // load (state read before it was declared), leaving "Disconnected" for good.

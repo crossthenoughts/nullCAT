@@ -1003,26 +1003,31 @@ const AXIS_SPEC=[
   {k:'parkTimeSec',label:'Park time',type:'num',min:0.5,max:30,step:0.1,unit:'s'},
   {k:'spikeFilterEnabled',label:'Spike filter',type:'bool',pos:true},
   {k:'spikeMaxMm',label:'Spike max',type:'num',min:0.1,max:500,step:0.01,unit:'mm/cyc',pos:true},
-  {k:'torqueMinPct',label:'Torque min',type:'num',min:0,max:300,step:1,unit:'%',torque:true,tip:'Floor tension while tracking - the belt stays snug at zero demand. Raise for a firmer resting hold.'},
-  {k:'torqueMaxPct',label:'Torque max',type:'num',min:0,max:300,step:1,unit:'%',torque:true,tip:'Tension at full-scale telemetry (or at g at max, with the cue from g) - the overall strength of the effect. The drive 0x6072 limit still caps above it.'},
-  {k:'beltSlewPctPerSec',label:'Slew cap',type:'num',min:100,max:20000,step:100,unit:'%/s',torque:true,tip:'How fast the belt tension from your motion telemetry (or from g) may change, each control cycle. It shapes the tension cue, limits how far a frame that jumps can move the belt, and paces the ease to minimum when telemetry stops and the relaxer ease. The haptic effects on the belt are not limited by it. Lower is softer; 20000 is the default.'},
-  {k:'beltOverspeedRpm',label:'Overspeed',type:'num',min:50,max:6000,step:10,unit:'rpm',torque:true,tip:'Snapped-belt detector: shaft speed sustained above this trips to slack. Set above any speed a worn strap can reach in use.'},
-  {k:'beltOverspeedMs',label:'Overspeed time',type:'num',min:20,max:5000,step:10,unit:'ms',torque:true,tip:'How long the overspeed must persist before tripping - haptic flicks and hand pulls reset it.'},
-  {k:'beltMaxTravelRevs',label:'Travel cap (0=off)',type:'num',min:0,max:100,step:0.5,unit:'revs',torque:true,tip:'Net winding since tension-up. Catches the SLOW runaway an rpm limit never sees (bare shaft idling along). A strapped belt cannot reach it at any speed.'},
-  {k:'beltMaxRpm',label:'Speed fold (0=off)',type:'num',min:0,max:3000,step:50,unit:'rpm',torque:true,tip:'THE enforced speed limit on these drives (their own CST speed objects do not restrain): tension folds to zero above this, capping the slack take-up lunge.'},
-  {k:'beltRelaxerSec',label:'Relaxer (0=off)',type:'num',min:0,max:120,step:1,unit:'s',torque:true,tip:'Sustained near-max tension for this long eases to min (at the Slew cap rate) until demand drops - pre-empts the drive thermal fault that would park the whole rig.'},
-  {k:'beltRelaxerPct',label:'Relaxer band',type:'num',min:20,max:100,step:1,unit:'%',torque:true,tip:'Fraction of Torque max that counts as near-max for the relaxer dwell.'},
-  {k:'beltSource',label:'Belt cue from',type:'select',opts:['motion','g'],torque:true,tip:'motion: the tension your motion software sends on this axis (as before). g: nullCAT pulls the belt straight from the car\'s g (surge: braking and acceleration; sway: cornering; heave: crests and compressions; needs a protocol 1.9 sender such as the SimHub plugin 1.9), shaped by the settings below; the motion software\'s value for this axis is then unused.'},
-  {k:'beltGMode',label:'Surge',type:'select',live:true,opts:['decel','accel','both','off'],torque:true,tip:'With the cue from g, the g along the car: decel tightens under braking, accel under acceleration, both under either, off leaves surge out (a belt on sway or heave alone). If it tightens the wrong way round, pick the other one (senders differ on the sign).'},
-  {k:'beltGSway',label:'Sway',type:'select',live:true,opts:['off','left','right','both'],torque:true,tip:'With the cue from g, the g across the car: it adds to the pull in left-hand corners, right-hand corners or both. With a belt on each shoulder, give each its own side. If a belt tightens in the wrong corners, pick the other side.'},
-  {k:'beltGSwayMix',label:'Sway share',type:'num',live:true,min:0,max:3,step:0.05,torque:true,tip:'With sway on: how much a g of sway pulls against a g of surge (1 = the same).'},
-  {k:'beltGHeave',label:'Heave',type:'select',live:true,opts:['off','lift','press','both'],torque:true,tip:'With the cue from g, the vertical g: it adds to the pull over crests (lift: the car goes light), into compressions and banking (press) or both, held as long as it lasts. Gravity is never counted. If it is the wrong way round, pick the other one.'},
-  {k:'beltGHeaveMix',label:'Heave share',type:'num',live:true,min:0,max:3,step:0.05,torque:true,tip:'With heave on: how much a g of heave pulls against a g of surge (1 = the same).'},
-  {k:'beltGFromG',label:'g from',type:'num',live:true,min:0,max:2,step:0.01,unit:'g',torque:true,tip:'With the cue from g: below this the belt stays at Torque min (a dead band for the small g of cruising).'},
-  {k:'beltGFullG',label:'g at max',type:'num',live:true,min:0.2,max:6,step:0.05,unit:'g',torque:true,tip:'With the cue from g: the g that pulls the belt to Torque max. Lower makes it stronger; road cars brake at about 1 g, race cars 2 to 4 g.'},
-  {k:'beltGCurve',label:'g curve',type:'num',live:true,min:0.3,max:3,step:0.05,torque:true,tip:'With the cue from g: 1 is a straight line from g from to g at max. Above 1 is softer at small g and steeper near the top; below 1 the reverse.'},
-  {k:'beltGSmoothMs',label:'g smoothing',type:'num',live:true,min:0,max:250,step:5,unit:'ms',torque:true,tip:'With the cue from g: how much the g is smoothed (it arrives about 60 times a second from most senders, about 333 with direct telemetry). 20 to 40 ms takes the steps out at 60; more is softer but later.'},
-  {k:'beltGCrashPct',label:'g after a crash',type:'num',live:true,min:0,max:100,step:5,unit:'%',torque:true,tip:'With the cue from g: after a crash (a hit past 8 g that loses 30 km/h or more), if the car is still a second on and its g still rough, as the physics of a wrecked car send noise, the g counts at this share until it settles for a second, you drive off, reset or change car. The crash itself plays as it always did; a reset, and most crashes, change nothing. 100 = off.'},
+  {k:'torqueMinPct',label:'Torque min',type:'num',min:0,max:300,step:1,unit:'%',torque:true,tip:'The pull the belt keeps when nothing asks for more, so it stays snug. Raise it for a firmer resting hold.'},
+  {k:'torqueMaxPct',label:'Torque max',type:'num',min:0,max:300,step:1,unit:'%',torque:true,tip:'How hard the belt pulls at full scale from your motion software, or at g at max with the cue from g: the overall strength. The drive\'s own torque limit still applies on top.'},
+  {k:'beltSlewPctPerSec',label:'Slew cap',type:'num',min:100,max:20000,step:100,unit:'%/s',torque:true,tip:'How fast the belt\'s pull from your motion software (or from g) may change. It shapes the feel, stops one jumpy frame from yanking the belt, and paces the belt easing to Torque min when telemetry stops, taking up again when it returns, and the Relaxer. Haptic effects on the belt are not limited by it. Lower is softer; 20000 is the default.'},
+  {k:'beltOverspeedRpm',label:'Overspeed',type:'num',min:50,max:6000,step:10,unit:'rpm',torque:true,tip:'Catches a snapped or slipped belt: if the motor turns faster than this for longer than Overspeed time, the belt goes slack. Set it above any speed the belt reaches while you are strapped in.'},
+  {k:'beltOverspeedMs',label:'Overspeed time',type:'num',min:20,max:5000,step:10,unit:'ms',torque:true,tip:'How long the motor has to stay above Overspeed before the belt goes slack, so short haptic flicks and a pull by hand do not trip it.'},
+  // offMin: 0 turns the setting off, otherwise it works from offMin (the
+  // controller refuses a value between); the description says so, the
+  // arrows stop at offMin (type 0 to turn it off) and a typed value between
+  // takes offMin.
+  {k:'beltMaxTravelRevs',label:'Travel cap (0=off)',type:'num',min:0,max:100,step:0.5,offMin:0.5,unit:'revs',torque:true,tip:'How far the motor may turn, either way, from where it was when the belt tightened. A belt you are wearing keeps it to about one turn of the spool (times the reduction), so set it above that. Catches a slow runaway the speed checks miss, such as the motor turning with no belt on it.'},
+  {k:'beltMaxRpm',label:'Speed fold (0=off)',type:'num',min:0,max:3000,step:50,offMin:100,unit:'rpm',torque:true,tip:'The belt\'s speed limit: above this motor speed the pull fades to nothing, so the belt cannot lunge when it takes up slack. The drive\'s own speed settings do not hold it back in this mode.'},
+  {k:'beltRelaxerSec',label:'Relaxer (0=off)',type:'num',min:0,max:120,step:1,offMin:2,unit:'s',torque:true,tip:'When the belt pulls near its maximum for this long, it eases to Torque min (at the Slew cap rate) until the demand drops. This heads off the drive\'s overheating fault, which would park the whole rig.'},
+  {k:'beltRelaxerPct',label:'Relaxer band',type:'num',min:20,max:100,step:1,unit:'%',torque:true,tip:'How close to Torque max counts as near its maximum for the Relaxer (80 = 80% of Torque max).'},
+  {k:'beltSource',label:'Belt cue from',type:'select',opts:['motion','g'],torque:true,tip:'motion: the pull your motion software sends for this axis. g: nullCAT pulls the belt from the car\'s g (surge: braking and acceleration; sway: cornering; heave: crests and compressions), shaped by the settings that then show below; your motion software\'s value for this axis is not used. The g comes from your telemetry sender, which has to send it.'},
+  // fromG: shown only with the cue from g (they do nothing otherwise).
+  {k:'beltGMode',label:'Surge',type:'select',live:true,fromG:true,opts:['decel','accel','both','off'],torque:true,tip:'The g along the car: decel tightens under braking, accel under acceleration, both under either, off leaves surge out (a belt on sway or heave alone). If it tightens the wrong way round, pick the other one (senders differ on the sign).'},
+  {k:'beltGSway',label:'Sway',type:'select',live:true,fromG:true,opts:['off','left','right','both'],torque:true,tip:'The g across the car: it adds to the pull in left-hand corners, right-hand corners or both. With a belt on each shoulder, give each its own side. If a belt tightens in the wrong corners, pick the other side.'},
+  {k:'beltGSwayMix',label:'Sway share',type:'num',live:true,fromG:true,min:0,max:3,step:0.05,torque:true,tip:'With sway on: how much a g of sway pulls against a g of surge (1 = the same).'},
+  {k:'beltGHeave',label:'Heave',type:'select',live:true,fromG:true,opts:['off','lift','press','both'],torque:true,tip:'The vertical g: it adds to the pull over crests (lift: the car goes light), into compressions and banking (press) or both, held as long as it lasts. Gravity is never counted. If it is the wrong way round, pick the other one.'},
+  {k:'beltGHeaveMix',label:'Heave share',type:'num',live:true,fromG:true,min:0,max:3,step:0.05,torque:true,tip:'With heave on: how much a g of heave pulls against a g of surge (1 = the same).'},
+  {k:'beltGFromG',label:'g from',type:'num',live:true,fromG:true,min:0,max:2,step:0.01,unit:'g',torque:true,tip:'Below this the belt stays at Torque min (a dead band for the small g of cruising).'},
+  {k:'beltGFullG',label:'g at max',type:'num',live:true,fromG:true,min:0.2,max:6,step:0.05,unit:'g',torque:true,tip:'The g that pulls the belt to Torque max. Lower makes it stronger; road cars brake at about 1 g, race cars 2 to 4 g.'},
+  {k:'beltGCurve',label:'g curve',type:'num',live:true,fromG:true,min:0.3,max:3,step:0.05,torque:true,tip:'1 is a straight line from g from to g at max. Above 1 is softer at small g and steeper near the top; below 1 the reverse.'},
+  {k:'beltGSmoothMs',label:'g smoothing',type:'num',live:true,fromG:true,min:0,max:250,step:5,unit:'ms',torque:true,tip:'How much the g is smoothed (it arrives about 60 times a second from most senders, about 333 with Direct telemetry). 20 to 40 ms takes the steps out at 60; more is softer but later.'},
+  {k:'beltGCrashPct',label:'g after a crash',type:'num',live:true,fromG:true,min:0,max:100,step:5,unit:'%',torque:true,tip:'After a crash (a hit past 8 g that loses 30 km/h or more), if the car is still a second on and its g still rough, as the physics of a wrecked car send noise, the g counts at this share until it settles for a second, you drive off, reset or change car. The crash itself plays as it always did; a reset, and most crashes, change nothing. 100 = off.'},
 ];
 function condMode(){ return (cfgObj&&cfgObj.conditioningMode)||'bypass'; }
 const isRot=d=>d&&d.axisType==='rotary_lever';
@@ -1041,7 +1046,8 @@ function axisApplicable(f,d){ if(f.hideRot&&isRot(d))return false; if(f.pos&&d.m
   // in the device object, edited in the Devices section) - mode alone
   // must not surface them here.
   if(isDeviceType(d.axisType)&&(f.torque||f.belt))return false;
-  if(f.belt&&d.axisType!=='belt')return false; if(f.torque&&d.mode!=='torque')return false; if(f.csp&&d.mode!=='csp')return false; if(f.filterOnly&&condMode()!=='filter')return false; return true; }
+  if(f.belt&&d.axisType!=='belt')return false; if(f.torque&&d.mode!=='torque')return false; if(f.csp&&d.mode!=='csp')return false; if(f.filterOnly&&condMode()!=='filter')return false;
+  if(f.fromG&&d.beltSource!=='g')return false; return true; }
 function populateAxisEditor(){
   const sel=$('axisSel'); if(!sel) return; const drives=(cfgObj&&cfgObj.drives)||[];
   sel.innerHTML = drives.length ? drives.map((d,i)=>`<option value="${i}">Axis ${i} - ${d.name||('Drive '+i)}</option>`).join('') : '<option value="-1">no drives in config</option>';
@@ -1055,6 +1061,9 @@ function renderAxisFields(i){
     const e0=effSpec(f,d);
     // a setting that applies on Save (no re-initialize) says so beside its name
     const e=f.live?Object.assign({},e0,{label:e0.label+'<i class="ftag" title="Applies on Save with the loop running, unless the same save also changes a setting that needs a re-initialize">live</i>'}):e0;
+    // One grid cell per field: its row, its description and any note go
+    // together, so a description never lands beside another field.
+    h+='<div class="afld">';
     if(f.type==='bool') h+=`<label class="frow"><span>${e.label}</span><input type="checkbox" data-k="${f.k}" ${v?'checked':''}></label>`;
     else if(f.type==='select'){
       // A file value not in the option list is injected, never clobbered
@@ -1065,12 +1074,16 @@ function renderAxisFields(i){
     else if(f.type==='text') h+=`<label class="frow"><span>${e.label}</span><input type="text" data-k="${f.k}" value="${v??''}"></label>`;
     else { const it=f.text?'text':'number';   // f.text → no spinner arrows (e.g. encoder)
       const emin=f.dynMin?f.dynMin(d,cfgObj):e.min, emax=f.dynMax?f.dynMax(d,cfgObj):e.max;
-      h+=`<label class="frow"><span>${e.label}</span><input type="${it}" inputmode="decimal" data-k="${f.k}" data-num="1" value="${v??''}"${(!f.text&&emin!=null)?` min="${emin}"`:''}${(!f.text&&emax!=null)?` max="${emax}"`:''}${(!f.text&&e.step!=null)?` step="${e.step}"`:''}>${e.unit?`<span class="u">${e.unit}</span>`:''}</label>`; }
+      // An off-or-floor setting: the arrows stop at the floor (0 is typed).
+      const amin=(f.offMin!=null)?f.offMin:emin;
+      h+=`<label class="frow"><span>${e.label}</span><input type="${it}" inputmode="decimal" data-k="${f.k}" data-num="1" value="${v??''}"${(!f.text&&amin!=null)?` min="${amin}"`:''}${(!f.text&&emax!=null)?` max="${emax}"`:''}${(!f.text&&e.step!=null)?` step="${e.step}"`:''}>${e.unit?`<span class="u">${e.unit}</span>`:''}</label>`; }
     // Feel/behaviour one-liner under fields that carry one (the belt
     // guards especially: what each knob does to the belt, not just units).
-    if(f.tip) h+=`<div class="fldtip">${f.tip}</div>`;
+    const tip=(f.tip&&f.offMin!=null)?`${f.tip} 0 turns it off; otherwise ${f.offMin} to ${e.max}${e.unit?' '+e.unit:''}.`:f.tip;
+    if(tip) h+=`<div class="fldtip">${tip}</div>`;
     if(f.k==='beltGFullG'&&d.beltSource==='g'){ const tg=+((cfgObj&&cfgObj.haptics&&cfgObj.haptics.beltFullG)||0);
       if(tg>0) h+=`<div class="fldtip" style="color:var(--warnInk)">The type of car sets ${tg} g now (Haptics, Rig · car · sim): that one is in force. This one is used when it is 0.</div>`; }
+    h+='</div>';
   }
   // Filter-knee consequences, live next to the knob (Filter mode only).
   if(d.mode==='csp' && condMode()==='filter' && typeof d.trackingWnHz==='number' && d.maxAccelerationMmS2){
@@ -1082,10 +1095,16 @@ function renderAxisFields(i){
   // the ratio changes; config validation rejects maxPct x ratio > 300% of rated.
   if(d.mode==='torque'&&!isDeviceType(d.axisType)){ const rf=parseFloat((d.reductionRatio||'1:1').split(':')[0])||1;
     const strap=(d.torqueMaxPct||0)*rf, over=strap>300;
-    h+=`<div class="cfg-note" style="grid-column:1/-1${over?';color:var(--danger)':''}">strap-side max = ${d.torqueMaxPct||0}% × ${d.reductionRatio||'1:1'} = <b>${strap.toFixed(0)}%</b> of rated motor torque${over?' - EXCEEDS 300% cap, reduce Torque max':''}. Overspeed guard is motor-side rpm (scales ×${rf} for the same strap speed).</div>`; }
+    h+=`<div class="cfg-note" style="grid-column:1/-1${over?';color:var(--danger)':''}">Strongest pull at the belt: ${d.torqueMaxPct||0}% × ${d.reductionRatio||'1:1'} = <b>${strap.toFixed(0)}%</b> of the motor's rated torque${over?': past the 300% limit, lower Torque max':''}. Overspeed reads the motor's speed${rf!==1?`, which turns ${rf}× as fast as the belt`:''}.</div>`; }
   host.innerHTML=h;
-  host.querySelectorAll('[data-k]').forEach(el=>{ el.onchange=()=>{ const k=el.dataset.k, dd=cfgObj.drives[i];
+  host.querySelectorAll('[data-k]').forEach(el=>{ el.onchange=()=>{ const k=el.dataset.k, dd=cfgObj.drives[i], prev=dd[k];
     dd[k] = el.type==='checkbox'?el.checked : el.dataset.num?(+el.value) : el.value;
+    // Off at 0, working from a floor: a value between takes the floor, and
+    // a value below 0 (which the save would take as off) is refused.
+    const fs=AXIS_SPEC.find(x=>x.k===k);
+    if(fs&&fs.offMin!=null){
+      if(dd[k]<0){ dd[k]=prev; el.value=String(prev??''); }
+      else if(dd[k]>0&&dd[k]<fs.offMin){ dd[k]=fs.offMin; el.value=String(fs.offMin); } }
     // Rotary lever: degrees ARE the engineering unit, expressed internally
     // as 360 "units" per output rev. Forced here so the user never sees or
     // maintains the convention (the pitch field is hidden for rotary).
@@ -1105,8 +1124,9 @@ function renderAxisFields(i){
       if(!dd.device) dd.device=JSON.parse(JSON.stringify(DEV_PRESETS['H-gate shifter (firm)']));
     }
     if(k==='axisType') devRender();
-    // re-render so the filter-knee note tracks accel/vel/knee/mode changes
-    if(['axisType','mode','trackingWnHz','maxAccelerationMmS2','maxVelocityMmS','torqueMaxPct','reductionRatio'].includes(k)) renderAxisFields(i); }; });
+    // re-render so the filter-knee note tracks accel/vel/knee/mode changes,
+    // and the cue-from-g fields and their note follow the belt's cue
+    if(['axisType','mode','trackingWnHz','maxAccelerationMmS2','maxVelocityMmS','torqueMaxPct','reductionRatio','beltSource'].includes(k)) renderAxisFields(i); }; });
   refreshDirtyUI();   // re-apply amber markers on the freshly rendered fields
 }
 { const s=$('axisSel'); if(s) s.onchange=()=>renderAxisFields(+s.value||0); }

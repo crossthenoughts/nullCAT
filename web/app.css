@@ -295,6 +295,7 @@ body[data-view="setup"] .ws{display:none}body[data-view="setup"] .su{display:gri
 .frow input,.frow select{height:26px;max-width:150px;font-size:12px}
 .frow input[type=checkbox]{max-width:none}
 #axisFields{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:0 16px}
+#axisFields>.afld{min-width:0}
 .cfg-foot{display:flex;align-items:center;gap:12px;margin-top:10px;padding:10px 0 4px;border-top:1px solid var(--edge2)}
 .bind-head{cursor:pointer;user-select:none}.bind-head:hover{color:var(--ink)}
 .bind-head .arrow{font-size:.8rem;color:var(--silk);width:1em;display:inline-block}

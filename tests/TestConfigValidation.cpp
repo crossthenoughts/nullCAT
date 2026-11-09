@@ -291,6 +291,13 @@ private slots:
         AppConfig o = cfg; o.drives[0].beltGMode = "off"; o.drives[0].beltGSway = "left";
         QVERIFY2(o.validate().empty(), "a belt from g on cornering alone is valid");
         AppConfig q = o; q.drives[0].beltGSway = "off"; QVERIFY(names(q, "never tightens"));
+        // With the cue from motion the g settings are unused and the web
+        // editor hides them: a value out of range there must not refuse the
+        // save (no field to fix it in); picking g checks them again.
+        AppConfig s = c; s.drives[0].beltSource = "motion"; s.drives[0].beltGMode = "sideways"; s.drives[0].beltGCurve = 5.0;
+        QVERIFY2(s.validate().empty(), "the g settings are not checked with the cue from motion");
+        AppConfig u = s; u.drives[0].beltSource = "g";
+        QVERIFY(names(u, "beltGFullG") && names(u, "beltGMode") && names(u, "beltGCurve"));
     }
 
     // homingTorquePct = 0 (must be >= 1)

@@ -12,6 +12,18 @@ middle number carries breaking changes and the last carries fixes.
   reads the mod's line to play a slide. nullCAT itself does not use them,
   and 0.9.10 ignores them, so the new mod works with it too.
 
+### Fixed
+- **Setup, Axes**: each setting's description sits under its own setting
+  again. On a screen wide enough for two or more columns they landed
+  beside or under other settings, worst on a belt. The belt's cue-from-g
+  settings show only with the cue from g, and appear as soon as you pick
+  it; with the cue from motion a save is no longer refused over one of
+  them. Travel cap, Speed fold and Relaxer say their range: the arrows
+  stop at the lowest value that works (type 0 to turn it off), a value
+  typed between off and that lowest one takes the lowest instead of
+  failing the save, and a value below 0 is not taken. The belt's
+  descriptions are in plainer words.
+
 ## [0.9.10] - 2026-11-02
 
 The UI overhaul release. The web page is a new instrument console: the

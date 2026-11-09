@@ -1531,28 +1531,35 @@ std::vector<std::string> AppConfig::validate() const
                 errors.push_back(pfx + "beltRelaxerPct out of range [20, 100]");
             if (d.beltSource != "motion" && d.beltSource != "g")
                 errors.push_back(pfx + "beltSource must be \"motion\" or \"g\"");
-            if (d.beltGMode != "both" && d.beltGMode != "accel" && d.beltGMode != "decel" && d.beltGMode != "off")
-                errors.push_back(pfx + "beltGMode must be \"both\", \"accel\", \"decel\" or \"off\"");
-            if (d.beltGSway != "off" && d.beltGSway != "left" && d.beltGSway != "right" && d.beltGSway != "both")
-                errors.push_back(pfx + "beltGSway must be \"off\", \"left\", \"right\" or \"both\"");
-            if (d.beltGHeave != "off" && d.beltGHeave != "lift" && d.beltGHeave != "press" && d.beltGHeave != "both")
-                errors.push_back(pfx + "beltGHeave must be \"off\", \"lift\", \"press\" or \"both\"");
-            if (!(d.beltGSwayMix >= 0.0 && d.beltGSwayMix <= 3.0))
-                errors.push_back(pfx + "beltGSwayMix out of range [0, 3]");
-            if (!(d.beltGHeaveMix >= 0.0 && d.beltGHeaveMix <= 3.0))
-                errors.push_back(pfx + "beltGHeaveMix out of range [0, 3]");
-            if (d.beltSource == "g" && d.beltGMode == "off" && d.beltGSway == "off" && d.beltGHeave == "off")
-                errors.push_back(pfx + "beltSource is \"g\" with beltGMode, beltGSway and beltGHeave all \"off\": the belt never tightens");
-            if (d.beltGFromG < 0.0 || d.beltGFromG > 2.0)
-                errors.push_back(pfx + "beltGFromG out of range [0, 2]");
-            if (d.beltGFullG < 0.2 || d.beltGFullG > 6.0 || d.beltGFullG < d.beltGFromG + 0.05)
-                errors.push_back(pfx + "beltGFullG must be in [0.2, 6] and at least 0.05 above beltGFromG");
-            if (d.beltGCurve < 0.3 || d.beltGCurve > 3.0)
-                errors.push_back(pfx + "beltGCurve out of range [0.3, 3]");
-            if (d.beltGSmoothMs < 0.0 || d.beltGSmoothMs > 250.0)
-                errors.push_back(pfx + "beltGSmoothMs out of range [0, 250]");
-            if (!(d.beltGCrashPct >= 0.0 && d.beltGCrashPct <= 100.0))
-                errors.push_back(pfx + "beltGCrashPct out of range [0, 100]");
+            // The cue-from-g settings are checked only with the cue from g:
+            // otherwise they are unused, and the web editor hides them
+            // (app.js fromG), so a refusal over one would leave no field in
+            // the UI to fix (the rule the position fields on a torque axis follow).
+            if (d.beltSource == "g")
+            {
+                if (d.beltGMode != "both" && d.beltGMode != "accel" && d.beltGMode != "decel" && d.beltGMode != "off")
+                    errors.push_back(pfx + "beltGMode must be \"both\", \"accel\", \"decel\" or \"off\"");
+                if (d.beltGSway != "off" && d.beltGSway != "left" && d.beltGSway != "right" && d.beltGSway != "both")
+                    errors.push_back(pfx + "beltGSway must be \"off\", \"left\", \"right\" or \"both\"");
+                if (d.beltGHeave != "off" && d.beltGHeave != "lift" && d.beltGHeave != "press" && d.beltGHeave != "both")
+                    errors.push_back(pfx + "beltGHeave must be \"off\", \"lift\", \"press\" or \"both\"");
+                if (!(d.beltGSwayMix >= 0.0 && d.beltGSwayMix <= 3.0))
+                    errors.push_back(pfx + "beltGSwayMix out of range [0, 3]");
+                if (!(d.beltGHeaveMix >= 0.0 && d.beltGHeaveMix <= 3.0))
+                    errors.push_back(pfx + "beltGHeaveMix out of range [0, 3]");
+                if (d.beltSource == "g" && d.beltGMode == "off" && d.beltGSway == "off" && d.beltGHeave == "off")
+                    errors.push_back(pfx + "beltSource is \"g\" with beltGMode, beltGSway and beltGHeave all \"off\": the belt never tightens");
+                if (d.beltGFromG < 0.0 || d.beltGFromG > 2.0)
+                    errors.push_back(pfx + "beltGFromG out of range [0, 2]");
+                if (d.beltGFullG < 0.2 || d.beltGFullG > 6.0 || d.beltGFullG < d.beltGFromG + 0.05)
+                    errors.push_back(pfx + "beltGFullG must be in [0.2, 6] and at least 0.05 above beltGFromG");
+                if (d.beltGCurve < 0.3 || d.beltGCurve > 3.0)
+                    errors.push_back(pfx + "beltGCurve out of range [0.3, 3]");
+                if (d.beltGSmoothMs < 0.0 || d.beltGSmoothMs > 250.0)
+                    errors.push_back(pfx + "beltGSmoothMs out of range [0, 250]");
+                if (!(d.beltGCrashPct >= 0.0 && d.beltGCrashPct <= 100.0))
+                    errors.push_back(pfx + "beltGCrashPct out of range [0, 100]");
+            }
             // Ratio safety: the strap sees motor torque x reduction, so a
             // torqueMaxPct tuned at 1:1 must be re-derived when the ratio changes.
             // Cap the STRAP-side ceiling at 300%-of-rated-at-1:1 equivalent.
