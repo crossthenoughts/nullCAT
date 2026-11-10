@@ -2700,17 +2700,19 @@ int main()
         set(NcxValues::Rpm, 6000.0); set(NcxValues::Gear, 4.0); set(NcxValues::ThrottlePct, 100.0);
         set(NcxValues::SpeedKmh, 150.0); set(NcxValues::ClutchPct, 0.0); set(NcxValues::BrakePct, 0.0);
         set(NcxValues::Rain, 1.0);
+        set(NcxValues::Boost, 0.0);   // (car A's turbo spools up from 0 after the first second)
         for (int w = 0; w < 4; ++w) { set(static_cast<NcxValues::Token>(NcxValues::WheelSpeedFL + w), 150.0 / 3.6 / 0.33); }
-        run(3.0);
+        run(1.0); set(NcxValues::Boost, 1.2); run(2.0);
         set(NcxValues::ThrottlePct, 20.0); run(3.0);   // cruising: the wheel sizes learn
-        check(st.gearSeen && st.rollKnown[WheelFL] && st.waterFilm > 0.0 && L.engineRunning(),
-              "I-22: car A learned (gear seen, rolling factor, a water film, the engine running)");
+        check(st.gearSeen && st.rollKnown[WheelFL] && st.waterFilm > 0.0 && L.engineRunning() && L.engineBoostMoves(),
+              "I-22: car A learned (gear seen, rolling factor, a water film, the engine running, its boost moving)");
         const uint64_t knocks = L.fireCount(haptics::EventType::GearShift), stalls = L.engineStalls();
         const double shuntBefore = L.drivelineShuntLevel();
         // Car B: 1st, engine off, throttle shut, speed and wheels at a crawl.
         std::strncpy(v.car, "Car B", NCY_STR_LEN - 1);
         set(NcxValues::Rpm, 0.0); set(NcxValues::Gear, 1.0); set(NcxValues::ThrottlePct, 0.0);
         set(NcxValues::SpeedKmh, 5.0); st.lastSpeedKmh = 5.0;
+        set(NcxValues::Boost, 1.03);   // (car B: the atmosphere, steady)
         for (int w = 0; w < 4; ++w) v.val[NcxValues::WheelSpeedFL + w] = 5.0 / 3.6 / 0.33;
         double shuntPeak = 0.0, filmAfterChange = 1.0;
         for (int i = 0; i < static_cast<int>(1.0 / dt); ++i)
@@ -2725,6 +2727,7 @@ int main()
         check(filmAfterChange < 0.01, "I-22: the water film starts over");
         check(!st.rollKnown[WheelFL] && st.latBaseSec == 0.0 && st.loadRef == 0.0 && !st.absFlagSeen && st.drivenSec[1] == 0.0,
               "I-22: the learners start over (rolling factor, baseline, usual load, ABS flag, driven axle)");
+        check(!L.engineBoostMoves(), "I-22: car B's steady boost is no boost (car A's turbo forgotten)");
     }
 
     // ---- I-22b: a car change that lands somewhere else in the same sample

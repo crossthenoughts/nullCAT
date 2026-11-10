@@ -153,6 +153,12 @@ namespace NullcatChannelExporter
         {
             return KunosTitle.For(family) != null;
         }
+        // The games whose boost SimHub passes as the absolute manifold
+        // pressure (seen on recordings: AMS2, LMU).
+        private static bool BoostIsAbsolute(string family)
+        {
+            return family == "automobilista2" || family == "lmu";
+        }
         // The direct line's channel for a per-wheel group, null for one it
         // never carries.
         private static KunosDirect.Ch? GroupChannel(string group)
@@ -404,8 +410,9 @@ namespace NullcatChannelExporter
             }
             catch { limiter = 0; maxRpm = 0; }
 
-            // Turbo boost in bar (SimHub reports relative pressure where the
-            // game has it; 0 for a naturally aspirated car or an unknown).
+            // Turbo boost in bar as SimHub has it: relative in some games,
+            // the absolute manifold pressure in others (made relative below,
+            // once the game is known); 0 for an unknown.
             double boost = 0;
             try
             {
@@ -434,6 +441,12 @@ namespace NullcatChannelExporter
             double pit = 0;
             try { pit = Convert.ToDouble(d.PitLimiterOn, CultureInfo.InvariantCulture) > 0 ? 1 : 0; } catch { pit = 0; }
             var family = Norm(data.GameName);
+            // Boost on the wire is relative to the atmosphere (the protocol).
+            // SimHub passes AMS2's and LMU's absolute manifold pressure as is
+            // (AMS2 0.92 to 0.99 bar at full throttle without a turbo, LMU a
+            // steady 1.01 to 1.06 on every car): the atmosphere comes off.
+            // (The Assetto Corsa family's is relative already.)
+            if (BoostIsAbsolute(family)) boost -= 1.01325;
             var kunos = _kunos;   // End may clear the field meanwhile
             if (kunos != null)
             {

@@ -853,6 +853,7 @@ public:
     bool     engineRunning() const  { return m_engine.running(); }
     uint64_t engineStalls() const   { return m_engine.stallCount(); }
     uint64_t engineLiftOffs() const { return m_engine.liftOffCount(); }
+    bool     engineBoostMoves() const { return m_engine.boostMoves(); }
     bool     engineLimiterOn() const { return m_engine.limiterOn(); }
     double   engineFireHz() const   { return m_engine.fireHz(); }
 

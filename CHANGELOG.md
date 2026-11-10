@@ -13,6 +13,17 @@ middle number carries breaking changes and the last carries fixes.
   and 0.9.10 ignores them, so the new mod works with it too.
 
 ### Fixed
+- **Engine, turbo cars**: the blow-off whoosh on a lift plays in
+  Automobilista 2: its boost falls on the same instant the throttle
+  closes, which left the whoosh almost silent, so the whoosh now takes the
+  boost from just before the lift. A boost that never moves counts as
+  none (Le Mans Ultimate sends only the air pressure, for every car): the
+  whoosh then follows the revs instead of staying silent, and the
+  firings get no heavier from it.
+- **SimHub plugin**: boost for Automobilista 2 and Le Mans Ultimate goes
+  out relative to the air pressure, as the protocol says, so turbo cars
+  in those games no longer fire up to 1.6 times heavier at part throttle.
+  Update the plugin on the PC that runs SimHub.
 - **Setup, Axes**: each setting's description sits under its own setting
   again. On a screen wide enough for two or more columns they landed
   beside or under other settings, worst on a belt. The belt's cue-from-g

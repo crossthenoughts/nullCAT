@@ -723,21 +723,29 @@ int main()
             return std::sqrt(s / std::max<size_t>(1, std::min(b, v.size()) - a)); };
         // A V8 at 7000 rpm full throttle, then the throttle snaps shut and
         // the revs fall linearly to 3500 over 2 s.
-        auto run = [&](EngineParams e, bool liftThenDescend, double boost, std::vector<double>& thumps, std::vector<double>& buzz) {
+        // boostAt(t): the boost sent at t (negative = none); topRpm: the
+        // revs the lift happens at (the redline is 7000).
+        auto runF = [&](EngineParams e, bool liftThenDescend, auto boostAt, std::vector<double>& thumps, std::vector<double>& buzz, double topRpm = 7000.0) {
             EngineModel m; uint64_t rng = 7;
             EffectParams p; p.ampPct = 100.0; p.freqHz = 30.0; p.jitter = 0.0;
             e.cylinders = 8.0; e.litres = 5.0; e.maxRpm = 7000.0;
             double t = 0.0;
             for (int i = 0; i < 6000; ++i, t += DT)
             {
-                double rpm = 7000.0, load = 1.0;
-                if (liftThenDescend && t >= 1.0) { load = 0.0; rpm = 7000.0 - 3500.0 * std::min(1.0, (t - 1.0) / 2.0); }
-                m.drive(rpm / 60.0 * 4.0, load, false, boost);
+                double rpm = topRpm, load = 1.0;
+                if (liftThenDescend && t >= 1.0) { load = 0.0; rpm = topRpm - topRpm / 2.0 * std::min(1.0, (t - 1.0) / 2.0); }
+                m.drive(rpm / 60.0 * 4.0, load, false, boostAt(t));
                 const EngineOut eo = m.step(DT, p, e, 1.0, rng);
                 thumps.push_back(eo.thumps); buzz.push_back(eo.buzz);
             }
             return m.liftOffCount();
         };
+        // The same boost all the way (a steady one never moves: it counts as none).
+        auto run = [&](EngineParams e, bool liftThenDescend, double boost, std::vector<double>& thumps, std::vector<double>& buzz) {
+            return runF(e, liftThenDescend, [boost](double) { return boost; }, thumps, buzz);
+        };
+        // A turbo spooling up: 0 for the first 0.1 s, then this boost.
+        auto spooled = [](double boost) { return [boost](double t) { return t < 0.1 ? 0.0 : boost; }; };
         std::vector<double> th, bz;
         // Inertia: with buzz off, the buzz-band output after the lift is the
         // inertia alone; it is there at 7000 and ~1/4 of that at 3500.
@@ -770,26 +778,73 @@ int main()
         // Turbo: the whoosh plus a flutter train lasting ~0.4 s, heavier than the pop.
         th.clear(); bz.clear();
         EngineParams tb = na; tb.turbo = 1.0;
-        run(tb, true, 1.0, th, bz);
+        runF(tb, true, spooled(1.0), th, bz);
         CHECK(rms(th, 2000, 2200) > 6.0 && rms(th, 2500, 2800) > 0.5 && rms(th, 4000, 4400) < 1e-9,
               "engine: turbo lift-off is a whoosh and ~0.4 s of flutter, then silence");
-        // Lift-off strength follows boost when the sim sends it: 0.2 bar is a fifth of 1 bar.
+        // Lift-off strength follows boost when the sim sends it: 0.3 bar is
+        // 0.3 of 1 bar.
         std::vector<double> th2, bz2;
-        run(tb, true, 0.2, th2, bz2);
-        approx(rms(th2, 2000, 2200) / std::max(1e-9, rms(th, 2000, 2200)), 0.2, 0.05, "engine: lift-off scales with reported boost");
+        runF(tb, true, spooled(0.3), th2, bz2);
+        approx(rms(th2, 2000, 2200) / std::max(1e-9, rms(th, 2000, 2200)), 0.3, 0.05, "engine: lift-off scales with reported boost");
+        // AMS2: the boost collapses on the same sample the throttle shuts
+        // (1.75 bar the 0.3 s before, 0.07 at the edge). The whoosh is sized
+        // by the boost before the lift, as if it had held. Breaks with the
+        // edge's own boost (about 0.05 of it).
+        {
+            std::vector<double> thC, bzC;
+            runF(tb, true, [](double t) { return t < 0.1 ? 0.0 : t < 1.0 ? 1.0 : 0.05; }, thC, bzC);
+            approx(rms(thC, 2000, 2200) / std::max(1e-9, rms(th, 2000, 2200)), 1.0, 0.05,
+                   "engine: boost collapsing on the lift's own sample: the whoosh as for the boost before it");
+            // ...but only the last 0.3 s: boost gone 0.4 s before the lift
+            // (off boost, then a lift from part load up top) is a light whoosh.
+            std::vector<double> thO, bzO;
+            runF(tb, true, [](double t) { return t < 0.1 ? 0.0 : t < 0.6 ? 1.0 : 0.05; }, thO, bzO);
+            approx(rms(thO, 2000, 2200) / std::max(1e-9, rms(th, 2000, 2200)), 0.05, 0.03,
+                   "engine: boost gone 0.4 s before the lift: the whoosh as for the boost at the lift");
+        }
+        // LMU publishes the atmosphere for every car: a boost that never
+        // moves (0 relative, or 1.03 bar absolute) is no boost, so a turbo's
+        // whoosh goes by the revs as with none sent. Lifting at 5000 of 7000
+        // rpm, where the revs give 0.71 and 1.03 bar would give 1.0. Breaks
+        // with the range test gone (a steady 0 silenced the whoosh).
+        {
+            std::vector<double> thN, bzN, th0, bz0, thA, bzA;
+            const auto none = [](double) { return -1.0; };
+            const auto zero = [](double) { return 0.0; };
+            const auto atm  = [](double) { return 1.03; };
+            runF(tb, true, none, thN, bzN, 5000.0); runF(tb, true, zero, th0, bz0, 5000.0); runF(tb, true, atm, thA, bzA, 5000.0);
+            CHECK(rms(thN, 2000, 2200) > 4.0, "engine: a turbo with no boost sent whooshes by the revs");
+            approx(rms(th0, 2000, 2200), rms(thN, 2000, 2200), 1e-9, "engine: a turbo's boost steady at 0 = none sent (the whoosh by the revs)");
+            approx(rms(thA, 2000, 2200), rms(thN, 2000, 2200), 1e-9, "engine: a turbo's boost steady at 1.03 (the atmosphere) = none sent");
+        }
 
         // Boost makes each firing heavier on throttle: at 1500 rpm (where the
         // thumps are still resolved) 1 bar reads 1.6x the no-boost hit.
-        auto thumpRms = [&](double boost, double turbo) {
+        // spool: 0 boost for the first 0.05 s (the boost has moved).
+        auto thumpRms = [&](double boost, double turbo, bool spool) {
             EngineModel m; uint64_t rng = 3;
             EffectParams p; p.ampPct = 100.0; p.freqHz = 30.0; p.jitter = 0.0;
             EngineParams bt; bt.inertia = 0.0; bt.liftoff = 0.0; bt.cylinders = 8.0; bt.litres = 5.0; bt.maxRpm = 7000.0; bt.turbo = turbo;
             std::vector<double> v;
-            for (int i = 0; i < 4000; ++i) { m.drive(1500.0 / 60.0 * 4.0, 1.0, false, boost); v.push_back(m.step(DT, p, bt, 1.0, rng).thumps); }
+            for (int i = 0; i < 4000; ++i) { m.drive(1500.0 / 60.0 * 4.0, 1.0, false, (spool && i < 100) ? 0.0 : boost); v.push_back(m.step(DT, p, bt, 1.0, rng).thumps); }
             return rms(v, 1000, 4000); };
-        approx(thumpRms(1.0, 1.0) / std::max(1e-9, thumpRms(0.0, 1.0)), 1.6, 0.1, "engine: 1 bar of boost = 1.6x heavier firings (turbo)");
-        approx(thumpRms(1.0, 0.0) / std::max(1e-9, thumpRms(0.0, 0.0)), 1.0, 1e-9,
+        approx(thumpRms(1.0, 1.0, true) / std::max(1e-9, thumpRms(0.0, 1.0, false)), 1.6, 0.1, "engine: 1 bar of boost = 1.6x heavier firings (turbo)");
+        approx(thumpRms(1.0, 0.0, true) / std::max(1e-9, thumpRms(0.0, 0.0, false)), 1.0, 1e-9,
                "engine: a naturally aspirated car's reported ~1 bar (manifold pressure) changes nothing");
+        approx(thumpRms(1.03, 1.0, false) / std::max(1e-9, thumpRms(-1.0, 1.0, false)), 1.0, 1e-9,
+               "engine: a turbo's boost steady at 1.03 (LMU's atmosphere) adds no weight to the firings");
+        // A new car starts over: car A's boost moved; car B's steady
+        // atmosphere is no boost. Breaks with forgetCar keeping the range.
+        {
+            EngineModel m; uint64_t rng = 5;
+            EffectParams p; p.ampPct = 100.0; p.freqHz = 30.0; p.jitter = 0.0;
+            EngineParams bt; bt.turbo = 1.0;
+            for (int i = 0; i < 400; ++i) { m.drive(100.0, 1.0, false, i < 100 ? 0.0 : 1.2); m.step(DT, p, bt, 1.0, rng); }
+            const bool aMoved = m.boostMoves();
+            m.forgetCar();
+            for (int i = 0; i < 400; ++i) { m.drive(100.0, 1.0, false, 1.03 + 0.01 * (i & 1)); m.step(DT, p, bt, 1.0, rng); }
+            CHECK(aMoved && !m.boostMoves(), "engine: car A's boost moved; car B's steady atmosphere after forgetCar is no boost");
+        }
 
         // TC cut x: 0 (the default) leaves the engine alone while the sim's
         // TC cuts (it felt like a fault in the rig); 1 drops firings in bursts.

@@ -119,6 +119,12 @@ namespace engine_k {
     constexpr double kBoostRefBar         = 1.0;    // 1 bar of boost = kBoostGain more hit
     constexpr double kBoostGain           = 0.6;
     constexpr double kBoostHitMax         = 2.0;
+    // A boost whose range since the car loaded stays under this is no boost
+    // (LMU publishes the atmosphere for every car, turbo or not: 1.01 to
+    // 1.06 bar absolute, about 0 relative, never moving). Until it moves the
+    // model treats it as unsent: the whoosh by the revs, no boost weight.
+    // A range, not a level, so it holds for absolute and relative senders.
+    constexpr double kBoostMovesBar       = 0.2;
     // Lift-off: a throttle drop from above kLiftFrom to below kLiftTo within
     // kLiftWindowSec, above kLiftMinX of the redline, is the lift event.
     constexpr double kLiftFrom            = 0.6, kLiftTo = 0.1;
@@ -132,6 +138,12 @@ namespace engine_k {
     constexpr double kFlutterHit          = 0.7;    // first flutter pulse x liftoff, decaying
     constexpr double kFlutterDecay        = 0.72;   // per pulse
     constexpr double kLiftHoldoffSec      = 0.6;    // one lift event per this long
+    // The whoosh is sized by the boost's peak, held this long (a newer
+    // peak restarts it; once it runs out the hold takes the boost as it is):
+    // AMS2's manifold pressure collapses on the same sample the throttle
+    // shuts (Sigma P1, 102 lifts: 1.75 bar the 0.3 s before, 0.07 at the
+    // edge), which left its turbo whoosh at about 5 %.
+    constexpr double kLiftBoostHoldSec    = 0.3;
     // Overrun pops: sparse random firings in the exhaust on a closed throttle.
     constexpr double kPopsRateHz          = 9.0;    // mean rate at pops 1 and the redline
     constexpr double kPopsMinX            = 0.3;
@@ -217,7 +229,16 @@ public:
         m_load       = std::max(0.0, std::min(1.0, load01));
         m_limiter    = limiterOn || pitLimiter;
         m_revLimiter = limiterOn;
-        m_boost      = (boostBar >= 0.0) ? boostBar : -1.0;
+        // Boost counts once it has moved since the car loaded
+        // (kBoostMovesBar); before that it is as good as unsent.
+        if (boostBar >= 0.0)
+        {
+            if (m_boostLo < 0.0) m_boostLo = m_boostHi = boostBar;
+            m_boostLo = std::min(m_boostLo, boostBar);
+            m_boostHi = std::max(m_boostHi, boostBar);
+            if (m_boostHi - m_boostLo >= engine_k::kBoostMovesBar) m_boostMoves = true;
+        }
+        m_boost      = (boostBar >= 0.0 && m_boostMoves) ? boostBar : -1.0;
         m_inGearOverrun = inGearOverrun;
         m_tc         = tcCut;
     }
@@ -227,10 +248,13 @@ public:
     // A different car: the learned redline starts over, and whether its
     // engine runs is unknown until its rpm says (the last car's "running"
     // carried over, and a new car named with its engine off kicked a stall).
+    // Whether its boost moves is unknown too (the last car's turbo would
+    // make a steady atmosphere count as boost).
     void forgetCar()
     {
         m_learnedMax = engine_k::kLearnSeedRpm; m_peakRpm = 0.0; m_maxSeeded = false;
         m_running = false; m_sawCranking = false; m_catchFlare = 0.0;
+        m_boostLo = m_boostHi = -1.0; m_boostMoves = false; m_boostPk = -1.0; m_boostPkAgo = 0.0;
     }
 
     // The sim's own max rpm, where it sends one (the law passes it once it
@@ -252,6 +276,7 @@ public:
         m_wasCut = false; m_revScale = 1.0;
         m_tcPhase = 0.0; m_tcRate = engine_k::kTcCutHz; m_tcWasCut = false;
         m_hiLoadAgo = 1e9; m_liftHoldoff = 0.0; m_flutterLeft = 0; m_flutterT = 0.0; m_popWait = 0.0;
+        m_boostPk = -1.0; m_boostPkAgo = 0.0;
         m_running = false; m_sawCranking = false; m_catchFlare = 0.0;
         m_fireCount = 0;
     }
@@ -276,6 +301,7 @@ public:
     double   fireHz() const       { return m_fireHz; }   // the firing rate it was last driven at
 
     double learnedMaxRpm() const { return m_learnedMax; }
+    bool   boostMoves() const    { return m_boostMoves; }   // this car's boost has moved (kBoostMovesBar): it counts
 
     // The buzz carrier (Hz) at a crank rate: pitch proportional to rpm at an
     // order the actuator can carry. The auto band top follows the control
@@ -526,10 +552,14 @@ public:
         // flutter, scaled by the boost the sim reports; the pop (and a
         // turbo whose sim reports none) by how far up the band the lift
         // happened. (A sim sends 0 boost for every naturally aspirated car,
-        // which used to silence the pop.)
+        // which used to silence the pop.) The boost is its peak held for
+        // kLiftBoostHoldSec, not the edge's own.
         {
             if (m_load >= kLiftFrom) m_hiLoadAgo = 0.0; else m_hiLoadAgo += dtSec;
             if (m_liftHoldoff > 0.0) m_liftHoldoff -= dtSec;
+            if (m_boost < 0.0) { m_boostPk = -1.0; m_boostPkAgo = 0.0; }
+            else if (m_boost >= m_boostPk) { m_boostPk = m_boost; m_boostPkAgo = 0.0; }
+            else if ((m_boostPkAgo += dtSec) > kLiftBoostHoldSec) { m_boostPk = m_boost; m_boostPkAgo = 0.0; }
             const bool liftEdge = m_load <= kLiftTo && m_hiLoadAgo < kLiftWindowSec && m_hiLoadAgo > 0.0
                                   && x >= kLiftMinX && m_liftHoldoff <= 0.0 && m_fireHz >= 0.5;
             if (liftEdge && e.liftoff > 0.0 && !electric)
@@ -537,7 +567,7 @@ public:
                 ++m_liftOffs;
                 m_liftHoldoff = kLiftHoldoffSec;
                 m_hiLoadAgo   = 1e9;
-                const double how = (e.turbo >= 0.5 && m_boost >= 0.0) ? std::min(1.0, m_boost / kBoostRefBar) : x;
+                const double how = (e.turbo >= 0.5 && m_boostPk >= 0.0) ? std::min(1.0, m_boostPk / kBoostRefBar) : x;
                 const double base = p.ampPct * level * kThumpMix * heavy * std::min(2.0, e.liftoff) * how;
                 if (e.turbo >= 0.5)
                 {
@@ -682,7 +712,10 @@ private:
     double m_pulseT[engine_k::kPulses]   = { 1e9, 1e9, 1e9, 1e9 };
     double m_pulseAmp[engine_k::kPulses] = { 0.0, 0.0, 0.0, 0.0 };
     double m_pulseLen[engine_k::kPulses] = { 1.0, 1.0, 1.0, 1.0 };   // x m_pulseDur
-    double   m_boost = -1.0;
+    double   m_boost = -1.0;          // as it counts this cycle (-1: unsent, or not moved yet)
+    double   m_boostLo = -1.0, m_boostHi = -1.0;   // the range this car has sent (-1: none yet)
+    bool     m_boostMoves = false;    // ...past kBoostMovesBar: the boost counts
+    double   m_boostPk = -1.0, m_boostPkAgo = 0.0;   // the boost's peak, held kLiftBoostHoldSec
     double   m_hiLoadAgo = 1e9, m_liftHoldoff = 0.0;
     int      m_flutterLeft = 0;
     double   m_flutterT = 0.0, m_flutterAmp = 0.0;
