@@ -3590,6 +3590,11 @@ int main()
         }
         {
             auto mc = belt("decel", 30.0);
+            // (The g moving by a hair for 0.5 s first: every g and the speed
+            // held exactly for 0.5 s, as belt() leaves them, is a sender
+            // repeating its last line, whose return eases in over 0.4 s,
+            // I-29d.)
+            for (int c = 0; c < 250; ++c) run(*mc, gFrame((c & 1) ? 1e-4 : 0.0, true), 1, 1);
             const double s1 = run(*mc, gFrame(1.1 * G, true), 15, 1).hi;   // 30 ms at 2 ms a cycle
             check(s1 > 5.0 + 0.5 * 45.0 && s1 < 5.0 + 0.75 * 45.0, "I-25 smoothing 30 ms: 30 ms after a step, about two thirds of the way");
             check(std::fabs(run(*mc, gFrame(1.1 * G, true), 200, 1).hi - 50.0) < 0.05, "I-25 smoothing: then it settles at torque max");
@@ -3869,6 +3874,10 @@ int main()
             const double t = hold(*mc, 0.6, 0.0, 1.0, 1250, 2);
             check(near(t, 27.5) && mc->getAxisState(0) == AxisMotionState::ONLINE,
                   "I-26 cornering unsent: braking still drives the belt (no standby)");
+            // ...and sent again while braking drove the belt (80 km/h): at
+            // once. Breaks with a g coming back arming the fade (BeltGFadeIn)
+            // while another g stayed live.
+            check(near(hold(*mc, 0.6, 0.4, 1.0, 3), 45.5), "I-26 cornering sent again while braking lived: pulls at once (no fade)");
             // ...and the only one it takes, unsent: the standby stages.
             auto ms = belt("off", "left", 1.0, "off", 1.0);
             hold(*ms, 0.0, 0.6, 1.0, 100);
@@ -3884,6 +3893,10 @@ int main()
             // A cornering g held exactly (a sender that stopped sending it) is no g.
             hold(*mc, 0.6, 0.4, 1.0, 100);
             check(near(hold(*mc, 0.6, 0.4, 1.0, 400, 0, 2), 27.5), "I-26 cornering frozen over 0.5 s: no cornering g");
+            // ...moving again while braking lived on (80 km/h): at once. One
+            // g held is no pause, only every g held is (BeltGFadeIn). Breaks
+            // with the all-held test taken out of beltDemand.
+            check(near(hold(*mc, 0.6, 0.4, 1.0, 3), 45.5), "I-26 cornering held, moving again while braking lived: pulls at once (no fade)");
         }
         {
             // A sender that puts gravity in heave: parked at 1 g (held
@@ -4048,15 +4061,20 @@ int main()
             hiFor(*mc, 0.01, 12.0);
             check(tail(*mc, 7.9) <= 5.0 + 1e-3, "I-29 a restart across a pause (67 km/h before, 0 after) holds the belt at min through the spike's tail");
         }
-        // A pause that resumes as it stopped is no teleport: the belt pulls
-        // at once.
+        // A pause that resumes as it stopped is no teleport (no second at
+        // min): through a 1 s pause the belt held its pull (41 %), and the
+        // g back crossfades from there, never dipping, to the new g by 0.4 s
+        // (BeltGFadeIn).
         {
             speed = 100.0;
             auto mc = belt();
             lastFor(*mc, 0.2, 0.9);
             for (int c = 0; c < 500; ++c) { TelemetryData sd = f(0.9); sd.ncxFresh = false; run(*mc, sd, 1, 1); }
             speed = 99.8;
-            check(std::fabs(lastFor(*mc, 0.006, 1.0) - 45.5) < 1e-3, "I-29 a pause that resumes as it stopped is no teleport: the belt pulls at once");
+            double lo = 1e9, mid = 0.0;
+            for (int c = 0; c < 100; ++c) { const double t = lastFor(*mc, 0.002, 1.0); lo = std::min(lo, t); if (c == 49) mid = t; }
+            check(lo >= 41.0 - 1e-3 && mid > 41.5 && mid < 44.0 && std::fabs(lastFor(*mc, 0.22, 1.0) - 45.5) < 1e-3,
+                  "I-29 a pause that resumes as it stopped is no teleport: from the held pull, no dip, part way 0.1 s on, the new g by 0.4 s");
         }
         // AC Rally's restart menu: the speed frozen at 46.54 km/h for half a
         // second while the lines keep coming, then 0.01 with the spike.
@@ -4122,6 +4140,183 @@ int main()
             double lo = 1e9;
             for (int c = 0; c < 100; ++c) { speed -= 0.1; lo = std::min(lo, lastFor(*mc, 0.002, 1.0)); }
             check(std::fabs(lo - 45.5) < 1e-3, "I-29 ...and keeps following while the speed falls as a car's does");
+        }
+    }
+
+    // ---- I-29d: the belt from g eases back in after its g was away ----
+    // Tim 2026-11-10: on unpause "an instant ramp to what felt like a full
+    // pull", and AMS2's rolling start (the car put on track at 50 km/h
+    // already accelerating) jerks. After a gap the tension crossfades from
+    // where the belt was to the demand over 0.4 s (BeltGFadeIn); a demand
+    // at or under the belt ends it. Guards: a car pulling away (under 10
+    // km/h), a gap of junk frames alone (a crash), a gap too short to
+    // re-seed and one g held while another lives (I-26) all pull at once.
+    // Torque 5..50 over 0.1..1.1 g. Taking the fade out of stepBeltOnline
+    // fails the long-pause, rolling start and held-line checks; arming it
+    // at any speed fails the pulling-away check; arming it on junk fails
+    // the crash check; arming it on any unusable frame fails the stutter
+    // check.
+    {
+        const double G = 9.80665;
+        int tick = 0;
+        double speed = 100.0;
+        // held: 0 every value moves by a hair; 1 the line held exactly (the
+        // g and the speed: a sender repeating its last line); 2 the g alone
+        // held exactly (a sender rounding it), the speed moving.
+        auto f = [&](double accG, int held = 0) {
+            TelemetryData sd = frame(0.0, true, 65535.0);
+            ++tick;
+            sd.ncx[static_cast<int>(NcxValues::SpeedKmh)] = speed + ((held != 1 && (tick & 1)) ? 1e-3 : 0.0);
+            sd.ncyHave[NcxTok::AccSurge] = true;
+            sd.ncy[NcxTok::AccSurge] = accG * G + ((held == 0 && (tick & 1)) ? 1e-4 : 0.0);
+            return sd;
+        };
+        auto lastFor = [&](MotionController& mc, double sec, double accG, int held = 0, bool fresh = true) {
+            double t = 0.0;
+            const int cycles = std::max(1, static_cast<int>(sec / 0.002 + 0.5));
+            for (int c = 0; c < cycles; ++c) { TelemetryData sd = f(accG, held); sd.ncxFresh = fresh; t = run(mc, sd, 1, 1).hi; }
+            return t;
+        };
+        auto belt = [&]() {
+            AppConfig cfg = makeBeltConfig(0.0, 1.0);    // torque 5..50
+            DriveConfig& d = cfg.drives[0];
+            d.beltSource = "g"; d.beltGMode = "decel";
+            d.beltGFromG = 0.1; d.beltGFullG = 1.1; d.beltGSmoothMs = 0.0;
+            auto mc = std::make_unique<MotionController>();
+            mc->configure(cfg);
+            tensionBelt(*mc);
+            lastFor(*mc, 0.8, 0.0);
+            return mc;
+        };
+        // The model: off, the demand as is; armed, a crossfade from where
+        // the belt was over 0.4 s whatever the step; a demand at or under the
+        // last tension ends it.
+        {
+            BeltGFadeIn fd;
+            check(fd.apply(50.0, 5.0, 0.002) == 50.0, "I-29d model: off, the demand as is");
+            fd.arm(true, 5.0, 5.0);
+            check(!fd.on, "I-29d model: a car under 10 km/h is pulling away: not armed");
+            fd.arm(true, 80.0, 10.0);
+            double t = 10.0;
+            for (int c = 0; c < 100; ++c) t = fd.apply(50.0, t, 0.002);
+            check(fd.on && std::fabs(t - 30.0) < 1e-6, "I-29d model: armed at 80 km/h, half way (10 to 50) 0.2 s on");
+            for (int c = 0; c < 101; ++c) t = fd.apply(50.0, t, 0.002);
+            check(!fd.on && t == 50.0, "I-29d model: ...the demand by 0.4 s, then over");
+            fd.arm(true, 80.0, 40.0);
+            t = 40.0;
+            for (int c = 0; c < 100; ++c) t = fd.apply(42.0, t, 0.002);
+            check(fd.on && std::fabs(t - 41.0) < 1e-6, "I-29d model: a small step takes the 0.4 s too (half way 0.2 s on)");
+            check(fd.apply(12.0, 41.0, 0.002) == 12.0 && !fd.on && fd.apply(50.0, 12.0, 0.002) == 50.0,
+                  "I-29d model: a demand under the belt ends it at once (easing off never slowed), and it stays over");
+            fd.arm(true, 80.0, 10.0);
+            check(fd.apply(20.0, 20.0, 0.002) == 20.0 && fd.on, "I-29d model: a demand equal to the belt (a held cycle) carries the fade on");
+            fd.arm(false, 0.0, 5.0);
+            check(fd.on, "I-29d model: no speed sent arms");
+        }
+        // A pause past the 2 s hold (the belt eased to min), resuming at
+        // speed under braking: eased in, not at once.
+        {
+            speed = 100.0;
+            auto mc = belt();
+            lastFor(*mc, 0.2, 0.9);
+            lastFor(*mc, 3.0, 0.9, 0, false);
+            speed = 99.8;
+            const double at10ms = lastFor(*mc, 0.01, 1.0);
+            const double at200 = lastFor(*mc, 0.19, 1.0);
+            const double at450 = lastFor(*mc, 0.25, 1.0);
+            check(at10ms < 7.0, "I-29d a long pause resumed under braking at speed: 10 ms on, still near min (it used to pull 45.5 at once)");
+            check(at200 > 20.0 && at200 < 35.0, "I-29d ...0.2 s on, about half way");
+            check(std::fabs(at450 - 45.5) < 1e-3, "I-29d ...0.45 s on, the full g");
+        }
+        // ...one junk frame 0.1 s into the fade (a resume spike, AMS2's lone
+        // 404 g frame) holds the belt a cycle; the fade carries on through
+        // it. Breaks with a held cycle ending the fade (the rest of the pull
+        // then landed at once).
+        {
+            speed = 100.0;
+            auto mc = belt();
+            lastFor(*mc, 0.2, 0.9);
+            lastFor(*mc, 3.0, 0.9, 0, false);
+            speed = 99.8;
+            lastFor(*mc, 0.1, 1.0);
+            lastFor(*mc, 0.002, 20.0);
+            const double after = lastFor(*mc, 0.05, 1.0);
+            check(after > 12.0 && after < 30.0, "I-29d a junk frame mid-fade: the fade carries on (0.15 s on, part way, not the full g)");
+        }
+        // A fade armed while the belt blends in (the stream stale at
+        // tension-up, the game resuming at speed mid-blend) is the blend's:
+        // at ONLINE a braking onset pulls at once. Breaks with the fade left
+        // armed into ONLINE.
+        {
+            speed = 100.0;
+            AppConfig cfg = makeBeltConfig(0.0, 1.0);
+            DriveConfig& d = cfg.drives[0];
+            d.beltSource = "g"; d.beltGMode = "decel";
+            d.beltGFromG = 0.1; d.beltGFullG = 1.1; d.beltGSmoothMs = 0.0;
+            MotionController mc; mc.configure(cfg);
+            tensionBelt(mc);
+            lastFor(mc, 0.05, 0.0, 0, false);
+            lastFor(mc, 0.3, 0.0);
+            check(mc.getAxisState(0) == AxisMotionState::ONLINE && std::fabs(lastFor(mc, 0.006, 1.0) - 45.5) < 1e-3,
+                  "I-29d a fade armed during the blend ends with it: braking at ONLINE pulls at once");
+        }
+        // AMS2's rolling start: standing, then 50 km/h in a frame already
+        // accelerating (the teleport's second at min), then eased in.
+        {
+            speed = 0.0;
+            auto mc = belt();
+            speed = 50.0;
+            const double held = lastFor(*mc, 0.98, 0.9);
+            const double at = lastFor(*mc, 0.05, 0.9);
+            const double later = lastFor(*mc, 0.5, 0.9);
+            check(std::fabs(held - 5.0) < 1e-3 && at < 12.0 && std::fabs(later - 41.0) < 1e-3,
+                  "I-29d a rolling start (0 to 50 km/h accelerating): held at min, then eased in, not at once");
+        }
+        // A sender repeating its last line through a pause (every g and the
+        // speed held exactly): no g after 0.5 s, then eased back in.
+        {
+            speed = 100.0;
+            auto mc = belt();
+            lastFor(*mc, 0.2, 0.9);
+            const double heldOut = lastFor(*mc, 1.0, 0.9, 1);
+            const double back = lastFor(*mc, 0.01, 1.0);
+            check(std::fabs(heldOut - 5.0) < 1e-3 && back < 10.0, "I-29d every g held through a pause, then moving at speed: eased back in");
+        }
+        // Guard: a sender rounding the g to one value at a steady speed (a
+        // pit lane: 0.000 for a second, the speed moving), then the car
+        // accelerating away: felt at once. Breaks with the speed left out of
+        // the held-line test.
+        {
+            speed = 60.0;
+            auto mc = belt();
+            lastFor(*mc, 1.0, 0.0, 2);
+            check(std::fabs(lastFor(*mc, 0.006, 0.6) - 27.5) < 1e-3, "I-29d guard: a g rounded to one value while the speed moves (a pit lane), then a pull: at once (no fade)");
+        }
+        // Guard: pulling away. Standing through a long pause, then 2 km/h
+        // and 1 g: felt at once.
+        {
+            speed = 0.0;
+            auto mc = belt();
+            lastFor(*mc, 3.0, 0.0, 0, false);
+            speed = 2.0;
+            check(std::fabs(lastFor(*mc, 0.006, 1.0) - 45.5) < 1e-3, "I-29d guard: a car pulling away after a pause pulls at once (no fade under 10 km/h)");
+        }
+        // Guard: a crash. 0.2 s of junk frames (past 8 g) at speed, then
+        // its tail: felt at once.
+        {
+            speed = 100.0;
+            auto mc = belt();
+            lastFor(*mc, 0.2, 0.9);
+            lastFor(*mc, 0.2, 20.0);
+            check(std::fabs(lastFor(*mc, 0.006, 1.0) - 45.5) < 1e-3, "I-29d guard: a run of junk frames (a crash) then its tail pulls at once (no fade)");
+        }
+        // Guard: a stutter (0.05 s with no fresh line) never re-seeds: at once.
+        {
+            speed = 100.0;
+            auto mc = belt();
+            lastFor(*mc, 0.2, 0.9);
+            lastFor(*mc, 0.05, 0.9, 0, false);
+            check(std::fabs(lastFor(*mc, 0.006, 1.0) - 45.5) < 1e-3, "I-29d guard: a 50 ms stutter pulls at once (no fade)");
         }
     }
 
@@ -4342,8 +4537,9 @@ int main()
             const double paused = runFor(*mc, 60.0, 0.6, false, true);   // a minute in the pause menu
             check(online(*mc) && std::fabs(paused - 5.0) < 1e-6,
                   "I-28 the g gone a minute, the motion stream live: taut at min, still ONLINE");
-            check(std::fabs(runFor(*mc, 0.1, 0.6, true, true) - 27.5) < 1e-3,
-                  "I-28 ...and the g takes over again when the game resumes (no re-tension)");
+            // (Eased in from min at 80 km/h over 0.4 s, I-29d.)
+            check(std::fabs(runFor(*mc, 0.45, 0.6, true, true) - 27.5) < 1e-3 && online(*mc),
+                  "I-28 ...and the g takes over again when the game resumes (no re-tension, eased in)");
         }
         {
             auto mc = belt("g");

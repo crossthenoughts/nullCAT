@@ -13,6 +13,13 @@ middle number carries breaking changes and the last carries fixes.
   and 0.9.10 ignores them, so the new mod works with it too.
 
 ### Fixed
+- **Belt from the car's g**: when the g comes back after it was away
+  (the game unpaused, the car put back on the track by a reset or by
+  Automobilista 2's rolling start, a sender repeating its last values
+  through a pause), the belt eases back in over 0.4 s instead of pulling
+  to full at once. From a short pause it starts from the pull it held, so
+  nothing dips. A car pulling away, a crash and a short stutter
+  in the stream still pull at once.
 - **Engine, turbo cars**: the blow-off whoosh on a lift plays in
   Automobilista 2: its boost falls on the same instant the throttle
   closes, which left the whoosh almost silent, so the whoosh now takes the

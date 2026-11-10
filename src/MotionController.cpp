@@ -1212,9 +1212,7 @@ void MotionController::tensionBelts()
             rt.beltDwellSec     = 0.0;
             rt.beltRelaxed      = false;
             rt.beltLastTripWhy  = 0;            // card guard flag clears on tension-up
-            for (auto& c : rt.beltGCh) c.live = false;   // the g filters start afresh (not from the last session's braking)
-            rt.resetBeltTeleport();   // ...and the teleport test (a speed from the last session is no jump)
-            rt.resetBeltCrash();      // ...and the crash watch (a crash from the last session holds nothing)
+            rt.resetBeltG();          // the g starts afresh (nothing from the last session)
             RT_LOG_INFO("MotionController: Axis %d (belt) tensioning -- blending in.", i + 1);
         }
     }
@@ -1374,7 +1372,7 @@ void MotionController::applyPendingBeltG()
         const int was[3] = { ac.beltGMode, ac.beltGSway, ac.beltGHeave };
         const int now[3] = { s[i].mode, s[i].sway, s[i].heave };
         for (int k = 0; k < 3; ++k)
-            if (was[k] == 0 && now[k] != 0) m_runtime[i].beltGCh[k].live = false;
+            if (was[k] == 0 && now[k] != 0) m_runtime[i].beltGCh[k].drop(false);
         const bool same = ac.beltGMode == s[i].mode && ac.beltGSway == s[i].sway && ac.beltGHeave == s[i].heave
                        && ac.beltGSwayMix == s[i].swayMix && ac.beltGHeaveMix == s[i].heaveMix && ac.beltGFromG == s[i].fromG
                        && ac.beltGFullG == s[i].fullG && ac.beltGCurve == s[i].curve && ac.beltGSmoothMs == s[i].smoothMs
@@ -2046,9 +2044,13 @@ bool MotionController::beltDemand(int i, const TelemetryData& td, double& tensio
     bool teleport = false, anyPresent = false;
     for (int k = 0; k < 3; ++k)
         if (mode[k] != 0 && v.fresh && v.have[kTok[k]]) anyPresent = true;
+    // The speed held exactly up to this cycle (or not sent): with every g
+    // held too, a sender repeating its last line (the fade below).
+    const bool speedSent    = v.have[NcxValues::SpeedKmh] && std::isfinite(v.val[NcxValues::SpeedKmh]);
+    const bool speedWasHeld = !speedSent || rt.beltSpeedSameSec > kBeltGFrozenSec;
     if (v.fresh)
     {
-        if (v.have[NcxValues::SpeedKmh] && std::isfinite(v.val[NcxValues::SpeedKmh]))
+        if (speedSent)
         {
             const double s = v.val[NcxValues::SpeedKmh];
             if (s != rt.beltLastSpeedKmh)
@@ -2056,7 +2058,9 @@ bool MotionController::beltDemand(int i, const TelemetryData& td, double& tensio
                 if (rt.beltSpeedSeen && std::fabs(s - rt.beltLastSpeedKmh) > kBeltGTeleportKmh) teleport = true;
                 rt.beltLastSpeedKmh = s;
                 rt.beltSpeedSeen    = true;
+                rt.beltSpeedSameSec = 0.0;
             }
+            else rt.beltSpeedSameSec += dt;
         }
         // The road's height under each wheel: two or more jumping at once,
         // standing still.
@@ -2087,12 +2091,31 @@ bool MotionController::beltDemand(int i, const TelemetryData& td, double& tensio
     if (rt.beltTeleportSec > 0.0)
     {
         rt.beltTeleportSec -= dt;
-        for (AxisRuntime::BeltGChan& c : rt.beltGCh) { c.live = false; c.badSec = 0.0; }   // afresh after it
+        for (AxisRuntime::BeltGChan& c : rt.beltGCh) c.drop(true);   // afresh after it, easing in
         if (!anyPresent) return false;   // the stream gone as well: the standby, as ever
         tension = beltGTension(i, 0.0);
         return true;
     }
     const double smoothA = (ac.beltGSmoothMs > 0.0) ? dt / (ac.beltGSmoothMs / 1000.0 + dt) : 1.0;
+    // The g coming back after a gap eases in (BeltGFadeIn, stepBeltOnline):
+    // a channel seeded afresh after a gap for want of a value while no other
+    // g the belt takes stayed live (never junk frames alone: a crash is felt
+    // at once; never a gap too short to re-seed; never one g back while
+    // another drove the belt), or every g the belt takes and the speed held
+    // exactly (a sender repeating its last line through a pause) moving
+    // again (never one g held alone, nor a g a sender rounds to one value
+    // while the speed moves). The fade itself leaves out a car pulling away.
+    bool liveBefore[3] = {}, anyLive = false, allHeld = true;
+    for (int k = 0; k < 3; ++k)
+    {
+        const AxisRuntime::BeltGChan& c = rt.beltGCh[k];
+        liveBefore[k] = mode[k] != 0 && c.live;
+        if (!liveBefore[k]) continue;
+        anyLive = true;
+        if (c.sameSec <= kBeltGFrozenSec) allHeld = false;
+    }
+    allHeld = allHeld && anyLive && speedWasHeld;
+    bool fadeDue = false;
     double x = 0.0;
     for (int k = 0; k < 3; ++k)
     {
@@ -2102,6 +2125,7 @@ bool MotionController::beltDemand(int i, const TelemetryData& td, double& tensio
         {
             // Held as it was for a junk frame, dropped after a real gap.
             c.badSec += dt;
+            if (!(v.fresh && v.have[kTok[k]] && std::isfinite(v.val[kTok[k]]))) c.gapDue = true;
             if (c.badSec > kBeltGReseedSec) c.live = false;
         }
         else
@@ -2128,11 +2152,22 @@ bool MotionController::beltDemand(int i, const TelemetryData& td, double& tensio
             double g = rawG - ((k == 2) ? c.grav : 0.0);
             // Unchanged too long: no g, through the smoothing (no step
             // either way).
+            const bool wasHeld = c.sameSec > kBeltGFrozenSec;
             if (raw != c.lastRaw) { c.lastRaw = raw; c.sameSec = 0.0; }
             else if ((c.sameSec += dt) > kBeltGFrozenSec) g = 0.0;
-            if (!c.live) c.f = g;
-            else         c.f += (g - c.f) * smoothA;
-            c.live = true;
+            if (!c.live)
+            {
+                c.f = g;
+                const bool othersLive = liveBefore[(k + 1) % 3] || liveBefore[(k + 2) % 3];
+                fadeDue = fadeDue || (c.gapDue && !othersLive);
+            }
+            else
+            {
+                c.f += (g - c.f) * smoothA;
+                if (allHeld && wasHeld && c.sameSec == 0.0) fadeDue = true;
+            }
+            c.live   = true;
+            c.gapDue = false;
         }
         if (!c.live) continue;
         const double s = c.f;
@@ -2140,6 +2175,14 @@ bool MotionController::beltDemand(int i, const TelemetryData& td, double& tensio
                             : (mode[k] == 2) ? std::max(0.0, -s)
                             : std::fabs(s);
         x += mix[k] * folded;
+    }
+    if (fadeDue && !rt.beltGFade.on)
+    {
+        const bool haveKmh = v.have[NcxValues::SpeedKmh] && std::isfinite(v.val[NcxValues::SpeedKmh]);
+        rt.beltGFade.arm(haveKmh, haveKmh ? v.val[NcxValues::SpeedKmh] : 0.0, rt.lastTension);
+        if (rt.beltGFade.on)
+            RT_LOG_INFO("MotionController: Axis %d belt: its g came back after a gap: easing in over %.1f s",
+                        i + 1, BeltGFadeIn::kSec);
     }
     // Unusable on every g the belt takes: the standby stages, as a lost line
     // (nothing selected never has a demand: the belt waits at minimum).
@@ -2184,6 +2227,7 @@ double MotionController::stepBeltBlending(int i, AxisMotionState& state,
     double bf = std::max(0.0, std::min(1.0, rt.blendElapsed / rt.blendDuration));
     double tension = ac.torqueMinPct;
     const bool haveData = beltDemand(i, telemetryData, tension);
+    rt.beltGFade.clear();   // the blend eases the belt in: a fade armed meanwhile is the blend's
     if (!haveData) tension = ac.torqueMinPct;
     if (haveData) rt.onlineHadData = true;
     if (ac.beltFromG) noteBeltMotionStream(i, telemetryData);
@@ -2353,7 +2397,11 @@ double MotionController::stepBeltOnline(int i, AxisMotionState& state,
     // haptics overlay is added later in process() with no slew, so this
     // never limits nullCAT's own belt effects (see Config.h). The e-stop path
     // bypasses this (it breaks out above and commands 0 immediately).
+    // After the belt's g was away (beltDemand arms beltGFade) the demand
+    // crossfades in from where the belt was over BeltGFadeIn::kSec; easing
+    // off is never slowed by it.
     {
+        tension = rt.beltGFade.apply(tension, rt.lastTension, m_cycleTimeSec);
         const double maxStep = ac.beltSlewPctPerSec * m_cycleTimeSec;
         tension = std::max(rt.lastTension - maxStep,
                            std::min(rt.lastTension + maxStep, tension));
@@ -3034,9 +3082,7 @@ void MotionController::process(const TelemetryData& telemetryData, MotionOutput&
                 rt.beltDwellSec     = 0.0;
                 rt.beltRelaxed      = false;
                 rt.beltLastTripWhy  = 0;
-                for (auto& c : rt.beltGCh) c.live = false;
-                rt.resetBeltTeleport();
-                rt.resetBeltCrash();
+                rt.resetBeltG();
 
                 state = AxisMotionState::BLENDING;
                 RT_LOG_INFO("MotionController: Axis %d BLENDING into live telemetry.", i + 1);

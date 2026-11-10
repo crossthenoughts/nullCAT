@@ -34,6 +34,7 @@
 #include "CommandConditioner.h"
 #include "CommissioningMode.h"
 #include "AxisKind.h"
+#include "BeltGFadeIn.h"
 #include <array>
 #include <atomic>
 #include <string>
@@ -585,21 +586,43 @@ private:
             double parkG   = 0.0, parkSec = 0.0;
             double lastRaw = 0.0;   // the last value sent, and how long it has stayed exactly so
             double sameSec = 0.0;
+            // Unusable for want of a value (the stream stale, the channel
+            // unsent or not a number, a teleport's hold-off), not junk
+            // frames alone (a crash): its return eases in (beltGFade).
+            bool   gapDue  = false;
+            // Seeded afresh by its next usable value; easeIn: that return
+            // eases in (a teleport's hold-off), else not (tension-up, a
+            // channel switched on live).
+            void drop(bool easeIn) { live = false; badSec = 0.0; gapDue = easeIn; }
         };
         BeltGChan beltGCh[3];
+        BeltGFadeIn beltGFade;   // the g easing back in after a gap (stepBeltOnline, before the slew cap); cleared at tension-up
         // Belt from g: a teleport's hold-off (seconds left: the g is held
         // off and the belt sits at minimum), and the sender's last speed
         // and road height per wheel (once seen), for the jumps. Cleared
         // with the g filters at tension-up (resetBeltTeleport).
         double  beltTeleportSec  = 0.0;
         double  beltLastSpeedKmh = 0.0;
+        double  beltSpeedSameSec = 0.0;   // how long the speed has stayed exactly so (the fade's held-line test)
         double  beltLastRoadMm[4] = {};
         bool    beltSpeedSeen    = false;
         bool    beltRoadSeen[4]  = {};
         void resetBeltTeleport()
         {
-            beltTeleportSec = 0.0; beltSpeedSeen = false;
+            beltTeleportSec = 0.0; beltSpeedSeen = false; beltSpeedSameSec = 0.0;
             for (bool& s : beltRoadSeen) s = false;
+        }
+        // Tension-up (both paths): the belt's g starts afresh. The g
+        // filters (not from the last session's braking), the fade (the
+        // blend eases the belt in), the teleport test (a speed from the
+        // last session is no jump) and the crash watch (a crash from the
+        // last session holds nothing).
+        void resetBeltG()
+        {
+            for (BeltGChan& c : beltGCh) c.drop(false);
+            beltGFade.clear();
+            resetBeltTeleport();
+            resetBeltCrash();
         }
         // Belt from g: the crash watch (MotionController::beltCrashScale).
         // The g's slow part and its fast part's power (rough, junk frames
