@@ -100,6 +100,41 @@ static void sendUdp(int port, const char* line)
 #endif
 }
 
+// A sending socket that stays open: every line from the one address and
+// port (sendUdp's is another port each time).
+struct UdpOut
+{
+    sockaddr_in to{};
+#ifdef _WIN32
+    SOCKET s;
+#else
+    int s;
+#endif
+    explicit UdpOut(int port)
+    {
+        to.sin_family = AF_INET;
+        to.sin_port   = htons(static_cast<uint16_t>(port));
+        to.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    }
+    void send(const char* line)
+    {
+#ifdef _WIN32
+        sendto(s, line, static_cast<int>(std::strlen(line)), 0, reinterpret_cast<sockaddr*>(&to), sizeof(to));
+#else
+        sendto(s, line, std::strlen(line), 0, reinterpret_cast<sockaddr*>(&to), sizeof(to));
+#endif
+    }
+    ~UdpOut()
+    {
+#ifdef _WIN32
+        closesocket(s);
+#else
+        close(s);
+#endif
+    }
+};
+
 static TelemetryData parse(const char* line, bool* okOut = nullptr)
 {
     TelemetryData d{};
@@ -658,6 +693,144 @@ int main()
         check(send("NULLCATY,game=AssettoCorsa,car=x,direct=on") && send("NULLCATY,accSurge=1,accSway=0,accHeave=0")
               && send("NULLCATX,5000,100,3") && send("NULLCATY,rpm=5000"),
               "arbitration: a single direct sender's every line is used");
+    }
+
+    // ---- two programs sending the motion line: watched and said ----
+    // The motion line has no arbitration (the last line wins), so two
+    // motion programs left on together make the rig jump between two cues.
+    // nullCAT only says so: both are still taken. Two senders: over a
+    // second each sent at least 5 lines, from within 0.25 s of its start to
+    // within 0.25 s of its end, two seconds in a row; so a second program
+    // is said 1.75 to 2.8 s after it starts, wherever in the second it
+    // starts (every check below runs over the start phases). Not two: one
+    // sender; a program restarted on another port, or handed over to
+    // another with both sending for 1.4 s; a sender whose port changes
+    // (with every line, or every 150 ms); a stray sender with a few lines a
+    // second; a sender with no address. It clears when one stops, and for
+    // the status when the motion stops altogether. The clock is the
+    // test's. Breaks with the watch reporting on one window, counting a
+    // sender that started late in the window or went quiet in it, or
+    // counting keys under 5 lines.
+    {
+        const uint64_t A = (uint64_t(1) << 48) | 0x0101A8C00001ull, B = (uint64_t(1) << 48) | 0x0101A8C00002ull;
+        const int64_t T0 = 100000;
+        // A every 2 ms over [0, aEnd), B every bEvery ms over [bFrom, bEnd)
+        // (ms from T0), run to `until`; when the status first said two
+        // (-1: never) and whether it still does at the end.
+        struct Seen { int64_t firstMs = -1; bool atEnd = false; std::string who; };
+        auto drive = [&](int aEnd, int bFrom, int bEnd, int bEvery, int until) {
+            TelemetryInput ti; Seen s;
+            for (int i = 0; i < until; ++i)
+            {
+                const int64_t now = T0 + i;
+                if (i < aEnd && (i % 2) == 0) ti.noteMotionSender(A, now);
+                if (i >= bFrom && i < bEnd && ((i - bFrom) % bEvery) == 0) ti.noteMotionSender(B, now);
+                if (s.firstMs < 0 && ti.motionSendersMixed(now)) { s.firstMs = i; s.who = ti.motionMixedSenders(); }
+                s.atEnd = ti.motionSendersMixed(now);
+            }
+            return s;
+        };
+        check(drive(9000, 9000, 9000, 16, 9000).firstMs < 0, "motion senders: one program sending is not two");
+        // A second program starting anywhere in the second (every 23 ms of phase).
+        {
+            int tooSoon = 0, tooLate = 0, unnamed = 0, n = 0;
+            for (int ph = 0; ph < 1000; ph += 23, ++n)
+            {
+                const Seen s = drive(9000, 3000 + ph, 9000, 16, 9000);
+                const int64_t after = s.firstMs - (3000 + ph);
+                if (s.firstMs >= 0 && after < 1700) ++tooSoon;
+                if (s.firstMs < 0 || after > 2850) ++tooLate;
+                if (s.who.find("192.168.1.1:") == std::string::npos || s.who.find(" and ") == std::string::npos) ++unnamed;
+            }
+            check(n > 40 && tooSoon == 0, "motion senders: a second program is never said within 1.7 s of starting (any start phase)");
+            check(tooLate == 0, "motion senders: ...and always within 2.85 s");
+            check(unnamed == 0, "motion senders: ...and both are named, address and port");
+        }
+        // One of the two stops: said no more (5 s on).
+        check(!drive(9000, 0, 4000, 16, 9000).atEnd, "motion senders: one of the two stopped: no longer two");
+        {
+            // Both stop: nothing arrives to judge, the status lets go by itself.
+            TelemetryInput ti; int64_t now = T0;
+            for (int i = 0; i < 4000; ++i, ++now) { if ((i % 2) == 0) ti.noteMotionSender(A, now); if ((i % 16) == 0) ti.noteMotionSender(B, now); }
+            check(ti.motionSendersMixed(now) && !ti.motionSendersMixed(now + TelemetryInput::kMotionMixedShowMs + 1),
+                  "motion senders: the motion stopped altogether: the status clears after 2.5 s");
+        }
+        // A program restarted on another port, and one handed over to
+        // another with both sending for 1.4 s: at every start phase.
+        {
+            int restart = 0, handover = 0;
+            for (int ph = 0; ph < 1000; ph += 23)
+            {
+                if (drive(3000 + ph, 3000 + ph, 9000, 2, 9000).firstMs >= 0) ++restart;
+                if (drive(3000 + ph + 1400, 3000 + ph, 9000, 2, 9000).firstMs >= 0) ++handover;
+            }
+            check(restart == 0, "motion senders: a program restarted on another port is never two (any phase)");
+            check(handover == 0, "motion senders: one program handed over to another, both sending for 1.4 s, is never two (any phase)");
+        }
+        {
+            // A sender whose port changes with every line, and one that
+            // keeps each port for 150 ms.
+            bool everLine = false, everHold = false;
+            TelemetryInput t1, t2;
+            for (int i = 0; i < 20000; ++i)
+            {
+                const int64_t now = T0 + i;
+                if ((i % 2) != 0) continue;
+                t1.noteMotionSender((uint64_t(1) << 48) | 0x0101A8C00000ull | uint64_t(1000 + (i / 2) % 60000), now);
+                t2.noteMotionSender((uint64_t(1) << 48) | 0x0101A8C00000ull | uint64_t(1000 + i / 150), now);
+                everLine = everLine || t1.motionSendersMixed(now);
+                everHold = everHold || t2.motionSendersMixed(now);
+            }
+            check(!everLine, "motion senders: a sender whose port changes with every line is never two");
+            check(!everHold, "motion senders: a sender that keeps each port for 150 ms is never two");
+        }
+        // A second sender with only a few lines a second (one every 0.3 s)
+        // is no motion program.
+        check(drive(9000, 0, 9000, 300, 9000).firstMs < 0, "motion senders: a second sender with a few lines a second is not two");
+        {
+            // A sender not known (no IPv4 address) is never counted.
+            TelemetryInput ti; int64_t now = T0;
+            for (int i = 0; i < 4000; ++i, ++now) { if ((i % 2) == 0) ti.noteMotionSender(A, now); if ((i % 4) == 0) ti.noteMotionSender(0, now); }
+            check(!ti.motionSendersMixed(now), "motion senders: a sender with no address is not counted");
+        }
+    }
+
+    // ---- ...through the socket: only motion lines count ----
+    // The receive path notes each MOTION line's sender, never a channel
+    // line's: SimHub's motion beside another program's channel lines (two
+    // sockets, the split the protocol names as fine) is one motion sender;
+    // two sockets both sending motion are two, and the status names both.
+    // Real sockets and the real clock (about 7 s). Breaks with receive()
+    // not noting motion lines, or noting every line.
+    {
+        TelemetryInput ti;
+        check(ti.initialize(0, "127.0.0.1"), "motion senders (socket): a loopback socket");
+        const int port = ti.port();
+        UdpOut one(port), two(port);
+        // Each sends every 10 ms for `ms`; true once the status says two.
+        auto sendFor = [&](const char* lineOne, const char* lineTwo, int ms, bool stopWhenTwo) {
+            const auto t0 = std::chrono::steady_clock::now();
+            bool said = false;
+            for (int k = 0; ; ++k)
+            {
+                const auto el = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+                if (el >= ms || (said && stopWhenTwo)) break;
+                one.send(lineOne); two.send(lineTwo);
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                while (ti.receive()) {}
+                said = said || ti.motionSendersMixed();
+            }
+            return said;
+        };
+        check(!sendFor("NULLCAT,32767,32767,32767", "NULLCATX,4000,120,3,0,50,0,0,0,0,0,1", 3500, false),
+              "motion senders (socket): motion from one socket and channel lines from another are one motion sender");
+        check(ti.getLatestData(true).numNcx == 11, "motion senders (socket): ...and the channel lines are still taken");
+        check(sendFor("NULLCAT,32767,32767,32767", "NULLCAT,100,100,100", 8000, true),
+              "motion senders (socket): motion from two sockets is two");
+        const std::string who = ti.motionMixedSenders();
+        check(who.find("127.0.0.1:") != std::string::npos && who.find(" and 127.0.0.1:") != std::string::npos,
+              "motion senders (socket): ...and both are named");
+        ti.shutdown();
     }
 
     // ---- frozen-stream guard: OFF by default ----

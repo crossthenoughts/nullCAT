@@ -314,11 +314,14 @@ bool TelemetryInput::receive()
         ? ((uint64_t(1) << 48) | (uint64_t(static_cast<uint32_t>(senderAddr.sin_addr.s_addr)) << 16)
            | uint64_t(senderAddr.sin_port))
         : 0;
+    const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
     // Another sender's channel line while a direct one sends: set aside
     // (consumed, so the drain goes on).
-    if (!admitChannelLine(parsed, sender, std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count()))
+    if (!admitChannelLine(parsed, sender, nowMs))
         return true;
+    // Two programs sending the motion line: watched and said, both taken.
+    if (parsed.packetType == TelemetryPacketType::Motion) noteMotionSender(sender, nowMs);
     m_recorder.push(m_recvBuf, bytes);
     // Where the channel sender is: a reply (direct telemetry) goes there.
     if (parsed.packetType == TelemetryPacketType::Ncy && sender != 0)
@@ -333,6 +336,44 @@ static void senderText(uint64_t s, char (&out)[24])
     const uint16_t p = static_cast<uint16_t>(s & 0xFFFFu);
     const unsigned char* b = reinterpret_cast<const unsigned char*>(&a);
     std::snprintf(out, sizeof out, "%u.%u.%u.%u:%u", b[0], b[1], b[2], b[3], static_cast<unsigned>(ntohs(p)));
+}
+
+// A motion line from `sender`: the watch for two programs sending motion
+// at once. Receive path (RT_LOG_* only); the status reads the atomics.
+void TelemetryInput::noteMotionSender(uint64_t sender, int64_t nowMs)
+{
+    if (!m_motionWatch.note(sender, nowMs))
+    {
+        if (m_motionMixedLogged)
+        {
+            m_motionMixedLogged = false;
+            RT_LOG_INFO("TelemetryInput: no longer two programs sending the motion line.");
+        }
+        return;
+    }
+    m_motionMixA.store(m_motionWatch.a.key, std::memory_order_release);
+    m_motionMixB.store(m_motionWatch.b.key, std::memory_order_release);
+    m_motionMixedMs.store(nowMs, std::memory_order_release);
+    if (!m_motionMixedLogged)
+    {
+        m_motionMixedLogged = true;
+        char wa[24], wb[24];
+        senderText(m_motionWatch.a.key, wa);
+        senderText(m_motionWatch.b.key, wb);
+        RT_LOG_WARNING("TelemetryInput: two programs are sending the motion line (%s and %s): the rig follows whichever line came last. Switch the motion off in one of them.", wa, wb);
+    }
+}
+
+// Any thread (the status): the two senders last found sending motion at
+// once, as text.
+std::string TelemetryInput::motionMixedSenders() const
+{
+    const uint64_t a = m_motionMixA.load(std::memory_order_acquire), b = m_motionMixB.load(std::memory_order_acquire);
+    if (a == 0 || b == 0) return std::string();
+    char wa[24], wb[24];
+    senderText(a, wa);
+    senderText(b, wb);
+    return std::string(wa) + " and " + wb;
 }
 
 // Two names of one game, as different senders spell it (BeamNG.drive and

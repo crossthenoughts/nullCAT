@@ -51,6 +51,13 @@ Every field after the header is one axis value, in the rig's axis order,
 - Every configured slot must carry a value: empty or malformed fields are
   skipped and the array compacts, which shifts every later axis one slot
   left. Never omit a field.
+- **One program sends the motion line.** Motion lines are taken from any
+  sender and the last one to arrive is the one the rig follows, so two
+  programs sending motion at once make it jump between their cues. The
+  receiver watches for it (two senders, by address and port, both sending
+  steadily for two to three seconds) and warns on its page and in its log;
+  it does not choose between them. A program that sends only the channel
+  lines beside another program's motion is fine.
 
 ## Line type 2: channels
 

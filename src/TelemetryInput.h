@@ -10,6 +10,7 @@
 #include <string>
 #include "NcxTokens.h"
 #include "TelemetryRecorder.h"
+#include "MotionSenderWatch.h"
 
 static constexpr int MAX_DRIVES = 10;
 
@@ -215,6 +216,27 @@ public:
         return last != 0 && (now - last) < 1500;
     }
 
+    // Two programs sending the motion line at once (MotionSenderWatch): the
+    // rig follows whichever line came last. Watched and said, nothing set
+    // aside. noteMotionSender: the receive path, for each motion line
+    // (public for tests, with their own senders and clock). Any thread:
+    // motionSendersMixed, true while two were found sending within the last
+    // kMotionMixedShowMs (so it clears when the motion stops altogether),
+    // and the two as "a.b.c.d:port and a.b.c.d:port" for the status.
+    static constexpr int64_t kMotionMixedShowMs = 2500;
+    void noteMotionSender(uint64_t sender, int64_t nowMs);
+    bool motionSendersMixed(int64_t nowMs) const
+    {
+        const int64_t last = m_motionMixedMs.load(std::memory_order_acquire);
+        return last != 0 && (nowMs - last) < kMotionMixedShowMs;
+    }
+    bool motionSendersMixed() const
+    {
+        return motionSendersMixed(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+    }
+    std::string motionMixedSenders() const;
+
     // UDP telemetry-rate diagnostic. Measured on the receive path, ACTIVE ONLY
     // WHEN DIAGNOSTICS ARE ENABLED (zero cost otherwise). Returns -1 when off or
     // before the first 1 s window completes. arrival = packets/s pulled from the
@@ -331,6 +353,12 @@ private:
     bool                  m_setAsideLogged = false;
     bool                  m_sourceChanged  = false;
     std::atomic<int64_t>  m_setAsideMs{0};
+    // noteMotionSender: the watch and whether its warning is logged (receive
+    // path only); when two senders were last found, and which (any thread).
+    MotionSenderWatch     m_motionWatch;
+    bool                  m_motionMixedLogged = false;
+    std::atomic<int64_t>  m_motionMixedMs{0};
+    std::atomic<uint64_t> m_motionMixA{0}, m_motionMixB{0};
     std::atomic<int64_t> m_lastNcxChangeMs{0};   // last packet whose numbers differed
     std::atomic<int64_t> m_frozenMs{0};          // guard window, 0 = off
     mutable std::atomic<int> m_ncxStreamState{0}; // 0 stopped, 1 live, 2 frozen (getLatestData, any thread)

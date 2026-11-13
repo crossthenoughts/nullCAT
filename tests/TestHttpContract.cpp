@@ -1143,6 +1143,8 @@ int main()
           "direct telemetry off: reads back");
     check(has(get("/api/status"), "\"directSender\":\""), "status carries what the sender says");
     check(has(get("/api/status"), "\"directSetAside\":false"), "status carries whether another sender is set aside (none here)");
+    check(has(get("/api/status"), "\"motionMixed\":false") && has(get("/api/status"), "\"motionMixedSenders\":\"\""),
+          "status carries whether two programs send motion at once (not here), and no names with it");
     // The kerbs channel by name (a game's own kerb signal) reads true; the
     // numbered line's slot (0 in Assetto Corsa whatever the game has) does
     // not count. Breaks with curbsNamed read from the merged channels.

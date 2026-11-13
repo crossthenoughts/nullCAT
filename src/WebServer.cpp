@@ -472,6 +472,13 @@ std::string WebServer::buildStatusJson() const
     s += "\"initBusy\":"   + jsonBool(m_initBusy.load())          + ",";
     s += "\"telemetryReceiving\":" + jsonBool(m_telemetry && m_telemetry->hasRecentData()) + ",";
     s += "\"telemetryInit\":"      + jsonBool(m_telemetry && m_telemetry->isInitialized()) + ",";
+    // Two programs sending the motion line at once (the rig follows
+    // whichever line came last): the page warns, and names the two.
+    {
+        const bool mixed = m_telemetry && m_telemetry->motionSendersMixed();
+        s += "\"motionMixed\":" + jsonBool(mixed) + ",";
+        s += "\"motionMixedSenders\":" + jsonStr(mixed ? m_telemetry->motionMixedSenders() : std::string()) + ",";
+    }
     // NULLCATX channel stream indicator (device state effects wire) + how
     // many gear ratios the learner currently considers usable.
     s += "\"ncxRx\":"              + jsonBool(m_telemetry && m_telemetry->hasRecentNcx()) + ",";
