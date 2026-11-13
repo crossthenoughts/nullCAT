@@ -141,6 +141,8 @@ button.c.more:hover .dl,button.c.more:hover .chv{color:var(--disp);border-top-co
 .estop-banner b,.link-banner b{font-weight:700}
 .link-banner{animation:logo-pulse 1.6s ease-in-out infinite}
 .estop-banner[hidden],.link-banner[hidden]{display:none}
+.warn-banner{flex:none;padding:.55rem 20px;background:var(--warn);color:#1a1205;font:600 12px/1.5 var(--mono);letter-spacing:.03em;box-shadow:inset 0 1px 0 rgba(255,255,255,.3),inset 0 -1px 0 rgba(0,0,0,.3)}
+.warn-banner b{font-weight:700}
 body.estop-active{box-shadow:inset 0 0 0 4px var(--bad)}
 
 /* ---- workspace: Motion left, Haptics right, always ---- */
@@ -348,6 +350,9 @@ body[data-view="setup"] .ws{display:none}body[data-view="setup"] .su{display:gri
 .sk-h .key.ico{width:26px;font-size:10px}
 .sk-tag{font:600 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--acc)}
 .sk-st.byp .sk-tag{color:var(--warnInk)}
+.sk-st.nr .sk-tag{color:var(--warnInk)}
+.sk-why{display:flex;height:auto;min-height:26px;padding:5px 10px;margin:0 5px 6px;font-size:12px;line-height:1.35}
+.sk-why .lamp{flex:none}
 .sk-m{display:grid;grid-template-columns:12px 7px minmax(0,1fr);gap:6px;height:88px;padding:6px 8px 6px 7px}
 .sk-lv,.sk-gr{position:relative;display:block;height:100%;overflow:hidden}
 .sk-lv{background:repeating-linear-gradient(0deg,rgba(77,255,143,.11) 0 3px,transparent 3px 5px)}

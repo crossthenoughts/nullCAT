@@ -30,7 +30,7 @@ const PORT = 18080;
 writeFileSync(dir + '/host.json', JSON.stringify({
   configVersion: 2, simulationMode: true, webPort: PORT,
   gpioMode: 'off', gpioEnabled: false, logToConsole: true,
-  webShowDevices: true,   // the Haptics strip and Devices section render
+  webShowDevices: true,   // the Devices section renders (the Haptics strip needs no flag)
   // Shakers on the null backend (no card): the haptics idle clock then
   // steps the layer and publishes the mute state without the control
   // loop, so the mute clicks below read back through /api/status.
@@ -256,8 +256,84 @@ try {
     return { downReopen, upReopen: vis('shakerReopen'), tests: vis('shakerTests'),
              line: (document.getElementById('shakerLine') || {}).textContent || '' };
   });
+  // Haptics do not hang on the force devices' tickbox: with it off (and
+  // the strip built again) the Haptics panel stays and only the Devices
+  // section goes. Until 0.9.11 the panel went too, and a Windows page has
+  // no such tickbox: a fresh install there had no Haptics at all.
+  const noFlag = await page.evaluate(() => {
+    const cb = document.getElementById('cf-showdev'), vis = id => { const e = document.getElementById(id); return !!e && !e.hidden; };
+    const set = on => { cb.checked = on; cb.dispatchEvent(new Event('change', { bubbles: true })); };
+    set(false); hapInit();
+    const r = { hap: vis('hapPanel'), tiles: document.querySelectorAll('#hapStrip .hap-tile').length, dev: vis('devBlock') };
+    set(true); hapInit();
+    return r;
+  });
+  // The shaker page says why nothing will play, the first that applies,
+  // judged on what is SAVED (routing and amplitude reach the controller on
+  // Save): no effect routed to a shaker (warn lamp), or routed on the page
+  // but not saved; the routed ones all at amplitude 0, or turned up but not
+  // saved; haptics muted; no game sending (plain); nothing once it will
+  // play, and nothing beside a card that is not open (its own line says).
+  // A strip no saved effect is routed to is tagged. Every shaker route is
+  // taken off for the check and put back (the same arrays).
+  const why = await page.evaluate(() => {
+    const st = (ncxRx, extra) => Object.assign({ ncxRx, shakers: { enabled: true, open: true, channels: 2,
+      devices: [{ name: 'null', open: true, error: '', first: 0, channels: 2, channelsWanted: 2, rate: 48000, latencyMs: 20, bufferMs: 15, underruns: 0, levels: [0, 0] }] } }, extra || {});
+    const read = () => { const w = document.getElementById('shakerWhy');
+      return { shown: !!w && !w.hidden, text: w ? w.textContent : '', warn: !!w && !!w.querySelector('.lamp.warn'),
+               tags: [...document.querySelectorAll('#shakerTests [data-sktag]')].map(t => t.textContent) }; };
+    const hp = cfgObj.haptics, keep = {}, fx = hp.rpmVibe, amp0 = fx.ampPct, base0 = cfgBaseline.haptics, out = {};
+    const save = () => { cfgBaseline.haptics = JSON.stringify(cfgObj.haptics); };   // what a Save leaves as saved
+    for (const k in hp) if (hp[k] && Array.isArray(hp[k].routes)) { keep[k] = hp[k].routes; hp[k].routes = hp[k].routes.filter(r => !(r && r.shaker >= 0)); }
+    save(); shakerStatus(st(false)); out.none = read();
+    fx.routes = fx.routes.concat([{ shaker: 0, gain: 1 }]); fx.ampPct = 30; shakerStatus(st(false)); out.unsaved = read();
+    fx.ampPct = 0; save(); shakerStatus(st(false)); out.off = read();
+    fx.ampPct = 30; shakerStatus(st(false)); out.ampUnsaved = read();
+    save(); shakerStatus(st(false)); out.nogame = read();
+    shakerStatus(st(true, { hapMuted: true })); out.muted = read();
+    shakerStatus(st(true)); out.ok = read();
+    const down = st(false); down.shakers.open = false; down.shakers.devices[0].open = false; down.shakers.devices[0].error = 'card gone';
+    fx.routes = fx.routes.filter(r => !(r && r.shaker >= 0)); save(); shakerStatus(down); out.cardDown = read();
+    for (const k in keep) hp[k].routes = keep[k];
+    fx.ampPct = amp0; cfgBaseline.haptics = base0;
+    return out;
+  });
+  // Two programs sending motion: the banner shows while the status says
+  // so, names them (the server's text as text, never as markup), and goes
+  // when it stops.
+  const mix = await page.evaluate(() => {
+    const b = document.getElementById('motionMixBanner'), was = !!b && b.hidden;
+    applyState(Object.assign({}, lastStatus, { motionMixed: true, motionMixedSenders: '127.0.0.1:5001 and 127.0.0.1:<b>x</b>' }));
+    const r = { was, shown: !!b && !b.hidden, text: b ? b.textContent : '', bold: b ? b.querySelectorAll('b').length : 0 };
+    applyState(Object.assign({}, lastStatus, { motionMixed: false, motionMixedSenders: '' }));
+    r.after = !!b && b.hidden;
+    return r;
+  });
 
   const fails = [];
+  if (!(noFlag.hap && noFlag.tiles > 0)) fails.push('force devices tickbox off: the Haptics panel went with it ' + JSON.stringify(noFlag));
+  if (noFlag.dev)               fails.push('force devices tickbox off: the Devices section is still shown');
+  if (!(why.none.shown && why.none.warn && /No effect is routed to a shaker yet/.test(why.none.text)))
+    fails.push('shaker page, nothing routed: it does not say so ' + JSON.stringify(why.none));
+  if (!(why.none.tags.length === 2 && why.none.tags.every(t => t === 'no effect')))
+    fails.push('shaker page, nothing routed: the strips are not tagged ' + JSON.stringify(why.none.tags));
+  if (!(why.unsaved.shown && why.unsaved.warn && /routed to a shaker on this page but not saved yet/.test(why.unsaved.text) && why.unsaved.tags.every(t => t === 'no effect')))
+    fails.push('shaker page, a route on the page not saved yet: expected the Save note and both strips still tagged (the controller has no route) ' + JSON.stringify(why.unsaved));
+  if (!(why.off.shown && why.off.warn && /amplitude 0/.test(why.off.text) && why.off.tags[0] === '' && why.off.tags[1] === 'no effect'))
+    fails.push('shaker page, an effect saved to shaker 1 at amplitude 0: expected the amplitude note and only shaker 2 tagged ' + JSON.stringify(why.off));
+  if (!(why.ampUnsaved.shown && why.ampUnsaved.warn && /turned up on this page but not saved yet/.test(why.ampUnsaved.text)))
+    fails.push('shaker page, the effect turned up on the page but not saved: expected the Save note ' + JSON.stringify(why.ampUnsaved));
+  if (!(why.nogame.shown && !why.nogame.warn && /No game is sending/.test(why.nogame.text)))
+    fails.push('shaker page, saved, turned up, no game: expected the plain no-game note ' + JSON.stringify(why.nogame));
+  if (!(why.muted.shown && why.muted.warn && /muted/.test(why.muted.text)))
+    fails.push('shaker page, haptics muted: it does not say so ' + JSON.stringify(why.muted));
+  if (why.ok.shown)             fails.push('shaker page, routed, turned up, a game sending: a note is still shown ' + JSON.stringify(why.ok));
+  if (why.cardDown.shown)       fails.push('shaker page, the card not open: a routing note is shown beside the card\'s own error ' + JSON.stringify(why.cardDown));
+  if (!mix.was)                 fails.push('motion senders: the banner shows with nothing reported');
+  if (!(mix.shown && /Two programs are sending motion/.test(mix.text) && mix.text.includes('127.0.0.1:5001')))
+    fails.push('motion senders: two reported, the banner does not say so or name them ' + JSON.stringify(mix));
+  if (mix.bold !== 1)           fails.push(`motion senders: the senders' text reached the page as markup (${mix.bold} bold elements, expected the banner's own 1)`);
+  if (!mix.after)               fails.push('motion senders: the banner stayed after the report ended');
   if (!mute1.tileMuted)         fails.push('tile mute click: the driveline tile did not read back muted after a poll');
   if (mute1.otherMuted)         fails.push('tile mute click: another tile read back muted');
   if (mute1.master !== '')      fails.push(`tile mute click: the master reads "${mute1.master}", expected nothing`);
@@ -293,7 +369,7 @@ try {
   if (!st.bannerHidden)         fails.push('link-lost banner is showing');
   if (st.buttons < 5)           fails.push(`page rendered only ${st.buttons} buttons`);
   if (nEffects < 10)            fails.push(`schema lists ${nEffects} effects`);
-  if (st.hapHidden)             fails.push('haptics strip is hidden (experimental flag + belt axis set)');
+  if (st.hapHidden)             fails.push('haptics strip is hidden (a belt axis and shakers are set)');
   if (st.hapTiles !== nEffects + 1) fails.push(`strip has ${st.hapTiles} tiles, expected ${nEffects} effects + Master`);
   if (st.hapTests !== nEffects) fails.push(`strip has ${st.hapTests} Test buttons, expected ${nEffects}`);
   if (nTokens < 36)             fails.push(`schema lists ${nTokens} channel tokens`);

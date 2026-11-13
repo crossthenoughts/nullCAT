@@ -11,6 +11,24 @@ middle number carries breaking changes and the last carries fixes.
   (protocol 1.12, `velSurge` and `velSway`), for motion software that
   reads the mod's line to play a slide. nullCAT itself does not use them,
   and 0.9.10 ignores them, so the new mod works with it too.
+- **A warning when two programs send motion at once.** The rig follows
+  whichever motion line arrived last, so two motion programs left on
+  together make it jump between them. The page now says so across the
+  top, with the address and port of each, for as long as it lasts, and
+  the log notes it. Nothing is blocked: switch the motion off in one of
+  them.
+- **Setup, Shakers** says why nothing will play: no effect is routed to a
+  shaker yet, the ones that are routed are all at amplitude 0, or no game
+  is sending. A shaker no effect is routed to is marked *no effect*.
+
+### Changed
+- **Haptics need no tickbox.** The Haptics panel is there whenever the rig
+  has something to play effects on (a belt or another torque axis, a
+  position axis with haptics travel, or a shaker). It used to appear only
+  with *Experimental features* ticked, which the page on Windows never
+  offered: a fresh Windows install had no Haptics panel. The tickbox is
+  now *Force devices (experimental)* and shows only the shifter and pedal
+  section, on a Pi as before.
 
 ### Fixed
 - **Belt from the car's g**: when the g comes back after it was away

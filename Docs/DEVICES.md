@@ -29,8 +29,9 @@ that can hurt you.
 
 ## Setup
 
-1. On the web UI, open Configuration, tick **Device controls** (under
-   Advanced), and Save. The Devices section appears. (Pi builds only.)
+1. On the web UI, open Setup, then System, tick **Force devices
+   (experimental)** (under Advanced), and Save. The Force-feel devices
+   page appears in Setup. (Pi builds only.)
 2. Add an axis and set its type to **shifter** or **pedal**. Torque mode
    is selected automatically and a starter feel is filled in. Save and
    restart, then Initialize and Start.
@@ -119,8 +120,9 @@ Haptics are short vibrations and textures that ride on top of the
 normal feel of any axis: the belt tensioners, devices like the shifter,
 and the position axes that move the rig. They are always kept inside
 each axis's own limits. They live on the **Haptics** strip in the
-Operate view, which appears once Experimental features is ticked in the
-host settings.
+Operate view, which is there whenever the rig has something to play
+them on: a belt or another torque axis, a position axis with a haptics
+travel above 0, or a shaker.
 
 ### Setting one up
 

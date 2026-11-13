@@ -157,6 +157,12 @@ function applyState(s){
                     :           'Initialize EtherCAT';
         b.innerHTML = '⚠ <b>E-STOP</b> tripped by the '+h+' '+when+'. Nothing moves until the drives are re-initialized'
           + (s.estopInput ? ': release the e-stop first, then ' : ': ') + '<b>'+steps+'</b>.'; } } }
+  // Two programs sending the motion line at once (the rig follows whichever
+  // line arrived last): said for as long as it lasts, with who they are.
+  { const b=$('motionMixBanner'); if(b){ const m=!!s.motionMixed; b.hidden=!m;
+      if(m){ const who=s.motionMixedSenders?' ('+esc(s.motionMixedSenders)+')':'';
+        const h='⚠ <b>Two programs are sending motion</b>'+who+'. The rig follows whichever line arrived last: switch the motion off in one of them.';
+        if(b._h!==h){ b._h=h; b.innerHTML=h; } } } }
   // Logo keys on the shared-model aggregate: estop > fault > running > offline -> the
   // four stateful images. This makes logo-fault.png actually trigger on a drive fault
   // (the old driveFault check tested d.state, a motion name that never says "fault",
@@ -413,9 +419,9 @@ const LAYOUT_KEY='nullcat.ui.layout';
 let uiLayout={mo:'full',hp:'mix'};
 try{ const l=JSON.parse(localStorage.getItem(LAYOUT_KEY)); if(l&&typeof l==='object') Object.assign(uiLayout,l); }catch(_){}
 function applyLayout(){ const ws=$('ws'); if(!ws) return; ws.dataset.mo=uiLayout.mo; ws.dataset.hp=uiLayout.hp; }
-/* Haptics available or not (hapInit decides: a torque axis or a shaker, and
-   the experimental tickbox). Without it the Haptics panel is hidden and the
-   workspace is Motion alone, full width. */
+/* Haptics available or not (hapInit decides: a torque axis or a shaker).
+   Without it the Haptics panel is hidden and the workspace is Motion alone,
+   full width. */
 function hapAvail(on){ const ws=$('ws'); if(!ws) return; ws.dataset.nohap=on?'0':'1';
   if(!on&&(uiLayout.mo!=='full'||uiLayout.hp!=='mix')){ if(uiLayout.hp==='ed') hapCloseEd(); else setLayout('full','mix'); } }
 function setLayout(mo,hp){
@@ -624,7 +630,9 @@ let cfgGenLoaded=null;
    (shkSchemaLoad) before the script reaches that section. */
 const SHK={ schema:null, shapes:[], n:0, sel:-1, band:1, built:'', previewed:false, bypass:false, editGen:0,
             send:{}, tone:{busy:false,again:false}, toneCh:-1, testKind:[], testT0:[], testHz:[], gr:[], lv:[], grD:[], lvD:[], raf:0, mT:0,
-            copying:false, copy:new Set(), drag:null };
+            copying:false, copy:new Set(), drag:null,
+            routed:null,              // the shaker channels a saved effect is routed to (null: shakers off)
+            savedKey:null, saved:{} };  // the saved haptics settings, parsed (shkSavedHaptics)
 function fieldVal(el){ return el.type==='checkbox'?el.checked:el.value; }
 function snapshotCfg(){
   const f={}; for(const id of CFG_WATCH_IDS){ const el=$(id); if(el) f[id]=fieldVal(el); }
@@ -1599,6 +1607,38 @@ async function shakerDevicesLoad(){
   try{ const r=await fetch(API+'/api/shakers/devices'); if(!r.ok) return; const j=await r.json();
     dl.innerHTML=(j.devices||[]).map(d=>'<option value="'+String(d.name).replace(/"/g,'&quot;')+'">'+(d.default?'(default) ':'')+'</option>').join('')+'<option value="null">no hardware</option>'; }catch(_){}
 }
+// What is routed to the shakers in a set of haptics settings, for the
+// shaker page: the channels (of n) some effect is routed to with a gain
+// above 0, and how many of those routes belong to an effect that is
+// turned up.
+function shkRouting(n,hp){
+  const set=new Set(); let live=0;
+  for(const key in hp){ const fx=hp[key]; if(!fx||!Array.isArray(fx.routes)) continue;
+    for(const r of fx.routes) if(r&&r.shaker>=0&&r.shaker<n&&r.gain>0){ set.add(r.shaker); if(+fx.ampPct>0) live++; } }
+  return { set, live };
+}
+// The haptics settings as saved: what the controller plays (routing and
+// amplitude reach it on Save). Parsed once per baseline.
+function shkSavedHaptics(){
+  const j=cfgBaseline?cfgBaseline.haptics:'{}';
+  if(SHK.savedKey!==j){ SHK.savedKey=j; try{ SHK.saved=JSON.parse(j)||{}; }catch(_){ SHK.saved={}; } }
+  return SHK.saved;
+}
+// Why nothing will play on the shakers, in words (null when something
+// will): the first that applies. saved: the routing the controller has;
+// page: the routing on the page (a change not saved yet says Save). warn:
+// a setting to change; plain: only a game missing.
+function shkWhy(saved,page,s){
+  if(!saved.set.size) return { warn:true, text:page.set.size
+    ? 'An effect is routed to a shaker on this page but not saved yet: Save, and it reaches the shaker.'
+    : 'No effect is routed to a shaker yet: on the Operate view, open an effect in Haptics, turn it up, give a shaker a gain above 0 in its routing, then Save.' };
+  if(!saved.live) return { warn:true, text:page.live
+    ? 'An effect routed to a shaker is turned up on this page but not saved yet: Save, and it plays.'
+    : 'Every effect routed to a shaker is at amplitude 0: turn one up in Haptics.' };
+  if(s.hapMuted) return { warn:true, text:'Haptics are muted: press Unmute in Haptics on the Operate view.' };
+  if(!s.ncxRx) return { warn:false, text:'No game is sending yet: the effects play once the sim and its sender run. The test keys work now.' };
+  return null;
+}
 // The sound cards' status, one line per card in the glass (its lamp, name,
 // the shakers it carries, rate, latency, the card's own buffer, underruns;
 // a card not open: its error), Reopen beside it while a card is not open;
@@ -1610,6 +1650,7 @@ function shakerStatus(s){
   if(!k.enabled){
     put('<div class="sk-dv"><span class="lamp"></span><span class="vt dim">shakers off</span></div>');
     if(ro) ro.hidden=true;
+    SHK.routed=null; { const w=$('shakerWhy'); if(w) w.hidden=true; }
     for(let c=0;c<8;c++){ SHK.lv[c]=0; SHK.gr[c]=0; SHK.testHz[c]=0; }
     shkStripsBuild(0); return;
   }
@@ -1640,6 +1681,15 @@ function shakerStatus(s){
     (d.testHz||[]).forEach((v,i)=>{ if(f+i<8) SHK.testHz[f+i]=+v||0; });
   }
   shkStripsBuild(k.channels||0);
+  // Why nothing will play, above the strips, and which strips no saved
+  // effect is routed to (their tag, shkStripsSync). With a card not open
+  // the card's own line says why, and nothing is added here.
+  { const n=Math.max(0,Math.min(8,k.channels|0)), saved=shkRouting(n,shkSavedHaptics()), page=shkRouting(n,(cfgObj&&cfgObj.haptics)||{});
+    const y=(n>0&&k.open)?shkWhy(saved,page,s):null, w=$('shakerWhy');
+    SHK.routed=n>0?saved.set:null;
+    if(w){ w.hidden=!y;
+      if(y){ const key=(y.warn?'w':'p')+y.text; if(w._k!==key){ w._k=key;
+        w.querySelector('.lamp').className='lamp'+(y.warn?' warn':''); w.querySelector('[data-t]').textContent=y.text; } } } }
   // The strips stay (their shaping can be edited with no card open); the
   // test keys need a card.
   document.querySelectorAll('#shakerTests [data-shtest]').forEach(b=>{ b.disabled=!k.open; });
@@ -1799,8 +1849,10 @@ function shkStripsSync(){
     const c=+st.dataset.skst, s=SHK.shapes[c], sel=open&&c===SHK.sel, tgt=cm&&SHK.copy.has(c);
     st.classList.toggle('sel',sel); st.classList.toggle('byp',sel&&SHK.bypass);
     st.classList.toggle('src',cm&&sel); st.classList.toggle('tgt',tgt);
-    st.title=cm?(sel?'Copying from this shaker':'Shaker '+(c+1)+': click to copy to it (again: not)'):'Shaker '+(c+1)+': click to tune its EQ and compressor';
-    const tag=st.querySelector('[data-sktag]'); if(tag) tag.textContent=cm?(sel?'from':tgt?'copy':''):(sel&&SHK.bypass?'bypass':shkTestPlaying(c)?'test':'');
+    const nr=!cm&&!(sel&&SHK.bypass)&&!shkTestPlaying(c)&&!!SHK.routed&&!SHK.routed.has(c);
+    st.title=cm?(sel?'Copying from this shaker':'Shaker '+(c+1)+': click to copy to it (again: not)'):'Shaker '+(c+1)+(nr?': no effect is routed to it (route one from its tile in Haptics). Click':': click')+' to tune its EQ and compressor';
+    st.classList.toggle('nr',nr);
+    const tag=st.querySelector('[data-sktag]'); if(tag) tag.textContent=cm?(sel?'from':tgt?'copy':''):(sel&&SHK.bypass?'bypass':shkTestPlaying(c)?'test':nr?'no effect':'');
     const eq=st.querySelector('[data-sheq]'), cp=st.querySelector('[data-shcmp]');
     if(eq){ eq.classList.toggle('on',!!(s&&s.eq.on)); eq.disabled=!s; }
     if(cp){ cp.classList.toggle('on',!!(s&&s.comp.on)); cp.disabled=!s; }
@@ -2773,10 +2825,10 @@ function hapLive(s){
 function hapInit(){
   const panel=$('hapPanel'), strip=$('hapStrip');
   if(!panel||!strip||!cfgObj) return;
-  // Experimental gate (the same tickbox as the device section) + needs a
-  // torque-capable axis to route anything to.
-  const cb=$('cf-showdev');
-  if(!(cb&&cb.checked)||(!hapRouteAxes().length&&!hapShakerCount())){ panel.hidden=true; hapAvail(false); return; }
+  // Shown whenever there is something to route to: a torque-capable axis
+  // or a shaker. (It hung on the force devices' tickbox until 0.9.11,
+  // which a Windows page never shows: a fresh install had no Haptics.)
+  if(!hapRouteAxes().length&&!hapShakerCount()){ panel.hidden=true; hapAvail(false); return; }
   panel.hidden=false; hapAvail(true);
   cfgObj.haptics=cfgObj.haptics||{};
   // Fill defaults IN PLACE: the route drawer and the tiles hold references
@@ -3390,8 +3442,9 @@ function hapMtrTick(now){
 }
 
 function devInit(){
-  const row=$('devShowRow'); if(row) row.hidden=(meta.platform!=='linux');
-  const cb=$('cf-showdev'); if(cb&&!cb._wired){ cb._wired=true; cb.addEventListener('change',()=>{ devRender(); hapInit(); }); }
+  const row=$('devShowRow'), tip=$('devShowTip'); if(row) row.hidden=(meta.platform!=='linux');
+  if(tip) tip.hidden=!row||row.hidden;   // the row's note goes with it
+  const cb=$('cf-showdev'); if(cb&&!cb._wired){ cb._wired=true; cb.addEventListener('change',devRender); }
   devRender();
   devLoadPresets();
 }
