@@ -320,6 +320,11 @@ private slots:
         d.reductionRatio = "1.5:1";
         Config::recomputeDerivedFields(d);
         QVERIFY(qAbs(d.countsPerMm - 131072.0 * 1.5 / 360.0) < 0.01);
+
+        // 1.25:1, on the page's Reduction list (web/app.js AXIS_SPEC).
+        d.reductionRatio = "1.25:1";
+        Config::recomputeDerivedFields(d);
+        QVERIFY(qAbs(d.countsPerMm - 131072.0 * 1.25 / 360.0) < 0.01);
     }
 
     void o3c_device_object_roundtrip()

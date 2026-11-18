@@ -996,7 +996,7 @@ const AXIS_SPEC=[
   // part of the SAFETY picture there (strap-side note + validation cap use it).
   // Rotary rigs use gearboxes: extended ratio list (a value already in the
   // file that is not listed is injected into the dropdown, never clobbered).
-  {k:'reductionRatio',label:'Reduction',type:'select',opts:['1:1','1.5:1','2:1','3:1','4:1'],
+  {k:'reductionRatio',label:'Reduction',type:'select',opts:['1:1','1.25:1','1.5:1','2:1','3:1','4:1'],
      rot:{label:'Gear ratio',opts:['1:1','3:1','5:1','10:1','15:1','20:1','30:1','40:1','50:1','80:1','100:1']}},
   {k:'homeDirection',label:'Home stop (neg=retracted)',type:'select',opts:['negative','positive'],pos:true},
   {k:'parkMode',label:'Park position',type:'select',opts:['center','endstop'],pos:true},

@@ -20,6 +20,7 @@ middle number carries breaking changes and the last carries fixes.
 - **Setup, Shakers** says why nothing will play: no effect is routed to a
   shaker yet, the ones that are routed are all at amplitude 0, or no game
   is sending. A shaker no effect is routed to is marked *no effect*.
+- **Setup, Axes**: *Reduction* offers 1.25:1 for linear and belt axes.
 
 ### Changed
 - **Haptics need no tickbox.** The Haptics panel is there whenever the rig
