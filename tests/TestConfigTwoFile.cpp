@@ -557,6 +557,41 @@ private slots:
 
     // The sticky per-sim effect record: channel-spec matching, delivered /
     // produced per game, transient attribution, persistence beside rig.json.
+    // A host.json that already has "no hardware" on card 2 (written before
+    // it was refused there) must stay usable: it loads with a warning that
+    // names it, the config validates (Initialize, profiles), a rig save is
+    // not refused over it, and only a host save that still carries it is.
+    // Breaks with the rule back in AppConfig::validate(): every rig save,
+    // profile and Initialize was refused, and the page (which posts the rig
+    // first) had no way to clear it.
+    void noHardwareOnCard2_onDiskLocksNothingOut()
+    {
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        Config seed; QVERIFY(seed.load(anchor(dir).toStdString()));   // cold start: a valid pair
+        QJsonObject host = readObj(dir.path() + "/host.json");
+        host["shakersEnabled"] = true;
+        QJsonArray devs;
+        { QJsonObject d; d["device"] = ""; d["channels"] = 2; devs.append(d); }
+        { QJsonObject d; d["device"] = "null"; d["channels"] = 1; devs.append(d); }
+        host["audioDevices"] = devs;
+        writeText(dir.path() + "/host.json", QJsonDocument(host).toJson());
+
+        Config cfg;
+        QVERIFY2(cfg.load(anchor(dir).toStdString()), "the file loads");
+        bool warned = false;
+        for (const std::string& w : cfg.loadWarnings()) warned = warned || (w.find("host.json: audioDevices[1].device") == 0);
+        QVERIFY2(warned, "...with a warning that names the card");
+        QVERIFY2(cfg.get().validate().empty(), "...and the config validates (Initialize and profiles are not refused)");
+        const std::string rigText = QJsonDocument(readObj(dir.path() + "/rig.json")).toJson().toStdString();
+        QVERIFY2(Config::validateRigBody(anchor(dir).toStdString(), rigText).empty(), "a rig save is not refused over it");
+        const std::vector<std::string> he = Config::validateHostBody(anchor(dir).toStdString(), QJsonDocument(host).toJson().toStdString());
+        QVERIFY2(he.size() == 1 && he[0].find("audioDevices[1].device") != std::string::npos,
+                 "a host save that still carries it is refused, for that alone");
+        devs.removeLast(); host["audioDevices"] = devs;
+        QVERIFY2(Config::validateHostBody(anchor(dir).toStdString(), QJsonDocument(host).toJson().toStdString()).empty(),
+                 "...and the same save with card 2 taken out goes through");
+    }
+
     void effectStatus_recordsAndPersists()
     {
         using haptics::Effect; using haptics::effectInfo;
@@ -579,6 +614,22 @@ private slots:
         QVERIFY2(EffectStatus::channelsDelivered(effectInfo(Effect::DetentClick), have), "no channels needed = delivered");
         have[NcxTok::Rpm] = true;
         QVERIFY2(EffectStatus::channelsDelivered(effectInfo(Effect::Engine), have), "engine needs rpm only (throttle, limiter optional in the law)");
+        // ABS: the brake, and the sim's flag or the wheel speeds ("from
+        // wheels", on by default): a game with no ABS flag (rFactor 2) still
+        // feeds it. Breaks with the flag alone required.
+        have[NcxTok::BrakePct] = true;
+        QVERIFY2(!EffectStatus::channelsDelivered(effectInfo(Effect::Abs), have), "ABS: the brake alone is not enough");
+        for (int w = 0; w < 4; ++w) have[NcxTok::WheelSpeedFL + w] = true;
+        QVERIFY2(EffectStatus::channelsDelivered(effectInfo(Effect::Abs), have), "ABS: the brake and four wheel speeds, no flag: delivered");
+        have[NcxTok::WheelSpeedRR] = false;
+        QVERIFY2(!EffectStatus::channelsDelivered(effectInfo(Effect::Abs), have), "ABS: three wheel speeds are not the group");
+        for (int w = 0; w < 4; ++w) have[NcxTok::SlipRatioFL + w] = true;
+        QVERIFY2(EffectStatus::channelsDelivered(effectInfo(Effect::Abs), have), "ABS: the brake and four slip ratios, no flag: delivered");
+        for (int w = 0; w < 4; ++w) have[NcxTok::SlipRatioFL + w] = false;
+        have[NcxTok::AbsActive] = true;
+        QVERIFY2(EffectStatus::channelsDelivered(effectInfo(Effect::Abs), have), "ABS: the brake and the sim's flag: delivered");
+        have[NcxTok::BrakePct] = false; have[NcxTok::AbsActive] = false;
+        for (int w = 0; w < 4; ++w) have[NcxTok::WheelSpeedFL + w] = false;
 
         EffectStatus es;
         const int64_t t0 = 1700000000000LL;

@@ -140,9 +140,10 @@ std::vector<ShakerDeviceInfo> ShakerOutput::listDevices() const
     std::lock_guard<std::mutex> lk(m_mx);
     ma_device_info* playback = nullptr; ma_uint32 count = 0;
     if (ma_context_get_devices(&m_impl->context, &playback, &count, nullptr, nullptr) != MA_SUCCESS) return out;
+    const bool alsa = (m_impl->context.backend == ma_backend_alsa);
     for (ma_uint32 i = 0; i < count; ++i)
-        out.push_back({ playback[i].name, playback[i].isDefault != 0 });
-    return out;
+        out.push_back({ playback[i].name, playback[i].isDefault != 0, alsa ? std::string(playback[i].id.alsa) : std::string() });
+    return pickerList(out);
 }
 
 void ShakerOutput::dataCallback(void* device, void* out, const void* /*in*/, unsigned frames)
@@ -382,15 +383,21 @@ bool ShakerOutput::open(const std::string& deviceName, int channels, double cont
     }
     m_bufferMs = 1000.0 * static_cast<double>(bufferFrames) / std::max(1, m_sampleRate);
     m_deviceName = m_impl->device.playback.name;
+    // ALSA's default route (no card named, or only its default entries
+    // matched) is not the card itself: the status says so.
+    const bool defaultRoute = isDefaultRoute(alsa, wantNull, (alsa && haveId) ? std::string(chosen.alsa) : std::string());
+    m_systemDefault.store(defaultRoute, std::memory_order_relaxed);
     // On ALSA, how the card is held (direct = every channel, low latency),
     // and the card at full line level.
     if (alsa && cfg.playback.pDeviceID)
     {
-        m_deviceName += (cfg.playback.shareMode == ma_share_mode_exclusive) ? " [direct]" : " [shared]";
+        m_deviceName += defaultRoute ? " [system default]"
+                      : (cfg.playback.shareMode == ma_share_mode_exclusive) ? " [direct]" : " [shared]";
 #if defined(__linux__)
         fullLineLevel(cfg.playback.pDeviceID->alsa);
 #endif
     }
+    else if (defaultRoute) m_deviceName += " [system default]";
     // On Windows the same, and the card held at full volume (checkHealth
     // puts it back if anything turns it down); what it was is in the name,
     // so the start-up log says.
@@ -430,6 +437,7 @@ void ShakerOutput::close()
 void ShakerOutput::closeLocked()
 {
     m_open.store(false, std::memory_order_seq_cst);   // the RT side's pushes skip the rings from here...
+    m_systemDefault.store(false, std::memory_order_relaxed);
     // ...and one already past the gate finishes before anything below (or
     // open() after it) touches the device or the DSP: a push's length,
     // microseconds. The RT side never waits for this.

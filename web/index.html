@@ -202,7 +202,7 @@
               <div class="gt">Sound cards <span class="c sk-gth" id="shkCardsHint"></span></div>
               <div class="sk-cr">
                 <span class="lab">Card 1</span>
-                <input class="inp" id="cf-audiodev" type="text" list="audioDevList" placeholder="(default)" title="The sound card the shakers are on: part of its name (case does not matter), empty for the system default, or null for no hardware (a bench with no card).">
+                <input class="inp" id="cf-audiodev" type="text" list="audioDevList" autocomplete="off" placeholder="(default)" title="The sound card the shakers are on: part of its name (case does not matter), empty for the system default, or null for no hardware (a bench with no card).">
                 <datalist id="audioDevList"></datalist>
                 <span class="row"><button class="key sm nolamp" type="button" data-shq="" title="The system's default playback device">(default)</button><button class="key sm nolamp" type="button" data-shq="null" title="No card: the shakers run with nothing attached (a bench)">no hardware</button></span>
                 <span class="ni" title="How many of the card's outputs are shakers (1 to 8). A stereo USB dongle is 2; an 8-channel box is 8."><input class="inp" id="cf-audioch" type="number" min="1" max="8" step="1"><span class="u">ch</span></span>
@@ -210,7 +210,8 @@
               </div>
               <div class="sk-cr">
                 <span class="lab">Card 2</span>
-                <input class="inp" id="cf-audiodev2" type="text" list="audioDevList" placeholder="(none)" title="A second card, for example a second stereo dongle: its channels follow the first card's in the shaker numbering. Empty = none.">
+                <input class="inp" id="cf-audiodev2" type="text" list="audioDevList2" autocomplete="off" placeholder="(none)" title="A second card, for example a second stereo dongle: its channels follow the first card's in the shaker numbering. Empty = none.">
+                <datalist id="audioDevList2"></datalist>
                 <span class="row"></span>
                 <span class="ni" title="How many of the second card's outputs are shakers (1 to 8)."><input class="inp" id="cf-audioch2" type="number" min="1" max="8" step="1"><span class="u">ch</span></span>
                 <span class="sk-map" id="shkMap1"></span>

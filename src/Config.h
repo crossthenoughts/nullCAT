@@ -479,6 +479,30 @@ struct AppConfig
         if (!audioDevices.empty()) return audioDevices;
         return { AudioDevice{ audioDevice, audioChannels } };
     }
+    // "null" (no hardware) is the first card's bench setting. On a later
+    // card it takes shaker numbers and plays nothing (a user's Card 2 set
+    // to it left shaker 3 silent): the index of the first such card, -1 for
+    // none. The pretend card "null:N" stays, for a bench with two.
+    static int noHardwarePastFirst(const std::vector<AudioDevice>& devs)
+    {
+        for (size_t i = 1; i < devs.size(); ++i) if (devs[i].device == "null") return static_cast<int>(i);
+        return -1;
+    }
+    // The host form's own rules, in words: they refuse a save of the host
+    // settings (the web page's, the settings window's) and are warned of
+    // at load. NOT part of validate(): that gates rig saves, profiles and
+    // Initialize, which a file that already breaks one of these must not
+    // lose.
+    std::vector<std::string> hostFormErrors() const
+    {
+        std::vector<std::string> errors;
+        const int i = noHardwarePastFirst(audioDevices);
+        if (i > 0)
+            errors.push_back("audioDevices[" + std::to_string(i) + "].device: card " + std::to_string(i + 1)
+                             + " is set to no hardware (null), which takes shaker numbers and plays nothing: take it out if there is no card "
+                             + std::to_string(i + 1));
+        return errors;
+    }
     int shakerChannelTotal() const
     {
         int t = 0; for (const AudioDevice& d : shakerDevices()) t += std::max(1, std::min(8, d.channels));

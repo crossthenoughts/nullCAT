@@ -618,6 +618,7 @@ std::string WebServer::buildStatusJson() const
                     s += "\"latencyMs\":" + jsonDouble(i.latencyMs, 1) + ",";
                     s += "\"underruns\":" + std::to_string(i.underruns) + ",";
                     s += "\"volumeResets\":" + std::to_string(i.volumeResets) + ",";
+                    s += "\"systemDefault\":" + jsonBool(i.systemDefault) + ",";
                     s += "\"fill\":" + jsonInt(i.fill) + ",";
                     s += "\"levels\":[";
                     for (size_t c = 0; c < i.levels.size(); ++c)

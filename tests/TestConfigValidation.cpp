@@ -265,6 +265,35 @@ private slots:
         QVERIFY2(found, "belt axes keep the belt guard ranges unchanged");
     }
 
+    // "no hardware" (null) is the first sound card's bench setting: on a
+    // later card it takes shaker numbers and plays nothing (a user's Card 2
+    // set to it left shaker 3 silent), so the host form refuses it there
+    // (not validate(): that gates far more). In the file an empty name is
+    // the system default; the pretend card "null:N" stays for a bench with two.
+    void shakerCards_noHardwareOnlyOnTheFirst()
+    {
+        const auto names = [](const AppConfig& c, const char* key)
+        { for (const auto& e : c.validate()) if (e.find(key) != std::string::npos) return true; return false; };
+        AppConfig cfg = validConfig();
+        cfg.shakersEnabled = true;
+        cfg.audioDevices = { { "null", 2 } };
+        QVERIFY2(cfg.validate().empty(), "no hardware on card 1 is valid");
+        cfg.audioDevices = { { "USB Audio", 2 }, { "", 2 } };
+        QVERIFY2(cfg.validate().empty(), "an empty card 2 is valid");
+        cfg.audioDevices = { { "null:2", 2 }, { "null:4", 4 } };
+        QVERIFY2(cfg.validate().empty(), "two pretend cards are valid");
+        QVERIFY2(cfg.hostFormErrors().empty(), "...and the host form has nothing against them");
+        cfg.audioDevices = { { "USB Audio", 2 }, { "null", 1 } };
+        const std::vector<std::string> form = cfg.hostFormErrors();
+        QVERIFY2(form.size() == 1 && form[0].find("audioDevices[1].device") != std::string::npos && form[0].find("card 2") != std::string::npos,
+                 "no hardware on card 2: the host form refuses it, by name and in words");
+        // ...but validate() does not: it gates rig saves, profiles and
+        // Initialize, and a file that already has this must not lose them.
+        QVERIFY2(!names(cfg, "audioDevices"), "no hardware on card 2 is no validate() error (nothing else is refused over it)");
+        QCOMPARE(AppConfig::noHardwarePastFirst({ { "null", 2 }, { "x", 2 }, { "null", 1 } }), 2);
+        QCOMPARE(AppConfig::noHardwarePastFirst({ { "null", 2 } }), -1);
+    }
+
     // The belt cue from the car's g: its source and mode are one of the
     // named choices, g at max sits above g from, the curve and smoothing in
     // range; a belt from g with the defaults is valid.

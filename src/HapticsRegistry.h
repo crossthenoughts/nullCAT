@@ -297,7 +297,10 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "ignition-cut TC). Needs rpm (throttle, limiter and boost optional).",
       nullptr, {} },
     { Effect::Abs,         "abs",         "ABS",          Kind::Abs, EventType::COUNT, FxType::AbsPulse,
-      { "brakePct", "absActive", "~speedKmh", nullptr }, { 0.0, 12.0, 0.0, 0.0 }, kAbsParams, static_cast<int>(std::size(kAbsParams)),
+      // The sim's flag or, with "from wheels" on (the default), the tyres'
+      // slip ratio or the wheel speeds: a game with no ABS flag (rFactor 2)
+      // still feeds it.
+      { "brakePct", "absActive|slipRatio*|wheelSpeed*", "~speedKmh", nullptr }, { 0.0, 12.0, 0.0, 0.0 }, kAbsParams, static_cast<int>(std::size(kAbsParams)),
       "ABS working under braking: at each corner the valve dumps the brake pressure and rebuilds it, about freq hz "
       "times a second, so the car's deceleration judders. sharp is the dump's edge (0 round, 1 a hard knock); "
       "spread lets each corner run on its own rate and each cycle differ, so the four drift in and out of step and "
@@ -310,7 +313,7 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "those dumps; for sims that report ABS only now and then. Route with a part so a post carries its own corner. Slip link on: while ABS works each corner's "
       "valve shapes that wheel's slip tiles, the lock texture held at the edge of locking and surging with each "
       "cycle (lock x), the lateral slip easing after each dump (scrub x); amp 0 is no ABS at all, the slip link included. "
-      "Needs the absActive and brakePct channels (speed for slow x).",
+      "Needs brakePct, and absActive or, with from wheels on, the tyres' slip ratio or the wheel speeds (speed for slow x).",
       nullptr, {} },
     { Effect::Lockup,      "slipLon",     "Longitudinal slip", Kind::Slip, EventType::COUNT, FxType::Lockup,
       { "slipRatio*|wheelSpeed*|lockup", "speedKmh", "~load*", nullptr }, { 0.0, 9.0, 0.0, 0.2 }, kSlipLonParams, static_cast<int>(std::size(kSlipLonParams)),

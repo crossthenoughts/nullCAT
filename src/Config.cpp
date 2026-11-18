@@ -1072,6 +1072,8 @@ void Config::clampForRun()
     clampHaptics(m_config, m_loadWarnings);
     for (const std::string& e : m_config.validate())
         m_loadWarnings.push_back(std::string(fileForError(e)) + ": " + e);
+    for (const std::string& e : m_config.hostFormErrors())
+        m_loadWarnings.push_back("host.json: " + e);
 }
 
 bool Config::load(const std::string& anchorPath, bool forRun)
@@ -1290,7 +1292,12 @@ std::vector<std::string> Config::validateHostBody(const std::string& anchorPath,
         return { std::string("Invalid host JSON: ") + pe.errorString().toStdString() };
 
     readHostConfig(doc.object(), c);
-    return c.validate();
+    // The host form's own rules on top: they refuse this save and nothing
+    // else (never a rig save, a profile or Initialize: validate() gates
+    // those, and a file that already breaks one must stay usable).
+    std::vector<std::string> errors = c.validate();
+    for (const std::string& e : c.hostFormErrors()) errors.push_back(e);
+    return errors;
 }
 
 bool Config::isBindableCommand(const std::string& cmd)

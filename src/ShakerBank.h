@@ -140,6 +140,7 @@ public:
         double bufferMs = 0.0, latencyMs = 0.0;   // the card's buffer; the whole delay to the output
         uint64_t underruns = 0;
         uint32_t volumeResets = 0;   // Windows: the card turned down while open and put back to full
+        bool   systemDefault = false; // ALSA: open on the default route, not the card itself (shared, stereo, a long buffer)
         int    fill = 0;
         std::vector<float> levels;
         std::vector<float> gr;       // the compressor's gain reduction per channel, dB
@@ -160,6 +161,7 @@ public:
                 i.name = s.out->deviceName(); i.error = s.out->error();
                 i.sampleRate = s.out->sampleRate(); i.bufferMs = s.out->bufferMs(); i.latencyMs = s.out->latencyMs();
                 i.underruns = s.out->underruns(); i.fill = s.out->fill(); i.volumeResets = s.out->volumeResets();
+                i.systemDefault = i.open && s.out->systemDefault();
                 for (int c = 0; c < s.want; ++c)
                 {
                     const bool live = i.open && c < i.channels;

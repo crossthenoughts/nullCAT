@@ -298,6 +298,63 @@ try {
     fx.ampPct = amp0; cfgBaseline.haptics = base0;
     return out;
   });
+  // The sound card fields: the browser's own typed history is off on both
+  // (it showed up as if it were a sound card), "no hardware" is offered for
+  // card 1 alone (on card 2 it took shaker numbers and played nothing), and
+  // a card open on the system default (a Pi's shared stereo route) is said
+  // on its line with a warn lamp.
+  const cards = await page.evaluate(() => {
+    const a = document.getElementById('cf-audiodev'), b = document.getElementById('cf-audiodev2');
+    const opts = id => [...document.querySelectorAll('#' + id + ' option')].map(o => o.value);
+    shakerStatus({ ncxRx: true, shakers: { enabled: true, open: true, channels: 2,
+      devices: [{ name: 'Default Audio Device [system default]', open: true, error: '', first: 0, channels: 2, channelsWanted: 2, rate: 48000, latencyMs: 118, bufferMs: 64, underruns: 0, systemDefault: true, levels: [0, 0] }] } });
+    const line = (document.getElementById('shakerLine') || {}).textContent || '', warn = !!document.querySelector('#shakerLine .sk-dv .lamp.warn');
+    shakerStatus({ ncxRx: true, shakers: { enabled: true, open: true, channels: 2,
+      devices: [{ name: 'USB Audio [direct]', open: true, error: '', first: 0, channels: 2, channelsWanted: 2, rate: 48000, latencyMs: 20, bufferMs: 15, underruns: 0, systemDefault: false, levels: [0, 0] }] } });
+    const plain = (document.getElementById('shakerLine') || {}).textContent || '', plainWarn = !!document.querySelector('#shakerLine .sk-dv .lamp.warn');
+    // Clearing Card 2 is no second card (kept with an empty name it was
+    // the system default opened a second time, taking shaker numbers), and
+    // "no hardware" there (a file from before) says what it does.
+    const v1 = a.value, v2 = b.value;
+    a.value = 'USB Audio'; b.value = ''; const one = shakerDeviceList().length;
+    b.value = 'Second card'; const two = shakerDeviceList().length;
+    b.value = 'null'; shkMapSync();
+    const m1 = document.getElementById('shkMap1'), nullNote = m1 ? m1.textContent : '', nullWarn = !!m1 && m1.classList.contains('warn');
+    a.value = v1; b.value = v2; shkMapSync();
+    return { ac1: a.getAttribute('autocomplete'), ac2: b.getAttribute('autocomplete'), list1: a.getAttribute('list'), list2: b.getAttribute('list'),
+             o1: opts('audioDevList'), o2: opts('audioDevList2'), line, warn, plain, plainWarn, one, two, nullNote, nullWarn };
+  });
+  // A second card with no name already in the file (this page wrote one,
+  // before 0.9.11, whenever Card 2 was cleared): it reads as a change to
+  // save, Card 2's row says so, and the list posted has one card. Not on a
+  // host the desktop app owns, nor for a named second card.
+  const stale = await page.evaluate(() => {
+    const owner = meta.hostOwner, was = !!cfgBaseline.staleCard2;
+    const a = [{ device: 'USB Audio', channels: 6 }, { device: '', channels: 2 }];
+    const found = shkStaleCard2(a), named = shkStaleCard2([a[0], { device: 'Other', channels: 2 }]), single = shkStaleCard2([a[0]]);
+    meta.hostOwner = 'native'; const native = shkStaleCard2(a); meta.hostOwner = owner;
+    const clean = dirtyState().host;
+    cfgBaseline.staleCard2 = true; shkMapSync();
+    const m1 = document.getElementById('shkMap1');
+    const r = { found, named, single, native, clean, dirty: dirtyState().host, note: m1 ? m1.textContent : '', warn: !!m1 && m1.classList.contains('warn'), posts: shakerDeviceList().length };
+    cfgBaseline.staleCard2 = was; shkMapSync();
+    r.after = dirtyState().host;
+    return r;
+  });
+  // The ABS tile's own line says "waiting for the sim's flag" only in a
+  // game that sends one: with none the wheels are trusted from the start
+  // (it read "waiting" for ever in rFactor 2).
+  const absWait = await page.evaluate(() => {
+    const t = hapTiles.abs, amp0 = t.dv.ampPct, fw0 = t.dv.fromWheels;
+    t.dv.ampPct = 40; t.dv.fromWheels = 1;
+    const have = NCX_TOKENS.map(() => false), abs = { seen: false, flag: false, wheels: false, hz: 0 };
+    const line = () => (t.tile.querySelector('[data-abssrc]') || {}).textContent || '';
+    hapLive(Object.assign({}, lastStatus, { ncxHave: have, hapAbs: abs })); const noFlag = line();
+    have[NCX_TOKENS.indexOf('absActive')] = true;
+    hapLive(Object.assign({}, lastStatus, { ncxHave: have, hapAbs: abs })); const withFlag = line();
+    t.dv.ampPct = amp0; t.dv.fromWheels = fw0;
+    return { noFlag, withFlag };
+  });
   // Two programs sending motion: the banner shows while the status says
   // so, names them (the server's text as text, never as markup), and goes
   // when it stops.
@@ -329,6 +386,23 @@ try {
     fails.push('shaker page, haptics muted: it does not say so ' + JSON.stringify(why.muted));
   if (why.ok.shown)             fails.push('shaker page, routed, turned up, a game sending: a note is still shown ' + JSON.stringify(why.ok));
   if (why.cardDown.shown)       fails.push('shaker page, the card not open: a routing note is shown beside the card\'s own error ' + JSON.stringify(why.cardDown));
+  if (!(cards.ac1 === 'off' && cards.ac2 === 'off')) fails.push('sound card fields: the browser\'s typed history is not switched off on both ' + JSON.stringify([cards.ac1, cards.ac2]));
+  if (!(cards.list1 === 'audioDevList' && cards.list2 === 'audioDevList2')) fails.push('sound card fields: card 2 does not have a list of its own ' + JSON.stringify([cards.list1, cards.list2]));
+  if (!(cards.o1.includes('null') && !cards.o2.includes('null') && cards.o2.length === cards.o1.length - 1))
+    fails.push('sound card lists: expected "no hardware" on card 1 only, the cards the same on both ' + JSON.stringify({ o1: cards.o1, o2: cards.o2 }));
+  if (!(cards.one === 1 && cards.two === 2)) fails.push(`sound card fields: an empty Card 2 gives ${cards.one} device(s) and a named one ${cards.two}, expected 1 and 2`);
+  if (!(cards.nullWarn && /no hardware: takes shaker numbers and plays nothing/.test(cards.nullNote)))
+    fails.push(`sound card fields: Card 2 set to no hardware reads "${cards.nullNote}", expected the note in the warn colour`);
+  if (!(cards.warn && /the system default, not the card itself/.test(cards.line)))
+    fails.push(`shaker line reads "${cards.line}" for a card open on the system default, expected the note and a warn lamp`);
+  if (cards.plainWarn || /system default/.test(cards.plain))
+    fails.push(`shaker line reads "${cards.plain}" for a card open directly, expected no system default note`);
+  if (!(stale.found && !stale.named && !stale.single && !stale.native))
+    fails.push('sound cards, a second card with no name in the file: not found, or found where it is not ' + JSON.stringify(stale));
+  if (!(!stale.clean && stale.dirty && stale.warn && /second card with no name/.test(stale.note) && stale.posts === 1 && !stale.after))
+    fails.push('sound cards, a second card with no name in the file: expected a change to save, the note on Card 2 and one card posted ' + JSON.stringify(stale));
+  if (!(/idle/.test(absWait.noFlag) && !/waiting/.test(absWait.noFlag) && /waiting for the sim/.test(absWait.withFlag)))
+    fails.push('ABS tile line: expected "waiting for the sim\'s flag" only when the game sends the flag ' + JSON.stringify(absWait));
   if (!mix.was)                 fails.push('motion senders: the banner shows with nothing reported');
   if (!(mix.shown && /Two programs are sending motion/.test(mix.text) && mix.text.includes('127.0.0.1:5001')))
     fails.push('motion senders: two reported, the banner does not say so or name them ' + JSON.stringify(mix));

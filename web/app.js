@@ -654,6 +654,9 @@ function dirtyState(){
   if(JSON.stringify((cfgObj&&cfgObj.haptics)||{})!==cfgBaseline.haptics){ out.count++; out.haptics=true; }
   if(JSON.stringify((cfgObj&&cfgObj.ncxBindings)||[])!==cfgBaseline.ncx) out.count++;
   if(JSON.stringify((cfgObj&&cfgObj.shakerShaping)||[])!==cfgBaseline.shk){ out.count++; out.shk=true; }
+  // The file's unnamed second card (see loadConfig): a Save takes it out.
+  // (Card 2 named instead is a changed field, counted above.)
+  if(cfgBaseline.staleCard2&&!out.ids.has('cf-audiodev2')){ out.count++; out.host=true; }
   const drv=(cfgObj&&cfgObj.drives)||[];
   for(let i=0;i<Math.max(drv.length,cfgBaseline.drives.length);i++){
     const base=cfgBaseline.drives[i]?JSON.parse(cfgBaseline.drives[i]):null;
@@ -837,7 +840,6 @@ async function loadConfig(){
     const ad=Array.isArray(host.audioDevices)&&host.audioDevices.length?host.audioDevices:[{device:host.audioDevice||'',channels:host.audioChannels||2}];
     setField('cf-audiodev',ad[0].device||''); setField('cf-audioch',ad[0].channels||2);
     setField('cf-audiodev2',ad[1]?(ad[1].device||''):''); setField('cf-audioch2',ad[1]?(ad[1].channels||2):2);
-    $('cf-audiodev2')._present=!!ad[1];
     shakerDevicesLoad();
     setField('cf-authen',!!host.webAuthToken); setField('cf-authtok',host.webAuthToken||'');
     // rig.global fields (portable feel/policy)
@@ -851,6 +853,11 @@ async function loadConfig(){
     ncxInit();
     populateAxisEditor();
     cfgBaseline=snapshotCfg();   // loaded state = the clean baseline
+    // A second card with no name in the file (this page wrote one, before
+    // 0.9.11, whenever Card 2 was cleared: the system default opened as a
+    // second card). The form shows none, so it counts as a change to save
+    // (dirtyState) and Card 2's row says so (shkMapSync).
+    cfgBaseline.staleCard2=shkStaleCard2(ad);
     refreshDirtyUI();
     refreshPendingPill(false);   // meta already fresh from the fetch above
     loadBindings();
@@ -1586,12 +1593,19 @@ function hapChipText(dv){
   if(!n&&!m) return '→ not routed';
   return '→ '+[n?n+(n>1?' axes':' axis'):'',m?m+(m>1?' shakers':' shaker'):''].filter(Boolean).join(' + ');
 }
+// A second card with no name in the file's list, on a host this page
+// owns: the system default opened as a second card (loadConfig says why).
+function shkStaleCard2(list){
+  return meta.hostOwner==='web'&&Array.isArray(list)&&list.length===2&&!String((list[1]||{}).device||'').trim();
+}
 // The device list as the host form has it: device 1 always, device 2
-// when it has a name (or the file already had a second entry).
+// when it has a name. An empty Card 2 is no card, whatever the file had:
+// kept with an empty name it was the system default opened as a second
+// card, which took shaker numbers (and one over eight refused the save).
 function shakerDeviceList(){
   const out=[{device:$('cf-audiodev').value.trim(),channels:Math.max(1,Math.min(8,+$('cf-audioch').value||2))}];
   const d2=$('cf-audiodev2');
-  if(d2&&(d2.value.trim()||d2._present)) out.push({device:d2.value.trim(),channels:Math.max(1,Math.min(8,+$('cf-audioch2').value||2))});
+  if(d2&&d2.value.trim()) out.push({device:d2.value.trim(),channels:Math.max(1,Math.min(8,+$('cf-audioch2').value||2))});
   return out;
 }
 // Shaker channels the host exposes (0 when shakers are off): the sum over
@@ -1601,11 +1615,16 @@ function hapShakerCount(){
   const ad=Array.isArray(cfgObj.audioDevices)&&cfgObj.audioDevices.length?cfgObj.audioDevices:[{channels:cfgObj.audioChannels||2}];
   return Math.max(0,Math.min(8,ad.reduce((t,d)=>t+Math.max(1,Math.min(8,+d.channels||2)),0)));
 }
-// Host settings: the playback devices the backend sees, for the picker.
+// Host settings: the playback devices the backend sees, for the two
+// pickers. "no hardware" is card 1's alone (a bench with no card): on
+// card 2 it would take shaker numbers and play nothing, and an empty
+// card 2 is already no card (the server refuses it there too).
 async function shakerDevicesLoad(){
-  const dl=$('audioDevList'); if(!dl) return;
+  const dl=$('audioDevList'), dl2=$('audioDevList2'); if(!dl) return;
   try{ const r=await fetch(API+'/api/shakers/devices'); if(!r.ok) return; const j=await r.json();
-    dl.innerHTML=(j.devices||[]).map(d=>'<option value="'+String(d.name).replace(/"/g,'&quot;')+'">'+(d.default?'(default) ':'')+'</option>').join('')+'<option value="null">no hardware</option>'; }catch(_){}
+    const cards=(j.devices||[]).map(d=>'<option value="'+esc(d.name)+'">'+(d.default?'(default) ':'')+'</option>').join('');
+    dl.innerHTML=cards+'<option value="null">no hardware</option>';
+    if(dl2) dl2.innerHTML=cards; }catch(_){}
 }
 // What is routed to the shakers in a set of haptics settings, for the
 // shaker page: the channels (of n) some effect is routed to with a gain
@@ -1662,12 +1681,14 @@ function shakerStatus(s){
     const name=esc(d.name||'(default)'), f=d.first|0;
     if(!d.open) return '<div class="sk-dv"><span class="lamp bad"></span><span class="vt">'+name+'</span>'+kv('not open',esc(d.error||'not open'),'bad')+'</div>';
     const want=d.channelsWanted||d.channels, short=d.channels<want;
-    let h='<div class="sk-dv"><span class="lamp '+(short?'warn':'ok')+'"></span><span class="vt">'+name+'</span>'
+    let h='<div class="sk-dv"><span class="lamp '+((short||d.systemDefault)?'warn':'ok')+'"></span><span class="vt">'+name+'</span>'
       +kv(d.channels>1?'shakers':'shaker',d.channels>1?(f+1)+'-'+(f+d.channels):String(f+1));
     if(short) h+=kv('',d.channels+' of '+want+' channels: '+(want-d.channels>1?'shakers '+(f+d.channels+1)+'-'+(f+want):'shaker '+(f+want))+' silent','warn');
     h+=kv('rate',d.rate+' Hz')+kv('latency',(d.latencyMs!=null?d.latencyMs:d.bufferMs)+' ms')+kv('card',d.bufferMs+' ms')
       +kv('underruns',d.underruns|0,d.underruns>0?'warn':'');
     if(d.volumeResets>0) h+=kv('volume','turned down '+d.volumeResets+'x by something else, put back to full','warn');
+    // The system default on a Pi is not the card itself: say what that costs.
+    if(d.systemDefault) h+=kv('','the system default, not the card itself: type the card name in its field to open the card directly, with all its channels','warn');
     return h+'</div>';
   }).join(''):'<div class="sk-dv"><span class="lamp'+(k.open?' ok':' bad')+'"></span><span class="vt">'+(k.open?'open':'not open')+'</span></div>');
   if(ro) ro.hidden=!devs.some(d=>!d.open);
@@ -1703,11 +1724,19 @@ function shakerStatus(s){
 function shkMapSync(){
   const d1=$('cf-audiodev'), d2=$('cf-audiodev2'); if(!d1) return;
   const ch=id=>Math.max(1,Math.min(8,+($(id)||{}).value||2));
-  const n1=ch('cf-audioch'), has2=!!d2&&!!(d2.value.trim()||d2._present), n2=has2?ch('cf-audioch2'):0;
+  const n1=ch('cf-audioch'), has2=!!d2&&!!d2.value.trim(), n2=has2?ch('cf-audioch2'):0;
+  // "no hardware" on Card 2 (a file from before it was refused there):
+  // said beside the field, with the way out.
+  const null2=has2&&d2.value.trim()==='null';
+  // ...and the file's unnamed second card (loadConfig): Save takes it out.
+  const stale2=!has2&&!!cfgBaseline&&!!cfgBaseline.staleCard2;
   const rng=(a,b)=>a>8?'→ none (8 shakers at most)':(Math.min(8,b)>a?'→ shakers '+a+'-'+Math.min(8,b):'→ shaker '+a);
   const m0=$('shkMap0'), m1=$('shkMap1');
   if(m0) m0.textContent=rng(1,n1);
-  if(m1) m1.textContent=has2?rng(n1+1,n1+n2):'';
+  if(m1){ m1.textContent=null2?('no hardware: takes shaker numbers and plays nothing. '+(d1.disabled?'Untick the second card in the desktop app':'Clear it for no second card'))
+                        :stale2?'the settings file has a second card with no name (the system default opened again): Save takes it out'
+                        :has2?rng(n1+1,n1+n2):'';
+          m1.classList.toggle('warn',null2||stale2); }
   document.querySelectorAll('[data-shq]').forEach(b=>{ b.disabled=d1.disabled; b.classList.toggle('on',d1.value.trim()===b.dataset.shq); });
   const hint=d1.disabled?'the sound cards are set in the desktop app':'device and channel changes apply after a restart';
   for(const id of ['shkHeadHint','shkCardsHint']){ const e=$(id); if(e) e.textContent=hint; }
@@ -2745,7 +2774,10 @@ function hapLive(s){
     const ab=t.tile.querySelector('[data-abssrc]');
     if(ab&&s.hapAbs){
       const fw=Math.round(+t.dv.fromWheels||0), a=s.hapAbs;
-      const why=fw===0?' (from wheels off)':(fw===1&&a.seen===false)?' (from wheels: waiting for the sim\'s flag)':'';
+      // "Waiting for the flag" only in a game that sends one: with none the
+      // wheels are trusted from the start.
+      const flagSent=Array.isArray(s.ncxHave)&&!!s.ncxHave[NCX_TOKENS.indexOf('absActive')];
+      const why=fw===0?' (from wheels off)':(fw===1&&a.seen===false&&flagSent)?' (from wheels: waiting for the sim\'s flag)':'';
       ab.textContent=!(+t.dv.ampPct>0)?'off (amp 0: no ABS, through the tyres either)':(a.flag||a.wheels)?('working: '+[a.flag?'flag':'',a.wheels?('wheels '+(+a.hz||0).toFixed(0)+' Hz'):''].filter(Boolean).join(' + ')):('idle'+why);
       ab.classList.toggle('warn',!!a.wheels);
     }

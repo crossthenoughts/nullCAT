@@ -217,6 +217,8 @@ void ApplicationSettingsDialog::buildUI()
     fillShakerDevices();
     connect(m_checkShakers, &QCheckBox::toggled, this, [this](bool) { updateShakerEnables(); validateFields(); });
     connect(m_checkShaker2, &QCheckBox::toggled, this, [this](bool) { updateShakerEnables(); validateFields(); });
+    // The second card's name is checked as it is typed (no hardware there).
+    connect(m_comboShakerDev2, &QComboBox::currentTextChanged, this, [this](const QString&) { validateFields(); });
     col->addWidget(grpShk);
 
     // Motion blending (blendTimeSec / blendMaxVelocityMmS) is rig.global config,
@@ -551,7 +553,9 @@ void ApplicationSettingsDialog::fillShakerDevices()
         for (const haptics::ShakerDeviceInfo& d : devs)
             cb->addItem(QString::fromStdString(d.name) + (d.isDefault ? "  [Windows default]" : ""),
                         QString::fromStdString(d.name));
-        cb->addItem("null (no hardware)", QStringLiteral("null"));
+        // No hardware is the first card's bench setting: as a second card
+        // it takes shaker numbers and plays nothing (validateFields).
+        if (cb == m_comboShakerDev) cb->addItem("null (no hardware)", QStringLiteral("null"));
     }
 }
 
@@ -620,6 +624,18 @@ void ApplicationSettingsDialog::validateFields()
     setSpinboxError(m_spinShakerCh, shkBad);
     setSpinboxError(m_spinShakerCh2, shkBad);
     if (shkBad) errors << "Shakers: 8 channels at most across both cards.";
+    // The host form's own rules, the ones the web page's save has
+    // (AppConfig::hostFormErrors): each in its words, less the file's key.
+    if (two)
+    {
+        AppConfig probe;
+        probe.audioDevices = { { shakerDevice(m_comboShakerDev), 2 }, { shakerDevice(m_comboShakerDev2), 2 } };
+        for (const std::string& e : probe.hostFormErrors())
+        {
+            const size_t colon = e.find(": ");
+            errors << QStringLiteral("Shakers: ") + QString::fromStdString(colon == std::string::npos ? e : e.substr(colon + 2)) + QStringLiteral(".");
+        }
+    }
 
     bool alphaBad = m_spinFgAlpha->value() < 1 || m_spinFgAlpha->value() > 255;
     setSpinboxError(m_spinFgAlpha, alphaBad);

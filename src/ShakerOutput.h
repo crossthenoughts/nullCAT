@@ -39,6 +39,7 @@ struct ShakerDeviceInfo
 {
     std::string name;
     bool        isDefault = false;
+    std::string id;   // the backend's own text id where it has one (ALSA: "hw:1,0", "default", "null"), else ""
 };
 
 class ShakerOutput
@@ -47,8 +48,42 @@ public:
     ShakerOutput();
     ~ShakerOutput();
 
-    // Playback devices the backend can see (main/web thread).
+    // Playback devices the backend can see (main/web thread), as the
+    // picker shows them (pickerList).
     std::vector<ShakerDeviceInfo> listDevices() const;
+
+    // The backend's list as a picker should show it: ALSA's own discard
+    // device left out (id "null": "Discard all samples (playback) or
+    // generate zero samples (capture)": nullCAT has its own "no hardware")
+    // and each name once (ALSA lists "Default Audio Device" for "default"
+    // and "sysdefault:..." both); the default mark is kept. Pure.
+    static std::vector<ShakerDeviceInfo> pickerList(const std::vector<ShakerDeviceInfo>& all)
+    {
+        std::vector<ShakerDeviceInfo> out;
+        for (const ShakerDeviceInfo& d : all)
+        {
+            if (d.id == "null") continue;
+            bool seen = false;
+            for (ShakerDeviceInfo& o : out)
+                if (o.name == d.name) { o.isDefault = o.isDefault || d.isDefault; seen = true; break; }
+            if (!seen) out.push_back(d);
+        }
+        return out;
+    }
+
+    // Whether what was opened is ALSA's default route and not a card of
+    // its own: no card named, or the name matched only the "default" or
+    // "sysdefault" entries. That route is shared and stereo, with a long
+    // buffer (a user's 7.1 card left on it: 2 channels, 118 ms). Never the
+    // null backend, never another backend (Windows' default is the real
+    // endpoint). alsaId: the id chosen, "" when none was. Pure.
+    static bool isDefaultRoute(bool alsa, bool wantNull, const std::string& alsaId)
+    {
+        if (!alsa || wantNull) return false;
+        return alsaId.empty() || alsaId == "default" || alsaId.rfind("sysdefault", 0) == 0;
+    }
+    // ...for the card that is open (false while none is).
+    bool systemDefault() const { return m_systemDefault.load(std::memory_order_relaxed); }
 
     // Open a device: deviceName "" = the system default, "null" = the
     // null backend (no hardware; CI), "null:N" = the null backend as a
@@ -160,6 +195,7 @@ private:
     // Windows: the card's volume, last checked when (ms) and put back how often.
     int64_t m_volumeCheckMs = 0;
     std::atomic<uint32_t> m_volumeResets{0};
+    std::atomic<bool> m_systemDefault{false};   // open on ALSA's default route (isDefaultRoute)
 
     void closeLocked();
     static void dataCallback(void* device, void* out, const void* in, unsigned frames);

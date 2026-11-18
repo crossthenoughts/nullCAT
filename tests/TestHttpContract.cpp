@@ -575,6 +575,30 @@ int main()
         check(after.value("gpioEstopPin").toInt() == 5 && after.value("rtCore").toInt() == 7
               && after.value("webAllowedHosts").toArray().size() == 1,
               "POST /api/host: every host key the page does not send stays (e-stop pin, loop CPU, allowed hosts)");
+        // "no hardware" on card 2 is refused with its reason and nothing is
+        // written: there it took shaker numbers and played nothing.
+        {
+            const std::string before = readText(hp);
+            const std::string bad = post("/api/host", "{\"configVersion\":2,\"shakersEnabled\":true,\"audioDevices\":[{\"device\":\"\",\"channels\":2},{\"device\":\"null\",\"channels\":1}]}");
+            check(has(bad, "\"ok\":false") && has(bad, "audioDevices[1].device") && readText(hp) == before,
+                  "POST /api/host: no hardware on card 2 is refused with the reason, the file untouched");
+        }
+        // ...and a host.json that already has it (from before) locks
+        // nothing out: a rig save still goes through. (With the rule in the
+        // whole-config validator every rig save was refused, and the page,
+        // which posts the rig first, could never clear it.)
+        {
+            QJsonObject bad = QJsonDocument::fromJson(QByteArray::fromStdString(readText(hp))).object();
+            bad["shakersEnabled"] = true;
+            QJsonArray devs;
+            { QJsonObject d; d["device"] = ""; d["channels"] = 2; devs.append(d); }
+            { QJsonObject d; d["device"] = "null"; d["channels"] = 1; devs.append(d); }
+            bad["audioDevices"] = devs;
+            { std::ofstream o(hp, std::ios::binary | std::ios::trunc); o << QJsonDocument(bad).toJson().toStdString(); }
+            const std::string rigNow = get("/api/rig");
+            check(has(post("/api/rig", rigNow), "\"ok\":true"),
+                  "POST /api/rig: a host.json that already has no hardware on card 2 does not refuse a rig save");
+        }
         { std::ofstream o(hp, std::ios::binary | std::ios::trunc); o << original; }   // as it was for the rest of the run
     }
     // The dashboard's Download logs carries host.json with the web password

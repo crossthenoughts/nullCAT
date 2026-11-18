@@ -65,6 +65,32 @@ private slots:
         QCOMPARE(out.audioChannels, 2);
     }
 
+    // "No hardware" (null) is the first card's alone: the second card's
+    // list does not offer it, and typed there it is refused (OK greyed,
+    // the dialog not accepted): as a second card it takes shaker numbers
+    // and plays nothing. Breaks with the item back on both lists, or the
+    // check gone from validateFields.
+    void noHardware_firstCardOnly()
+    {
+        AppConfig c;
+        c.shakersEnabled = true;
+        c.audioDevices = { { "null", 2 }, { "A second card", 2 } };
+        ApplicationSettingsDialog dlg(c);
+        QComboBox* one = field<QComboBox>(dlg, "shakerDevice1");
+        QComboBox* two = field<QComboBox>(dlg, "shakerDevice2");
+        QVERIFY2(one->findData(QStringLiteral("null")) >= 0, "the first card's list offers no hardware");
+        QVERIFY2(two->findData(QStringLiteral("null")) < 0, "the second card's list does not");
+        two->setEditText("null");
+        QPushButton* ok = nullptr;
+        for (QPushButton* b : dlg.findChildren<QPushButton*>()) if (b->text() == "OK") ok = b;
+        QVERIFY(ok);
+        QVERIFY2(!ok->isEnabled(), "no hardware typed for the second card: OK is greyed");
+        pressOk(dlg);
+        QCOMPARE(dlg.result(), int(QDialog::Rejected));
+        two->setEditText("A second card");
+        QVERIFY2(ok->isEnabled(), "a named second card: OK again");
+    }
+
     // An older host.json: one card in audioDevice/audioChannels, no list,
     // shakers off, the loop on auto. Saved as the page saves it: the card in
     // the list too.

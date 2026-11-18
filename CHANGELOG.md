@@ -49,6 +49,24 @@ middle number carries breaking changes and the last carries fixes.
   out relative to the air pressure, as the protocol says, so turbo cars
   in those games no longer fire up to 1.6 times heavier at part throttle.
   Update the plugin on the PC that runs SimHub.
+- **Setup, Shakers, the sound cards**: the list of cards no longer shows
+  the system's own discard device, the same device twice, or things
+  typed into the field before as if they were cards. *No hardware* is
+  offered for Card 1 only, and a save with it on Card 2 is refused with
+  the reason: there it took shaker numbers and played nothing. Clearing
+  Card 2 now means no second card (it used to stay as the system default
+  opened a second time, and with eight channels on Card 1 the save was
+  refused); a settings file that already holds such a second card shows
+  as a change to save, and Save takes it out. A file with *no hardware*
+  on Card 2 still loads and saves everything else: Card 2's row says
+  what it does and how to clear it. On a Pi, a card left on the system
+  default says so on its
+  line: that is not the card itself, so type the card's name to open it
+  directly, with all its channels. The desktop settings window offers
+  *no hardware* for the first card only as well.
+- **ABS tile**: a game with no ABS flag (rFactor 2) no longer reads *no
+  input, needs absActive*, nor *waiting for the sim's flag*: with *from
+  wheels* on, the tyres' slip ratio or the wheel speeds feed it.
 - **Setup, Axes**: each setting's description sits under its own setting
   again. On a screen wide enough for two or more columns they landed
   beside or under other settings, worst on a belt. The belt's cue-from-g

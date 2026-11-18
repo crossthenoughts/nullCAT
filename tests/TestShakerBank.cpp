@@ -343,6 +343,41 @@ int main()
         bank.close();
     }
 
+    // ---- SB-7 the picker's list and the default route (pure) ----
+    // ALSA lists its own discard device (id "null") and "Default Audio
+    // Device" twice ("default" and "sysdefault:..."): the picker shows
+    // neither the first nor the repeat, and keeps the default mark. A card
+    // opened with no name, or by a name that matched only those default
+    // entries, is ALSA's default route (shared, stereo, a long buffer), not
+    // the card: said in the status. Never the null backend, never another
+    // backend. Breaks with the list passed on as is, or the route judged
+    // by the name alone.
+    {
+        using haptics::ShakerDeviceInfo; using haptics::ShakerOutput;
+        const std::vector<ShakerDeviceInfo> raw = {
+            { "Discard all samples (playback) or generate zero samples (capture)", false, "null" },
+            { "Default Audio Device", false, "sysdefault:CARD=CA7" },
+            { "Default Audio Device", true,  "default" },
+            { "CUBILUX CA7, USB Audio", false, ":1,0" },
+            { "CUBILUX CA7, USB Audio #1", false, ":1,1" },
+            { "CUBILUX CA7, USB Audio", false, "plughw:1,0" } };
+        const std::vector<ShakerDeviceInfo> list = ShakerOutput::pickerList(raw);
+        check(list.size() == 3, "SB-7 the picker list: the discard device and the repeats are left out (3 of 6)");
+        check(list.size() == 3 && list[0].name == "Default Audio Device" && list[0].isDefault,
+              "SB-7 ...the default entry once, its mark kept from the repeat");
+        check(list.size() == 3 && list[1].name == "CUBILUX CA7, USB Audio" && list[1].id == ":1,0" && list[2].name == "CUBILUX CA7, USB Audio #1",
+              "SB-7 ...each card once, in the backend's order");
+        const std::vector<ShakerDeviceInfo> win = { { "Speakers (USB Audio)", true, "" }, { "Speakers (USB Audio)", false, "" }, { "null", false, "" } };
+        check(ShakerOutput::pickerList(win).size() == 2, "SB-7 a card NAMED null on a backend with no text id is kept (only ALSA's id counts)");
+        check(ShakerOutput::isDefaultRoute(true, false, ""), "SB-7 ALSA, no card named: the default route");
+        check(ShakerOutput::isDefaultRoute(true, false, "default") && ShakerOutput::isDefaultRoute(true, false, "sysdefault:CARD=CA7"),
+              "SB-7 ALSA, a name that matched only the default entries: the default route");
+        check(!ShakerOutput::isDefaultRoute(true, false, ":1,0") && !ShakerOutput::isDefaultRoute(true, false, "hw:1,0") && !ShakerOutput::isDefaultRoute(true, false, "plughw:1,0"),
+              "SB-7 ALSA, the card itself: not the default route");
+        check(!ShakerOutput::isDefaultRoute(true, true, ""), "SB-7 no hardware (the null backend) is not the default route");
+        check(!ShakerOutput::isDefaultRoute(false, false, ""), "SB-7 another backend (Windows: the default is the real endpoint) is not");
+    }
+
     std::printf("\nTestShakerBank: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }
