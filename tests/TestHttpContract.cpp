@@ -596,7 +596,7 @@ int main()
             bad["audioDevices"] = devs;
             { std::ofstream o(hp, std::ios::binary | std::ios::trunc); o << QJsonDocument(bad).toJson().toStdString(); }
             const std::string rigNow = get("/api/rig");
-            check(has(post("/api/rig", rigNow), "\"ok\":true"),
+            check(has(post("/api/rig", rigNow.c_str()), "\"ok\":true"),
                   "POST /api/rig: a host.json that already has no hardware on card 2 does not refuse a rig save");
         }
         { std::ofstream o(hp, std::ios::binary | std::ios::trunc); o << original; }   // as it was for the rest of the run
