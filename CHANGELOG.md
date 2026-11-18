@@ -38,6 +38,19 @@ middle number carries breaking changes and the last carries fixes.
   to full at once. From a short pause it starts from the pull it held, so
   nothing dips. A car pulling away, a crash and a short stutter
   in the stream still pull at once.
+- **Belt from the car's g**: a car standing with the throttle shut no
+  longer pulls the belt. Games send g no car makes while they load a map
+  or put a car down (Assetto Corsa EVO and BeamNG.drive the worst,
+  Automobilista 2 and Le Mans Ultimate as well), and each was a hard pull
+  into the shoulders with the car going nowhere. Standing means under
+  3 km/h for 0.3 s, or under 10 km/h when the game starts sending again
+  after a load, a pause or a reset, and it lasts until 10 km/h. Past
+  5 % throttle the g counts again at once, so a launch pulls as before;
+  the brake changes nothing. With a game that sends no throttle or no
+  speed the g always counts, as before. A wrecked car standing off the
+  throttle now pulls nothing, whatever *g after a crash* is set to. What
+  goes with it: off the throttle, a bump, a shunt or braking from a
+  crawl is not felt on the belt until the car has passed 10 km/h.
 - **Engine, turbo cars**: the blow-off whoosh on a lift plays in
   Automobilista 2: its boost falls on the same instant the throttle
   closes, which left the whoosh almost silent, so the whoosh now takes the

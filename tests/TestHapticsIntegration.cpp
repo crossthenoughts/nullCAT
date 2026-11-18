@@ -4001,6 +4001,10 @@ int main()
         auto f = [&](double accG) {
             TelemetryData sd = frame(0.0, true, 65535.0);
             ++tick;
+            // No throttle sent: the standing gate (I-29e) is never closed, so
+            // each check here sees the teleport rules alone (with it sent as 0
+            // the gate held the belt at min after a restart whatever they did).
+            sd.ncxHave[static_cast<int>(NcxValues::ThrottlePct)] = false;
             sd.ncx[static_cast<int>(NcxValues::SpeedKmh)] = speed + ((tick & 1) ? 1e-3 : 0.0);
             sd.ncyHave[NcxTok::AccSurge] = true;
             sd.ncy[NcxTok::AccSurge] = accG * G + ((tick & 1) ? 1e-4 : 0.0);
@@ -4159,7 +4163,7 @@ int main()
     {
         const double G = 9.80665;
         int tick = 0;
-        double speed = 100.0;
+        double speed = 100.0, thr = 0.0;   // (the throttle: 0 unless a check sets it)
         // held: 0 every value moves by a hair; 1 the line held exactly (the
         // g and the speed: a sender repeating its last line); 2 the g alone
         // held exactly (a sender rounding it), the speed moving.
@@ -4167,6 +4171,7 @@ int main()
             TelemetryData sd = frame(0.0, true, 65535.0);
             ++tick;
             sd.ncx[static_cast<int>(NcxValues::SpeedKmh)] = speed + ((held != 1 && (tick & 1)) ? 1e-3 : 0.0);
+            sd.ncx[static_cast<int>(NcxValues::ThrottlePct)] = thr;
             sd.ncyHave[NcxTok::AccSurge] = true;
             sd.ncy[NcxTok::AccSurge] = accG * G + ((held == 0 && (tick & 1)) ? 1e-4 : 0.0);
             return sd;
@@ -4298,8 +4303,9 @@ int main()
             speed = 0.0;
             auto mc = belt();
             lastFor(*mc, 3.0, 0.0, 0, false);
-            speed = 2.0;
+            speed = 2.0; thr = 60.0;   // (pulling away is on the throttle: the standing gate, I-29e, is open)
             check(std::fabs(lastFor(*mc, 0.006, 1.0) - 45.5) < 1e-3, "I-29d guard: a car pulling away after a pause pulls at once (no fade under 10 km/h)");
+            thr = 0.0;
         }
         // Guard: a crash. 0.2 s of junk frames (past 8 g) at speed, then
         // its tail: felt at once.
@@ -4317,6 +4323,230 @@ int main()
             lastFor(*mc, 0.2, 0.9);
             lastFor(*mc, 0.05, 0.9, 0, false);
             check(std::fabs(lastFor(*mc, 0.006, 1.0) - 45.5) < 1e-3, "I-29d guard: a 50 ms stutter pulls at once (no fade)");
+        }
+    }
+
+    // ---- I-29e: no g from a car standing with the throttle shut ----
+    // A game loading a map or putting a car down sends g no car makes while
+    // it stands: AC EVO single lines of -2.5 g surge (engine off, twice in
+    // 8 s), BeamNG 1.6 s of noise to -9 g after a new car, AMS2 and LMU
+    // right after a load (recordings 2026-10/11). Each was a pull into the
+    // shoulders: no speed jump (no teleport hold), under 10 km/h the fade
+    // does not arm, most are under the 8 g junk limit. BeltGStandGate:
+    // standing (under 3 km/h for 0.3 s, or the first speed after the stream
+    // starts again under 10 km/h; left at 10 km/h) and the throttle at or
+    // under 5 %: the belt sits at min, ONLINE. The throttle opens it at
+    // once (a launch pulls with no delay); the brake never does (EVO holds
+    // it at 100 % in the garage); no throttle or no speed sent: never
+    // closed. Belt on accel, torque 5..50 over 0.1..1.1 g: 1 g pulls 45.5.
+    // Taking the gate out of beltDemand fails the load, noise, brake and
+    // reset checks; the first speed not deciding, or a stale stream or
+    // tension-up not starting it afresh, fails the rolling checks;
+    // standing entered at once under 3 km/h fails the stop check; the
+    // brake opening it fails the brake check.
+    {
+        const double G = 9.80665;
+        int tick = 0;
+        double speed = 0.0, thr = 0.0, brk = 0.0, swayG = 0.0; bool sendThr = true, sendSpeed = true, sendSway = false;
+        auto f = [&](double accG) {
+            TelemetryData sd = frame(0.0, true, 65535.0);
+            ++tick;
+            sd.ncx[static_cast<int>(NcxValues::SpeedKmh)] = speed + ((tick & 1) ? 1e-3 : 0.0);
+            sd.ncxHave[static_cast<int>(NcxValues::SpeedKmh)] = sendSpeed;
+            sd.ncx[static_cast<int>(NcxValues::ThrottlePct)] = thr;
+            sd.ncxHave[static_cast<int>(NcxValues::ThrottlePct)] = sendThr;
+            sd.ncx[static_cast<int>(NcxValues::BrakePct)] = brk;
+            sd.ncyHave[NcxTok::AccSurge] = true;
+            sd.ncy[NcxTok::AccSurge] = accG * G + ((tick & 1) ? 1e-4 : 0.0);
+            if (sendSway) { sd.ncyHave[NcxTok::AccSway] = true; sd.ncy[NcxTok::AccSway] = swayG * G + ((tick & 1) ? 1e-4 : 0.0); }
+            return sd;
+        };
+        // The highest and the last tension over `sec` of one g.
+        struct Out { double hi = -1e9, last = 0.0; };
+        auto go = [&](MotionController& mc, double sec, double accG, bool fresh = true) {
+            Out o;
+            const int cycles = std::max(1, static_cast<int>(sec / 0.002 + 0.5));
+            for (int c = 0; c < cycles; ++c) { TelemetryData sd = f(accG); sd.ncxFresh = fresh; o.last = run(mc, sd, 1, 1).hi; o.hi = std::max(o.hi, o.last); }
+            return o;
+        };
+        auto belt = [&](const char* sway = "off", double smoothMs = 0.0) {
+            AppConfig cfg = makeBeltConfig(0.0, 1.0);    // torque 5..50
+            DriveConfig& d = cfg.drives[0];
+            d.beltSource = "g"; d.beltGMode = "accel"; d.beltGSway = sway;
+            d.beltGFromG = 0.1; d.beltGFullG = 1.1; d.beltGSmoothMs = smoothMs;
+            auto mc = std::make_unique<MotionController>();
+            mc->configure(cfg);
+            tensionBelt(*mc);
+            go(*mc, 0.8, 0.0);
+            return mc;
+        };
+        const auto near = [](double a, double b) { return std::fabs(a - b) < 1e-3; };
+        // The model.
+        {
+            BeltGStandGate g;
+            check(g.step(true, 0.0, true, 0.0, 0.002), "I-29e model: the first speed after a start under 10 km/h: standing at once, closed off the throttle");
+            check(!g.step(true, 0.0, true, 6.0, 0.002) && g.step(true, 0.0, true, 5.0, 0.002), "I-29e model: the throttle past 5 % opens it, at 5 % it is closed");
+            check(!g.step(true, 10.0, true, 0.0, 0.002) && !g.standing, "I-29e model: at 10 km/h: driving");
+            bool closedEarly = false;
+            for (int c = 0; c < 149; ++c) closedEarly = g.step(true, 2.0, true, 0.0, 0.002) || closedEarly;
+            check(!closedEarly && g.step(true, 2.0, true, 0.0, 0.002), "I-29e model: under 3 km/h it takes 0.3 s to be standing");
+            for (int c = 0; c < 500; ++c) g.step(true, 5.0, true, 0.0, 0.002);
+            check(g.standing, "I-29e model: standing holds between 3 and 10 km/h");
+            BeltGStandGate h;
+            h.step(true, 50.0, true, 0.0, 0.002);
+            for (int c = 0; c < 500; ++c) h.step(true, 5.0, true, 0.0, 0.002);
+            check(!h.standing, "I-29e model: ...and a car slowing through 5 km/h is not standing");
+            BeltGStandGate e;
+            e.step(true, 50.0, true, 0.0, 0.002);
+            for (int c = 0; c < 500; ++c) e.step(true, 3.0, true, 0.0, 0.002);
+            const bool at3 = e.standing;
+            for (int c = 0; c < 500; ++c) e.step(true, 2.9, true, 0.0, 0.002);
+            check(!at3 && e.standing, "I-29e model: 3 km/h is not slow enough to be standing, 2.9 km/h is");
+            BeltGStandGate r;
+            r.step(true, -50.0, true, 0.0, 0.002);
+            for (int c = 0; c < 500; ++c) r.step(true, -12.0, true, 0.0, 0.002);
+            check(!r.standing, "I-29e model: reversing at 12 km/h is driving (the size of the speed counts)");
+            BeltGStandGate q;
+            const double notANumber = std::nan("");
+            check(!q.step(true, notANumber, true, 0.0, 0.002) && !q.step(true, 0.0, true, notANumber, 0.002),
+                  "I-29e model: a speed or a throttle that is not a number: never closed");
+            BeltGStandGate s;
+            s.step(true, 50.0, true, 0.0, 0.002);
+            s.step(true, 5.0, true, 0.0, 0.002);
+            const bool rollingBefore = !s.standing;
+            s.step(false, 0.0, true, 0.0, 0.002);
+            check(rollingBefore && s.step(true, 5.0, true, 0.0, 0.002), "I-29e model: the speed away and back: the first speed decides again (5 km/h: standing)");
+            BeltGStandGate n;
+            check(!n.step(true, 0.0, false, 0.0, 0.002) && !n.step(false, 0.0, true, 0.0, 0.002), "I-29e model: no throttle sent, or no speed: never closed");
+            n.restart();
+            check(n.step(true, 9.0, true, 0.0, 0.002), "I-29e model: after a restart the first speed decides again (9 km/h: standing)");
+        }
+        // A load: the stream away 3 s, then the car standing with the engine
+        // off; 0.1 s on, a line of -2.5 g for 6 ms (AC EVO).
+        {
+            speed = 0.0; thr = 0.0;
+            auto mc = belt();
+            go(*mc, 3.0, 0.0, false);
+            go(*mc, 0.1, 0.0);
+            const Out spike = go(*mc, 0.006, -2.5);
+            const Out after = go(*mc, 0.3, 0.0);
+            check(near(spike.hi, 5.0) && near(after.hi, 5.0) && mc->getAxisState(0) == AxisMotionState::ONLINE,
+                  "I-29e a load, then a line of -2.5 g with the car standing, engine off: the belt stays at min (it pulled to max), ONLINE");
+        }
+        // BeamNG after a new car: 1.6 s of noise to 9 g at 2 km/h.
+        {
+            speed = 0.0; thr = 0.0;
+            auto mc = belt();
+            go(*mc, 1.0, 0.0);
+            speed = 2.0;
+            double hi = -1e9;
+            for (int c = 0; c < 160; ++c) hi = std::max(hi, go(*mc, 0.01, (c % 7 == 0) ? -9.0 : (c & 1) ? -2.9 : 1.0).hi);
+            check(near(hi, 5.0), "I-29e 1.6 s of noise at 2 km/h off the throttle: the belt stays at min");
+        }
+        // A launch: standing, then the throttle and 0.9 g: at once.
+        {
+            speed = 0.0; thr = 0.0;
+            auto mc = belt();
+            go(*mc, 1.0, 0.0);
+            thr = 60.0;
+            check(near(go(*mc, 0.006, -0.9).last, 41.0), "I-29e a launch (standing, the throttle on): the belt pulls at once");
+            thr = 0.0;
+            check(near(go(*mc, 0.006, -0.9).last, 5.0), "I-29e ...and off the throttle again while still standing: min");
+        }
+        // The brake does not open it (AC EVO holds it at 100 % in the garage).
+        {
+            speed = 0.0; thr = 0.0; brk = 100.0;
+            auto mc = belt();
+            go(*mc, 1.0, 0.0);
+            check(near(go(*mc, 0.006, -2.5).hi, 5.0), "I-29e the brake held at 100 % does not open it");
+            brk = 0.0;
+        }
+        // A sender with no throttle, or no speed: as before, the g is taken.
+        {
+            speed = 0.0; thr = 0.0; sendThr = false;
+            auto mc = belt();
+            go(*mc, 1.0, 0.0);
+            check(near(go(*mc, 0.006, -1.0).last, 45.5), "I-29e no throttle sent: never closed (the g is taken, as before)");
+            sendThr = true; sendSpeed = false;
+            auto ms = belt();
+            go(*ms, 1.0, 0.0);
+            check(near(go(*ms, 0.006, -1.0).last, 45.5), "I-29e no speed sent: never closed");
+            sendSpeed = true;
+        }
+        // Sway is left out as surge is (the gate is on every g the belt takes).
+        {
+            speed = 0.0; thr = 0.0; sendSway = true; swayG = 1.0;
+            auto mc = belt("both");
+            go(*mc, 1.0, 0.0);
+            check(near(go(*mc, 0.006, 0.0).hi, 5.0), "I-29e a g of sway while standing off the throttle: left out too");
+            thr = 60.0;
+            check(near(go(*mc, 0.006, 0.0).last, 45.5), "I-29e ...and on the throttle the sway pulls");
+            thr = 0.0; sendSway = false; swayG = 0.0;
+        }
+        // With smoothing the g goes out through it: no step down.
+        {
+            speed = 0.0; thr = 60.0;
+            auto mc = belt("off", 100.0);
+            check(near(go(*mc, 1.5, -0.9).last, 41.0), "I-29e setup: a launch held, smoothing 100 ms: 41 %");
+            thr = 0.0;
+            const double soon = go(*mc, 0.006, -0.9).last;
+            check(soon > 35.0 && soon < 41.0, "I-29e the throttle shut while standing, smoothing 100 ms: the pull eases out through the smoothing");
+            check(near(go(*mc, 1.5, -0.9).last, 5.0), "I-29e ...down to min");
+        }
+        // Slowing to a stop off the throttle is not standing until the car
+        // has been under 3 km/h for 0.3 s: the g of the stop is felt.
+        {
+            speed = 60.0; thr = 0.0;
+            auto mc = belt();
+            go(*mc, 0.5, 0.0);
+            // (Down in steps no car's speed jumps by: a jump past 30 km/h is a teleport.)
+            for (const double s : { 40.0, 20.0, 8.0, 5.0 }) { speed = s; go(*mc, 0.05, 0.0); }
+            check(near(go(*mc, 0.5, -1.0).last, 45.5), "I-29e a car slowing through 5 km/h off the throttle: its g is taken");
+            speed = 1.0;
+            check(near(go(*mc, 0.25, -1.0).last, 45.5), "I-29e ...and for the first 0.25 s under 3 km/h");
+            check(near(go(*mc, 0.1, -1.0).last, 5.0), "I-29e ...then it is standing: min");
+            speed = 12.0;
+            check(near(go(*mc, 0.006, -1.0).last, 45.5), "I-29e ...and at 12 km/h it is driving again: the g is taken, off the throttle too");
+        }
+        // The stream away and back (a pause, a load) with the car rolling at
+        // 5 km/h, not standing before it: the first speed decides, so it is
+        // standing at once. The same after the belt is slacked and tensioned
+        // again. Breaks with a stale stream, or tension-up, not starting the
+        // gate afresh.
+        {
+            auto rolling = [&]() {
+                speed = 60.0; thr = 0.0;
+                auto mc = belt();
+                go(*mc, 0.5, 0.0);
+                for (const double s : { 40.0, 20.0, 8.0, 5.0 }) { speed = s; go(*mc, 0.05, 0.0); }
+                return mc;
+            };
+            auto mc = rolling();
+            go(*mc, 3.0, 0.0, false);
+            go(*mc, 0.1, 0.0);
+            check(near(go(*mc, 0.006, -2.5).hi, 5.0) && mc->getAxisState(0) == AxisMotionState::ONLINE,
+                  "I-29e the stream away and back with the car rolling at 5 km/h: standing at once, a line of -2.5 g stays out");
+            auto mt = rolling();
+            { MotionCommand c; c.type = MotionCommand::Type::SlackBelts; mt->enqueueCommand(c); }
+            go(*mt, 0.3, 0.0);
+            tensionBelt(*mt);
+            go(*mt, 0.5, 0.0);
+            check(near(go(*mt, 0.006, -2.5).hi, 5.0) && mt->getAxisState(0) == AxisMotionState::ONLINE,
+                  "I-29e the belt slacked and tensioned again with the car rolling at 5 km/h: standing at once");
+        }
+        // A reset into the pits: the speed from 100 to 5 km/h in a frame (the
+        // teleport's second at min), and the car put there is standing at
+        // once, at 5 km/h too: a line of -2.5 g 1.5 s on stays out. (It
+        // pulled: the hold-off had run out, and a car slowing through 5
+        // km/h, above, is not standing.) Breaks with the teleport not
+        // starting the gate afresh.
+        {
+            speed = 100.0; thr = 30.0;
+            auto mc = belt();
+            go(*mc, 0.5, -0.3);
+            speed = 5.0; thr = 0.0;
+            go(*mc, 1.5, 0.0);
+            check(near(go(*mc, 0.006, -2.5).hi, 5.0), "I-29e a reset into the pits at 5 km/h, then a line of -2.5 g: the belt stays at min");
         }
     }
 
@@ -4344,9 +4574,16 @@ int main()
         int tick = 0;
         double speed = 100.0, roadMm = 455000.0;
         const char* car = "Car A";
+        // The throttle: not sent (negative) unless a check sets it. A wreck
+        // standing off the throttle gets no g at all (BeltGStandGate, I-29e),
+        // so the crash watch is seen on its own as a sender with no throttle
+        // has it; the last checks have the two together.
+        double thr = -1.0;
         auto f = [&](double accG) {
             TelemetryData sd = frame(0.0, true, 65535.0);
             ++tick;
+            if (thr < 0.0) sd.ncxHave[static_cast<int>(NcxValues::ThrottlePct)] = false;
+            else sd.ncx[static_cast<int>(NcxValues::ThrottlePct)] = thr;
             sd.ncx[static_cast<int>(NcxValues::SpeedKmh)] = speed + ((tick & 1) ? 1e-3 : 0.0);
             sd.ncyHave[NcxTok::AccSurge] = true;
             sd.ncy[NcxTok::AccSurge] = accG * G + ((tick & 1) ? 1e-4 : 0.0);
@@ -4490,6 +4727,18 @@ int main()
             wreck(*mc);
             atRest(*mc, 4.0, 0.0);
             check(std::fabs(steady(*mc, 0.05, 0.6) - 27.5) < 1e-3, "I-29c a car at rest after the crash (its values held, the stream live) settles it: the launch pulls whole");
+        }
+        {
+            // With the throttle sent: a wreck standing off it gets no g at
+            // all, whatever the share (the standing gate); on the throttle,
+            // a wreck its driver is still trying to move, the share applies.
+            thr = 0.0;
+            auto mc = belt();
+            wreck(*mc);
+            check(std::fabs(rough(*mc, 0.5, 0.0, 1.0) - 5.0) < 1e-3, "I-29c a wreck standing off the throttle: no g at all (the standing gate, not the share)");
+            thr = 50.0;
+            check(std::fabs(rough(*mc, 0.5, 0.0, 1.0) - 23.0) < 1e-3, "I-29c ...on the throttle the wreck's g counts at the share (half)");
+            thr = -1.0;
         }
     }
 

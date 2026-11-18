@@ -35,6 +35,7 @@
 #include "CommissioningMode.h"
 #include "AxisKind.h"
 #include "BeltGFadeIn.h"
+#include "BeltGStandGate.h"
 #include <array>
 #include <atomic>
 #include <string>
@@ -597,6 +598,8 @@ private:
         };
         BeltGChan beltGCh[3];
         BeltGFadeIn beltGFade;   // the g easing back in after a gap (stepBeltOnline, before the slew cap); cleared at tension-up
+        BeltGStandGate beltGStand;   // no g from a car standing off the throttle (beltDemand); afresh at tension-up, a stale stream, a teleport
+        bool beltGStandSaid = false; // ...its log line written for this stand (one a stand)
         // Belt from g: a teleport's hold-off (seconds left: the g is held
         // off and the belt sits at minimum), and the sender's last speed
         // and road height per wheel (once seen), for the jumps. Cleared
@@ -614,13 +617,16 @@ private:
         }
         // Tension-up (both paths): the belt's g starts afresh. The g
         // filters (not from the last session's braking), the fade (the
-        // blend eases the belt in), the teleport test (a speed from the
+        // blend eases the belt in), the standing gate (the first speed
+        // decides whether the car stands), the teleport test (a speed from the
         // last session is no jump) and the crash watch (a crash from the
         // last session holds nothing).
         void resetBeltG()
         {
             for (BeltGChan& c : beltGCh) c.drop(false);
             beltGFade.clear();
+            beltGStand.restart();
+            beltGStandSaid = false;
             resetBeltTeleport();
             resetBeltCrash();
         }

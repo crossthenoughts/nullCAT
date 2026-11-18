@@ -2011,6 +2011,11 @@ double MotionController::beltCrashScale(int i, const NcxValues& v, bool teleport
     return c.scale;
 }
 
+// The standing gate (BeltGStandGate) says so in the log once a stand, when
+// what it leaves out is at least this much g: a load-in glitch, or a launch
+// from a sender that holds its throttle at 0.
+static constexpr double kBeltGStandSayG = 0.3;
+
 // The belt's live tension demand this cycle from its source (Config.h
 // beltSource): the motion line's slot for this axis, or the car's g.
 // False when there is none (no usable frame; the channel stream stale,
@@ -2092,9 +2097,21 @@ bool MotionController::beltDemand(int i, const TelemetryData& td, double& tensio
     {
         rt.beltTeleportSec -= dt;
         for (AxisRuntime::BeltGChan& c : rt.beltGCh) c.drop(true);   // afresh after it, easing in
+        rt.beltGStand.restart();   // ...and where the car was put decides whether it stands
         if (!anyPresent) return false;   // the stream gone as well: the standby, as ever
         tension = beltGTension(i, 0.0);
         return true;
+    }
+    // A car standing with the throttle shut gives the belt no g
+    // (BeltGStandGate: what a game sends while it loads a map or puts a car
+    // down, a wreck's noise). The stream away: its return decides afresh.
+    bool standGate = false;
+    if (!v.fresh) rt.beltGStand.restart();
+    else
+    {
+        const bool thrSent = v.have[NcxValues::ThrottlePct];
+        standGate = rt.beltGStand.step(speedSent, speedSent ? v.val[NcxValues::SpeedKmh] : 0.0,
+                                       thrSent, thrSent ? v.val[NcxValues::ThrottlePct] : 0.0, dt);
     }
     const double smoothA = (ac.beltGSmoothMs > 0.0) ? dt / (ac.beltGSmoothMs / 1000.0 + dt) : 1.0;
     // The g coming back after a gap eases in (BeltGFadeIn, stepBeltOnline):
@@ -2116,7 +2133,7 @@ bool MotionController::beltDemand(int i, const TelemetryData& td, double& tensio
     }
     allHeld = allHeld && anyLive && speedWasHeld;
     bool fadeDue = false;
-    double x = 0.0;
+    double x = 0.0, leftOutG = 0.0;
     for (int k = 0; k < 3; ++k)
     {
         if (mode[k] == 0) continue;
@@ -2155,6 +2172,8 @@ bool MotionController::beltDemand(int i, const TelemetryData& td, double& tensio
             const bool wasHeld = c.sameSec > kBeltGFrozenSec;
             if (raw != c.lastRaw) { c.lastRaw = raw; c.sameSec = 0.0; }
             else if ((c.sameSec += dt) > kBeltGFrozenSec) g = 0.0;
+            // Standing, off the throttle: no g either (through the smoothing).
+            if (standGate) { leftOutG = std::max(leftOutG, std::fabs(g)); g = 0.0; }
             if (!c.live)
             {
                 c.f = g;
@@ -2175,6 +2194,13 @@ bool MotionController::beltDemand(int i, const TelemetryData& td, double& tensio
                             : (mode[k] == 2) ? std::max(0.0, -s)
                             : std::fabs(s);
         x += mix[k] * folded;
+    }
+    if (!rt.beltGStand.standing) rt.beltGStandSaid = false;
+    else if (leftOutG >= kBeltGStandSayG && !rt.beltGStandSaid)
+    {
+        rt.beltGStandSaid = true;
+        RT_LOG_INFO("MotionController: Axis %d belt: the car stands with the throttle shut: its g (%.1f g) is left out",
+                    i + 1, leftOutG);
     }
     if (fadeDue && !rt.beltGFade.on)
     {
