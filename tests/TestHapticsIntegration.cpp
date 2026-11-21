@@ -5201,6 +5201,174 @@ int main()
         check(std::fabs(on - 0.4) < 1e-6, "I-31c: ...and no later than 0.4 (a limit of 0.4: 0.4, not 0.6)");
     }
 
+    // I-32: the road's learned full mm kept per car, through the controller
+    // (the laws name the car, RoadFullMemory keeps it, the status publishes
+    // it for the file). Car A learns; Car B starts with nothing and A is
+    // published as finished; back in Car A its value is there on the cycle
+    // it is named; a controller started from what was kept (the next
+    // session) has it from the car's first frame; under other cuts it is
+    // not used; the stream away and back changes nothing. Dropping the seed
+    // in driveContinuousHaptics fails the two "at once" checks; keying the
+    // memory by the car's name alone fails the other-game check.
+    {
+        const double PI = 3.14159265358979;
+        auto cfgRoad = [&](double suspHz) {
+            AppConfig cfg = makeBeltConfig(0.0, 1.0);
+            haptics::EffectParams& road = cfg.hapticsFx[static_cast<size_t>(haptics::Effect::Road)];
+            road.ampPct = 100.0; road.routes[0] = { 0, 1.0 };
+            cfg.hapticsRoad = haptics::RoadParams{};
+            cfg.hapticsRoad.model = 0.0; cfg.hapticsRoad.rough = 0.0; cfg.hapticsRoad.hpHz = 2.0; cfg.hapticsRoad.suspHz = suspHz;
+            cfg.hapticsRoad.fullMm = 25.0; cfg.hapticsRoad.fullLearn = 1.0;
+            return cfg; };
+        int tick = 0;
+        // The suspension a 12 Hz sine of amp mm on every corner at 100 km/h.
+        auto f = [&](const char* game, const char* car, double amp) {
+            TelemetryData sd = frame(0.0, true, 65535.0);
+            ++tick;
+            sd.ncx[static_cast<int>(NcxValues::SpeedKmh)] = 100.0 + ((tick & 1) ? 1e-3 : 0.0);
+            for (int w = 0; w < 4; ++w)
+            {
+                sd.ncyHave[NcxTok::SuspTravelFL + w] = true;
+                sd.ncy[NcxTok::SuspTravelFL + w] = amp * std::sin(2.0 * PI * 12.0 * tick * 0.002);
+            }
+            std::strncpy(sd.game, game, NCY_STR_LEN - 1);
+            std::strncpy(sd.car, car, NCY_STR_LEN - 1);
+            return sd; };
+        auto driveCar = [&](MotionController& mc, const char* game, const char* car, double amp, double sec) {
+            for (int c = 0, n = static_cast<int>(sec / 0.002 + 0.5); c < n; ++c) run(mc, f(game, car, amp), 1, 1); };
+
+        MotionController mc;
+        mc.configure(cfgRoad(6.0));
+        driveCar(mc, "Game", "Car A", 2.0, 10.0);
+        MotionStatus ms = mc.getMotionStatus();
+        check(ms.hapRoadFullMm == 0.0 && ms.roadFullCar.key != 0 && ms.roadFullCar.mm == 0.0 && ms.roadFullPrevSeq == 0,
+              "I-32 Car A, ten seconds in: named, nothing learned yet, nothing published");
+        driveCar(mc, "Game", "Car A", 2.0, 50.0);
+        ms = mc.getMotionStatus();
+        haptics::RoadFullEntry carA = ms.roadFullCar;
+        std::printf("  I-32 Car A after a minute: its own %.1f mm over %.0f s, in use %.1f\n", carA.mm, carA.sec, ms.hapRoadFullMm);
+        // (2 mm of travel through the cuts, over the 0.09 share: 21.9; the
+        // full mm as set is 25 and must not be what is kept)
+        check(carA.mm > 19.7 && carA.mm < 24.1 && carA.sec > 50.0 && std::strcmp(carA.car, "Car A") == 0
+              && carA.hpHz == 2.0 && carA.suspHz == 6.0 && ms.hapRoadFullMm > 0.0,
+              "I-32 Car A after a minute: its own full mm is kept with its name and the cuts");
+        // The stream away and back (a pause): the car is the same car, what
+        // it learned is still there, nothing is published as finished.
+        {
+            const double before = ms.hapRoadFullMm;
+            for (int c = 0; c < 1500; ++c) { TelemetryData sd = f("Game", "Car A", 2.0); sd.ncxFresh = false; run(mc, sd, 1, 1); }
+            const MotionStatus away = mc.getMotionStatus();
+            driveCar(mc, "Game", "Car A", 2.0, 1.0);
+            const MotionStatus back = mc.getMotionStatus();
+            check(std::fabs(away.hapRoadFullMm - before) < 1e-9 && away.roadFullCar.key == carA.key && away.roadFullPrevSeq == 0
+                  && std::fabs(back.hapRoadFullMm - before) < 0.2 && back.roadFullCar.key == carA.key && back.roadFullPrevSeq == 0,
+                  "I-32 the stream away for 3 s and back: the same car, its value kept, nothing published");
+            carA = back.roadFullCar;   // a second more of driving since
+        }
+        // Car B: nothing remembered; A published once.
+        driveCar(mc, "Game", "Car B", 4.0, 1.0);
+        ms = mc.getMotionStatus();
+        check(ms.hapRoadFullMm == 0.0 && ms.roadFullPrevSeq == 1 && ms.roadFullPrev.key == carA.key
+              && std::fabs(ms.roadFullPrev.mm - carA.mm) < 1e-9 && ms.roadFullCar.key != carA.key && ms.roadFullCar.mm == 0.0,
+              "I-32 Car A to Car B: B starts with nothing, A is published as finished with what it had");
+        driveCar(mc, "Game", "Car B", 4.0, 40.0);
+        const double carBmm = mc.getMotionStatus().roadFullCar.mm;
+        check(carBmm > 1.6 * carA.mm, "I-32 Car B (twice the travel) learns about twice the full mm");
+        // Back in Car A: there at once (a few cycles), not after 20 s.
+        driveCar(mc, "Game", "Car A", 2.0, 0.7);
+        ms = mc.getMotionStatus();
+        check(ms.roadFullPrevSeq == 2 && std::fabs(ms.roadFullCar.mm - carA.mm) < 0.05 * carA.mm && ms.hapRoadFullMm > 0.0
+              && std::fabs(ms.hapRoadFullMm - std::exp((60.0 * std::log(25.0) + carA.sec * std::log(carA.mm)) / (60.0 + carA.sec))) < 0.5,
+              "I-32 back in Car A: its value is there at once (Car A -> Car B -> Car A)");
+        // The same name in another game is another car.
+        driveCar(mc, "Other game", "Car A", 2.0, 0.7);
+        ms = mc.getMotionStatus();
+        check(ms.hapRoadFullMm == 0.0 && ms.roadFullCar.mm == 0.0, "I-32 the same name in another game is another car: nothing remembered");
+        // A car's id arriving after its name is another key (CarKey.h; the
+        // laws take it for the same car, otherCar()): pinned, since no
+        // sender on record does it. The car starts over, and the name
+        // without the id is published with what it had.
+        {
+            driveCar(mc, "Game", "Car C", 2.0, 30.0);
+            const MotionStatus named = mc.getMotionStatus();
+            for (int c = 0; c < 350; ++c) { TelemetryData sd = f("Game", "Car C", 2.0); std::strncpy(sd.carId, "c1", NCY_STR_LEN - 1); run(mc, sd, 1, 1); }
+            const MotionStatus withId = mc.getMotionStatus();
+            check(named.hapRoadFullMm > 0.0 && withId.hapRoadFullMm == 0.0 && withId.roadFullCar.key != named.roadFullCar.key
+                  && withId.roadFullPrevSeq == named.roadFullPrevSeq + 1 && withId.roadFullPrev.key == named.roadFullCar.key,
+                  "I-32 a car's id arriving after its name: another key, the car starts over (pinned)");
+        }
+
+        // The next session: a controller started from what was kept.
+        {
+            std::vector<haptics::RoadFullEntry> kept = { carA };
+            MotionController next;
+            next.setRoadFullCache(kept);
+            next.configure(cfgRoad(6.0));
+            driveCar(next, "Game", "Car A", 2.0, 0.7);
+            const MotionStatus ns = next.getMotionStatus();
+            check(ns.hapRoadFullMm > 0.0 && std::fabs(ns.roadFullCar.mm - carA.mm) < 0.05 * carA.mm,
+                  "I-32 the next session: Car A has its full mm from its first frames");
+            driveCar(next, "Game", "Car B", 4.0, 0.7);
+            check(next.getMotionStatus().hapRoadFullMm == 0.0, "I-32 the next session: a car that was not kept starts with nothing");
+        }
+        // ...and under other cuts what was kept is not used.
+        {
+            std::vector<haptics::RoadFullEntry> kept = { carA };
+            MotionController other;
+            other.setRoadFullCache(kept);
+            other.configure(cfgRoad(8.0));
+            driveCar(other, "Game", "Car A", 2.0, 0.7);
+            check(other.getMotionStatus().hapRoadFullMm == 0.0, "I-32 the next session under other cuts: what was kept says nothing");
+        }
+    }
+
+    // I-33: the chassis model's roll and pitch signs through the laws. They
+    // are the sender's convention for a game: another car in the same game
+    // keeps them, another game finds them again. A body on a flat road
+    // (roll 4 Hz, pitch 3.3 Hz), the suspension compression positive, the
+    // sender's roll right-up positive and its pitch nose-up positive.
+    // Taking the newGame() call out of the laws fails the last check.
+    {
+        using namespace haptics;
+        const double PI = 3.14159265358979, dt = 0.002;
+        Layer L; LawsState st;
+        EffectParams ep; ep.ampPct = 100.0; ep.routes[0] = { 0, 1.0 };
+        L.configureFx(FxType::Road, ep);
+        RoadParams rp; rp.model = 2.0; rp.hpHz = 2.0; L.configureRoad(rp);
+        NcxValues v; v.fresh = true;
+        double clock = 0.0;
+        auto drive = [&](const char* game, const char* car, double secs) {
+            std::memset(v.game, 0, sizeof v.game); std::memset(v.car, 0, sizeof v.car);
+            std::strncpy(v.game, game, NCY_STR_LEN - 1); std::strncpy(v.car, car, NCY_STR_LEN - 1);
+            for (int i = 0, n = static_cast<int>(secs / dt + 0.5); i < n; ++i)
+            {
+                clock += dt;
+                const double r = 0.3 * std::sin(2.0 * PI * 4.0 * clock), q = 0.2 * std::sin(2.0 * PI * 3.3 * clock);
+                const double side = r * PI / 180.0 * 800.0, end = q * PI / 180.0 * 1350.0;   // left up, nose up, mm
+                const double body[4] = { side + end, -side + end, side - end, -side - end };
+                for (int w = 0; w < 4; ++w) { v.have[NcxValues::SuspTravelFL + w] = true; v.val[NcxValues::SuspTravelFL + w] = -body[w]; }
+                v.have[NcxValues::SpeedKmh] = true; v.val[NcxValues::SpeedKmh] = 100.0;
+                v.have[NcxValues::AccHeave] = true; v.val[NcxValues::AccHeave] = 0.0;
+                v.have[NcxValues::RollDeg]  = true; v.val[NcxValues::RollDeg]  = -r;
+                v.have[NcxValues::PitchDeg] = true; v.val[NcxValues::PitchDeg] = q;
+                driveLaws(L, st, v, dt); L.step(dt);
+            } };
+        drive("Game A", "Car A", 12.0);
+        check(L.roadModel().learnedRollSign() == 0 && L.roadModel().learnedPitchSign() == 0, "I-33 chassis signs: none before 20 s of evidence");
+        drive("Game A", "Car A", 13.0);
+        check(L.roadModel().learnedRollSign() == -1 && L.roadModel().learnedPitchSign() == 1,
+              "I-33 chassis signs: learned through the laws (roll right-up positive, pitch nose-up positive)");
+        // The stream away for 3 s and back: the signs stand.
+        v.fresh = false; drive("Game A", "Car A", 3.0); v.fresh = true; drive("Game A", "Car A", 1.0);
+        check(L.roadModel().learnedRollSign() == -1 && L.roadModel().learnedPitchSign() == 1, "I-33 chassis signs: the stream away and back keeps them");
+        drive("Game A", "Car B", 1.0);
+        check(L.roadModel().learnedRollSign() == -1 && L.roadModel().learnedPitchSign() == 1, "I-33 chassis signs: another car in the same game keeps them");
+        drive("Game B", "Car B", 1.0);
+        check(L.roadModel().learnedRollSign() == 0 && L.roadModel().learnedPitchSign() == 0, "I-33 chassis signs: another game finds them again");
+        drive("Game B", "Car B", 22.0);
+        check(L.roadModel().learnedRollSign() == -1 && L.roadModel().learnedPitchSign() == 1, "I-33 chassis signs: ...and has them 20 s on");
+    }
+
     std::printf("TestHapticsIntegration: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

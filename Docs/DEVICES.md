@@ -744,7 +744,12 @@ above moves with what they pass on. The Road tile plays that, above the
 band the motion cue already covers, per corner. Route it with a part
 like the slip tiles: on a four-post rig each actuator plays its own
 corner, so a bump under the right-front arrives at the right-front and,
-a wheelbase later, at the right-rear.
+a wheelbase later, at the right-rear. A route on `FRONT`, `REAR` or
+`ALL` plays the average of those wheels: the body at the middle of that
+axle, or of the car (the slip tiles play the strongest wheel; the road
+under two wheels differs too much for that, and jumps from one to the
+other). Where each wheel has its own bumps the average is softer than
+one corner, so give such a route more gain.
 
 **model** picks how it is made. Try them; choose whichever feels more
 like the car.
@@ -757,20 +762,24 @@ like the car.
   the car does. **full mm** is the suspension movement that counts as
   100 % (25 by default). **learn full mm** (off by default) learns it
   for each car instead, from how far its suspension moves while you drive
-  above 30 km/h: after 20 seconds of driving it plays the learned value,
-  shown on that row, and full mm is greyed (yours is kept for when it is
-  off). Cars differ a lot here, and so do sims: once the slow body
+  above 30 km/h. It starts from your full mm and moves to the car's own
+  over the first minutes of driving; the learned value shows on that row
+  and full mm is greyed (yours is kept for when it is off, and the
+  roughness always plays against it). What it learns is remembered for
+  each car, so the next drive in it starts where the last one ended.
+  Cars differ a lot here, and so do sims: once the slow body
   movement is cut away, an Automobilista 2 car moves about half as far as
   an Assetto Corsa one, so with one full mm its road plays at half
   strength. Learned, every car plays its bumps at a similar strength
   (set so Assetto Corsa's Porsche GT3 R comes out at about the 29 mm of the GT3
-  starting point, with its cuts). It learns from the track too: a bumpy one
-  teaches a larger full mm than a smooth one, so a bumpy track plays a
-  little softer than it would with a fixed value. It remembers about the
-  last five minutes of driving, so it follows a change of track; a new car,
-  or a change of cut hz or susp cut hz, starts it over. **rough x** sets the roughness (1 is a smooth
-  public road, 2 by default, more for a bumpy track, 0 for the sim's
-  movement alone); where the sim says what is under the tyre
+  starting point, with its cuts). It learns from the track too, slowly: it
+  weighs about the last half hour of driving in the car, so one bumpy
+  lap does not move it and a bumpy track comes through as bumpier. A
+  change of cut hz or susp cut hz starts it over. **rough x** sets the
+  roughness (1 is a smooth public road, 2 by default, more for a bumpy
+  track, 0 for the sim's movement alone; with **susp cut hz** set it goes
+  through that cut as well, so only what is above the cut plays); where
+  the sim says what is under the tyre
   (Automobilista 2) it is rougher on bumpy tarmac, cobbles,
   dirt and gravel, undulates softly on grass, fills in on snow and is
   glassy on ice; water on the road smooths it (the Surface tile's
@@ -787,8 +796,9 @@ like the car.
 - **chassis**: the sim's own body movement, its vertical acceleration,
   pitch and roll, in the same band, spread to the corners by the car's
   wheelbase and track. Which way the sim's pitch and roll turn is learned
-  from the suspension in the first few seconds of driving; until then it
-  plays the up and down alone, the same at every corner.
+  from the suspension over the first 20 seconds or so of driving above
+  30 km/h in a game; until then it plays the up and down alone, the same
+  at every corner.
 
 A seat actuator is moved by the movement (how far); a belt or shaker
 pushes with its acceleration (how hard). For tyre and chassis, **body
@@ -807,11 +817,12 @@ cue is already doing, lower it to let longer undulations through).
 For suspension and tyre, the sim's own movement (its suspension, or its
 road under the tyre) and the roughness can be set apart. **susp %** is
 how much of the sim's movement plays (100 by default; 0 leaves the
-roughness alone). **susp cut hz** is a steep cut on the sim's movement
-only (0, off, by default): set it above the car's body bounce (3 to 4
-for a road car, 5 to 7 for a GT3, 7 to 9 for a single-seater) and the
-body's slow dive, roll and crests, which the motion already gives you,
-drop away while the track's bumps and the roughness stay. Cut hz is a
+roughness alone). **susp cut hz** is a steep cut (0, off, by default) on
+the sim's movement and, in the suspension model, on the roughness too:
+set it above the car's body bounce (3 to 4 for a road car, 5 to 7 for a
+GT3, 7 to 9 for a single-seater) and the body's slow dive, roll and
+crests, which the motion already gives you, drop away while the track's
+bumps and the roughness's texture stay. Cut hz is a
 gentle cut on everything; susp cut hz removes far more of the slow
 movement for the same effect on the bumps.
 Movements past about 60 % of full bend over a soft knee towards 100 %

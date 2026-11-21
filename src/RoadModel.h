@@ -39,10 +39,10 @@
 //   2 CHASSIS     the sim's own body: heave acceleration integrated twice,
 //                 pitch and roll (through a steep second-order cut), above
 //                 cut hz, spread to the corners by
-//                 the car's wheelbase and track (rigid body). The signs of
-//                 pitch and roll against the corners are LEARNED from the
-//                 per-wheel suspension (no rig geometry asked of anyone):
-//                 until learned, heave only.
+//                 the car's wheelbase and track (rigid body). Which way the
+//                 sender's pitch and roll turn is LEARNED from the per-wheel
+//                 suspension (RoadChassisSigns.h; no rig geometry asked of
+//                 anyone): until learned, heave only.
 //
 // Every model yields per wheel a POSITION sample (body displacement / the
 // full scale, for seat posts) and a FORCE sample (body acceleration, for
@@ -55,6 +55,8 @@
 
 #include "HapticsTypes.h"
 #include "NcxTokens.h"      // Wheel order, SurfaceClass
+#include "RoadChassisSigns.h"
+#include "RoadFullLearner.h"
 #include "WaveSynth.h"
 #include <algorithm>
 #include <cmath>
@@ -64,7 +66,6 @@ namespace haptics {
 
 namespace road_k {
     constexpr double kMinHpHz    = 0.5;
-    constexpr double kMinFullMm  = 0.5;
     constexpr double kReleaseSec = 0.120;   // fade when the stream stops driving
     constexpr double kDerateHz   = 8.0;     // representative bump rate for position-sink derating
     constexpr double kKnee       = 0.6;     // linear up to this share of full, then a soft knee
@@ -98,36 +99,22 @@ namespace road_k {
     constexpr double kSurfEaseSec = 0.1;
     constexpr double kGroundEaseSec = 0.02;   // a tyre leaving or meeting the ground eases over this
     // Full mm learned per car (the suspension model, with learn full mm):
-    // each corner's travel as the model plays it (after cut hz and susp cut
-    // hz, before susp %), in a histogram of log-spaced bins from
-    // kFullLearnLoMm to kFullLearnHiMm, pooled over the four corners while
-    // the car rolls above kFullLearnMinKmh with the tyre on the ground. Full
-    // = its kFullLearnQ quantile / kFullLearnShare, once kFullLearnMinSec of
-    // driving is in it, refreshed every kFullLearnEverySec. Measured on 25
-    // recorded sessions at the GT3 starting point's cuts (cut hz 3, susp
-    // cut hz 6): the 99th percentile is 2.6 mm for Assetto Corsa's Porsche
-    // GT3 R, which at this share is the 29 mm that starting point sets by
-    // hand; across the cars 1.3 to 4.1 mm, and Automobilista 2's cars move
-    // about half as far as Assetto Corsa's (with one full mm for both, its
-    // road played at half strength). It remembers about kFullLearnMemorySec
-    // of driving (older driving fades out: a new track, a car the sim does
-    // not name), learns only while the road speed is sent (a reset's jolt,
-    // its speed held from before, taught a full mm at the 50 limit), starts
-    // over when the cuts change (its millimetres are after them), and the
-    // full mm in use eases to a new value over kFullEaseSec.
-    constexpr int    kFullLearnBins    = 160;   // 5 % wide
-    constexpr double kFullLearnLoMm    = 0.05, kFullLearnHiMm = 128.0;
-    constexpr double kFullLearnMinKmh  = 30.0;
-    constexpr double kFullLearnQ       = 0.99;
-    constexpr double kFullLearnShare   = 0.09;
-    constexpr double kFullLearnMinSec  = 20.0;
-    constexpr double kFullLearnEverySec = 0.5;
-    constexpr double kFullLearnMemorySec = 300.0;
-    constexpr double kFullLearnMaxMm   = 50.0;   // the field's own range
+    // RoadFullLearner.h. It is fed each corner's travel as the model plays
+    // it (after cut hz and susp cut hz, before susp %) while the car rolls
+    // above kFullLearnMinKmh with the tyre on the ground and the road speed
+    // is sent (a reset's jolt, its speed held from before, taught a full mm
+    // at the 50 limit); it starts over when the cuts change (its
+    // millimetres are after them). The learned full divides the game's own
+    // movement only: the roughness is laid out in millimetres of road and
+    // keeps the full mm as set (divided by the learned one, a car whose
+    // suspension moves little played its roughness several times louder,
+    // the opposite of what learning is for). Both ease to a new value over
+    // kFullEaseSec.
     constexpr double kFullEaseSec      = 1.0;
-    // Chassis model.
-    constexpr double kLearnSec   = 5.0;     // sign learning memory
-    constexpr double kLearnCorr  = 0.3;     // correlation that sets a sign
+    // Chassis model: each corner's compression for the sign learner. Travel
+    // is taken as sent; a velocity is added up, leaking this slowly (it only
+    // keeps the sum bounded: under a degree of phase in the model's band).
+    constexpr double kCompLeakHz = 0.05;
     // Kerb model.
     constexpr double kKerbAttackSec  = 0.008;   // onto the kerb: abrupt
     constexpr double kKerbReleaseSec = 0.025;   // off it: nearly as abrupt
@@ -271,6 +258,7 @@ public:
         if (!std::isfinite(velMmS)) velMmS = 0.0;
         m_w[wheel].v = velMmS;
         m_w[wheel].dx = 0.0;
+        m_w[wheel].haveTravel = false;   // a sender going from travel to velocity with no gap between
         m_w[wheel].driven = true;
     }
     // ...or suspension travel, mm, signed, for sims that give position
@@ -342,6 +330,7 @@ public:
         const int model = static_cast<int>(p.model + 0.5);
         const double hp   = std::max(kMinHpHz, p.hpHz);
         const double leak = std::exp(-2.0 * wavesynth::kPi * hp * dtSec);
+        const double compLeak = std::exp(-2.0 * wavesynth::kPi * kCompLeakHz * dtSec);
 
         // The suspension integral runs whatever the model: it is model 0's
         // output, model 1's road input where the sim sends no road, and
@@ -352,8 +341,12 @@ public:
             // A new suspension sample: travel moved, or the velocity changed.
             w.fresh = w.driven && (w.haveTravel ? (w.dx != 0.0) : (w.v != w.vPrev));
             w.vPrev = w.v;
-            if (w.driven) w.x = w.x * leak + w.v * dtSec + w.dx;
-            else        { w.x *= leak; w.haveTravel = false; }
+            if (w.driven)
+            {
+                w.x = w.x * leak + w.v * dtSec + w.dx;
+                w.comp = w.haveTravel ? w.lastTravel : w.comp * compLeak + w.v * dtSec;
+            }
+            else { w.x *= leak; w.haveTravel = false; }
             w.suspDriven = w.driven;
             susp   = susp   || w.driven;
             height = height || w.heightDriven;
@@ -367,6 +360,10 @@ public:
                              : (model == 2) ? m_chassisDriven
                              : susp;
 
+        // Another model running: the chassis model starts afresh when it
+        // comes back (stale filter state stepped onto new values would play
+        // a jolt, and count as evidence for a sign).
+        if (model != 2) restChassis();
         if (model == 1)      stepTyre(dtSec, p, hp);
         else if (model == 2) stepChassis(dtSec, p, hp, leak);
         else                 stepSuspension(dtSec, p, hp);
@@ -382,16 +379,26 @@ public:
         m_speedDriven = m_chassisDriven = false;
     }
 
-    // The strongest corner of the part, per sink kind.
+    // The part's corners averaged, per sink kind: the body at the middle of
+    // that axle, or of the car (a rigid body's middle moves by the mean of
+    // its corners: in the chassis model exactly the heave, with the pitch on
+    // an axle, the roll cancelled). The road under two wheels disagrees in
+    // sign much of the time, and taking the stronger corner each cycle
+    // jumped from one wheel to the other and back: on recorded drives
+    // several times a second, by up to the whole scale within one cycle.
+    // The mean has one wheel's steps. Where each wheel has its own road
+    // (suspension, tyre) it plays softer than the stronger corner did: an
+    // axle about 0.7, all four about a third, on the same drives. The sum
+    // over the root of the count would keep that strength, and was tried,
+    // but it doubles whatever the wheels do together (all of the chassis
+    // model's heave on an all route).
     RoadOut outputFor(Part part) const
     {
         int first, last; partWheels(part, first, last);
         RoadOut o;
-        for (int i = first; i <= last; ++i)
-        {
-            if (std::fabs(m_w[i].out.pos)   > std::fabs(o.pos))   o.pos   = m_w[i].out.pos;
-            if (std::fabs(m_w[i].out.force) > std::fabs(o.force)) o.force = m_w[i].out.force;
-        }
+        for (int i = first; i <= last; ++i) { o.pos += m_w[i].out.pos; o.force += m_w[i].out.force; }
+        const double n = static_cast<double>(last - first + 1);
+        o.pos /= n; o.force /= n;
         return o;
     }
 
@@ -414,37 +421,25 @@ public:
         return false;
     }
 
-    // Full mm learned for this car (0 = not yet: too little driving), and
-    // the seconds of driving it has learned over. It learns whether or not
-    // learn full mm is ticked, so the tile can show it either way.
-    double learnedFullMm() const  { return m_fullMm; }
-    double learnedFullSec() const { return m_fullSec / WHEEL_COUNT; }
+    // Full mm learned for this car (0 = not yet: nothing remembered for it
+    // and too little driving), and the seconds driven in it this session. It
+    // learns whether or not learn full mm is ticked, so the tile can show it
+    // either way.
+    double learnedFullMm() const  { return m_full.valueMm(); }
+    double learnedFullSec() const { return m_full.drivenSec(); }
     // A different car: its suspension starts over.
-    void forgetFull()
-    {
-        for (double& b : m_fullHist) b = 0.0;
-        m_fullMass = m_fullSec = m_fullMm = m_fullNextSec = 0.0;
-    }
-    // The travel (mm) at quantile q of what has been learned (0 if nothing):
-    // the tests' and the tile's way in.
-    double fullQuantileMm(double q) const
-    {
-        using namespace road_k;
-        if (m_fullMass <= 0.0) return 0.0;
-        const double want = std::max(0.0, std::min(1.0, q)) * m_fullMass;
-        const double step = std::log(kFullLearnHiMm / kFullLearnLoMm) / kFullLearnBins;
-        double acc = 0.0;
-        for (int b = 0; b < kFullLearnBins; ++b)
-        {
-            if (acc + m_fullHist[b] >= want && m_fullHist[b] > 0.0)
-            {
-                const double f = (want - acc) / m_fullHist[b];   // within the bin, geometric
-                return kFullLearnLoMm * std::exp((b + f) * step);
-            }
-            acc += m_fullHist[b];
-        }
-        return kFullLearnHiMm;
-    }
+    void forgetFull() { m_full.forget(); }
+    // Another game: which way its sender's roll and pitch turn is to be
+    // found again (the chassis model plays heave only until it is).
+    void forgetSigns() { m_signs.forget(); }
+    // What was remembered for this car from earlier driving (RoadFullMemory).
+    void seedFull(double mm, double sec) { m_full.seed(mm, sec); }
+    // The car's own evidence, to be remembered: mm, and the seconds behind it.
+    double carFullMm() const  { return m_full.carMm(); }
+    double carFullSec() const { return m_full.carSec(); }
+    // The travel (mm) at quantile q of this session's driving (0 if none):
+    // the tests' way in.
+    double fullQuantileMm(double q) const { return m_full.quantileMm(q); }
 
     void clear()
     {
@@ -455,8 +450,9 @@ public:
         m_vh = m_zh = m_aHp = m_aPrev = 0.0;
         m_accF = m_pitchF = m_rollF = 0.0;
         m_rollHp = m_pitchHp = 0.0; m_rollCut = HighPass2{}; m_pitchCut = HighPass2{};
-        m_cH = m_eH = m_eM = m_cR = m_eR = m_eLR = m_cP = m_eP = m_eFB = 0.0;
-        m_signH = 1; m_signR = m_signP = 0; m_pol = 0;
+        // (the learned signs stay: they are the sender's convention for the
+        // game, not signal state; forgetSigns() on another game)
+        m_lrF = m_fbF = 0.0; m_lrCut = HighPass2{}; m_fbCut = HighPass2{}; m_suspBandSeen = false;
         m_chassisSeen = false;
     }
 
@@ -474,9 +470,9 @@ public:
         const float* z = m_prof[side & 1];
         return z[i0 % kProfileN] * (1.0 - fr) + z[i1 % kProfileN] * fr;
     }
-    int    learnedPolarity() const  { return m_pol; }
-    int    learnedRollSign() const  { return m_signR; }
-    int    learnedPitchSign() const { return m_signP; }
+    int    learnedRollSign() const  { return m_signs.roll(); }
+    int    learnedPitchSign() const { return m_signs.pitch(); }
+    const RoadChassisSigns& chassisSigns() const { return m_signs; }
     double distance() const         { return m_dist; }
 
 private:
@@ -488,6 +484,7 @@ private:
         bool   haveTravel = false, driven = false, suspDriven = false, heightDriven = false;
         // suspension replay
         double x = 0.0, y = 0.0;
+        double comp = 0.0;   // the corner's compression, mm (chassis model: the sign learner)
         // tyre model
         double hpH = 0.0, hpHPrev = 0.0; bool hpHSeen = false;   // the real road, hills off
         double realF = 0.0;                                      // ...its samples joined and smoothed
@@ -503,8 +500,9 @@ private:
         // suspension model's roughness: its quarter car and output
         double synF = 0.0, dHp = 0.0, dPrev = 0.0;
         QuarterCar qr;
-        // the game's own movement's steep cut (susp cut hz)
-        HighPass2 simHp;
+        // the steep cut (susp cut hz): the game's own movement's, and the
+        // suspension model's roughness's
+        HighPass2 simHp, roughHp;
         // out
         RoadOut out;
         double mm = 0.0, gate = 0.0;
@@ -513,13 +511,18 @@ private:
     void stepSuspension(double dtSec, const RoadParams& p, double hpHz)
     {
         using namespace road_k;
-        // Full: learned for this car with learn full mm (once it has), else
-        // as set; eased to a new value.
-        const bool learnedFull = p.fullLearn >= 0.5 && m_fullMm > 0.0;
-        const double fullTarget = std::max(kMinFullMm, learnedFull ? m_fullMm : p.fullMm);
+        // Full for the game's own movement: learned for this car with learn
+        // full mm (once it has), else as set. Full for the roughness: as
+        // set, always. Both eased to a new value.
+        const bool learnedFull = p.fullLearn >= 0.5 && m_full.valueMm() > 0.0;
+        const double setFull    = std::max(kMinFullMm, p.fullMm);
+        const double fullTarget = std::max(kMinFullMm, learnedFull ? m_full.valueMm() : p.fullMm);
+        const double fullEase   = std::min(1.0, dtSec / kFullEaseSec);
         if (m_fullUse <= 0.0) m_fullUse = fullTarget;
-        else m_fullUse += (fullTarget - m_fullUse) * std::min(1.0, dtSec / kFullEaseSec);
-        const double full = m_fullUse;
+        else m_fullUse += (fullTarget - m_fullUse) * fullEase;
+        if (m_fullRoughUse <= 0.0) m_fullRoughUse = setFull;
+        else m_fullRoughUse += (setFull - m_fullRoughUse) * fullEase;
+        const double full = m_fullUse, fullRough = m_fullRoughUse;
         const bool learning = m_speedDriven && m_speed * 3.6 > kFullLearnMinKmh;
         const double smooth = 1.0 - std::exp(-2.0 * wavesynth::kPi * kSmoothHz * dtSec);
         const bool rough = p.rough > 0.0;
@@ -545,51 +548,38 @@ private:
                 w.qr.step(dtSec, w.synF, k);
                 const double d = w.qr.zu - w.qr.zs;
                 w.dHp = outA * (w.dHp + d - w.dPrev); w.dPrev = d;
-                add = w.dHp;
+                // ...through the same steep cut as the game's own movement:
+                // the quarter car bounces at body hz, and left uncut that
+                // bounce (below susp cut hz, the motion's job) was most of
+                // what the roughness played.
+                add = steepCut(w.roughHp, w.dHp, dtSec, p);
             }
+            else w.roughHp.seen = false;
             const double sim = simCut(w, w.x, dtSec, p);
-            if (learning && w.suspDriven && w.groundF > 0.9) learnFull(sim, dtSec);
-            const double total = sim * suspShare(p) + add;
-            w.y += (softKnee(total / full) - w.y) * smooth;
+            if (learning && w.suspDriven && w.groundF > 0.9) m_full.add(sim, dtSec);
+            const double simPlayed = sim * suspShare(p);
+            w.y += (softKnee(simPlayed / full + add / fullRough) - w.y) * smooth;
             w.out.pos = w.out.force = w.y;
-            w.mm = total;
+            w.mm = simPlayed + add;
         }
-        // The learned full, worked out now and then (it moves slowly), the
-        // older driving fading as it goes.
-        if (m_fullSec >= kFullLearnMinSec * WHEEL_COUNT && m_fullSec >= m_fullNextSec)
-        {
-            m_fullMm = std::max(kMinFullMm, std::min(kFullLearnMaxMm, fullQuantileMm(kFullLearnQ) / kFullLearnShare));
-            m_fullNextSec = m_fullSec + kFullLearnEverySec * WHEEL_COUNT;
-            const double keep = std::exp(-kFullLearnEverySec / kFullLearnMemorySec);
-            for (double& b : m_fullHist) b *= keep;
-            m_fullMass *= keep;
-        }
+        m_full.update(p.fullMm);
     }
 
-    // One corner's travel as the model plays it, into the histogram.
-    void learnFull(double mm, double dtSec)
+    // The steep susp cut when it is set, else x as it is (and the filter
+    // starts afresh the next time it is switched on).
+    static double steepCut(HighPass2& f, double x, double dtSec, const RoadParams& p)
     {
-        using namespace road_k;
-        if (!std::isfinite(mm)) return;
-        const double a = std::fabs(mm);
-        const int b = (a <= kFullLearnLoMm) ? 0
-                    : std::min(kFullLearnBins - 1, static_cast<int>(std::log(a / kFullLearnLoMm)
-                                                    / std::log(kFullLearnHiMm / kFullLearnLoMm) * kFullLearnBins));
-        m_fullHist[b] += dtSec;
-        m_fullMass += dtSec;
-        m_fullSec += dtSec;
-    }
-
-    // The game's own movement as the tile plays it (the suspension model's
-    // suspension travel, the tyre model's road under the tyre): through the
-    // steep susp cut first when that is set, then x susp %. The roughness
-    // the models add is not touched.
-    static double simCut(W& w, double x, double dtSec, const RoadParams& p)
-    {
-        if (p.suspHz > 0.0) return w.simHp.step(x, p.suspHz, dtSec);
-        w.simHp.seen = false;
+        if (p.suspHz > 0.0) return f.step(x, p.suspHz, dtSec);
+        f.seen = false;
         return x;
     }
+    // The game's own movement as the tile plays it (the suspension model's
+    // suspension travel, the tyre model's road under the tyre): through the
+    // steep susp cut first when that is set, then x susp %. The suspension
+    // model's roughness goes through the same cut (its own filter, not x
+    // susp %); the tyre model's is part of the road its quarter car runs
+    // over and is not touched.
+    static double simCut(W& w, double x, double dtSec, const RoadParams& p) { return steepCut(w.simHp, x, dtSec, p); }
     static double suspShare(const RoadParams& p) { return std::max(0.0, std::min(100.0, p.suspPct)) / 100.0; }
     static double simPart(W& w, double x, double dtSec, const RoadParams& p) { return simCut(w, x, dtSec, p) * suspShare(p); }
 
@@ -692,6 +682,15 @@ private:
         }
     }
 
+    // The chassis model's signal state at rest (its signs are not signal
+    // state): every filter starts on the first sample it is next given.
+    void restChassis()
+    {
+        m_chassisSeen = false; m_suspBandSeen = false;
+        m_rollCut.seen = m_pitchCut.seen = m_lrCut.seen = m_fbCut.seen = false;
+        m_vh = m_zh = m_aHp = m_rollHp = m_pitchHp = 0.0;
+    }
+
     void stepChassis(double dtSec, const RoadParams& p, double hpHz, double leak)
     {
         using namespace road_k;
@@ -724,7 +723,7 @@ private:
             m_chassisSeen = false; m_rollCut.seen = m_pitchCut.seen = false;
             m_vh *= leak; m_zh *= leak; m_aHp *= leak; m_rollHp *= leak; m_pitchHp *= leak;
         }
-        learnSigns(dtSec);
+        learnSigns(dtSec, hpHz);
         const double halfWb = 500.0 * ((m_wheelbase > 0.0) ? m_wheelbase : kDefaultWheelbaseM);   // mm
         const double halfTr = 500.0 * ((m_track > 0.0) ? m_track : kDefaultTrackM);
         const double roll  = m_rollHp  * wavesynth::kPi / 180.0;
@@ -734,51 +733,38 @@ private:
             W& w = m_w[i];
             const double xw = (i == WheelFL || i == WheelFR) ? halfWb : -halfWb;
             const double yw = (i == WheelFL || i == WheelRL) ? halfTr : -halfTr;
-            const double z = m_signH * m_zh + m_signR * roll * yw + m_signP * pitch * xw;
+            const double z = m_zh + m_signs.roll() * roll * yw + m_signs.pitch() * pitch * xw;
             w.out.pos   = softKnee(z / bodyMm);
-            w.out.force = softKnee(m_signH * m_aHp / aFull);
+            w.out.force = softKnee(m_aHp / aFull);
             w.mm = z;
         }
     }
 
-    // Pitch and roll against the corners, from the per-wheel suspension.
-    // The spring is what moves the body: k x compression = m x body
-    // acceleration = -m w^2 x body displacement, so a corner's body
-    // displacement runs OPPOSITE to its suspension compression, over a bump
-    // and in a corner alike. Heave is as sent (the protocol: up positive);
-    // its correlation with the mean suspension gives the suspension's own
-    // polarity (compression or extension positive), and roll and pitch take
-    // their signs against the side and end differences through it. Until
-    // the polarity is known: heave only.
-    void learnSigns(double dtSec)
+    // Which way the sender's roll and pitch turn, from the per-wheel
+    // suspension (RoadChassisSigns.h): the left-minus-right and
+    // front-minus-rear compression through the very filters the roll and
+    // pitch went through (the input smoothing, then the steep cut), so the
+    // two sides differ by the car's own physics alone. Heave is as sent (the
+    // protocol: up positive) and the suspension compression positive (the
+    // protocol; every sender on record is). Evidence is taken only while
+    // the car rolls on all four tyres (the road speed sent, above
+    // kSignMinKmh). Until a sign is known that term is left out: heave only.
+    void learnSigns(double dtSec, double hpHz)
     {
         using namespace road_k;
         bool susp = true;
         for (const W& w : m_w) susp = susp && w.suspDriven;
-        if (!susp || !m_chassisDriven) return;
-        const double a  = std::min(1.0, dtSec / kLearnSec);
-        const double M  = 0.25 * (m_w[0].x + m_w[1].x + m_w[2].x + m_w[3].x);
-        const double LR = 0.5 * (m_w[WheelFL].x + m_w[WheelRL].x - m_w[WheelFR].x - m_w[WheelRR].x);
-        const double FB = 0.5 * (m_w[WheelFL].x + m_w[WheelFR].x - m_w[WheelRL].x - m_w[WheelRR].x);
-        const auto upd = [a](double& c, double& e1, double& e2, double x1, double x2)
-        { c += a * (x1 * x2 - c); e1 += a * (x1 * x1 - e1); e2 += a * (x2 * x2 - e2); };
-        upd(m_cH, m_eH, m_eM,  m_zh,      M);
-        upd(m_cR, m_eR, m_eLR, m_rollHp,  LR);
-        upd(m_cP, m_eP, m_eFB, m_pitchHp, FB);
-        // +1 / -1 for a clear correlation, 0 for none.
-        const auto sign = [](double c, double e1, double e2) -> int
-        {
-            const double d = std::sqrt(e1 * e2);
-            if (d < 1e-12) return 0;
-            const double r = c / d;
-            return (r > kLearnCorr) ? 1 : (r < -kLearnCorr) ? -1 : 0;
-        };
-        const int pol = sign(m_cH, m_eH, m_eM);
-        if (pol != 0) m_pol = pol;
-        if (m_pol == 0) return;
-        const int r = sign(m_cR, m_eR, m_eLR), p = sign(m_cP, m_eP, m_eFB);
-        if (r != 0) m_signR = r * m_pol;
-        if (p != 0) m_signP = p * m_pol;
+        if (!susp || !m_chassisDriven) { m_suspBandSeen = false; m_lrCut.seen = m_fbCut.seen = false; return; }
+        const double lr = 0.5 * (m_w[WheelFL].comp + m_w[WheelRL].comp - m_w[WheelFR].comp - m_w[WheelRR].comp);
+        const double fb = 0.5 * (m_w[WheelFL].comp + m_w[WheelFR].comp - m_w[WheelRL].comp - m_w[WheelRR].comp);
+        const double inA = 1.0 - std::exp(-2.0 * wavesynth::kPi * kInputLpHz * dtSec);
+        if (!m_suspBandSeen) { m_lrF = lr; m_fbF = fb; m_suspBandSeen = true; }
+        m_lrF += (lr - m_lrF) * inA;
+        m_fbF += (fb - m_fbF) * inA;
+        const double lrHp = m_lrCut.step(m_lrF, hpHz, dtSec), fbHp = m_fbCut.step(m_fbF, hpHz, dtSec);
+        bool ground = true;
+        for (const W& w : m_w) ground = ground && w.groundF > 0.9;
+        if (ground && m_speedDriven && m_speed * 3.6 > kSignMinKmh) m_signs.add(m_rollHp, m_pitchHp, lrHp, fbHp, dtSec);
     }
 
     // The random road: a leaky random walk on a distance grid (an ISO 8608
@@ -829,15 +815,15 @@ private:
     double m_aHp = 0.0, m_aPrev = 0.0, m_vh = 0.0, m_zh = 0.0;
     double m_rollHp = 0.0, m_pitchHp = 0.0;
     HighPass2 m_rollCut, m_pitchCut;
-    double m_cH = 0.0, m_eH = 0.0, m_eM = 0.0, m_cR = 0.0, m_eR = 0.0, m_eLR = 0.0, m_cP = 0.0, m_eP = 0.0, m_eFB = 0.0;
-    int    m_signH = 1, m_signR = 0, m_signP = 0;
-    int    m_pol = 0;   // the suspension against the body: -1 compression positive, +1 extension positive, 0 unknown
-    // full mm learned for this car: the travel histogram (seconds per bin,
-    // the four corners pooled, older driving fading) and its sum, the
-    // driving time learned over (never fading: the 20 s gate), the value,
-    // when it is next worked out, and the full mm in use (eased)
-    double m_fullHist[road_k::kFullLearnBins] = {};
-    double m_fullMass = 0.0, m_fullSec = 0.0, m_fullMm = 0.0, m_fullNextSec = 0.0, m_fullUse = 0.0;
+    // which way roll and pitch turn, and the suspension's side and end
+    // differences through the roll and pitch's own filters
+    RoadChassisSigns m_signs;
+    double m_lrF = 0.0, m_fbF = 0.0; bool m_suspBandSeen = false;
+    HighPass2 m_lrCut, m_fbCut;
+    // full mm learned for this car, and the full mm in use (eased): for
+    // the game's own movement, and for the roughness
+    RoadFullLearner m_full;
+    double m_fullUse = 0.0, m_fullRoughUse = 0.0;
 };
 
 // ============================================================

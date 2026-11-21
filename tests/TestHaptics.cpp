@@ -17,6 +17,7 @@
 #include "../src/DeviceForceModel.h"
 #include "../src/HapticsRegistry.h"
 #include "../src/HapticsHelp.h"
+#include "../src/RoadFullMemory.h"
 #include <cstdio>
 #include <cstring>
 #include <cmath>
@@ -1327,7 +1328,7 @@ int main()
         }
         approx(pk[0], 100.0 * kTravel / 16.0 * kSmooth10, 3.0, "road: FL corner replays FL travel (full mm scaled, smoothed)");
         CHECK(pk[1] < 1e-9, "road: the RR corner route carries nothing when only FL moves");
-        approx(pk[2], pk[0], 1e-9, "road: the all route carries the biggest corner");
+        approx(pk[2], pk[0] / 4.0, 1e-9, "road: the all route carries the mean of the four corners (one moving: a quarter of it)");
         CHECK(L.roadReplaying(), "road: replay is active while corners are driven");
 
         // The high-pass removes slow body motion: a steady 50 mm/s (the
@@ -1420,6 +1421,35 @@ int main()
         const double withSim = played(texOnly, 12.0, 10.0), alone = played(tex, 12.0, 0.0);
         approx(withSim, alone, 1e-9, "road susp %: 0 leaves the roughness exactly as it was");
         CHECK(alone > 0.01, "road susp %: ...and the roughness plays");
+        // The steep cut takes the roughness's slow part too (its quarter car
+        // bounces at body hz, below the cut: the motion's job, as the sim's
+        // own slow movement is); what is above the cut stays.
+        // The same road both times (the generator starts from one seed), so
+        // what FL plays at one frequency, with the cut against without, is
+        // the cut's own gain there: 0.11 at 2 Hz, 0.24 at 3, 0.996 at 20.
+        {
+            auto tones = [&](const RoadParams& q, double out[3]) {
+                RoadModel m; m.driveGeometry(2.5, 1.6);
+                const double f[3] = { 2.0, 3.0, 20.0 }; double re[3] = {}, im[3] = {};
+                const int N = static_cast<int>(40.0 / dt);
+                for (int i = 0; i < N; ++i)
+                {
+                    for (int w = 0; w < 4; ++w) m.driveTravel(w, 0.0);
+                    m.driveSpeed(40.0);
+                    m.step(dt, q);
+                    const double x = m.wheelTravelMm(WheelFL) * 0.5 * (1.0 - std::cos(2.0 * PI * i / (N - 1)));   // Hann
+                    for (int k = 0; k < 3; ++k) { re[k] += x * std::cos(2.0 * PI * f[k] * i * dt); im[k] += x * std::sin(2.0 * PI * f[k] * i * dt); }
+                }
+                for (int k = 0; k < 3; ++k) out[k] = std::hypot(re[k], im[k]); };
+            RoadParams rough = base; rough.rough = 2.0; rough.suspPct = 0.0; rough.bodyHz = 3.0; rough.hpHz = 3.0;
+            RoadParams roughSteep = rough; roughSteep.suspHz = 6.0;
+            double a[3], b[3];
+            tones(rough, a); tones(roughSteep, b);
+            std::printf("  road susp cut 6 Hz on the roughness: 2 Hz x %.3f, 3 Hz x %.3f, 20 Hz x %.3f\n", b[0] / a[0], b[1] / a[1], b[2] / a[2]);
+            CHECK(a[0] > 1.0 && a[1] > 1.0 && a[2] > 1.0, "road susp cut: the roughness plays at 2, 3 and 20 Hz");
+            CHECK(b[0] < 0.2 * a[0] && b[1] < 0.35 * a[1], "road susp cut: the roughness's slow bounce (below the cut) drops away too");
+            CHECK(b[2] > 0.95 * a[2], "road susp cut: ...and its texture above the cut stays");
+        }
         // The tyre model: the steep cut acts on its road input the same way.
         RoadParams tyre; tyre.model = 1; tyre.rough = 0.0; tyre.bodyMm = 50.0;
         RoadParams tyreSteep = tyre; tyreSteep.suspHz = 6.0;
@@ -1458,18 +1488,24 @@ int main()
         RoadModel m1, m2;
         const Run a1 = drive(m1, q, 2.0, 100.0, 30.0);
         const double expect = 2.0 * 12.0 / std::hypot(12.0, 2.0) / 0.09;   // the sine's peak through the 2 Hz cut, at the 9 % share
-        std::printf("  road learn full: 2 mm of travel learns %.1f mm (expected %.1f)\n", a1.learned, expect);
-        CHECK(std::fabs(a1.learned / expect - 1.0) < 0.1, "road learn full: the car's travel at the 99th percentile, over the share");
+        std::printf("  road learn full: 2 mm of travel: the car's own %.1f mm (expected %.1f), in use %.1f\n", m1.carFullMm(), expect, a1.learned);
+        CHECK(std::fabs(m1.carFullMm() / expect - 1.0) < 0.1, "road learn full: the car's travel at the 99th percentile, over the share");
+        // The value in use starts from the full mm as set (60 s of weight)
+        // and leaves it as the driving comes in (30 s so far).
+        approx(a1.learned, std::exp((60.0 * std::log(q.fullMm) + 30.0 * std::log(m1.carFullMm())) / 90.0), 0.3,
+               "road learn full: in use, the set full mm and the car's own by the seconds behind each");
         // Ticked: the same car plays against what it learned (eased in over
         // about a second).
         RoadParams on = q; on.fullLearn = 1.0;
         const Run b1 = drive(m1, on, 2.0, 100.0, 5.0);
-        approx(b1.peak / a1.peak, q.fullMm / a1.learned, 0.03, "road learn full: ticked, the learned full mm plays instead of the set one");
-        // A car whose suspension moves twice as far learns twice the full, so
-        // both play at the same strength.
-        const Run b2 = drive(m2, on, 4.0, 100.0, 30.0);
-        approx(m2.learnedFullMm() / m1.learnedFullMm(), 2.0, 0.1, "road learn full: twice the travel learns twice the full mm");
-        approx(b2.peak / b1.peak, 1.0, 0.05, "road learn full: ...so both cars play at the same strength");
+        approx(b1.peak / a1.peak, q.fullMm / m1.learnedFullMm(), 0.03, "road learn full: ticked, the learned full mm plays instead of the set one");
+        // A car whose suspension moves twice as far learns twice the full...
+        drive(m2, on, 4.0, 100.0, 35.0);
+        approx(m2.carFullMm() / m1.carFullMm(), 2.0, 0.1, "road learn full: twice the travel learns twice the full mm");
+        // ...so after ten minutes in each both play at nearly the same
+        // strength (the set value still counts for a tenth).
+        const Run c1long = drive(m1, on, 2.0, 100.0, 600.0), c2long = drive(m2, on, 4.0, 100.0, 600.0);
+        approx(c2long.peak / c1long.peak, 1.0, 0.1, "road learn full: ...so both cars come to play at the same strength");
         // A new car starts over, and the set full mm plays until it has learned.
         m1.forgetFull();
         CHECK(m1.learnedFullMm() == 0.0 && m1.learnedFullSec() == 0.0, "road learn full: a new car starts over");
@@ -1487,18 +1523,30 @@ int main()
         { RoadModel m; RoadParams t = q; t.model = model; const Run a = drive(m, t, 2.0, 100.0, 5.0);
           CHECK(a.sec == 0.0, "road learn full: nothing in the tyre or chassis model"); }
         // The ends: a car that barely moves, one that moves past the range.
-        { RoadModel m; const Run a = drive(m, q, 0.01, 100.0, 25.0);
-          CHECK(a.learned >= 0.5 && a.learned < 1.0, "road learn full: a car that barely moves learns the 0.5 mm floor"); }
-        { RoadModel m; const Run a = drive(m, q, 300.0, 100.0, 25.0);
-          CHECK(a.learned == 50.0, "road learn full: one moving past the range learns the 50 mm ceiling"); }
-        // Older driving fades (a new track, a car the sim does not name):
-        // after five minutes on twice the travel it has followed.
+        { RoadModel m; drive(m, q, 0.01, 100.0, 25.0);
+          CHECK(m.carFullMm() >= 0.5 && m.carFullMm() < 1.0, "road learn full: a car that barely moves learns the 0.5 mm floor"); }
+        { RoadModel m; drive(m, q, 300.0, 100.0, 25.0);
+          approx(m.carFullMm(), 50.0, 1e-9, "road learn full: one moving past the range learns the 50 mm ceiling"); }
+        // The roughness keeps the full mm as set whatever was learned: a car
+        // whose suspension barely moves (a small learned full) does not play
+        // its roughness louder (it did, by set / learned).
         {
-            RoadModel m; drive(m, q, 2.0, 100.0, 60.0);
-            const double before = m.learnedFullMm();
-            drive(m, q, 4.0, 100.0, 300.0);
-            std::printf("  road learn full: 2 mm for a minute %.1f, then 4 mm for five %.1f\n", before, m.learnedFullMm());
-            CHECK(m.learnedFullMm() > 1.8 * before, "road learn full: older driving fades, the learned value follows");
+            RoadParams r = q; r.rough = 2.0; r.fullLearn = 1.0;
+            auto roughRms = [&](RoadModel& m, double amp) {
+                drive(m, r, amp, 100.0, 300.0);
+                double s = 0.0; const int N = static_cast<int>(20.0 / dt);
+                for (int i = 0; i < N; ++i)
+                {
+                    for (int w = 0; w < 4; ++w) m.driveTravel(w, 0.0);   // the suspension still: the roughness alone
+                    m.driveSpeed(100.0 / 3.6); m.step(dt, r);
+                    if (i > N / 4) s += m.outputFor(haptics::Part::FL).pos * m.outputFor(haptics::Part::FL).pos;
+                }
+                return std::sqrt(s / (N - N / 4 - 1)); };
+            RoadModel small, big;
+            const double rs = roughRms(small, 0.3), rb = roughRms(big, 3.0);
+            std::printf("  road learn full: learned %.1f and %.1f mm, the roughness plays %.4f and %.4f\n", small.learnedFullMm(), big.learnedFullMm(), rs, rb);
+            CHECK(big.learnedFullMm() > 3.0 * small.learnedFullMm(), "road learn full: the two cars learn full mm far apart");
+            approx(rs / rb, 1.0, 0.02, "road learn full: the roughness plays the same in both (over the set full mm)");
         }
         // Through the layer: a new car, or new cuts, start it over.
         {
@@ -1523,6 +1571,206 @@ int main()
             RoadParams cut = q; cut.suspHz = 6.0; L.configureRoad(cut);
             CHECK(L.roadModel().learnedFullSec() == 0.0, "road learn full: new cuts start it over (its mm are after them)");
         }
+    }
+
+    // ================= road: full mm, the learner on its own and its memory per car =================
+    {
+        using haptics::RoadFullLearner; using haptics::RoadFullMemory; using haptics::RoadFullEntry;
+        const double PI = 3.14159265358979, share = 0.09;
+        // Every corner's travel a 12 Hz sine of amp mm, for secs of driving,
+        // with the full mm set to `set`.
+        auto feed = [&](RoadFullLearner& L, double amp, double secs, double set)
+        {
+            const double dt = 0.005; const int N = static_cast<int>(secs / dt + 0.5);
+            for (int i = 0; i < N; ++i)
+            {
+                const double x = amp * std::sin(2.0 * PI * 12.0 * i * dt + 0.1);
+                for (int w = 0; w < 4; ++w) L.add(x, dt);
+                L.update(set);
+            }
+        };
+        // A car it does not know: nothing for 20 s, then from the set value
+        // towards its own as the driving comes in.
+        {
+            RoadFullLearner L; feed(L, 2.0, 19.0, 30.0);
+            CHECK(L.valueMm() == 0.0 && L.carMm() == 0.0, "full learner: nothing before 20 s of driving in a car it does not know");
+            feed(L, 2.0, 2.0, 30.0);
+            approx(L.carMm(), 2.0 / share, 1.5, "full learner: the car's own is its travel at the 99th percentile, over the share");
+            approx(L.valueMm(), std::exp((60.0 * std::log(30.0) + 21.0 * std::log(L.carMm())) / 81.0), 0.2,
+                   "full learner: in use, the set value (60 s) and the car's own by the seconds behind each");
+            CHECK(L.valueMm() > 0.85 * 30.0, "full learner: 20 s of driving barely moves it off the set value (it jumped straight to the car's own)");
+            feed(L, 2.0, 1800.0, 30.0);
+            approx(L.valueMm(), 2.0 / share, 1.5, "full learner: half an hour in, the car's own");
+            L.forget();
+            CHECK(L.valueMm() == 0.0 && L.carMm() == 0.0 && L.carSec() == 0.0 && L.drivenSec() == 0.0 && !L.seeded(),
+                  "full learner: another car starts over");
+        }
+        // A car that is remembered: its value at once, and a rough minute
+        // (the session's 99th percentile doubles) moves it by under a third.
+        {
+            RoadFullLearner L; L.seed(22.0, 1800.0); L.update(30.0);
+            approx(L.carMm(), 22.0, 1e-9, "full learner: a remembered car has its value at once");
+            approx(L.valueMm(), std::exp((60.0 * std::log(30.0) + 1800.0 * std::log(22.0)) / 1860.0), 1e-6,
+                   "full learner: ...the set value counting for little beside it");
+            approx(L.carSec(), 1800.0, 1e-9, "full learner: ...and the seconds behind it");
+            feed(L, 2.0, 600.0, 30.0);
+            const double before = L.valueMm();
+            feed(L, 4.0, 60.0, 30.0);
+            std::printf("  full learner: remembered 22, ten minutes at 2 mm %.1f, then a minute at 4 mm %.1f\n", before, L.valueMm());
+            CHECK(L.valueMm() > before && L.valueMm() < 1.3 * before, "full learner: a rough minute moves a remembered car's value by under a third (it doubled)");
+        }
+        // What was remembered counts as half an hour of driving at most,
+        // however long it stood for; nonsense is not taken.
+        {
+            RoadFullLearner L; L.seed(40.0, 1e9); feed(L, 2.0, 1800.0, 30.0);
+            const double wr = 1800.0 * (1.0 - std::exp(-1.0));   // what half an hour of driving weighs after its own fading
+            approx(L.carMm(), std::exp((1800.0 * std::log(40.0) + wr * std::log(2.0 / share)) / (1800.0 + wr)), 1.5,
+                   "full learner: what was remembered counts as half an hour at most");
+            RoadFullLearner N; N.seed(-3.0, 100.0); N.seed(20.0, 0.0); N.seed(std::nan(""), 5.0); N.update(30.0);
+            CHECK(!N.seeded() && N.valueMm() == 0.0, "full learner: a remembered value that is no value is not taken");
+        }
+        // Driving older than its memory fades out.
+        {
+            RoadFullLearner L; feed(L, 4.0, 120.0, 30.0); feed(L, 2.0, 3.0 * 3600.0, 30.0);
+            approx(L.carMm(), 2.0 / share, 1.5, "full learner: driving older than its memory fades out");
+        }
+        // The full mm as set is one of the three the value is made of: set
+        // anew with the car standing, the value follows at once (it waited
+        // for the next half second of driving).
+        {
+            RoadFullLearner L; L.seed(20.0, 120.0); L.update(30.0);
+            const double at30 = L.valueMm();
+            L.update(10.0);
+            approx(L.valueMm(), std::exp((60.0 * std::log(10.0) + 120.0 * std::log(20.0)) / 180.0), 1e-6,
+                   "full learner: a new full mm as set counts at once, the car standing");
+            CHECK(L.valueMm() < at30 - 1.0 && std::fabs(L.carMm() - 20.0) < 1e-9, "full learner: ...and the car's own evidence is not touched by it");
+        }
+
+        // The memory per car. Car A learns, Car B starts with nothing and
+        // Car A is published as finished; back in Car A its value is there.
+        {
+            const uint64_t A = carIdentityKey("Game", "Car A", "id1"), B = carIdentityKey("Game", "Car B", "");
+            CHECK(A != 0 && B != 0 && A != B && A == carIdentityKey("Game", "Car A", "id1")
+                  && A != carIdentityKey("Game", "Car A", "id2") && A != carIdentityKey("Other", "Car A", "id1")
+                  && carIdentityKey("ab", "c", "") != carIdentityKey("a", "bc", ""),
+                  "full memory: one key per game, car and id");
+            RoadFullMemory M;
+            RoadFullMemory::Seed s = M.step(A, "Car A", 0.0, 0.0, 3.0, 6.0);
+            CHECK(s.changed && !s.any && M.find(A) == nullptr, "full memory: a car never driven has nothing");
+            CHECK(!M.step(A, "Car A", 0.0, 0.0, 3.0, 6.0).changed, "full memory: the same car a cycle on is no change");
+            for (int i = 0; i < 10; ++i) M.step(A, "Car A", 20.0, 300.0, 3.0, 6.0);
+            CHECK(M.current().key == A && M.current().mm == 20.0 && M.finishedSeq() == 0, "full memory: the car being driven is kept as it learns");
+            s = M.step(B, "Car B", 0.0, 0.0, 3.0, 6.0);
+            CHECK(s.changed && !s.any && M.finishedSeq() == 1 && M.finished().key == A && M.finished().mm == 20.0 && M.finished().sec == 300.0
+                  && std::strcmp(M.finished().car, "Car A") == 0 && M.current().key == B && M.current().mm == 0.0,
+                  "full memory: Car A to Car B: A is published as finished, B starts with nothing");
+            M.step(B, "Car B", 35.0, 100.0, 3.0, 6.0);
+            s = M.step(A, "Car A", 0.0, 0.0, 3.0, 6.0);
+            CHECK(s.changed && s.any && s.mm == 20.0 && s.sec == 300.0 && M.finishedSeq() == 2 && M.finished().key == B && M.finished().mm == 35.0,
+                  "full memory: ...and back in Car A its value is there (B published in turn)");
+            // Under other cuts what was learned says nothing; learning under
+            // them replaces the entry.
+            s = M.step(B, "Car B", 0.0, 0.0, 3.0, 8.0);
+            CHECK(s.changed && !s.any && M.current().mm == 0.0, "full memory: a value learned under other cuts is not used");
+            M.step(B, "Car B", 28.0, 60.0, 3.0, 8.0);
+            CHECK(M.find(B) != nullptr && M.find(B)->mm == 28.0 && M.find(B)->suspHz == 8.0, "full memory: ...and what is learned under the new cuts takes its place");
+            // Cuts changed and put back with the car standing: what was
+            // remembered under the first cuts is there again (it was lost:
+            // the learner started over and 20 s of driving replaced it).
+            {
+                RoadFullMemory C;
+                C.step(A, "Car A", 0.0, 0.0, 3.0, 6.0);
+                for (int i = 0; i < 5; ++i) C.step(A, "Car A", 22.0, 1800.0, 3.0, 6.0);
+                RoadFullMemory::Seed c = C.step(A, "Car A", 0.0, 0.0, 3.0, 7.0);
+                CHECK(c.changed && !c.any && C.finishedSeq() == 0 && C.find(A) != nullptr && C.find(A)->mm == 22.0 && C.find(A)->suspHz == 6.0,
+                      "full memory: other cuts in the same car: the learner starts over, what was remembered is kept, nothing is published");
+                CHECK(!C.step(A, "Car A", 0.0, 0.0, 3.0, 7.0).changed, "full memory: ...once, not every cycle");
+                c = C.step(A, "Car A", 0.0, 0.0, 3.0, 6.0);
+                CHECK(c.changed && c.any && c.mm == 22.0 && c.sec == 1800.0, "full memory: the cuts put back: the car's value is there again");
+            }
+            // No car named: nothing kept. A car that has learned nothing is
+            // never published.
+            RoadFullMemory Z;
+            Z.step(0, "", 20.0, 300.0, 3.0, 6.0);
+            Z.step(A, "Car A", 0.0, 0.0, 3.0, 6.0); Z.step(B, "Car B", 0.0, 0.0, 3.0, 6.0);
+            CHECK(Z.find(A) == nullptr && Z.finishedSeq() == 0, "full memory: no car named, or nothing learned: nothing kept or published");
+            // Start-up: what the file held is there for the first car named.
+            RoadFullEntry e[3]; e[0].key = A; e[0].mm = 18.0; e[0].sec = 900.0; e[0].hpHz = 3.0; e[0].suspHz = 6.0;
+            e[1].key = B; e[1].mm = 0.0; e[1].sec = 50.0; e[2].key = 0; e[2].mm = 9.0; e[2].sec = 9.0;
+            RoadFullMemory S; S.load(e, 3);
+            s = S.step(A, "Car A", 0.0, 0.0, 3.0, 6.0);
+            CHECK(s.any && s.mm == 18.0 && s.sec == 900.0 && S.find(B) == nullptr, "full memory: loaded at start-up, the car has its value from its first frame (entries that say nothing left out)");
+            // More cars than it holds: the ones driven longest ago go.
+            RoadFullMemory F;
+            char name[32];
+            for (int c = 0; c < RoadFullMemory::kCars + 5; ++c)
+            {
+                std::snprintf(name, sizeof name, "Car %d", c);
+                const uint64_t k = carIdentityKey("Game", name, "");
+                F.step(k, name, 0.0, 0.0, 3.0, 6.0); F.step(k, name, 10.0 + c, 100.0, 3.0, 6.0);
+            }
+            CHECK(F.find(carIdentityKey("Game", "Car 0", "")) == nullptr && F.find(carIdentityKey("Game", "Car 4", "")) == nullptr
+                  && F.find(carIdentityKey("Game", "Car 5", "")) != nullptr
+                  && F.find(carIdentityKey("Game", "Car 68", "")) != nullptr && F.find(carIdentityKey("Game", "Car 68", ""))->mm == 78.0,
+                  "full memory: full, the cars driven longest ago make room");
+        }
+    }
+
+    // ================= road: a route on more than one wheel =================
+    {
+        using haptics::RoadModel; using haptics::RoadParams; using haptics::Part; using haptics::RoadOut;
+        const double PI = 3.14159265358979, dt = 0.0005;
+        RoadParams q; q.model = 0; q.rough = 0.0; q.hpHz = 2.0; q.fullMm = 10.0;
+        RoadModel m;
+        // The left wheels over one train of bumps, the right over another:
+        // opposite in sign half the time, each the stronger in turn.
+        double stepFront = 0.0, stepFL = 0.0, stepFR = 0.0, prevF = 0.0, prevL = 0.0, prevR = 0.0;
+        double errFront = 0.0, errRear = 0.0, errAll = 0.0, errForce = 0.0, errCorner = 0.0;
+        for (int i = 0; i < 8000; ++i)
+        {
+            const double t = i * dt;
+            const double l = 3.0 * std::sin(2.0 * PI * 9.0 * t), r = -2.6 * std::sin(2.0 * PI * 7.0 * t + 0.4);
+            m.driveTravel(WheelFL, l); m.driveTravel(WheelFR, r); m.driveTravel(WheelRL, 0.5 * l); m.driveTravel(WheelRR, 0.7 * r);
+            m.driveSpeed(100.0 / 3.6); m.step(dt, q);
+            const RoadOut fl = m.outputFor(Part::FL), fr = m.outputFor(Part::FR), rl = m.outputFor(Part::RL), rr = m.outputFor(Part::RR);
+            const RoadOut f = m.outputFor(Part::Front), b = m.outputFor(Part::Rear), a = m.outputFor(Part::All);
+            if (i > 2000)
+            {
+                stepFront = std::max(stepFront, std::fabs(f.pos - prevF));
+                stepFL    = std::max(stepFL, std::fabs(fl.pos - prevL));
+                stepFR    = std::max(stepFR, std::fabs(fr.pos - prevR));
+                errFront  = std::max(errFront, std::fabs(f.pos - 0.5 * (fl.pos + fr.pos)));
+                errRear   = std::max(errRear,  std::fabs(b.pos - 0.5 * (rl.pos + rr.pos)));
+                errAll    = std::max(errAll,   std::fabs(a.pos - 0.25 * (fl.pos + fr.pos + rl.pos + rr.pos)));
+                errForce  = std::max(errForce, std::fabs(a.force - 0.25 * (fl.force + fr.force + rl.force + rr.force)));
+                // RL moves half as far as FL, RR 0.7 of FR (all inside the knee).
+                errCorner = std::max(errCorner, std::max(std::fabs(rl.pos - 0.5 * fl.pos), std::fabs(rr.pos - 0.7 * fr.pos)));
+            }
+            prevF = f.pos; prevL = fl.pos; prevR = fr.pos;
+        }
+        CHECK(stepFL > 0.001 && stepFR > 0.001 && stepFront > 0.001, "road part: the two front wheels move, and the front part with them");
+        CHECK(errFront < 1e-12 && errRear < 1e-12 && errAll < 1e-12 && errForce < 1e-12,
+              "road part: front, rear and all play the mean of their wheels");
+        CHECK(stepFront <= std::max(stepFL, stepFR) + 1e-12,
+              "road part: no step from one wheel to the other (the stronger corner jumped wherever the two disagreed)");
+        // What the wheels do together plays as one of them does: four
+        // wheels over one bump are that bump, not twice or four times it.
+        {
+            RoadModel k; double errSame = 0.0, corner = 0.0;
+            for (int i = 0; i < 8000; ++i)
+            {
+                for (int w = 0; w < 4; ++w) k.driveTravel(w, 30.0 * std::sin(2.0 * PI * 9.0 * i * dt));
+                k.driveSpeed(100.0 / 3.6); k.step(dt, q);
+                if (i > 2000)
+                {
+                    corner  = std::max(corner, std::fabs(k.outputFor(Part::FL).pos));
+                    errSame = std::max(errSame, std::max(std::fabs(k.outputFor(Part::All).pos - k.outputFor(Part::FL).pos),
+                                                         std::fabs(k.outputFor(Part::Rear).pos - k.outputFor(Part::FL).pos)));
+                }
+            }
+            CHECK(corner > 0.9 && errSame < 1e-12, "road part: four wheels over one big bump play as one corner does (the sum over the root of the count doubled it)");
+        }
+        CHECK(errCorner < 1e-9, "road part: a single corner plays that wheel alone");
     }
 
     // ================= road: the tyre and chassis models; the kerb =================
@@ -1685,36 +1933,273 @@ int main()
             approx(pk, 2000.0 / (w6 * w6) * 0.863, 0.06, "road chassis: heave acceleration integrates to the body's movement");
             approx(pkRR, pk, 1e-9, "road chassis: signs not learned yet = heave only, every corner the same");
 
-            // Signs from the suspension. The body (heave Z at 5 Hz, roll R at
-            // 4 Hz, left up positive) moves opposite to its springs'
-            // compression, so a compression-positive sim sends each corner's
-            // travel against the body above it.
-            auto learn = [&](double suspSign, double rollSign, int& pol, int& roll, double& flMinusFr) {
-                RoadModel c; RoadParams cp = rp;
-                const double w5 = 2.0 * PI * 5.0, w4 = 2.0 * PI * 4.0;
-                double diff = 0.0;
-                for (int i = 0; i < 24000; ++i)
+            // Which way the sender's roll and pitch turn, from the suspension
+            // (RoadChassisSigns.h; compression positive, the protocol). What
+            // is checked each time is the truth, whatever the convention:
+            // the model's left corners rise when the body's left side does,
+            // its front corners when the nose does (the sums over the last
+            // two seconds are positive).
+            struct Seen { double apartLR = 0.0, withLR = 0.0, withFB = 0.0; };
+            // A body on a flat road (heave 5 Hz, roll 4 Hz, pitch 3.3 Hz):
+            // each corner of it moves exactly against its spring.
+            auto flat = [&](RoadModel& c, double rollSign, double pitchSign, double secs, double kmh = 100.0, bool byVelocity = false) {
+                RoadParams cp = rp; Seen s;
+                const double w5 = 2.0 * PI * 5.0, w4 = 2.0 * PI * 4.0, w3 = 2.0 * PI * 3.3;
+                const int N = static_cast<int>(secs / dt);
+                for (int i = 0; i < N; ++i)
                 {
                     const double t = i * dt;
                     const double z = 1.0 * std::sin(w5 * t);                    // body heave, mm
                     const double r = 0.3 * std::sin(w4 * t);                    // body roll, deg, left up
-                    const double side = r * PI / 180.0 * 800.0;                  // left corner up, mm
-                    const double comp[4] = { -(z + side), -(z - side), -(z + side), -(z - side) };
-                    for (int w = 0; w < 4; ++w) c.driveTravel(w, suspSign * comp[w]);
-                    c.driveChassis(-w5 * w5 * z / 1000.0, 0.0, rollSign * r);
+                    const double q = 0.2 * std::sin(w3 * t);                    // body pitch, deg, nose up
+                    const double side = r * PI / 180.0 * 800.0;                 // the left corners up, mm
+                    const double end  = q * PI / 180.0 * 1350.0;                // the front corners up, mm
+                    const double body[4] = { z + side + end, z - side + end, z + side - end, z - side - end };   // FL FR RL RR
+                    if (byVelocity)
+                    {
+                        // The same body as a sender of suspension velocity has it (mm/s, compressing positive).
+                        const double dz = w5 * std::cos(w5 * t), dside = 0.3 * w4 * std::cos(w4 * t) * PI / 180.0 * 800.0,
+                                     dend = 0.2 * w3 * std::cos(w3 * t) * PI / 180.0 * 1350.0;
+                        const double dbody[4] = { dz + dside + dend, dz - dside + dend, dz + dside - dend, dz - dside - dend };
+                        for (int w = 0; w < 4; ++w) c.drive(w, -dbody[w]);
+                    }
+                    else for (int w = 0; w < 4; ++w) c.driveTravel(w, -body[w]);
+                    c.driveChassis(-w5 * w5 * z / 1000.0, pitchSign * q, rollSign * r);
+                    if (kmh >= 0.0) c.driveSpeed(kmh / 3.6);
                     c.step(dt, cp);
-                    if (i >= 20000) diff = std::max(diff, std::fabs(c.wheelTravelMm(WheelFL) - c.wheelTravelMm(WheelFR)));
+                    if (i >= N - 4000)
+                    {
+                        const double lr = c.wheelTravelMm(WheelFL) - c.wheelTravelMm(WheelFR), fb = c.wheelTravelMm(WheelFL) - c.wheelTravelMm(WheelRL);
+                        s.apartLR = std::max(s.apartLR, std::fabs(lr)); s.withLR += lr * side; s.withFB += fb * end;
+                    }
                 }
-                pol = c.learnedPolarity(); roll = c.learnedRollSign(); flMinusFr = diff;
-            };
-            int pol = 0, roll = 0; double d = 0.0;
-            learn(1.0, 1.0, pol, roll, d);
-            CHECK(pol == -1 && roll == 1, "road chassis: compression-positive suspension, left-up roll: learned as such");
-            CHECK(d > 2.0, "road chassis: once learned, roll moves the left and right corners apart");
-            learn(-1.0, 1.0, pol, roll, d);
-            CHECK(pol == 1 && roll == 1, "road chassis: extension-positive suspension: the same roll sign");
-            learn(1.0, -1.0, pol, roll, d);
-            CHECK(pol == -1 && roll == -1, "road chassis: a sim whose roll is right-up positive is turned round");
+                return s; };
+            {
+                RoadModel c;
+                Seen s = flat(c, 1.0, 1.0, 12.0);
+                CHECK(c.learnedRollSign() == 0 && c.learnedPitchSign() == 0 && s.apartLR < 1e-9,
+                      "road chassis: no sign before 20 s of evidence (heave only, the corners together)");
+                s = flat(c, 1.0, 1.0, 13.0);
+                CHECK(c.learnedRollSign() == 1 && c.learnedPitchSign() == 1, "road chassis: left-up roll and nose-up pitch are learned as such");
+                CHECK(s.apartLR > 2.0 && s.withLR > 0.0 && s.withFB > 0.0,
+                      "road chassis: once learned, the corners move with the body's own (left with left, front with front)");
+                // A sign stands against a stretch that says otherwise (20 s
+                // against the 25 behind it: the mean of the two is under the
+                // 0.1 that would turn it)...
+                flat(c, -1.0, 1.0, 20.0);
+                CHECK(c.learnedRollSign() == 1 && c.learnedPitchSign() == 1,
+                      "road chassis: a sign once taken stands against 20 s that say otherwise (the old one turned round within seconds)");
+                // ...and turns round only when the whole drive says so.
+                flat(c, -1.0, 1.0, 45.0);
+                CHECK(c.learnedRollSign() == -1 && c.learnedPitchSign() == 1, "road chassis: ...and turns round once the whole drive says so");
+                c.clear();
+                CHECK(c.learnedRollSign() == -1 && c.learnedPitchSign() == 1, "road chassis: the signs are the sender's convention: a clear (amp 0, an e-stop) keeps them");
+                c.forgetSigns();
+                CHECK(c.learnedRollSign() == 0 && c.learnedPitchSign() == 0, "road chassis: another game: found again");
+            }
+            {
+                RoadModel c; const Seen s = flat(c, -1.0, -1.0, 25.0);
+                CHECK(c.learnedRollSign() == -1 && c.learnedPitchSign() == -1 && s.withLR > 0.0 && s.withFB > 0.0,
+                      "road chassis: a sender whose roll is right-up and pitch nose-down positive is turned round");
+            }
+            // Evidence only from a car that rolls: standing, crawling or with
+            // no road speed sent it says nothing, however long (and a wrong
+            // way round fed in there does not count against the driving).
+            {
+                RoadModel c;
+                flat(c, -1.0, -1.0, 30.0, 0.0); flat(c, -1.0, -1.0, 30.0, 20.0); flat(c, -1.0, -1.0, 30.0, -1.0);
+                CHECK(c.learnedRollSign() == 0 && c.learnedPitchSign() == 0 && c.chassisSigns().rollSec() == 0.0 && c.chassisSigns().pitchSec() == 0.0,
+                      "road chassis: no evidence from a car standing, crawling or with no road speed sent");
+                flat(c, 1.0, 1.0, 25.0);
+                CHECK(c.learnedRollSign() == 1 && c.learnedPitchSign() == 1, "road chassis: ...and the driving is then learned as it is");
+            }
+            // A pitch that is not sent (0) takes no sign, however long: the
+            // roll is learned, the pitch term stays out. (A threshold of 0
+            // would take +1 from no evidence at all.)
+            {
+                RoadModel c; flat(c, 1.0, 0.0, 60.0);
+                CHECK(c.learnedRollSign() == 1 && c.learnedPitchSign() == 0 && c.chassisSigns().pitchSec() == 0.0 && c.chassisSigns().rollSec() > 59.0,
+                      "road chassis: a pitch that is not sent takes no sign, and counts for no seconds");
+            }
+            // A roll that has nothing to do with the suspension (it moves at
+            // 4 Hz, the sides at 5.5 Hz, a minute of both) takes no sign:
+            // the correlation has to be there, not just the seconds.
+            {
+                RoadModel c; RoadParams cp = rp;
+                for (int i = 0; i < static_cast<int>(60.0 / dt); ++i)
+                {
+                    const double side = 2.0 * std::sin(2.0 * PI * 5.5 * i * dt);
+                    c.driveTravel(WheelFL, -side); c.driveTravel(WheelRL, -side); c.driveTravel(WheelFR, side); c.driveTravel(WheelRR, side);
+                    c.driveChassis(0.0, 0.0, 0.3 * std::sin(2.0 * PI * 4.0 * i * dt)); c.driveSpeed(100.0 / 3.6); c.step(dt, cp);
+                }
+                CHECK(c.chassisSigns().rollSec() > 55.0 && std::fabs(c.chassisSigns().rollCorr()) < 0.05 && c.learnedRollSign() == 0,
+                      "road chassis: a roll that has nothing to do with the suspension takes no sign");
+            }
+            // Seconds count only while both sides move: 3 s of driving, then
+            // everything held as it was for a minute at speed (a sender
+            // repeating its last frame): no sign from 3 s of evidence.
+            {
+                RoadModel c; RoadParams cp = rp; flat(c, 1.0, 1.0, 3.0);
+                for (int i = 0; i < static_cast<int>(60.0 / dt); ++i)
+                {
+                    for (int w = 0; w < 4; ++w) c.driveTravel(w, 0.4);
+                    c.driveChassis(0.0, 0.1, 0.1); c.driveSpeed(100.0 / 3.6); c.step(dt, cp);
+                }
+                CHECK(c.learnedRollSign() == 0 && c.learnedPitchSign() == 0 && c.chassisSigns().rollSec() < 6.0,
+                      "road chassis: values held for a minute count for no evidence (3 s of driving took a sign)");
+            }
+            // Each 2 s stretch counts once, whatever its size: a violent
+            // moment the wrong way round (the roll and the sides thirty
+            // times their usual size for 4 s, a rollover) is two stretches
+            // against the twelve before it, and the sign stands. Summed by
+            // size it outweighed the whole drive nine hundred times over.
+            {
+                RoadModel c; RoadParams cp = rp; flat(c, 1.0, 1.0, 25.0);
+                for (int i = 0; i < static_cast<int>(4.0 / dt); ++i)
+                {
+                    const double r = 9.0 * std::sin(2.0 * PI * 4.0 * i * dt), side = r * PI / 180.0 * 800.0;
+                    c.driveTravel(WheelFL, side); c.driveTravel(WheelRL, side); c.driveTravel(WheelFR, -side); c.driveTravel(WheelRR, -side);
+                    c.driveChassis(0.0, 0.0, r); c.driveSpeed(100.0 / 3.6); c.step(dt, cp);
+                }
+                std::printf("  road chassis: 25 s of driving then a 4 s rollover the wrong way: roll evidence %.2f over %.0f s\n", c.chassisSigns().rollCorr(), c.chassisSigns().rollSec());
+                CHECK(c.learnedRollSign() == 1 && c.chassisSigns().rollCorr() < -0.5, "road chassis: one violent moment does not outweigh the drive");
+            }
+            // A sender of suspension velocity (Automobilista 2): the same,
+            // from the velocity added up. And one that goes from travel to
+            // velocity with no gap between is followed (its compression
+            // stood still at the last travel).
+            {
+                RoadModel c; const Seen s = flat(c, -1.0, 1.0, 25.0, 100.0, true);
+                CHECK(c.learnedRollSign() == -1 && c.learnedPitchSign() == 1 && s.withLR > 0.0 && s.withFB > 0.0,
+                      "road chassis: learned from suspension velocity as from travel");
+                RoadModel d; flat(d, 1.0, 1.0, 5.0); flat(d, 1.0, 1.0, 25.0, 100.0, true);
+                CHECK(d.learnedRollSign() == 1 && d.learnedPitchSign() == 1 && d.chassisSigns().rollSec() > 29.0,
+                      "road chassis: a sender going from travel to velocity is followed");
+            }
+            // Another model run in between: the chassis model starts afresh
+            // when it comes back. The roll has moved 20 degrees meanwhile;
+            // stepped onto the old filter state that was a jolt of some 280
+            // mm between the sides (and evidence for a sign).
+            {
+                RoadModel c; flat(c, 1.0, 1.0, 25.0);
+                RoadParams other = rp; other.model = 0.0;
+                for (int i = 0; i < 2000; ++i)
+                {
+                    for (int w = 0; w < 4; ++w) c.driveTravel(w, 0.0);
+                    c.driveChassis(0.0, 0.0, 20.0); c.driveSpeed(100.0 / 3.6); c.step(dt, other);
+                }
+                const double secBefore = c.chassisSigns().rollSec(); double jolt = 0.0;
+                for (int i = 0; i < 2000; ++i)
+                {
+                    for (int w = 0; w < 4; ++w) c.driveTravel(w, 0.0);
+                    c.driveChassis(0.0, 0.0, 20.0); c.driveSpeed(100.0 / 3.6); c.step(dt, rp);
+                    jolt = std::max(jolt, std::fabs(c.wheelTravelMm(WheelFL) - c.wheelTravelMm(WheelFR)));
+                }
+                CHECK(jolt < 1.0, "road chassis: back from another model, no jolt from the roll that moved meanwhile");
+                // (the roll coming back from its 20 degrees is one rough stretch of the fourteen)
+                flat(c, 1.0, 1.0, 2.5);
+                CHECK(c.learnedRollSign() == 1 && c.chassisSigns().rollSec() > secBefore + 1.5 && c.chassisSigns().rollCorr() < -0.8,
+                      "road chassis: ...the signs kept, the evidence going on");
+            }
+            // In the air (any tyre off the ground) nothing counts as evidence.
+            {
+                RoadModel c; RoadParams cp = rp;
+                for (int i = 0; i < static_cast<int>(30.0 / dt); ++i)
+                {
+                    const double side = 0.3 * std::sin(2.0 * PI * 4.0 * i * dt) * PI / 180.0 * 800.0;
+                    c.driveTravel(WheelFL, -side); c.driveTravel(WheelRL, -side); c.driveTravel(WheelFR, side); c.driveTravel(WheelRR, side);
+                    c.driveGround(WheelRR, 0.0);
+                    c.driveChassis(0.0, 0.0, 0.3 * std::sin(2.0 * PI * 4.0 * i * dt)); c.driveSpeed(100.0 / 3.6); c.step(dt, cp);
+                }
+                CHECK(c.learnedRollSign() == 0 && c.chassisSigns().rollSec() < 0.1, "road chassis: no evidence with a tyre in the air");
+            }
+            // A route on several wheels in the chassis model: the body at
+            // the middle. Every corner pushes with the same heave, so all
+            // plays as one corner pushes; in its movement the roll cancels
+            // on an axle and on all, the pitch on all.
+            {
+                RoadModel c; flat(c, 1.0, 1.0, 25.0);
+                RoadParams cp = rp; double errForce = 0.0, errAll = 0.0, errFront = 0.0, force = 0.0, apart = 0.0;
+                const double w5 = 2.0 * PI * 5.0, w4 = 2.0 * PI * 4.0, w3 = 2.0 * PI * 3.3;
+                for (int i = 0; i < 8000; ++i)
+                {
+                    const double t = 25.0 + i * dt;
+                    const double z = 1.0 * std::sin(w5 * t), r = 0.3 * std::sin(w4 * t), q2 = 0.2 * std::sin(w3 * t);
+                    const double side = r * PI / 180.0 * 800.0, end = q2 * PI / 180.0 * 1350.0;
+                    const double body[4] = { z + side + end, z - side + end, z + side - end, z - side - end };
+                    for (int w = 0; w < 4; ++w) c.driveTravel(w, -body[w]);
+                    c.driveChassis(-w5 * w5 * z / 1000.0, q2, r); c.driveSpeed(100.0 / 3.6); c.step(dt, cp);
+                    if (i < 4000) continue;
+                    const haptics::RoadOut fl = c.outputFor(Part::FL), fr = c.outputFor(Part::FR), rl = c.outputFor(Part::RL), rr = c.outputFor(Part::RR);
+                    const haptics::RoadOut a = c.outputFor(Part::All), f = c.outputFor(Part::Front);
+                    force    = std::max(force, std::fabs(fl.force));
+                    apart    = std::max(apart, std::fabs(fl.pos - rr.pos));
+                    errForce = std::max(errForce, std::max(std::fabs(a.force - fl.force), std::fabs(f.force - fl.force)));
+                    errAll   = std::max(errAll,   std::fabs(a.pos - 0.25 * (fl.pos + fr.pos + rl.pos + rr.pos)));
+                    errFront = std::max(errFront, std::fabs(f.pos - 0.5 * (fl.pos + fr.pos)));
+                }
+                CHECK(force > 0.001 && apart > 0.01, "road chassis part: the corners push and move apart");
+                CHECK(errForce < 1e-12, "road chassis part: all and front push as one corner does (not twice as hard)");
+                CHECK(errAll < 1e-12 && errFront < 1e-12, "road chassis part: all and front move as the middle of their corners");
+            }
+            // A body driven over bumps through its springs and dampers, left
+            // and right over different bumps: the compression then leads the
+            // body's movement by up to a quarter cycle (the old learner read
+            // the suspension's polarity backwards here and played the roll
+            // upside down). Lightly and heavily damped.
+            auto bumps = [&](RoadModel& c, double zeta, double rollSign, double secs) {
+                RoadParams cp = rp; Seen s;
+                const double w1 = 2.0 * PI * 3.0;   // the body's bounce
+                const double fL[3] = { 4.0, 5.7, 8.1 }, fR[3] = { 4.6, 6.4, 9.0 };
+                const int N = static_cast<int>(secs / dt);
+                for (int i = 0; i < N; ++i)
+                {
+                    const double t = i * dt;
+                    double d[2] = { 0.0, 0.0 }, z[2] = { 0.0, 0.0 }, a[2] = { 0.0, 0.0 };   // compression, body movement, body acceleration; left, right
+                    for (int side = 0; side < 2; ++side)
+                        for (int k = 0; k < 3; ++k)
+                        {
+                            const double w = 2.0 * PI * (side == 0 ? fL[k] : fR[k]), th = w * t + 0.7 * k + side;
+                            d[side] += 2.0 * std::sin(th);
+                            z[side] += -(w1 * w1 / (w * w)) * 2.0 * std::sin(th) - (2.0 * zeta * w1 / w) * 2.0 * std::cos(th);
+                            a[side] += w1 * w1 * 2.0 * std::sin(th) + 2.0 * zeta * w1 * w * 2.0 * std::cos(th);
+                        }
+                    const double rollDeg = (z[0] - z[1]) / 1600.0 * 180.0 / PI;   // left up
+                    c.driveTravel(WheelFL, d[0]); c.driveTravel(WheelRL, d[0]); c.driveTravel(WheelFR, d[1]); c.driveTravel(WheelRR, d[1]);
+                    c.driveChassis(0.5 * (a[0] + a[1]) / 1000.0, 0.0, rollSign * rollDeg);
+                    c.driveSpeed(100.0 / 3.6);
+                    c.step(dt, cp);
+                    if (i >= N - 4000) s.withLR += (c.wheelTravelMm(WheelFL) - c.wheelTravelMm(WheelFR)) * (z[0] - z[1]);
+                }
+                return s; };
+            for (const double zeta : { 0.3, 0.7 })
+            {
+                RoadModel c; Seen s = bumps(c, zeta, 1.0, 30.0);
+                std::printf("  road chassis: over bumps, damping %.1f: roll against the suspension %.2f over %.0f s, sign %d\n", zeta, c.chassisSigns().rollCorr(), c.chassisSigns().rollSec(), c.learnedRollSign());
+                CHECK(c.learnedRollSign() == 1 && s.withLR > 0.0, "road chassis: over bumps (spring and damper) a left-up roll is learned as such");
+                RoadModel o; s = bumps(o, zeta, -1.0, 30.0);
+                CHECK(o.learnedRollSign() == -1 && s.withLR > 0.0, "road chassis: ...and a right-up one turned round");
+            }
+            // Through the layer: another game forgets the signs.
+            {
+                haptics::Layer L;
+                EffectParams ep; ep.ampPct = 100.0; ep.routes[0] = { 0, 1.0 };
+                L.configureFx(haptics::FxType::Road, ep); L.configureRoad(rp);
+                const double w4 = 2.0 * PI * 4.0;
+                for (int i = 0; i < static_cast<int>(25.0 / dt); ++i)
+                {
+                    const double side = 0.3 * std::sin(w4 * i * dt) * PI / 180.0 * 800.0;
+                    L.driveRoadTravel(WheelFL, -side); L.driveRoadTravel(WheelRL, -side); L.driveRoadTravel(WheelFR, side); L.driveRoadTravel(WheelRR, side);
+                    L.driveChassis(0.0, 0.0, 0.3 * std::sin(w4 * i * dt));
+                    L.driveRoadSpeed(100.0 / 3.6);
+                    L.step(dt);
+                }
+                CHECK(L.roadModel().learnedRollSign() == 1, "road chassis: the layer learns the roll's sign");
+                L.newCar();
+                CHECK(L.roadModel().learnedRollSign() == 1, "road chassis: another car in the same game keeps it");
+                L.newGame();
+                CHECK(L.roadModel().learnedRollSign() == 0, "road chassis: another game: found again");
+            }
 
             // A real braking dive (1.5 deg building over a quarter second)
             // through the steep cut: the front corner moves a few mm, about
@@ -1726,20 +2211,21 @@ int main()
                 auto ss = [](double x) { x = std::max(0.0, std::min(1.0, x)); return x * x * (3.0 - 2.0 * x); };
                 double pkMm = 0.0, pkPos = 0.0, gentle = 0.0, gPrev = 0.0, gpk = 0.0;
                 const double ga = std::exp(-2.0 * PI * cp.hpHz * dt);
-                for (int i = 0; i < 40000; ++i)
+                for (int i = 0; i < 52000; ++i)
                 {
                     const double t = i * dt;
-                    // 12 s learning the signs (heave 5 Hz, pitch 3 Hz, nose down
-                    // positive), then the dive at 13 s.
-                    const bool learning = t < 12.0;
+                    // 22 s learning the signs (heave 5 Hz, pitch 3 Hz, nose down
+                    // positive), then the dive at 23 s.
+                    const bool learning = t < 22.0;
                     const double z = learning ? 1.0 * std::sin(w5 * t) : 0.0;
-                    const double q = learning ? 0.3 * std::sin(w3 * t) : 1.5 * ss((t - 13.0) / 0.25);
+                    const double q = learning ? 0.3 * std::sin(w3 * t) : 1.5 * ss((t - 23.0) / 0.25);
                     const double end = q * PI / 180.0 * 1250.0;                  // front corner down, mm
                     const double comp[4] = { -(z - end), -(z - end), -(z + end), -(z + end) };
                     for (int w = 0; w < 4; ++w) c.driveTravel(w, comp[w]);
                     c.driveChassis(learning ? -w5 * w5 * z / 1000.0 : 0.0, q, 0.0);
+                    c.driveSpeed(100.0 / 3.6);
                     c.step(dt, cp);
-                    if (t > 12.5)
+                    if (t > 22.5)
                     {
                         pkMm  = std::max(pkMm, std::fabs(c.wheelTravelMm(WheelFL)));
                         pkPos = std::max(pkPos, std::fabs(c.outputFor(Part::FL).pos));

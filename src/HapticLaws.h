@@ -21,6 +21,7 @@
 #include "HapticsRegistry.h"
 #include "DeviceStateLayer.h"   // NcxValues
 #include "GripLimitLearner.h"
+#include "CarKey.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -125,6 +126,12 @@ struct LawsState
     char   lastCarId[NCY_STR_LEN] = {};
     bool   carSeen = false;
     uint32_t carGen = 0;   // bumped on every different car (the tiles' trigger counts start over)
+    // ...the game it was named in, and the three as one key (0 = no car
+    // named yet): what is remembered per car between drives goes by it
+    // (CarKey.h; RoadFullMemory.h keeps the road's full mm so).
+    char   lastGame[NCY_STR_LEN] = {};
+    uint64_t carKey = 0;
+    static_assert(kCarKeyStrLen == NCY_STR_LEN, "the car key reads whole identity strings");
     // Road speed glitches (a jump to the pits, a reset): the last speed the
     // sim sent, how long ago it changed, and how long the speed stays
     // untrusted after a jump no car can make.
@@ -219,6 +226,8 @@ inline void newCar(LawsState& st)
     std::memcpy(fresh.previewSec, st.previewSec, sizeof fresh.previewSec);
     std::memcpy(fresh.lastCar, st.lastCar, sizeof fresh.lastCar);
     std::memcpy(fresh.lastCarId, st.lastCarId, sizeof fresh.lastCarId);
+    std::memcpy(fresh.lastGame, st.lastGame, sizeof fresh.lastGame);
+    fresh.carKey       = st.carKey;
     fresh.carSeen      = st.carSeen;
     fresh.carGen       = st.carGen;
     fresh.lastSpeedKmh = st.lastSpeedKmh; fresh.speedAgeSec = st.speedAgeSec; fresh.glitchSec = st.glitchSec;
@@ -685,7 +694,16 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
             std::memcpy(st.lastCarId, v.carId, NCY_STR_LEN);
             st.lastCarId[NCY_STR_LEN - 1] = '\0';
         }
+        // The game is kept the same way while a frame has none. Another
+        // game: what was learned about its sender's conventions starts over.
+        if (v.game[0] != '\0')
+        {
+            if (st.lastGame[0] != '\0' && std::strncmp(v.game, st.lastGame, NCY_STR_LEN) != 0) L.newGame();
+            std::memcpy(st.lastGame, v.game, NCY_STR_LEN);
+            st.lastGame[NCY_STR_LEN - 1] = '\0';
+        }
         st.carSeen = true;
+        st.carKey  = carIdentityKey(st.lastGame, st.lastCar, st.lastCarId);
     }
     // The sim's own max rpm seeds the learned redline (once per car), once
     // it has held steady for kMaxRpmHoldSec: a sender's may lag the car's

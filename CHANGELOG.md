@@ -30,8 +30,54 @@ middle number carries breaking changes and the last carries fixes.
   offered: a fresh Windows install had no Haptics panel. The tickbox is
   now *Force devices (experimental)* and shows only the shifter and pedal
   section, on a Pi as before.
+- **Road tile, a route on more than one wheel** (*front*, *rear* or
+  *all*): the route plays the average of those wheels, which is the
+  body's movement at the middle of that axle or of the car. It used to
+  play whichever wheel was the stronger at each instant; the road under
+  two wheels disagrees much of the time, so it jumped from one wheel to
+  the other several times a second, and a seat actuator on such a route
+  was sent knocks the road never had. The average is softer where each
+  wheel has its own road (the suspension and tyre models): a front or
+  rear route plays at about 0.7 of what it did and a route on *all* at
+  about a third, so raise that route's gain to taste. What the wheels do
+  together (a crest, a dip, the chassis model's up and down) plays as
+  strongly as before. A route on a single corner is as it was.
+- **Road tile, learn full mm** is steadier, and remembered for each car.
+  The learned value used to follow the last five minutes of driving and
+  could move several times over within one drive (on a recorded drive
+  from 4 to 26 mm in one car), and the strength of the road with it. It
+  now starts from your own full mm, moves to the car's own over the first
+  minutes of driving, and is kept for the car (in `roadfull.json`, beside
+  the settings): the next drive in that car starts where the last one
+  ended. Only the game's own movement is measured against the learned
+  value. The roughness (*rough x*) always plays against your own full mm:
+  it used to be divided by the learned value as well, so a car whose
+  suspension moves little (most cars in Automobilista 2 and Le Mans
+  Ultimate) played its roughness up to four times louder than a car in
+  Assetto Corsa. In those games the road now plays at about the strength
+  it has in Assetto Corsa, which is softer than it was: raise the Road
+  tile's amp or *rough x* to taste. For a game that does not name its
+  cars the value follows a change of car over about half an hour of
+  driving (it was five minutes), and nothing is kept between drives.
+- **Road tile, susp cut hz** acts on the roughness as well, in the
+  suspension model. The roughness is a random road run through a model of
+  the corner, and that model bounces at *body hz*, below the cut. Left
+  alone, that slow bounce was most of what the roughness played: the very
+  movement the cut is there to leave to the motion. What the roughness
+  plays above the cut is as before, so the texture is the same and the
+  slow wallow under it is gone; with *susp cut hz* at 0 nothing changes.
+  If the road feels thin now, raise *rough x*.
 
 ### Fixed
+- **Road tile, chassis model**: roll and pitch could play upside down,
+  and turn round in the middle of a drive. Which way a game's roll and
+  pitch turn is learned from the suspension, and the way it was learned
+  read most recorded drives backwards and changed its mind up to 14 times
+  in a quarter of an hour, flipping the roll or the pitch at every corner
+  each time. The sign is now taken from the whole drive: after about 20
+  seconds of driving above 30 km/h the roll and pitch join the up and
+  down, the right way up, and stay so. Another game is learned afresh. A
+  game that sends no road speed plays the up and down only.
 - **Belt from the car's g**: when the g comes back after it was away
   (the game unpaused, the car put back on the track by a reset or by
   Automobilista 2's rolling start, a sender repeating its last values

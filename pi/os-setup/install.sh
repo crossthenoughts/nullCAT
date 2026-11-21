@@ -387,13 +387,14 @@ DEST="/opt/nullcat/versions/v${NULLCAT_VERSION}"
 # SAME version, /opt/nullcat/current points INTO ${DEST}, so the rm -rf
 # below would destroy the only copy of the operator's edits (found the
 # hard way: bench-tuned device curves vanished on a same-version
-# re-install). carcache.json, devicepresets.json, effectstatus.json,
+# re-install). carcache.json, roadfull.json (the road's full mm learned
+# per car), devicepresets.json, effectstatus.json,
 # profiles.json, cars.local.json and carstate.json (the car the car table
 # last acted on; cardefaults.txt is its older form, read once) are
 # learned/authored state and ferry
 # with the config (the shipped cars.json and presets.json are NOT in this
 # list: every version brings its own).
-CFG_FILES="host.json rig.json buttons.json carcache.json devicepresets.json effectstatus.json profiles.json cars.local.json carstate.json cardefaults.txt"
+CFG_FILES="host.json rig.json buttons.json carcache.json roadfull.json devicepresets.json effectstatus.json profiles.json cars.local.json carstate.json cardefaults.txt"
 CFG_STASH="$(mktemp -d)"
 for f in ${CFG_FILES}; do
     if sudo test -f "/opt/nullcat/current/${f}"; then

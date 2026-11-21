@@ -27,6 +27,7 @@
 #include "../src/Config.h"
 #include "../src/A6Drive.h"
 #include "../src/CarCache.h"
+#include "../src/RoadFullCache.h"
 
 class TestB222O : public QObject
 {
@@ -493,6 +494,156 @@ private slots:
         QVERIFY(bad.load(anchor));
         QCOMPARE((int)bad.cars().size(), 1);
         QCOMPARE(bad.cars()[0].r[2], 85.0);
+    }
+
+    // ---- RoadFullCache: the road's learned full mm per car persists ----
+    void o4d_roadfullcache_roundtrip_merge()
+    {
+        using haptics::RoadFullEntry;
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const std::string anchor = (tmp.path() + "/config.json").toStdString();
+        const auto car = [](const char* name, double mm, double sec, double hp = 3.0, double susp = 6.0) {
+            RoadFullEntry e; e.key = carIdentityKey("Game", name, ""); e.mm = mm; e.sec = sec; e.hpHz = hp; e.suspHz = susp;
+            std::strncpy(e.car, name, haptics::kRoadFullCarLen - 1); return e; };
+
+        RoadFullCache rc;
+        QVERIFY(!rc.load(anchor));                       // no file yet: nothing remembered
+        QVERIFY(rc.merge(car("Car A", 20.0, 300.0)));
+        QCOMPARE((int)rc.cars().size(), 1);
+        QVERIFY(!rc.merge(car("Car A", 20.0, 300.0)));   // the same again: nothing to write
+        QVERIFY(rc.merge(car("Car A", 21.5, 420.0)));    // learned more: updated, no duplicate
+        QCOMPARE((int)rc.cars().size(), 1);
+        QCOMPARE(rc.cars()[0].mm, 21.5);
+        QVERIFY(rc.merge(car("Car B", 35.0, 100.0)));    // another car: most recently driven first
+        QCOMPARE((int)rc.cars().size(), 2);
+        QCOMPARE(std::string(rc.cars()[0].car), std::string("Car B"));
+        QVERIFY(rc.merge(car("Car A", 21.5, 420.0)));    // back in Car A, nothing new: only its place changes
+        QCOMPARE(std::string(rc.cars()[0].car), std::string("Car A"));
+        QVERIFY(rc.merge(car("Car A", 21.5, 420.0, 3.0, 8.0)));   // other cuts: the entry is replaced
+        QCOMPARE(rc.cars()[0].suspHz, 8.0);
+
+        // What is no value is never kept: no car, a full mm outside the
+        // field's range, no driving behind it, not a number.
+        { RoadFullEntry e = car("Car C", 20.0, 300.0); e.key = 0; QVERIFY(!rc.merge(e)); }
+        QVERIFY(!rc.merge(car("Car C", 0.0, 300.0)));
+        QVERIFY(!rc.merge(car("Car C", 80.0, 300.0)));
+        QVERIFY(!rc.merge(car("Car C", 20.0, 0.0)));
+        QVERIFY(!rc.merge(car("Car C", std::nan(""), 300.0)));
+        QCOMPARE((int)rc.cars().size(), 2);
+
+        QVERIFY(rc.save(anchor));
+        RoadFullCache back;
+        QVERIFY(back.load(anchor));
+        QCOMPARE((int)back.cars().size(), 2);
+        QCOMPARE(back.cars()[0].key, carIdentityKey("Game", "Car A", ""));
+        QCOMPARE(back.cars()[0].mm, 21.5);
+        QCOMPARE(back.cars()[0].sec, 420.0);
+        QCOMPARE(back.cars()[0].hpHz, 3.0);
+        QCOMPARE(back.cars()[0].suspHz, 8.0);
+        QCOMPARE(std::string(back.cars()[0].car), std::string("Car A"));
+        QCOMPARE(back.cars()[1].mm, 35.0);
+
+        // More cars than the memory holds: the ones driven longest ago go.
+        RoadFullCache many;
+        for (int i = 0; i < haptics::RoadFullMemory::kCars + 3; ++i)
+            QVERIFY(many.merge(car(("Car " + std::to_string(i)).c_str(), 10.0 + 0.1 * i, 100.0)));
+        QCOMPARE((int)many.cars().size(), (int)haptics::RoadFullMemory::kCars);
+        QCOMPARE(std::string(many.cars()[0].car), "Car " + std::to_string(haptics::RoadFullMemory::kCars + 2));
+        QCOMPARE(std::string(many.cars().back().car), std::string("Car 3"));
+
+        // A file with entries that cannot be read (no key, a key twice, a
+        // value out of range) loads without them; one that is not JSON at
+        // all loads as nothing.
+        {
+            QFile f(tmp.path() + "/roadfull.json");
+            QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            f.write("{\"cars\":[{\"key\":\"00000000000000aa\",\"car\":\"X\",\"mm\":18,\"sec\":900,\"hpHz\":3,\"suspHz\":6},"
+                    "{\"car\":\"no key\",\"mm\":18,\"sec\":900,\"hpHz\":3,\"suspHz\":6},"
+                    "{\"key\":\"00000000000000aa\",\"car\":\"twice\",\"mm\":19,\"sec\":900,\"hpHz\":3,\"suspHz\":6},"
+                    "{\"key\":\"00000000000000bb\",\"car\":\"too far\",\"mm\":500,\"sec\":900,\"hpHz\":3,\"suspHz\":6},"
+                    "{\"key\":\"00000000000000cc\",\"car\":\"no cuts\",\"mm\":18,\"sec\":900}]}");
+        }
+        RoadFullCache part;
+        QVERIFY(part.load(anchor));
+        QCOMPARE((int)part.cars().size(), 1);
+        QCOMPARE(part.cars()[0].key, (uint64_t)0xaa);
+        QCOMPARE(part.cars()[0].mm, 18.0);
+        {
+            QFile f(tmp.path() + "/roadfull.json");
+            QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            f.write("not json");
+        }
+        RoadFullCache bad;
+        QVERIFY(!bad.load(anchor));
+        QCOMPARE((int)bad.cars().size(), 0);
+    }
+
+    // ---- RoadFullCache: each finished car once, the car being driven now and then ----
+    void o4e_roadfullcache_takes()
+    {
+        using haptics::RoadFullEntry;
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const std::string anchor = (tmp.path() + "/config.json").toStdString();
+        const auto car = [](const char* name, double mm, double sec) {
+            RoadFullEntry e; e.key = carIdentityKey("Game", name, ""); e.mm = mm; e.sec = sec; e.hpHz = 3.0; e.suspHz = 6.0;
+            std::strncpy(e.car, name, haptics::kRoadFullCarLen - 1); return e; };
+
+        // The clock is the caller's, in seconds (any start: 1000 here).
+        RoadFullCache rc;
+        double t = 1000.0;
+        // Nothing finished yet (the count still 0), nothing learned in the
+        // car being driven: no write.
+        QVERIFY(!rc.takeFinished(0, RoadFullEntry{}));
+        QVERIFY(!rc.flush(anchor, t));
+        QVERIFY(!QFile::exists(tmp.path() + "/roadfull.json"));
+        // A car left behind: taken once for its count, however often polled,
+        // and written at once (the first write waits for nothing).
+        QVERIFY(rc.takeFinished(1, car("Car A", 20.0, 300.0)));
+        QVERIFY(!rc.takeFinished(1, car("Car A", 99.0, 999.0)));
+        QVERIFY(rc.unsaved());
+        QVERIFY(rc.flush(anchor, t));
+        QVERIFY(!rc.unsaved());
+        QVERIFY(!rc.flush(anchor, t + 60.0));            // nothing new: no second write
+        QVERIFY(QFile::exists(tmp.path() + "/roadfull.json"));
+        // Something new straight after a write waits kWriteEverySec (the
+        // file is never written faster, whatever is fed in, however often
+        // the caller polls).
+        t += 60.0;
+        QVERIFY(rc.takeFinished(7, car("Car A", 21.0, 360.0)));
+        QVERIFY(rc.flush(anchor, t));
+        QVERIFY(rc.takeFinished(8, car("Car A", 22.0, 420.0)));
+        for (int i = 0; i < 100; ++i) QVERIFY(!rc.flush(anchor, t + 0.09 * i));
+        QVERIFY(rc.unsaved());
+        QVERIFY(!rc.flush(anchor, t + RoadFullCache::kWriteEverySec - 0.01));
+        QVERIFY(rc.flush(anchor, t + RoadFullCache::kWriteEverySec));
+        // The poll: the car being driven only every kSessionEverySec from
+        // its first call (a box that is powered off, never stopped, still
+        // keeps it), whatever the caller's rate.
+        t += 100.0;
+        const RoadFullEntry now = car("Car B", 30.0, 600.0);
+        QVERIFY(!rc.poll(t, 8, car("Car A", 22.0, 420.0), now));
+        for (int i = 1; i < 50; ++i) QVERIFY(!rc.poll(t + (RoadFullCache::kSessionEverySec - 0.01) * i / 50.0, 8, car("Car A", 22.0, 420.0), now));
+        QCOMPARE((int)rc.cars().size(), 1);
+        QVERIFY(rc.poll(t + RoadFullCache::kSessionEverySec, 8, car("Car A", 22.0, 420.0), now));
+        QCOMPARE((int)rc.cars().size(), 2);
+        QCOMPARE(std::string(rc.cars()[0].car), std::string("Car B"));
+        QVERIFY(!rc.poll(t + RoadFullCache::kSessionEverySec + 1.0, 8, car("Car A", 22.0, 420.0), car("Car B", 31.0, 660.0)));   // ...and not again for as long
+        // ...and a finished car at once, on any poll.
+        t += RoadFullCache::kSessionEverySec + 2.0;
+        QVERIFY(!rc.poll(t, 9, now, car("Car C", 0.0, 0.0)));   // B finished with what was just taken: nothing new
+        QVERIFY(rc.poll(t + 0.25, 10, car("Car C", 12.0, 80.0), RoadFullEntry{}));
+        QCOMPARE((int)rc.cars().size(), 3);
+        // Shutdown: the car being driven, forced (inside the write wait too).
+        QVERIFY(rc.flush(anchor, t + 0.25));
+        QVERIFY(rc.takeSession(car("Car D", 25.0, 200.0)));
+        QVERIFY(!rc.flush(anchor, t + 0.5));
+        QVERIFY(rc.flush(anchor, t + 0.5, /*force=*/true));
+        RoadFullCache back;
+        QVERIFY(back.load(anchor));
+        QCOMPARE((int)back.cars().size(), 4);
+        QCOMPARE(std::string(back.cars()[0].car), std::string("Car D"));
     }
 
     // ---- CarCache: the learner's published sets are taken once each ----

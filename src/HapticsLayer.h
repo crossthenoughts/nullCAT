@@ -730,6 +730,13 @@ public:
     // engine's redline; fresh tyres and cold discs; the road's learned full
     // mm). The law resets its own.
     void newCar() { m_engine.forgetCar(); m_wheels.clear(); m_road.forgetFull(); }
+    // Another game: which way its sender's roll and pitch turn (the Road
+    // tile's chassis model) is to be found again.
+    void newGame() { m_road.forgetSigns(); }
+    // The road's full mm starts over for the car just named (RoadFullMemory.h:
+    // another game, car or id), from what was remembered of it (mm > 0) or
+    // from nothing.
+    void restartRoadFull(double mm, double sec) { m_road.forgetFull(); if (mm > 0.0) m_road.seedFull(mm, sec); }
 
     // ---- the Impacts tile. Config apply for the params; the law drives
     // each corner's suspension and the body's vertical acceleration.

@@ -1453,7 +1453,7 @@ function hapDimFor(k,dv,have,curbsNamed){
     const dim={}; const name=['suspension','tyre','chassis'][m]||'suspension';
     HAP_ROAD_ALL_KEYS.forEach(x=>{ if(!HAP_ROAD_MODEL_KEYS[m].includes(x)) dim[x]='Not used by the '+name+' model'; });
     if(fed) HAP_ROAD_TEX_KEYS.forEach(x=>{ if(!(m===0&&x==='jitter')) dim[x]='The roadNoise texture: only when the model has nothing to run on'; });
-    if(m===0&&Math.round(+dv.fullLearn)===1) dim.fullMm='Learn full mm is on: the value learned for this car plays (shown on the learn full mm row). Yours is kept for when it is off, and plays until the car has been learned.';
+    if(m===0&&Math.round(+dv.fullLearn)===1) dim.fullMm='Learn full mm is on: the value learned for this car plays (shown on the learn full mm row). Yours is kept for when it is off, plays until the car has been learned, and is what the roughness always plays against.';
     return dim;
   }
   if(k==='abs'){
@@ -2312,7 +2312,7 @@ function hapDrawerRender(fx){
     +(fx.parts?'; part = which wheels this axis carries':'')+'; Save to apply)</div>';
   for(const a of hapRouteAxes()){
     const hint=(a.kind==='position')?' <span class="hk">up to '+hapAllowedMm(a,hapHintHz(fx,dv)).toFixed(2)+' mm @ '+hapHintHz(fx,dv)+' Hz</span>':'';
-    const sel=fx.parts?' <select data-part="'+a.i+'" title="Which wheels this axis carries: the strongest of them">'
+    const sel=fx.parts?' <select data-part="'+a.i+'" title="Which wheels this axis carries. More than one: the strongest of them plays (Road, Wheels and ABS: their average)">'
       +HAP_PARTS.map(pk=>'<option value="'+pk+'"'+(pk===part(a.i)?' selected':'')+'>'+pk.toUpperCase()+'</option>').join('')+'</select>':'';
     h+='<label>'+a.name+' <input type="number" min="0" max="'+a.max+'" step="'+a.step+'" data-axis="'+a.i+'" data-max="'+a.max+'" value="'+gain(a.i)+'"> '+a.unit+sel+hint+'</label>';
   }

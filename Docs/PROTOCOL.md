@@ -152,11 +152,11 @@ NULLCATY,rpm=11480,speedKmh=212.4,gear=5,throttlePct=100,brakePct=0,slipRatioRL=
 | 34 | `boost` | turbo boost, **bar** relative to atmosphere (vacuum negative or 0). Heavier firings under boost and the blow-off on a lift; absent = the engine effect uses rpm instead *(since 1.3)* |
 | 35 | `pitLimiter` | 0 or 1; pit limiter engaged. Cuts like the rev limiter without teaching the redline *(since 1.3)* |
 | 36..39 | `wheelSlipFL` .. `wheelSlipRR` | the sim's own combined tyre slip magnitude per wheel, scaled so that **100 = the tyre has let go** (Assetto Corsa's `wheelSlip`, which reads about 6 at a clear slide, x 16.7; a slip speed in m/s x 20). The lateral slip effect's source where the sim has no slip angle: any sliding tyre plays from the effect's onset % of its peak % up to full at peak %, so peak % trims the scale *(since 1.4)* |
-| 40..43 | `suspTravelFL` .. `suspTravelRR` | suspension travel per corner, **mm**, signed, for sims that give position rather than velocity (Assetto Corsa). The Road effect takes the bumps out of it; `suspVel*` wins when both are sent *(since 1.4)* |
+| 40..43 | `suspTravelFL` .. `suspTravelRR` | suspension travel per corner, **mm**, signed (positive = compressing, as `suspVel*`), for sims that give position rather than velocity (Assetto Corsa). The Road effect takes the bumps out of it; `suspVel*` wins when both are sent *(since 1.4)* |
 | 44..47 | `roadHeightFL` .. `roadHeightRR` | height of the road under each tyre (its contact point), **mm**, world vertical, hills included: nullCAT takes the hills out. The Road effect's tyre model runs each corner over it; the Rumble strip effect can find kerbs in it *(since 1.5)* |
 | 48..51 | `surfaceFL` .. `surfaceRR` | what the ground under each tyre is: **0 tarmac, 1 bumpy tarmac, 2 kerb, 3 gravel, 4 grass, 5 dirt, 6 cobbles**, and since 1.6 **7 snow, 8 ice, 9 sand, 10 mud, 11 standing water**. The sender maps its sim's own surface names onto these. The Rumble strip effect plays a rumble strip under a tyre on 2; the Road effect shapes its road's roughness by class; the Surface effect plays stones, crunch and studs by it *(since 1.5)* |
 | 52 | `accHeave` | body vertical acceleration, **m/s²**, up positive, gravity left out (0 standing still; every sender does so). A sender that includes gravity is still read right: the belt from g takes a steady 1 g seen standing still off, and the other uses take only its change *(since 1.5)* |
-| 53, 54 | `pitchDeg`, `rollDeg` | body pitch and roll, **degrees**, either sign convention: nullCAT learns which way they turn against the suspension *(since 1.5)* |
+| 53, 54 | `pitchDeg`, `rollDeg` | body pitch and roll, **degrees**, either sign convention: nullCAT learns which way they turn against the suspension (its travel or velocity, compression positive) *(since 1.5)* |
 | 55, 56 | `wheelbase`, `trackWidth` | the car's wheelbase and track, **m** *(since 1.5)* |
 | 57 | `rain` | rain falling, **0..1** (0 dry weather, 1 the heaviest). Where no wetness is sent, nullCAT builds the water standing on the road from it (a minute of heavy rain to stand, several to dry) *(since 1.6)* |
 | 58 | `wet` | water on the road, **0..1** (0 dry, 1 standing water), where the sim knows it; wins over `rain` *(since 1.6)* |
@@ -250,7 +250,9 @@ Unknown keys on the line are ignored *(since 1.9)*.
   software that reads a sender's line (the slide's angle, for traction
   loss). The BeamNG.drive mod sends them. nullCAT does not use them. No
   change to parsing; every 1.11 sender remains fully compatible, and a 1.11
-  receiver ignores the two keys.
+  receiver ignores the two keys. The text also says now what every sender
+  already did: `suspTravel*` counts compression as positive, like
+  `suspVel*` (the sign of `pitchDeg` and `rollDeg` is learned against it).
 - **1.11** (nullCAT 0.9.10): added `engCylinders`, `engLayout`,
   `engLitres`, `engTurbo` and `engLimitHz`, what the car's engine is, and
   `carType`, its type of car, at slots 86..91. For a car the car table has

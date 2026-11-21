@@ -284,15 +284,17 @@ constexpr ParamHelp kHelp[] = {
       "if the haptics fight your motion software." },
     { "road", "rough",
       "The road's fine roughness, laid out by distance so it rises with speed, 0 to 20 (1 = a smooth public "
-      "road, 0 = the sim's road alone). Road car: 1.5 to 3. GT3: 1.5 to 2.5. Single-seater: 1 to 2." },
+      "road, 0 = the sim's road alone). Road car: 1.5 to 3. GT3: 1.5 to 2.5. Single-seater: 1 to 2. In the "
+      "suspension model it goes through susp cut hz too, and always plays against full mm as set." },
     { "road", "suspPct",
       "Suspension and tyre models: how much of the sim's own movement plays (its suspension, or its road under "
       "the tyre) beside the roughness, 0 to 100 (0 = the roughness alone). 100 keeps it all. With susp cut hz "
       "set: road car 60 to 80 (long soft travel is mostly body), GT3 80 to 100, single-seater 100." },
     { "road", "suspHz",
-      "A steep cut on the sim's own movement alone, 0 to 15 Hz (0 = off: cut hz only). Body movement well "
-      "below it (dive, roll, crests, the motion's job) drops away fast; bumps above it stay. Set it above the "
-      "car's body bounce: road car 3 to 4, GT3 5 to 7, single-seater 7 to 9." },
+      "A steep cut, 0 to 15 Hz (0 = off: cut hz only), on the sim's own movement and, in the suspension "
+      "model, on the roughness too. Body movement well below it (dive, roll, crests, the motion's job) drops "
+      "away fast; bumps above it stay. Set it above the car's body bounce: road car 3 to 4, GT3 5 to 7, "
+      "single-seater 7 to 9." },
     { "road", "bodyHz",
       "The body's bounce on its springs, 0.8 to 8 Hz. Road car: 1.2 to 1.6. GT3: 3 to 4. Single-seater: 4 to 6." },
     { "road", "hopHz",
@@ -302,14 +304,16 @@ constexpr ParamHelp kHelp[] = {
       "GT3: 0.3 to 0.45. Single-seater: 0.4 to 0.6." },
     { "road", "fullMm",
       "Suspension model: the suspension travel (mm) that counts as 100%, 0.5 to 50. Road car: 40 to 50 (long "
-      "travel). GT3: 25 to 35. Single-seater: 15 to 20 (stiff, short travel)." },
+      "travel). GT3: 25 to 35. Single-seater: 15 to 20 (stiff, short travel). The roughness always plays "
+      "against this value, learned or not." },
     { "road", "fullLearn",
       "Suspension model: learn full mm for each car from how far its suspension moves while you drive, instead "
-      "of the value above. It learns over the first 20 seconds of driving above 30 km/h and keeps following the "
-      "last five minutes or so (a bumpy track teaches a larger value than a smooth one); a new car, or a change "
-      "of cut hz or susp cut hz, starts over. While ticked, full mm is greyed and the learned value shows here; yours is kept for when "
-      "it is off, and plays until the car has been learned. A soft car then plays its long travel and a stiff one "
-      "its short travel at a similar strength. Try it: it can change the feel a lot." },
+      "of the value above. It starts from the value above and moves to the car's own over the first minutes of "
+      "driving above 30 km/h, and it is remembered for each car: the next drive in it starts where the last one "
+      "ended. A change of cut hz or susp cut hz starts it over. While ticked, full mm is greyed and the learned "
+      "value shows here; yours is kept for when it is off, plays until the car has been learned, and is what the "
+      "roughness always plays against. A soft car then plays its long travel and a stiff one its short travel at "
+      "a similar strength. Try it: it can change the feel a lot." },
     { "road", "surface",
       "The old tarmac grain, a texture rising with speed on top of the road, 0 to 1 (off by default: the "
       "roughness does its job). 0.2 to 0.5 if you want extra texture." },

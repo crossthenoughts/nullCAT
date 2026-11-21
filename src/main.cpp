@@ -24,6 +24,7 @@
 #include "TelemetryInput.h"
 #include "MotionController.h"
 #include "CarCache.h"
+#include "RoadFullCache.h"
 #include "ShakerBank.h"
 #include "HapticsIdleClock.h"
 #include "BoundedCall.h"
@@ -33,6 +34,7 @@
 #include "ForegroundKeeper.h"
 #include <cstdio>
 #include <cstdlib>
+#include <chrono>
 #include <memory>
 #include <windows.h>
 
@@ -177,6 +179,13 @@ int main(int argc, char* argv[])
     CarCache carCache;
     carCache.load(cfgPath.toStdString());
     motion.setCarCache(carCache.cars());
+    // ...and the road's full mm remembered per car (the Road tile's learn
+    // full mm): the same handoff.
+    RoadFullCache roadFullCache;
+    roadFullCache.load(cfgPath.toStdString());
+    motion.setRoadFullCache(roadFullCache.cars());
+    const auto roadFullT0 = std::chrono::steady_clock::now();
+    const auto roadFullNow = [roadFullT0]() { return std::chrono::duration<double>(std::chrono::steady_clock::now() - roadFullT0).count(); };
 
     // Control loop
     ControlLoop loop;
@@ -323,6 +332,10 @@ int main(int argc, char* argv[])
         const MotionStatus ms = motion.getMotionStatus();
         carCache.takeFinished(ms.gearRatioPrevSeq, ms.gearRatioPrev, ms.gearRatioPrevConfident, ms.gearRatiosPrevDirty);
         if (carCache.flush(cfgPath.toStdString())) LOG_INFO("CarCache: learned gear ratios saved.");
+        // The road's full mm: the car left behind at once, the car being
+        // driven every couple of minutes.
+        roadFullCache.poll(roadFullNow(), ms.roadFullPrevSeq, ms.roadFullPrev, ms.roadFullCar);
+        roadFullCache.flush(cfgPath.toStdString(), roadFullNow());
     };
     QTimer carCacheTimer;
     QObject::connect(&carCacheTimer, &QTimer::timeout, rememberFinishedCar);
@@ -364,6 +377,9 @@ int main(int argc, char* argv[])
         carCache.takeSession(ms.gearRatio, ms.gearRatioConfident, ms.gearRatiosDirty);
         if (carCache.flush(cfgPath.toStdString(), /*force=*/true)) LOG_INFO("CarCache: session gear ratios remembered.");
         else if (carCache.unsaved()) LOG_WARNING("CarCache: learned gear ratios could not be saved.");
+        roadFullCache.takeSession(ms.roadFullCar);
+        if (roadFullCache.flush(cfgPath.toStdString(), roadFullNow(), /*force=*/true)) LOG_INFO("RoadFullCache: the road's learned full mm remembered.");
+        else if (roadFullCache.unsaved()) LOG_WARNING("RoadFullCache: the road's learned full mm could not be saved.");
     }
 
     // A card that went away while open can hang its close for good: given

@@ -844,7 +844,8 @@ void MotionController::publishStatus()
 // Gear-ratio learner snapshot: the status surface reads it live; the car
 // cache reads the published copy (a finished car from the mains' poll, the
 // current one after the loop stops). Caller holds the status lock AND the
-// haptics busy flag (the learner's own thread at that moment).
+// haptics busy flag (the learner's own thread at that moment). The road's
+// full mm per car (RoadFullMemory) is published here for the same reason.
 void MotionController::publishLearnerLocked()
 {
     for (int g = 1; g < MAX_GEARS; ++g)
@@ -858,6 +859,11 @@ void MotionController::publishLearnerLocked()
     m_statusSnapshot.gearRatiosDirty     = m_ratioLearner.dirty();
     m_statusSnapshot.gearRatiosPrevDirty = m_ratioLearner.prevDirty();
     m_statusSnapshot.gearRatioPrevSeq    = m_ratioLearner.prevSeq();
+    // The road's full mm per car: the same hazard (the count and the car it
+    // counts, written in the haptics cycle), so the same flag.
+    m_statusSnapshot.roadFullCar     = m_roadFullMem.current();
+    m_statusSnapshot.roadFullPrev    = m_roadFullMem.finished();
+    m_statusSnapshot.roadFullPrevSeq = m_roadFullMem.finishedSeq();
 }
 
 // The haptics part of the snapshot, shared by the RT publish and the idle
@@ -2864,6 +2870,15 @@ void MotionController::driveContinuousHaptics(const TelemetryData& td)
     if (m_hapLatRelearn.exchange(false, std::memory_order_acq_rel)) haptics::relearnLatBase(m_hapLaws);
     if (m_hapFreshTyres.exchange(false, std::memory_order_acq_rel)) m_haptics.wheelsFreshTyres();
     haptics::driveLaws(m_haptics, m_hapLaws, v, m_cycleTimeSec, &m_ratioLearner.ratios());
+    // The road's full mm for this car, kept from drive to drive: the car
+    // just named starts from what was remembered for it.
+    {
+        const haptics::RoadModel& road = m_haptics.roadModel();
+        const haptics::RoadParams& rp = m_haptics.roadParams();
+        const haptics::RoadFullMemory::Seed seed =
+            m_roadFullMem.step(m_hapLaws.carKey, m_hapLaws.lastCar, road.carFullMm(), road.carFullSec(), rp.hpHz, rp.suspHz);
+        if (seed.changed) m_haptics.restartRoadFull(seed.any ? seed.mm : 0.0, seed.sec);
+    }
     for (int i = 0; i < NcxValues::TokenCount; ++i)
     {
         m_ncxHaveSnapshot[i] = v.fresh && v.have[i];

@@ -115,6 +115,7 @@ set(SOURCES
     src/DriveFaultMonitor.cpp
     src/Config.cpp
     src/CarCache.cpp
+    src/RoadFullCache.cpp
     src/EffectStatus.cpp
     src/HapticsProfiles.cpp
     src/CarTable.cpp
@@ -368,6 +369,7 @@ set(TEST_CORE_SOURCES
     src/CommissioningMode.cpp
     src/Config.cpp
     src/CarCache.cpp
+    src/RoadFullCache.cpp
     src/EffectStatus.cpp
     src/HapticsProfiles.cpp
     src/CarTable.cpp

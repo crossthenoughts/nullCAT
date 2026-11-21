@@ -32,7 +32,10 @@ enum class SinkKind { Torque = 0, Position = 1 };
 
 // Which wheels a route carries, for the per-wheel effects (slip). All = the
 // strongest wheel; Front/Rear = the strongest of that axle; a corner = that
-// wheel only. Effects without wheels ignore it.
+// wheel only. The Road tile plays the MEAN of the part's wheels instead (the
+// body at the middle of the axle or the car, RoadModel::outputFor: its
+// corners differ in sign, and the strongest of them jumps from wheel to
+// wheel). Effects without wheels ignore it.
 enum class Part { All = 0, Front, Rear, FL, FR, RL, RR, COUNT };
 static constexpr int PART_COUNT = static_cast<int>(Part::COUNT);
 inline const char* partKey(Part p)

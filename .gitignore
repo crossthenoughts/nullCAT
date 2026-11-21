@@ -79,6 +79,7 @@ logs/
 **/rig.json
 **/buttons.json
 **/carcache.json
+**/roadfull.json
 !resources/*.reference.json
 !deploy/*.example.json
 

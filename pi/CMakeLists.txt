@@ -69,6 +69,7 @@ add_executable(nullcat-pi
     ${SRC}/DriveFaultMonitor.cpp
     ${SRC}/Config.cpp
     ${SRC}/CarCache.cpp
+    ${SRC}/RoadFullCache.cpp
     ${SRC}/EffectStatus.cpp
     ${SRC}/HapticsProfiles.cpp
     ${SRC}/CarTable.cpp
@@ -409,6 +410,7 @@ if(NULLCAT_FULL_TESTS)
         ${SRC}/CommissioningMode.cpp
         ${SRC}/Config.cpp
         ${SRC}/CarCache.cpp
+        ${SRC}/RoadFullCache.cpp
         ${SRC}/EffectStatus.cpp
         ${SRC}/HapticsProfiles.cpp
         ${SRC}/CarTable.cpp

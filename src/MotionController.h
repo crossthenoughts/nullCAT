@@ -27,6 +27,7 @@
 #include "DeviceForceModel.h"
 #include "HapticsLayer.h"
 #include "HapticLaws.h"
+#include "RoadFullMemory.h"
 #include "ShakerBank.h"
 #include "DeviceStateLayer.h"
 #include "GearRatioLearner.h"
@@ -187,6 +188,11 @@ struct MotionStatus
     // Road: full mm learned for this car (0 = not yet), and the seconds of
     // driving it has learned over.
     double          hapRoadFullMm = 0.0, hapRoadFullSec = 0.0;
+    // ...and what is kept of it per car (RoadFullMemory.h), for the main
+    // thread to write down: the car being driven, and the last car left
+    // behind with a count that steps once per car.
+    haptics::RoadFullEntry roadFullCar, roadFullPrev;
+    uint32_t        roadFullPrevSeq = 0;
 };
 
 class MotionController
@@ -247,6 +253,9 @@ public:
     // Car cache handoff (main thread, at startup - before the RT loop runs).
     void setCarCache(const std::vector<CachedCar>& cars)
     { m_ratioLearner.setCache(cars.data(), (int)cars.size()); }
+    // ...and the road's full mm remembered per car (the same handoff).
+    void setRoadFullCache(const std::vector<haptics::RoadFullEntry>& cars)
+    { m_roadFullMem.load(cars.data(), (int)cars.size()); }
 
     // ---- Haptics live-apply (the tuning path, same idea as devices) ----
     // A rig save stages the new haptics tuning here (web thread, under the
@@ -751,6 +760,9 @@ private:
     // Per-car gear-ratio learner (survives configure(): re-init must not
     // forget a session's driving; only setCarCache() reseeds the cache).
     GearRatioLearner m_ratioLearner;
+    // The road's learned full mm per car (the same: only setRoadFullCache()
+    // reseeds it). Stepped after the laws, on the haptics clock.
+    haptics::RoadFullMemory m_roadFullMem;
     // Device live-apply staging (see stageDeviceParams). The mask is the
     // lock-free "anything pending?" fast path; the params copy under the
     // lock is brief and only contends with a web save.
