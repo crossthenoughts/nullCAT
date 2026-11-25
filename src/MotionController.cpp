@@ -933,6 +933,11 @@ void MotionController::publishHapticsStatusLocked()
     m_statusSnapshot.hapGripLock = m_hapLaws.gripLockOnset;
     m_statusSnapshot.hapRoadFullMm  = m_haptics.roadModel().learnedFullMm();
     m_statusSnapshot.hapRoadFullSec = m_haptics.roadModel().learnedFullSec();
+    for (int k = 0; k < 3; ++k) m_statusSnapshot.hapRoadShk[k] = m_haptics.roadShakerSent(k);
+    m_statusSnapshot.hapRoadShkRoutes  = m_haptics.roadShakerRoutes();
+    m_statusSnapshot.hapRoadTexSrc     = m_haptics.roadTexture().source();
+    m_statusSnapshot.hapRoadTexRate    = m_haptics.roadTexture().rateHz();
+    m_statusSnapshot.hapRoadTexCarried = m_haptics.roadTexture().gameUsable();
 }
 
 // Session peaks of the tile readouts, taken every haptics step (the

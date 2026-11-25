@@ -188,6 +188,16 @@ struct MotionStatus
     // Road: full mm learned for this car (0 = not yet), and the seconds of
     // driving it has learned over.
     double          hapRoadFullMm = 0.0, hapRoadFullSec = 0.0;
+    // Road: what the tile sent to its shaker routes lately, each part by
+    // itself as a share of a shaker's full scale (the bumps, the grain's
+    // tone, the texture); how many shaker routes it has; where the texture
+    // comes from (haptics::RoadTexture::Source); the suspension samples a
+    // second the sender gives (0 = not known) and whether they can carry
+    // the texture's band.
+    double          hapRoadShk[3] = {};
+    int             hapRoadShkRoutes = 0, hapRoadTexSrc = 0;
+    double          hapRoadTexRate = 0.0;
+    bool            hapRoadTexCarried = false;
     // ...and what is kept of it per car (RoadFullMemory.h), for the main
     // thread to write down: the car being driven, and the last car left
     // behind with a count that steps once per car.

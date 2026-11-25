@@ -1773,6 +1773,553 @@ int main()
         CHECK(errCorner < 1e-9, "road part: a single corner plays that wheel alone");
     }
 
+    // ================= road: the texture for shakers (RoadTexture) =================
+    {
+        using haptics::RoadTexture; using haptics::RoadParams; using haptics::Part;
+        const double PI = 3.14159265358979, dt = 0.0005;
+        // A sender giving fs samples a second: what is fed each cycle is the
+        // signal as it was at its last sample (held).
+        const auto heldT = [](double t, double fs) { return std::floor(t * fs) / fs; };
+        const auto rmsOf = [](const std::vector<double>& y) { double s = 0.0; for (double v : y) s += v * v; return y.empty() ? 0.0 : std::sqrt(s / y.size()); };
+        const auto peakOf = [](const std::vector<double>& y) { double m = 0.0; for (double v : y) m = std::max(m, std::fabs(v)); return m; };
+        RoadParams q; q.tex = 1.0;   // auto, 25 to 90 Hz, full by 200 km/h
+
+        // The sim's own: 30 mm/s at 50 Hz on FL from a sender at 216 samples
+        // a second. Through the band (0.94 at the bottom cut, 0.90 at the
+        // top one, which sits at 0.4 x 216 = 86 Hz) and the sender's held
+        // samples (0.91 at 50 Hz): 0.3 x 0.77 = 0.23 peak, 0.164 rms.
+        {
+            RoadTexture T; std::vector<double> fl; double other = 0.0;
+            for (int i = 0; i < 4000; ++i)
+            {
+                const double t = i * dt;
+                for (int w = 0; w < 4; ++w) T.drive(w, w == WheelFL ? 30.0 * std::sin(2.0 * PI * 50.0 * heldT(t, 216.0)) : 0.0);
+                T.step(dt, q);
+                if (i >= 2000) { fl.push_back(T.wheelOut(WheelFL)); for (int w = 1; w < 4; ++w) other = std::max(other, std::fabs(T.wheelOut(w))); }
+            }
+            approx(rmsOf(fl), 0.164, 0.03, "road texture: the sim's suspension speed in the band plays (30 mm/s at 50 Hz = 0.16 rms at x 1)");
+            CHECK(other == 0.0, "road texture: each wheel plays its own (the still corners play nothing)");
+            CHECK(T.source() == RoadTexture::Game && T.gameUsable(), "road texture: a sender at 216 samples a second carries it (the game's own plays)");
+            approx(T.rateHz(), 216.0, 12.0, "road texture: the sender's rate is read from how often the corners change");
+            approx(T.outputFor(Part::Front), 0.5 * (T.wheelOut(WheelFL) + T.wheelOut(WheelFR)), 1e-15, "road texture: a part plays the mean of its wheels");
+            CHECK(T.active() && T.level() > 0.0, "road texture: active while it plays");
+        }
+        // The same at a 500 Hz loop (a PC): the loop sees each sample up to
+        // 2 ms late, so the level is as it was within a quarter.
+        {
+            RoadTexture T; std::vector<double> fl; const double slow = 0.002;
+            for (int i = 0; i < 2000; ++i)
+            {
+                for (int w = 0; w < 4; ++w) T.drive(w, w == WheelFL ? 30.0 * std::sin(2.0 * PI * 50.0 * heldT(i * slow, 216.0)) : 0.0);
+                T.step(slow, q);
+                if (i >= 1000) fl.push_back(T.wheelOut(WheelFL));
+            }
+            approx(rmsOf(fl), 0.164, 0.045, "road texture: the sim's own plays at a 500 Hz loop as at 2 kHz");
+            CHECK(T.source() == RoadTexture::Game, "road texture: a 216 a second sender is carried at a 500 Hz loop");
+        }
+        // Only from a rolling car: a car dropped onto its suspension as it
+        // loads in is not road. Nothing standing, half at 10 km/h, all of it
+        // from 15; a sender with no road speed is not gated.
+        {
+            const auto at = [&](double kmh)
+            {
+                RoadTexture T; std::vector<double> fl;
+                for (int i = 0; i < 4000; ++i)
+                {
+                    for (int w = 0; w < 4; ++w) T.drive(w, 30.0 * std::sin(2.0 * PI * 50.0 * heldT(i * dt, 216.0)));
+                    if (kmh >= 0.0) T.driveSpeed(kmh / 3.6);
+                    RoadParams game = q; game.texFrom = 1.0;
+                    T.step(dt, game);
+                    if (i >= 2000) fl.push_back(T.wheelOut(WheelFL));
+                }
+                return rmsOf(fl);
+            };
+            const double none = at(-1.0), stand = at(0.0), walk = at(10.0), roll = at(30.0);
+            CHECK(stand == 0.0, "road texture: the sim's own, nothing from a standing car (a load-in drop is not road)");
+            approx(walk / roll, 0.5, 0.05, "road texture: the sim's own, half of it at 10 km/h");
+            approx(roll, none, 1e-12, "road texture: the sim's own, all of it from 15 km/h, as from a sender with no road speed");
+        }
+        // Auto after a fast sender: when the suspension stops arriving and
+        // the speed goes on (another sender, a game without it), the made-up
+        // one takes over; another game reads its sender's rate afresh.
+        {
+            RoadTexture T; std::vector<double> late; int srcMid = -1;
+            for (int i = 0; i < 8000; ++i)
+            {
+                if (i < 3000) for (int w = 0; w < 4; ++w) T.drive(w, 30.0 * std::sin(2.0 * PI * 50.0 * heldT(i * dt, 216.0)));
+                T.driveSpeed(200.0 / 3.6);
+                T.step(dt, q);
+                if (i == 2999) srcMid = T.source();
+                if (i >= 4000 && i < 5000) late.push_back(T.wheelOut(WheelFL));
+            }
+            CHECK(srcMid == RoadTexture::Game && rmsOf(late) > 0.08, "road texture: auto, the suspension gone and the speed still arriving: made up takes over");
+            CHECK(T.source() == RoadTexture::Made && T.rateHz() == 0.0, "road texture: no suspension for two seconds: the sender's rate is read afresh");
+            RoadTexture F;
+            for (int i = 0; i < 2000; ++i) { for (int w = 0; w < 4; ++w) F.drive(w, 30.0 * std::sin(2.0 * PI * 50.0 * heldT(i * dt, 216.0))); F.step(dt, q); }
+            const double before = F.rateHz(); F.forgetSender();
+            CHECK(before > 200.0 && F.rateHz() == 0.0 && !F.gameUsable(), "road texture: another game: the sender's rate is read afresh");
+        }
+        // A travel sender across a gap: back 30 mm from where it left (a
+        // reset), the jump is not a speed. No click on a quiet road at x 5.
+        {
+            RoadParams loud = q; loud.tex = 5.0;
+            RoadTexture T; std::vector<double> play, back;
+            for (int i = 0; i < 6000; ++i)
+            {
+                const bool live = (i < 2000) || (i >= 3000);
+                if (live) for (int w = 0; w < 4; ++w) T.driveTravel(w, (i >= 3000 ? 30.0 : 0.0) + 0.01 * std::sin(2.0 * PI * 50.0 * heldT(i * dt, 216.0)));
+                T.step(dt, loud);
+                if (i >= 1000 && i < 2000) play.push_back(T.wheelOut(WheelFL));
+                if (i >= 3000 && i < 3400) back.push_back(T.wheelOut(WheelFL));
+            }
+            CHECK(peakOf(play) > 0.03 && peakOf(back) <= 1.3 * peakOf(play), "road texture: a travel sender back 30 mm away after a gap: the jump is not a speed (no click)");
+        }
+        // The names the status carries (the page reads them).
+        CHECK(std::strcmp(RoadTexture::sourceName(RoadTexture::Off), "off") == 0 && std::strcmp(RoadTexture::sourceName(RoadTexture::Game), "game") == 0
+              && std::strcmp(RoadTexture::sourceName(RoadTexture::Made), "made") == 0 && std::strcmp(RoadTexture::sourceName(RoadTexture::Waiting), "waiting") == 0,
+              "road texture: the source's names, as the page reads them");
+        // The rate the help quotes for the game's own: an octave above the
+        // default low hz, at the share of the rate that is taken.
+        {
+            const double need = haptics::roadtex_k::kMinTopRatio * RoadParams().texLoHz / haptics::roadtex_k::kRateShare;
+            char num[16]; std::snprintf(num, sizeof num, "%.0f times a second", need);
+            const char* help = haptics::paramHelp("road", "texFrom");
+            CHECK(need == 125.0 && help && std::strstr(help, num) != nullptr, "road texture: the help quotes the rate the game's own needs (125 times a second)");
+        }
+        // A bump is not texture: 300 mm/s at 6 Hz, ten times the speed and
+        // three times full if it played, leaves under 0.05 in the band:
+        // 0.01 through the cut, the rest hash from the loop seeing each of
+        // the sender's samples up to a cycle late.
+        {
+            RoadTexture T; std::vector<double> fl;
+            for (int i = 0; i < 4000; ++i)
+            {
+                for (int w = 0; w < 4; ++w) T.drive(w, w == WheelFL ? 300.0 * std::sin(2.0 * PI * 6.0 * heldT(i * dt, 216.0)) : 0.0);
+                T.step(dt, q);
+                if (i >= 2000) fl.push_back(T.wheelOut(WheelFL));
+            }
+            CHECK(peakOf(fl) < 0.05, "road texture: a slow bump (6 Hz) is left to the models");
+        }
+        // A travel sender: the speed between one change and the next.
+        // 0.1 mm at 50 Hz is 31.4 mm/s; the difference of two samples takes
+        // another 0.91 of it: 0.15 rms.
+        {
+            RoadTexture T; std::vector<double> fl;
+            for (int i = 0; i < 4000; ++i)
+            {
+                for (int w = 0; w < 4; ++w) T.driveTravel(w, w == WheelFL ? 0.1 * std::sin(2.0 * PI * 50.0 * heldT(i * dt, 216.0)) : 0.0);
+                T.step(dt, q);
+                if (i >= 2000) fl.push_back(T.wheelOut(WheelFL));
+            }
+            approx(rmsOf(fl), 0.150, 0.04, "road texture: a sender of travel alone plays the same band from its changes");
+        }
+        // A slow sender (60 samples a second) cannot hold 25 Hz and up: the
+        // game's own gives nothing rather than its aliases, auto makes it up
+        // from the road speed.
+        {
+            RoadParams game = q; game.texFrom = 1.0;
+            RoadTexture G, A; double g = 0.0; std::vector<double> a;
+            for (int i = 0; i < 6000; ++i)
+            {
+                const double v = 30.0 * std::sin(2.0 * PI * 7.0 * heldT(i * dt, 60.0));
+                for (int w = 0; w < 4; ++w) { G.drive(w, v); A.drive(w, v); }
+                G.driveSpeed(200.0 / 3.6); A.driveSpeed(200.0 / 3.6);
+                G.step(dt, game); A.step(dt, q);
+                if (i >= 2000) { g = std::max(g, G.level()); a.push_back(A.wheelOut(WheelFL)); }
+            }
+            approx(G.rateHz(), 60.0, 5.0, "road texture: a sender at 60 samples a second reads as 60");
+            CHECK(g == 0.0 && G.source() == RoadTexture::Waiting && !G.gameUsable(), "road texture: too slow a sender, texture from game: nothing plays (waiting)");
+            CHECK(A.source() == RoadTexture::Made && rmsOf(a) > 0.08, "road texture: too slow a sender, auto: made up from the road speed");
+            // 110 samples a second hold 25 to 44 Hz, not an octave of the
+            // band: made up as well (senders near 90 sat on the edge of a
+            // lower bar and the source kept changing). Asked for no more
+            // than 25 to 40 Hz, the same sender carries all of it.
+            RoadParams narrow = q; narrow.texHiHz = 40.0;
+            RoadTexture M, N;
+            for (int i = 0; i < 6000; ++i)
+            {
+                const double v = 30.0 * std::sin(2.0 * PI * 30.0 * heldT(i * dt, 110.0));
+                for (int w = 0; w < 4; ++w) { M.drive(w, v); N.drive(w, v); }
+                M.driveSpeed(200.0 / 3.6); N.driveSpeed(200.0 / 3.6);
+                M.step(dt, q); N.step(dt, narrow);
+            }
+            approx(M.rateHz(), 110.0, 8.0, "road texture: a sender at 110 samples a second reads as 110");
+            CHECK(!M.gameUsable() && M.source() == RoadTexture::Made, "road texture: a sender that holds less than an octave of the band: made up");
+            CHECK(N.gameUsable() && N.source() == RoadTexture::Game, "road texture: the same sender with a band it can hold all of: the game's own");
+            // Once taken, the game's own stays until the rate falls under 0.8
+            // of what it needs: 216 a second, then 110 (kept), then 90 (dropped).
+            RoadTexture H; bool at216 = false, at110 = false, at90 = true; double tH = 0.0;
+            for (int i = 0; i < 24000; ++i)
+            {
+                const double fs = i < 6000 ? 216.0 : i < 14000 ? 110.0 : 90.0;
+                tH += dt * fs;   // the sender's sample count so far, whatever its rate
+                for (int w = 0; w < 4; ++w) H.drive(w, 30.0 * std::sin(0.9 * std::floor(tH) + w));
+                H.step(dt, q);
+                if (i == 5999) at216 = H.gameUsable(); if (i == 13999) at110 = H.gameUsable(); if (i == 23999) at90 = H.gameUsable();
+            }
+            CHECK(at216 && at110 && !at90, "road texture: once taken, the game's own stays until the rate falls under 0.8 of what it needs");
+        }
+        // Made up from speed: 0.12 rms at full speed on tarmac, half at half
+        // the speed, nothing standing; each wheel its own; in the band; the
+        // same at another loop rate; rougher on gravel; nothing from a tyre
+        // in the air.
+        {
+            RoadParams sp = q; sp.texFrom = 2.0;
+            const auto run = [&](double kmh, double step, int surface, bool flInAir, std::vector<double>& fl, std::vector<double>& fr)
+            {
+                RoadTexture T; const int n = static_cast<int>(6.0 / step);
+                for (int i = 0; i < n; ++i)
+                {
+                    T.driveSpeed(kmh / 3.6);
+                    for (int w = 0; w < 4; ++w) T.driveSurface(w, surface);
+                    if (flInAir) T.driveGround(WheelFL, 0.0);
+                    T.step(step, sp);
+                    if (i * step >= 0.5) { fl.push_back(T.wheelOut(WheelFL)); fr.push_back(T.wheelOut(WheelFR)); }
+                }
+                return T.source();
+            };
+            std::vector<double> fl, fr, hl, hr, sl, sr, kl, kr, gl, gr, al, ar;
+            const int src = run(200.0, dt, SurfTarmac, false, fl, fr);
+            run(100.0, dt, SurfTarmac, false, hl, hr); run(0.0, dt, SurfTarmac, false, sl, sr);
+            run(200.0, 0.002, SurfTarmac, false, kl, kr); run(200.0, dt, SurfGravel, false, gl, gr); run(200.0, dt, SurfTarmac, true, al, ar);
+            std::printf("  road texture made up: rms %.3f at 200 km/h, %.3f at 100, %.3f at a 500 Hz loop, %.3f on gravel\n", rmsOf(fl), rmsOf(hl), rmsOf(kl), rmsOf(gl));
+            CHECK(src == RoadTexture::Made, "road texture: texture from speed is the made-up one");
+            approx(rmsOf(fl), 0.12, 0.03, "road texture: made up, 0.12 rms at full speed on tarmac at x 1");
+            approx(rmsOf(hl) / rmsOf(fl), 0.5, 0.1, "road texture: made up, half the level at half the full speed");
+            CHECK(peakOf(sl) == 0.0, "road texture: made up, nothing from a standing car");
+            approx(rmsOf(kl), 0.12, 0.035, "road texture: made up, the same level at a 500 Hz loop");
+            CHECK(rmsOf(gl) > 1.8 * rmsOf(fl), "road texture: made up, rougher on gravel than on tarmac");
+            CHECK(peakOf(al) < 1e-6 && rmsOf(ar) > 0.08, "road texture: made up, nothing from a tyre in the air while the others play");
+            double sxy = 0.0; for (size_t i = 0; i < fl.size(); ++i) sxy += fl[i] * fr[i];
+            const double rho = sxy / (fl.size() * rmsOf(fl) * rmsOf(fr));
+            CHECK(std::fabs(rho) < 0.15, "road texture: made up, each wheel its own noise (left and right not in step)");
+            // Where its power sits: 50 Hz against 8 Hz and against 300 Hz.
+            const auto power = [&](const std::vector<double>& y, double f0)
+            {
+                const int N = static_cast<int>(y.size()); double p = 0.0;
+                for (int k = -4; k <= 4; ++k)
+                {
+                    const double f = f0 + 2.0 * k / (N * dt); double re = 0.0, im = 0.0;
+                    for (int i = 0; i < N; ++i) { const double ph = 2.0 * PI * f * i * dt; re += y[i] * std::cos(ph); im += y[i] * std::sin(ph); }
+                    p += re * re + im * im;
+                }
+                return p;
+            };
+            const double pIn = power(fl, 50.0), pLow = power(fl, 8.0), pHigh = power(fl, 300.0);
+            CHECK(pIn > 10.0 * pLow && pIn > 10.0 * pHigh, "road texture: made up, its power is in the band (not under 25 Hz, not far above 90)");
+            // A band asked for the wrong way round (80 up to 40) plays 80 to
+            // 96 Hz at the same level: the level is set from the two cuts'
+            // own bandwidth, which a narrow band has less of than hi - lo.
+            {
+                RoadParams odd = sp; odd.texLoHz = 80.0; odd.texHiHz = 40.0;
+                RoadTexture T; std::vector<double> y;
+                for (int i = 0; i < 16000; ++i) { T.driveSpeed(200.0 / 3.6); T.step(dt, odd); if (i >= 1000) y.push_back(T.wheelOut(WheelFL)); }
+                approx(rmsOf(y), 0.12, 0.03, "road texture: made up, a narrow band (80 to 96 Hz) plays at the same level");
+            }
+            // Water fills the texture (smooth x water), and a tyre floating
+            // on it has no road under it.
+            {
+                RoadTexture T; std::vector<double> dry, wet, afloat;
+                T.setWaterSmooth(0.5);
+                for (int i = 0; i < 12000; ++i)
+                {
+                    T.driveSpeed(200.0 / 3.6);
+                    T.driveWater(WheelFR, 1.0, 0.0); T.driveWater(WheelRL, 1.0, 1.0);
+                    T.step(dt, sp);
+                    if (i >= 1000) { dry.push_back(T.wheelOut(WheelFL)); wet.push_back(T.wheelOut(WheelFR)); }
+                    if (i >= 6000) afloat.push_back(T.wheelOut(WheelRL));   // (the surface eases in over a tenth of a second)
+                }
+                approx(rmsOf(wet) / rmsOf(dry), std::sqrt(0.5), 0.1, "road texture: made up, standing water smooths it (smooth 0.5: 0.71 of it)");
+                CHECK(peakOf(afloat) < 1e-6, "road texture: made up, nothing from a tyre floating on water");
+            }
+            // The speed no longer arriving (the stream stopped, a Test over):
+            // a fade, then nothing.
+            {
+                RoadTexture T; double prev = 0.0, stepPlay = 0.0, stepFade = 0.0, tail = 0.0;
+                for (int i = 0; i < 5000; ++i)
+                {
+                    if (i < 3000) T.driveSpeed(200.0 / 3.6);
+                    T.step(dt, sp);
+                    const double o = T.wheelOut(WheelFL);
+                    if (i >= 1000 && i < 3000) stepPlay = std::max(stepPlay, std::fabs(o - prev));
+                    if (i >= 3000) stepFade = std::max(stepFade, std::fabs(o - prev));
+                    if (i >= 3400) tail = std::max(tail, std::fabs(o));
+                    prev = o;
+                }
+                CHECK(stepPlay > 0.0 && stepFade <= 1.5 * stepPlay && tail == 0.0, "road texture: made up, the speed no longer arriving: a fade, then nothing");
+            }
+        }
+        // The stream stopping: it fades out over the release and is gone (not
+        // held, not cut); coming back it starts without a burst, and the
+        // pause does not count as a sample period.
+        {
+            RoadTexture T; std::vector<double> play, back; double prev = 0.0, stepPlay = 0.0, stepFade = 0.0, tail = 0.0, rateBack = 0.0; bool pausedActive = true;
+            for (int i = 0; i < 6000; ++i)
+            {
+                const double t = i * dt;
+                const bool live = (i < 2000) || (i >= 3000);
+                // (back 200 mm/s away from where it left: a jump across the gap is not road)
+                if (live) for (int w = 0; w < 4; ++w) T.drive(w, (i >= 3000 ? 200.0 : 0.0) + 30.0 * std::sin(2.0 * PI * 50.0 * heldT(t, 216.0)));
+                T.step(dt, q);
+                const double o = T.wheelOut(WheelFL);
+                if (i >= 1000 && i < 2000) { play.push_back(o); stepPlay = std::max(stepPlay, std::fabs(o - prev)); }
+                if (i >= 2000 && i < 3000) stepFade = std::max(stepFade, std::fabs(o - prev));
+                if (i >= 2400 && i < 3000) tail = std::max(tail, std::fabs(o));
+                if (i == 2999) pausedActive = T.active();
+                if (i == 3040) rateBack = T.rateHz();   // 20 ms after it is back
+                if (i >= 3000 && i < 3400) back.push_back(o);
+                prev = o;
+            }
+            CHECK(peakOf(play) > 0.15, "road texture: playing before the stream stops");
+            CHECK(tail == 0.0 && !pausedActive, "road texture: the stream stopped: gone within the release (0.2 s after, nothing)");
+            CHECK(stepFade <= 1.5 * stepPlay, "road texture: the stream stopped: a fade, not a cut");
+            CHECK(peakOf(back) <= 1.3 * peakOf(play), "road texture: the stream back, even somewhere else: no burst in the first 200 ms");
+            approx(rateBack, 216.0, 12.0, "road texture: a pause in the stream is not taken as a sample period");
+        }
+        // A Test preview: made up at the preview speed whatever is set, even
+        // with texture from game and no suspension arriving.
+        {
+            RoadParams game = q; game.texFrom = 1.0;
+            RoadTexture T; std::vector<double> fl;
+            for (int i = 0; i < 6000; ++i) { T.drivePreview(80.0 / 3.6); T.step(dt, game); if (i >= 1000) fl.push_back(T.wheelOut(WheelFL)); }
+            CHECK(T.source() == RoadTexture::Made, "road texture: a Test plays the made-up one");
+            approx(rmsOf(fl), 0.12 * 80.0 / 200.0, 0.015, "road texture: a Test plays it at the preview speed's level");
+        }
+        // Off is off (and still reads the sender's rate); what cannot be a
+        // number is not taken; it never passes full.
+        {
+            RoadParams off = q; off.tex = 0.0;
+            RoadTexture T; double pk = 0.0;
+            for (int i = 0; i < 2000; ++i)
+            {
+                for (int w = 0; w < 4; ++w) T.drive(w, 30.0 * std::sin(2.0 * PI * 50.0 * heldT(i * dt, 216.0)));
+                T.driveSpeed(200.0 / 3.6); T.step(dt, off); pk = std::max(pk, T.level());
+            }
+            CHECK(pk == 0.0 && T.source() == RoadTexture::Off && !T.active(), "road texture: texture x 0 plays nothing");
+            approx(T.rateHz(), 216.0, 12.0, "road texture: off, the sender's rate is still read (the tile can say what it could carry)");
+            CHECK(T.gameUsable(), "road texture: off, whether the sender could carry the band is still answered");
+            RoadParams loud = q; loud.tex = 5.0;
+            RoadTexture B; double top = 0.0; bool finite = true;
+            for (int i = 0; i < 4000; ++i)
+            {
+                for (int w = 0; w < 4; ++w) B.drive(w, 2000.0 * std::sin(2.0 * PI * 50.0 * heldT(i * dt, 216.0)));
+
+                B.step(dt, loud);
+                for (int w = 0; w < 4; ++w) { finite = finite && std::isfinite(B.wheelOut(w)); top = std::max(top, std::fabs(B.wheelOut(w))); }
+            }
+            CHECK(finite && top > 0.9 && top <= 1.0, "road texture: a huge input at x 5 bends to full, never past it");
+            // What is not a number is not there: a cycle whose only values
+            // are NaN is a cycle without them (and no NaN comes out), and a
+            // road speed that is no number is no speed.
+            RoadTexture C; std::vector<double> c; bool cFinite = true;
+            for (int i = 0; i < 6000; ++i)
+            {
+                const double v = 30.0 * std::sin(2.0 * PI * 50.0 * heldT(i * dt, 216.0));
+                for (int w = 0; w < 4; ++w) C.drive(w, (i % 7 == 0) ? std::nan("") : v);
+                C.step(dt, q);
+                cFinite = cFinite && std::isfinite(C.wheelOut(WheelFL));
+                if (i >= 2000) c.push_back(C.wheelOut(WheelFL));
+            }
+            CHECK(cFinite && rmsOf(c) > 0.12 && rmsOf(c) < 0.20, "road texture: a cycle of NaN on every wheel is a cycle without them, and no NaN comes out");
+            RoadParams sp = q; sp.texFrom = 2.0;
+            RoadTexture D; double dPk = 0.0;
+            for (int i = 0; i < 2000; ++i) { D.driveSpeed(std::nan("")); D.step(dt, sp); dPk = std::max(dPk, D.level()); }
+            CHECK(dPk == 0.0, "road texture: a road speed that is no number is no speed (nothing made up)");
+        }
+    }
+
+    // ================= road: what a shaker route gets (bumps %, grain %, the texture) =================
+    {
+        using haptics::FxType; using haptics::Part; using haptics::RoadParams; using haptics::Route; using haptics::RoadTexture;
+        const double PI = 3.14159265358979;
+        const int ROAD = static_cast<int>(FxType::Road);
+        // Road on a post (FL) and on the four corners' shakers.
+        const auto roadFx = [](bool shakers)
+        {
+            EffectParams p; p.ampPct = 100.0; p.jitter = 0.0;
+            p.routes[0] = { 0, 1.0, Part::FL };
+            const Part parts[4] = { Part::FL, Part::FR, Part::RL, Part::RR };
+            if (shakers) for (int s = 0; s < 4; ++s) { Route r; r.shaker = s; r.gain = 1.0; r.part = parts[s]; p.routes[1 + s] = r; }
+            return p;
+        };
+        // A car at 150 km/h whose suspension works at 9 Hz (the bumps) with
+        // a 50 Hz buzz on top (the texture), from a sender at 216 samples a
+        // second.
+        const auto feed = [&](Layer& L, int i)
+        {
+            const double t = std::floor(i * DT * 216.0) / 216.0;
+            for (int w = 0; w < 4; ++w) L.driveRoad(w, 200.0 * std::sin(2.0 * PI * 9.0 * t + w) + 30.0 * std::sin(2.0 * PI * 50.0 * t + 2.0 * w));
+            L.driveRoadSpeed(150.0 / 3.6);
+            L.driveRoadGrain(0.5);
+        };
+        RoadParams base; base.model = 0; base.rough = 0.0; base.fullMm = 10.0; base.hpHz = 2.0;
+
+        // As it was: nothing new is on by default, and the texture's own
+        // settings do nothing while texture x is 0.
+        {
+            RoadParams odd = base; odd.texFrom = 2.0; odd.texLoHz = 40.0; odd.texHiHz = 120.0; odd.texKmh = 50.0;
+            Layer A, B; A.configureFx(FxType::Road, roadFx(true)); A.configureRoad(base); B.configureFx(FxType::Road, roadFx(true)); B.configureRoad(odd);
+            bool same = true; double errBumps = 0.0, sh = 0.0;
+            for (int i = 0; i < 4000; ++i)
+            {
+                feed(A, i); feed(B, i); A.step(DT); B.step(DT);
+                same = same && A.overlayFor(0) == B.overlayFor(0);
+                for (int s = 0; s < 4; ++s) same = same && A.shakerSample(s) == B.shakerSample(s);
+                sh = std::max(sh, std::fabs(A.shakerSample(0)));
+            }
+            CHECK(base.tex == 0.0 && base.shkBumpsPct == 100.0 && base.shkGrainPct == 100.0 && sh > 0.2,
+                  "road shakers: by default the texture is off and a shaker route gets all of the bumps and the grain");
+            CHECK(same, "road shakers: with texture x 0 its other settings change nothing, on a shaker or a post");
+            // With no grain driven, a shaker's sample is the model's force
+            // sample and nothing else.
+            Layer C; C.configureFx(FxType::Road, roadFx(true)); C.configureRoad(base);
+            for (int i = 0; i < 2000; ++i)
+            {
+                const double t = std::floor(i * DT * 216.0) / 216.0;
+                for (int w = 0; w < 4; ++w) C.driveRoad(w, 200.0 * std::sin(2.0 * PI * 9.0 * t + w));
+                C.step(DT);
+                errBumps = std::max(errBumps, std::fabs(C.shakerSample(0) - C.roadModel().outputFor(Part::FL).force));
+            }
+            CHECK(errBumps < 1e-15, "road shakers: at 100 % a shaker gets the model's sample as it is");
+        }
+        // Each part by itself on a shaker; the post keeps all of it.
+        {
+            RoadParams noBumps = base; noBumps.shkBumpsPct = 0.0;
+            RoadParams half = base; half.shkBumpsPct = 50.0;
+            RoadParams noGrain = base; noGrain.shkGrainPct = 0.0;
+            RoadParams neither = base; neither.shkBumpsPct = 0.0; neither.shkGrainPct = 0.0;
+            Layer A, NB, H, NG, N;
+            const RoadParams* rp[5] = { &base, &noBumps, &half, &noGrain, &neither }; Layer* L[5] = { &A, &NB, &H, &NG, &N };
+            for (int k = 0; k < 5; ++k) { L[k]->configureFx(FxType::Road, roadFx(true)); L[k]->configureRoad(*rp[k]); }
+            bool postSame = true; double errHalf = 0.0, errGrainOnly = 0.0, errBumpsOnly = 0.0, none = 0.0, grainPk = 0.0, bumpsPk = 0.0;
+            for (int i = 0; i < 4000; ++i)
+            {
+                for (int k = 0; k < 5; ++k) { feed(*L[k], i); L[k]->step(DT); postSame = postSame && L[k]->overlayFor(0) == A.overlayFor(0); }
+                if (i < 1000) continue;
+                const double all = A.shakerSample(0), grain = NB.shakerSample(0), bumps = NG.shakerSample(0);
+                errGrainOnly = std::max(errGrainOnly, std::fabs(all - grain - bumps));           // the two parts add up to the whole
+                errHalf      = std::max(errHalf, std::fabs(H.shakerSample(0) - (grain + 0.5 * bumps)));
+                errBumpsOnly = std::max(errBumpsOnly, std::fabs(bumps - NG.roadModel().outputFor(Part::FL).force));
+                none = std::max(none, std::fabs(N.shakerSample(0)));
+                grainPk = std::max(grainPk, std::fabs(grain)); bumpsPk = std::max(bumpsPk, std::fabs(bumps));
+            }
+            CHECK(grainPk > 0.3 && bumpsPk > 0.2, "road shakers: the grain and the bumps both reach a shaker here");
+            CHECK(errGrainOnly < 1e-12 && errBumpsOnly < 1e-12, "road shakers: shaker bumps % 0 leaves the grain alone, shaker grain % 0 the bumps alone");
+            CHECK(errHalf < 1e-12, "road shakers: shaker bumps % 50 is half the bumps");
+            // ...and shaker grain % 50 half the grain.
+            {
+                RoadParams g100 = base; g100.shkBumpsPct = 0.0; RoadParams g50 = g100; g50.shkGrainPct = 50.0;
+                Layer G1, G5; G1.configureFx(FxType::Road, roadFx(true)); G1.configureRoad(g100); G5.configureFx(FxType::Road, roadFx(true)); G5.configureRoad(g50);
+                double errG = 0.0, pkG = 0.0;
+                for (int i = 0; i < 3000; ++i)
+                {
+                    feed(G1, i); feed(G5, i); G1.step(DT); G5.step(DT);
+                    errG = std::max(errG, std::fabs(G5.shakerSample(1) - 0.5 * G1.shakerSample(1))); pkG = std::max(pkG, std::fabs(G1.shakerSample(1)));
+                }
+                CHECK(pkG > 0.3 && errG < 1e-12, "road shakers: shaker grain % 50 is half the grain");
+            }
+            // The tone that stands in for the bumps when the model has nothing
+            // to run on (the roadNoise fallback) is the bumps on a shaker too:
+            // all of it at 100, half at 50, none at 0, and on the tile's line.
+            {
+                EffectParams tone = roadFx(true); tone.freqHz = 28.0;
+                RoadParams b100 = base, b50 = base, b0 = base; b50.shkBumpsPct = 50.0; b0.shkBumpsPct = 0.0;
+                Layer F1, F5, F0; F1.configureFx(FxType::Road, tone); F1.configureRoad(b100); F5.configureFx(FxType::Road, tone); F5.configureRoad(b50);
+                F0.configureFx(FxType::Road, tone); F0.configureRoad(b0);
+                double pk1 = 0.0, pk0 = 0.0, errF = 0.0; bool postSameF = true;
+                for (int i = 0; i < 2000; ++i)
+                {
+                    F1.driveFx(FxType::Road, 1.0, 0.0); F5.driveFx(FxType::Road, 1.0, 0.0); F0.driveFx(FxType::Road, 1.0, 0.0);
+                    F1.step(DT); F5.step(DT); F0.step(DT);
+                    pk1 = std::max(pk1, std::fabs(F1.shakerSample(0))); pk0 = std::max(pk0, std::fabs(F0.shakerSample(0)));
+                    errF = std::max(errF, std::fabs(F5.shakerSample(0) - 0.5 * F1.shakerSample(0)));
+                    postSameF = postSameF && F0.overlayFor(0) == F1.overlayFor(0) && F5.overlayFor(0) == F1.overlayFor(0);
+                }
+                CHECK(pk1 > 0.9 && errF < 1e-12 && pk0 == 0.0 && postSameF, "road shakers: the fallback tone takes shaker bumps % on a shaker (the post keeps all of it)");
+                CHECK(F1.roadShakerSent(0) > 0.9 && F0.roadShakerSent(0) == 0.0, "road shakers: the fallback tone reads as bumps on the tile's line");
+            }
+            CHECK(none == 0.0, "road shakers: both at 0, a shaker gets nothing from the tile");
+            CHECK(postSame, "road shakers: the post plays the same whatever the shaker shares are");
+            // The tile's line: each part's level, and how many shaker routes.
+            CHECK(A.roadShakerRoutes() == 4 && A.roadShakerSent(0) > 0.2 && A.roadShakerSent(1) > 0.3 && A.roadShakerSent(2) == 0.0,
+                  "road shakers: the tile's line reads the bumps and the grain going out, no texture");
+            CHECK(NB.roadShakerSent(0) == 0.0 && NG.roadShakerSent(1) == 0.0, "road shakers: a part at 0 % reads 0 on the line");
+        }
+        // The texture: on the shakers only, each its own wheel; the post
+        // plays what it played; the line says where it comes from; it falls
+        // away when the tile is muted, has no shaker route or the car stops.
+        {
+            RoadParams tex = base; tex.shkBumpsPct = 0.0; tex.shkGrainPct = 0.0; tex.tex = 1.0;
+            Layer A, T, M, P;
+            A.configureFx(FxType::Road, roadFx(true)); A.configureRoad(base);
+            T.configureFx(FxType::Road, roadFx(true)); T.configureRoad(tex);
+            M.configureFx(FxType::Road, roadFx(true)); M.configureRoad(tex); M.setFxMuted(FxType::Road, true);
+            P.configureFx(FxType::Road, roadFx(false)); P.configureRoad(tex);
+            Layer P0; P0.configureFx(FxType::Road, roadFx(false)); P0.configureRoad(base);
+            bool postSame = true, levelSame = true; double sum2 = 0.0, pkM = 0.0, cross = 0.0, s1 = 0.0; int n = 0;
+            for (int i = 0; i < 4000; ++i)
+            {
+                feed(A, i); feed(T, i); feed(M, i); feed(P, i); feed(P0, i);
+                A.step(DT); T.step(DT); M.step(DT); P.step(DT); P0.step(DT);
+                postSame = postSame && T.overlayFor(0) == A.overlayFor(0) && P.overlayFor(0) == A.overlayFor(0);
+                levelSame = levelSame && P.fxLevel(ROAD) == P0.fxLevel(ROAD);
+                pkM = std::max(pkM, std::fabs(M.shakerSample(0)));
+                if (i >= 2000) { sum2 += T.shakerSample(0) * T.shakerSample(0); s1 += T.shakerSample(1) * T.shakerSample(1); cross += T.shakerSample(0) * T.shakerSample(1); ++n; }
+            }
+            // The same with no grain and next to no bumps, so the texture
+            // would be the tile's level if it counted without a route.
+            Layer Q1, Q0; Q1.configureFx(FxType::Road, roadFx(false)); Q1.configureRoad(tex); Q0.configureFx(FxType::Road, roadFx(false)); Q0.configureRoad(base);
+            bool quiet = true;
+            for (int i = 0; i < 2000; ++i)
+            {
+                const double t = std::floor(i * DT * 216.0) / 216.0;
+                for (int w = 0; w < 4; ++w) { const double v = 30.0 * std::sin(2.0 * PI * 50.0 * t + w); Q1.driveRoad(w, v); Q0.driveRoad(w, v); }
+                Q1.step(DT); Q0.step(DT);
+                quiet = quiet && Q1.fxLevel(ROAD) == Q0.fxLevel(ROAD);
+            }
+            const double rms0 = std::sqrt(sum2 / n), rms1 = std::sqrt(s1 / n);
+            approx(rms0, 0.164, 0.03, "road shakers: the texture reaches a corner's shaker (the 50 Hz buzz, 0.16 rms)");
+            approx(cross / (n * rms0 * rms1), std::cos(2.0), 0.1, "road shakers: each corner's shaker plays its own wheel (FL and FR as far out of step as their wheels)");
+            CHECK(postSame, "road shakers: the texture never reaches a post");
+            CHECK(T.roadTexture().source() == RoadTexture::Game && T.roadShakerSent(2) > 0.15 && T.roadShakerSent(0) == 0.0,
+                  "road shakers: the tile's line reads the texture going out, from the game");
+            CHECK(pkM == 0.0 && M.roadShakerSent(2) == 0.0, "road shakers: a muted tile sends no texture and its line reads 0");
+            CHECK(P.roadShakerRoutes() == 0 && P.roadShakerSent(2) == 0.0 && levelSame && quiet,
+                  "road shakers: with no shaker route the texture goes nowhere and the tile's level does not show it");
+            // The stream stops: the line falls away with it (0.5 s hold).
+            for (int i = 0; i < 8000; ++i) T.step(DT);
+            CHECK(T.roadShakerSent(2) < 0.001 && T.shakerSample(0) == 0.0, "road shakers: the stream stopped: no texture, and the line falls to nothing");
+            // A Test: the made-up one at the preview speed on the shakers.
+            Layer V; V.configureFx(FxType::Road, roadFx(true)); V.configureRoad(tex);
+            double pv = 0.0;
+            for (int i = 0; i < 2000; ++i) { V.driveRoadTexturePreview(80.0 / 3.6); V.step(DT); pv = std::max(pv, std::fabs(V.shakerSample(2))); }
+            CHECK(pv > 0.05 && V.roadTexture().source() == RoadTexture::Made, "road shakers: a Test plays the made-up texture on every corner's shaker");
+            // A Test's own tone stays off the shakers while it plays the
+            // texture (so the Test shows what texture x gives); with texture
+            // x 0 the tone is there as before; the post has it either way.
+            {
+                EffectParams tone = roadFx(true); tone.freqHz = 28.0;
+                RoadParams texAll = base; texAll.tex = 1.0;   // (all of the bumps to the shakers: only the Test rule keeps the tone off)
+                Layer W1, W0; W1.configureFx(FxType::Road, tone); W1.configureRoad(texAll); W0.configureFx(FxType::Road, tone); W0.configureRoad(base);
+                double s1 = 0.0, s0 = 0.0, p1 = 0.0; bool postSameW = true;
+                for (int i = 0; i < 2000; ++i)
+                {
+                    W1.driveRoadTexturePreview(80.0 / 3.6); W1.driveFx(FxType::Road, 1.0, 0.0); W0.driveRoadTexturePreview(80.0 / 3.6); W0.driveFx(FxType::Road, 1.0, 0.0);
+                    W1.step(DT); W0.step(DT);
+                    if (i >= 400) { s1 = std::max(s1, std::fabs(W1.shakerSample(0))); s0 = std::max(s0, std::fabs(W0.shakerSample(0))); p1 = std::max(p1, std::fabs(W1.overlayFor(0))); }
+                    postSameW = postSameW && W1.overlayFor(0) == W0.overlayFor(0);
+                }
+                CHECK(s1 > 0.05 && s1 < 0.5 && s0 > 0.9 && p1 > 1.0 && postSameW, "road shakers: a Test that plays the texture keeps its own tone off the shakers (the post has it)");
+            }
+            double lvMin = 1.0;
+            for (int i = 0; i < 2000; ++i) { V.driveRoadTexturePreview(80.0 / 3.6); V.step(DT); lvMin = std::min(lvMin, V.fxLevel(ROAD)); }
+            CHECK(lvMin > 0.03, "road shakers: with a shaker route the tile's level shows the texture, held (it does not flicker with the signal)");
+            // Loop stop, park, e-stop: gone at once.
+            V.clearAll(); V.step(DT);
+            CHECK(V.shakerSample(2) == 0.0 && V.roadShakerSent(2) == 0.0 && !V.roadTexture().active(), "road shakers: clearAll stops the texture and its line");
+        }
+    }
+
     // ================= road: the tyre and chassis models; the kerb =================
     {
         using haptics::Part; using haptics::RoadParams; using haptics::KerbParams; using haptics::RoadOut;

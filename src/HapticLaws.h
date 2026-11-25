@@ -1803,6 +1803,9 @@ inline void driveLaws(Layer& L, LawsState& st, const NcxValues& in, double dtSec
                             v.have[NcxValues::TrackWidth] ? v.val[NcxValues::TrackWidth] : 0.0);
         if (speed)                         L.driveRoadSpeed(std::max(0.0, v.val[NcxValues::SpeedKmh]) / 3.6);
         else if (previewing && model == 1) L.driveRoadSpeed(kPreviewKmh / 3.6);
+        // A Test also plays the texture for shakers (texture x above 0),
+        // made up at the preview speed whatever model is chosen.
+        if (previewing) L.driveRoadTexturePreview(kPreviewKmh / 3.6);
         // The tyre model runs on speed alone (its own road); the chassis
         // model needs the body; the suspension model the corners.
         const bool fed = (model == 1) ? (speed || height || vel || travel || previewing)

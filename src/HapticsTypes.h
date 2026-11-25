@@ -162,6 +162,21 @@ struct RoadParams
     // suspension moves (1), or fullMm as set (0). Last, so positional
     // initialisers stay as they were.
     double fullLearn  = 0.0;
+    // What a SHAKER route on the tile gets, each part by itself (posts and
+    // belts are not touched by any of these). The bumps (the model's
+    // output) and the grain (the surface tone) as today at 100; the
+    // texture (RoadTexture.h: the fine grain of the road under each tyre,
+    // 25 Hz and up) off at 0. texFrom: 0 auto (the sim's own suspension
+    // where the sender is fast enough, else made up from road speed), 1
+    // the sim's only, 2 made up only. The band, and the road speed by
+    // which the made-up one is at full.
+    double shkBumpsPct = 100.0;
+    double shkGrainPct = 100.0;
+    double tex         = 0.0;
+    double texFrom     = 0.0;
+    double texLoHz     = 25.0;
+    double texHiHz     = 90.0;
+    double texKmh      = 200.0;
 };
 
 // The Rumble strip tile: a rumble strip's ribs under the tyre the game says

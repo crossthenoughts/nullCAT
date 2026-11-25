@@ -222,6 +222,32 @@ struct HighPass2
     }
 };
 
+// Its other half: a second-order (Butterworth) low-pass.
+struct LowPass2
+{
+    double x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0;
+    void reset() { x1 = x2 = y1 = y2 = 0.0; }
+    double step(double x, double hz, double dt)
+    {
+        const double w0 = 2.0 * wavesynth::kPi * std::min(hz, 0.45 / dt) * dt;
+        const double c = std::cos(w0), al = std::sin(w0) / (2.0 * 0.70710678118654752);
+        const double a0 = 1.0 + al;
+        const double b0 = 0.5 * (1.0 - c) / a0, b1 = (1.0 - c) / a0, a1 = -2.0 * c / a0, a2 = (1.0 - al) / a0;
+        const double y = b0 * (x + x2) + b1 * x1 - a1 * y1 - a2 * y2;
+        x2 = x1; x1 = x; y2 = y1; y1 = y;
+        return y;
+    }
+};
+
+// The short wavelengths' gain under a tyre (the surface itself): the
+// surface class's, less what water fills (smooth x water), nothing under a
+// tyre floating on it. The models' roughness and the texture for shakers
+// (RoadTexture.h) both take it from here.
+inline double roadShortGain(int surface, double water, double floating, double smooth)
+{
+    return road_k::kSurfShort[surface] * (1.0 - smooth * water) * (1.0 - floating);
+}
+
 // A held sample stream (the value changes only when a sample arrives, ~60
 // a second from SimHub) as straight lines between its samples, and the
 // rate they arrive at: a staircase becomes a ramp, one interval late; a
@@ -611,10 +637,9 @@ private:
         const bool front = (i == WheelFL || i == WheelFR);
         const int  side  = (i == WheelFL || i == WheelRL) ? 0 : 1;
         const double raw = profileAt(side, front ? m_dist : m_dist - wb);
-        const double wetK   = 1.0 - m_smooth * w.water;
         const double floatK = 1.0 - w.floating;
         const double gL = kSurfLong[w.surface] * floatK;
-        const double gS = kSurfShort[w.surface] * wetK * floatK;
+        const double gS = roadShortGain(w.surface, w.water, w.floating, m_smooth);
         if (!w.rSeen) { w.rPrev = raw; w.rBase = w.rShort = 0.0; w.rGainL = gL; w.rGainS = gS; w.rSeen = true; }
         const double baseA  = std::exp(-2.0 * wavesynth::kPi * kRoadHpHz * dtSec);
         const double shortA = std::exp(-2.0 * wavesynth::kPi * std::max(kRoadHpHz, m_speed / kSurfWaveM) * dtSec);

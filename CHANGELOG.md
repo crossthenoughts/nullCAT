@@ -21,6 +21,16 @@ middle number carries breaking changes and the last carries fixes.
   shaker yet, the ones that are routed are all at amplitude 0, or no game
   is sending. A shaker no effect is routed to is marked *no effect*.
 - **Setup, Axes**: *Reduction* offers 1.25:1 for linear and belt axes.
+- **Road tile: a texture for shakers.** A shaker route on the Road tile can
+  now play the fine buzz of the road running under each tyre, from about
+  25 Hz up, each corner its own (*texture x*, off at 0). It comes from the
+  game's own suspension where its sender sends often enough (about 125
+  times a second or more) and is made up from your road speed where it
+  does not (*texture from*). *Shaker bumps %* and *shaker grain %* set how
+  much of the bumps and of the grain's tone a shaker route gets. A line
+  under the wheels shows what the tile is sending to the shakers and
+  where the texture comes from. Nothing changes until you raise
+  *texture x*; posts and belts are not affected.
 
 ### Changed
 - **Haptics need no tickbox.** The Haptics panel is there whenever the rig

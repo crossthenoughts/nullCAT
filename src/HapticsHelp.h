@@ -319,6 +319,33 @@ constexpr ParamHelp kHelp[] = {
       "roughness does its job). 0.2 to 0.5 if you want extra texture." },
     { "road", "surfaceHz", "The tarmac grain's pitch, 4 to 40 Hz. 10 to 16 for a seat actuator." },
     { "road", "surfaceKmh", "The speed by which the tarmac grain is at full, 20 to 300 km/h. 100 to 150 for most." },
+    { "road", "shkBumpsPct",
+      "Shaker routes only: how much of the bumps a shaker gets, 0 to 100: what the model plays, or the tone that "
+      "stands in for it when the sim sends no per-corner road. 100 is all of it, 0 none. Most of the bumps are too "
+      "slow for a shaker to play; posts and belts are not affected." },
+    { "road", "shkGrainPct",
+      "Shaker routes only: how much of the tarmac grain's tone (surface x) a shaker gets, 0 to 100. The grain is "
+      "one steady tone, the same on every shaker; lower this if you want the texture below in its place. Posts "
+      "and belts are not affected." },
+    { "road", "tex",
+      "Shaker routes only: the road's fine texture, the buzz of the road running under each tyre from about "
+      "25 Hz up, 0 to 5 (0 = off). Each wheel plays its own, so route each corner's shaker with its part. Start "
+      "at 1 and raise it until you feel the road at speed. The line under the wheels shows how much is going to "
+      "the shakers and where it comes from. With it above 0, Test plays the texture alone on the shakers, as it "
+      "would be at 80 km/h." },
+    { "road", "texFrom",
+      "Where the texture comes from. Auto: the sim's own suspension where its sender sends often enough to carry "
+      "it (about 125 times a second or more), else made up from your road speed. Game: the sim's only (nothing "
+      "plays if the sender is too slow, and nothing from a car slower than walking pace). Speed: made up only, "
+      "rising with speed, rougher on gravel and dirt, smoother on a wet road." },
+    { "road", "texLoHz",
+      "The lowest pitch of the texture, 15 to 80 Hz. 25 keeps it clear of the bumps; raise it if the shakers "
+      "thump on kerbs." },
+    { "road", "texHiHz",
+      "The highest pitch of the texture, 40 to 200 Hz. 80 to 100 for most shakers. The sim's own texture only "
+      "reaches as high as its sender allows, whatever is set here." },
+    { "road", "texKmh",
+      "Made up from speed: the speed by which the texture is at full, 20 to 300 km/h. 150 to 250 for most." },
     { "road", "freqHz", "The roadNoise texture's pitch when the sim sends no per-corner road, 10 to 120 Hz. 14 to 20." },
 
     // ---- limiter ----

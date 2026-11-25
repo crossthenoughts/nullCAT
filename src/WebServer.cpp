@@ -576,7 +576,11 @@ std::string WebServer::buildStatusJson() const
            + ",\"sec\":" + jsonDouble(ms.hapGripSec, 0) + ",\"wf\":" + jsonDouble(ms.hapGripW[0], 2) + ",\"wr\":" + jsonDouble(ms.hapGripW[1], 2) + ",\"src\":" + std::to_string(ms.hapGripSrc)
            + ",\"turn\":" + std::to_string(ms.hapGripTurn) + ",\"lon\":" + jsonDouble(ms.hapGripLon, 3)
            + ",\"lock\":" + jsonDouble(ms.hapGripLock, 3) + "},"
-           + "\"hapRoadFull\":{\"mm\":" + jsonDouble(ms.hapRoadFullMm, 1) + ",\"sec\":" + jsonDouble(ms.hapRoadFullSec, 0) + "},";
+           + "\"hapRoadFull\":{\"mm\":" + jsonDouble(ms.hapRoadFullMm, 1) + ",\"sec\":" + jsonDouble(ms.hapRoadFullSec, 0) + "},"
+           + "\"hapRoadShk\":{\"routes\":" + std::to_string(ms.hapRoadShkRoutes) + ",\"bumps\":" + jsonDouble(ms.hapRoadShk[0], 3)
+           + ",\"grain\":" + jsonDouble(ms.hapRoadShk[1], 3) + ",\"tex\":" + jsonDouble(ms.hapRoadShk[2], 3)
+           + ",\"src\":" + jsonStr(haptics::RoadTexture::sourceName(ms.hapRoadTexSrc)) + ",\"rate\":" + jsonDouble(ms.hapRoadTexRate, 0)
+           + ",\"carried\":" + jsonBool(ms.hapRoadTexCarried) + "},";
         // Sim identity from NULLCATY (empty until a sender names it).
         if (m_telemetry)
         {

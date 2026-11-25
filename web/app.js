@@ -1437,10 +1437,32 @@ function hapWheelSet(k){ return k==='slipLat'?0:k==='slipLon'?1:k==='road'?2:k==
 const HAP_SURF_NAMES=['tarmac','bumpy','kerb','gravel','grass','dirt','cobbles','snow','ice','sand','mud','water'];
 // Road: the settings each model reads (the rest are dimmed), and the
 // roadNoise texture's, live only while the model has nothing to run on.
-const HAP_ROAD_MODEL_KEYS=[['fullMm','fullLearn','surface','surfaceHz','surfaceKmh','rough','suspPct','suspHz','bodyHz','hopHz','damping'],
+const HAP_ROAD_MODEL_KEYS=[['fullMm','fullLearn','surface','surfaceHz','surfaceKmh','shkGrainPct','rough','suspPct','suspHz','bodyHz','hopHz','damping'],
   ['bodyMm','rough','suspPct','suspHz','bodyHz','hopHz','damping'],['bodyMm']];
-const HAP_ROAD_ALL_KEYS=['fullMm','fullLearn','surface','surfaceHz','surfaceKmh','bodyMm','rough','suspPct','suspHz','bodyHz','hopHz','damping'];
+const HAP_ROAD_ALL_KEYS=['fullMm','fullLearn','surface','surfaceHz','surfaceKmh','shkGrainPct','bodyMm','rough','suspPct','suspHz','bodyHz','hopHz','damping'];
 const HAP_ROAD_TEX_KEYS=['freqHz','jitter','peakPct'];
+// Road: the shaker texture's own settings (texture x), used only while
+// texture x is above 0.
+const HAP_ROAD_SHKTEX_KEYS=['texFrom','texLoHz','texHiHz','texKmh'];
+// Road: the tile's "to shakers" line from the status (hapRoadShk): what its
+// shaker routes are getting, each part's largest route as a share of a
+// shaker's full scale, and where the texture comes from (src: off, game,
+// made, waiting, as the controller names it). Amber when the texture is
+// asked for and cannot play as set: no shaker route, or the game's own
+// asked for from a sender too slow to carry it.
+function hapRoadShkText(q,dv){
+  const n=+q.routes||0, x=+dv.tex||0, from=Math.round(+dv.texFrom)||0, rate=Math.round(+q.rate||0), src=String(q.src||'');
+  if(!n) return { text:'to shakers: nothing (this tile has no shaker route)', warn:x>0 };
+  const pc=(v)=>Math.round(100*(+v||0))+' %';
+  const slow=rate>0&&!q.carried;   // a rate is known and it cannot carry the band
+  const few='the game sends its suspension '+rate+' times a second, too few for it';
+  let tex='texture off';
+  if(x>0) tex='texture '+pc(q.tex)+' ('+(src==='game'?'from the game, '+rate+' samples a second'
+      :src==='made'?'made up from speed'+(from===0&&slow?': '+few:'')
+      :from===1?'waiting: '+(slow?few:'no suspension from the game')
+      :'waiting for the game')+')';
+  return { text:'to shakers: bumps '+pc(q.bumps)+', grain '+pc(q.grain)+', '+tex, warn:x>0&&src==='waiting'&&from===1&&slow };
+}
 // The dimmed settings of the Road and Rumble strip tiles with the reason, from the
 // chosen model and what is arriving (null = the generic path trims).
 function hapDimFor(k,dv,have,curbsNamed){
@@ -1453,6 +1475,9 @@ function hapDimFor(k,dv,have,curbsNamed){
     const dim={}; const name=['suspension','tyre','chassis'][m]||'suspension';
     HAP_ROAD_ALL_KEYS.forEach(x=>{ if(!HAP_ROAD_MODEL_KEYS[m].includes(x)) dim[x]='Not used by the '+name+' model'; });
     if(fed) HAP_ROAD_TEX_KEYS.forEach(x=>{ if(!(m===0&&x==='jitter')) dim[x]='The roadNoise texture: only when the model has nothing to run on'; });
+    if(!(+dv.tex>0)) HAP_ROAD_SHKTEX_KEYS.forEach(x=>{ dim[x]='Texture x is 0: the texture is off'; });
+    else if(Math.round(+dv.texFrom)===1) dim.texKmh='Only for a texture made up from speed (texture from auto or speed, and a Test)';
+    if(m===0&&!(+dv.surface>0)) dim.shkGrainPct='Surface x is 0: there is no grain';
     if(m===0&&Math.round(+dv.fullLearn)===1) dim.fullMm='Learn full mm is on: the value learned for this car plays (shown on the learn full mm row). Yours is kept for when it is off, plays until the car has been learned, and is what the roughness always plays against.';
     return dim;
   }
@@ -2739,6 +2764,8 @@ function hapLive(s){
       if(lr){ lr.textContent='learn full mm'+(mm>0?' ('+mm.toFixed(1)+')':sec>0?' (learning '+sec.toFixed(0)+' s)':'');
               lr.classList.toggle('warn',on&&!(mm>0)); }
       if(fr) fr.disabled=on;
+      const rs=t.tile.querySelector('[data-roadshk]');
+      if(rs&&s.hapRoadShk){ const r=hapRoadShkText(s.hapRoadShk,t.dv); rs.textContent=r.text; rs.classList.toggle('warn',r.warn); }
     }
     // Slip from the car's g: what has been learned for this car, on the
     // learn row (whether or not it is ticked, so it can be compared).
@@ -3085,6 +3112,7 @@ function hapInit(){
     if(fx.k==='slipLat') h+='<div class="hk hwheels" data-ang="1" title="Each wheel\'s slip angle as played, degrees, and after the slash its straight-line baseline (learned on the straights and taken off, where the sim sends a slip speed: Automobilista 2, Le Mans Ultimate). A baseline that stays 0 or keeps climbing means it is not learning right."><span>FL -</span><span>FR -</span><span>RL -</span><span>RR -</span></div>'
       +'<div class="hap-game"><span class="hk hwstate" data-angstate="1" title="Where the slip angle comes from. From a slip speed (Automobilista 2, Le Mans Ultimate): whether the straight-line baseline is learning (amber), learned, learned and held (baseline: learn once), or fixed, and how many seconds of straights it has learned over. It learns on steady straights above 60 km/h, off the brake.">angle -</span>'
       +'<button class="btn btn-sm" type="button" data-relearn="1" title="Throw away the learned straight-line baseline and learn it again from the next straights (a new car does this by itself). With baseline fixed it changes nothing.">relearn</button></div>';
+    if(fx.k==='road') h+='<div class="hk hwstate" data-roadshk="1" title="What this tile is sending to its shaker routes right now, each part by itself: the bumps (shaker bumps %: what the model plays, or the tone in its place), the grain\'s tone (shaker grain %) and the texture (texture x), as the largest route\'s share of a shaker\'s full scale. After the texture: where it comes from. Amber: the texture is asked for and cannot play as set (no shaker route, or texture from game with a sender too slow for it).">to shakers -</div>';
     if(fx.k==='abs') h+='<div class="hk hwstate" data-abssrc="1" title="What says ABS is working right now: the sim\'s flag (held over its gaps), the wheels (with from wheels on: their dumps, and the rate they come at), or both.">ABS -</div>';
     if(fx.k==='wheels') h+='<div class="hap-game"><span class="hk hwstate" data-wstate="1" title="The tyres right now: flat spots (mm, from lock-ups), brake discs hot enough to judder, a puncture. Amber or red while there is anything. They last until a different car, ten minutes without the sim, or fresh tyres; with fresh tyres on pit/restart on, also until a restart, a jump back to the pits or new tyres at a stop.">tyres -</span>'
       +'<button class="btn btn-sm" type="button" data-fresh="1" title="Fresh tyres: wipe the flat spots and cool the discs now (after a restart, or a lock-up you want gone). A puncture is the sim\'s and stays while it says so.">fresh tyres</button></div>';

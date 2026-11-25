@@ -276,6 +276,9 @@ constexpr FieldRow<RoadParams> kRoadFields[] = {
     { "bodyMm", &RoadParams::bodyMm }, { "bodyHz", &RoadParams::bodyHz }, { "hopHz", &RoadParams::hopHz },
     { "damping", &RoadParams::damping }, { "rough", &RoadParams::rough }, { "suspPct", &RoadParams::suspPct },
     { "suspHz", &RoadParams::suspHz }, { "fullLearn", &RoadParams::fullLearn },
+    { "shkBumpsPct", &RoadParams::shkBumpsPct }, { "shkGrainPct", &RoadParams::shkGrainPct },
+    { "tex", &RoadParams::tex }, { "texFrom", &RoadParams::texFrom }, { "texLoHz", &RoadParams::texLoHz },
+    { "texHiHz", &RoadParams::texHiHz }, { "texKmh", &RoadParams::texKmh },
 };
 constexpr FieldRow<KerbParams> kKerbFields[] = {
     { "pitchCm", &KerbParams::pitchCm }, { "ribMm", &KerbParams::ribMm }, { "fullMm", &KerbParams::fullMm },

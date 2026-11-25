@@ -29,6 +29,8 @@
 #include "EngineModel.h"
 #include "SlipModel.h"
 #include "RoadModel.h"
+#include "RoadTexture.h"
+#include "RoadShakerLine.h"
 #include "DrivelineModel.h"
 #include "PulseModel.h"
 #include "SurfaceModel.h"
@@ -115,7 +117,12 @@ public:
         // tyre floating on it has no road under it.
         m_surface.step(dtSec, m_surfaceParams);
         m_road.setWaterSmooth(m_surfaceParams.smooth);
-        for (int w = 0; w < WHEEL_COUNT; ++w) m_road.driveWater(w, m_surface.water(w), m_surface.floating(w));
+        m_roadTex.setWaterSmooth(m_surfaceParams.smooth);
+        for (int w = 0; w < WHEEL_COUNT; ++w)
+        {
+            m_road.driveWater(w, m_surface.water(w), m_surface.floating(w));
+            m_roadTex.driveWater(w, m_surface.water(w), m_surface.floating(w));
+        }
 
         // One-shot transients.
         for (Event& e : m_events)
@@ -159,6 +166,16 @@ public:
             if (i == static_cast<int>(FxType::Road))
             {
                 m_roadLevel = 0.0;
+                // The tile's "to shakers" line (RoadShakerLine.h): the last
+                // cycle's sends become what it holds; this cycle's are noted
+                // as they go out, here and in the tone path further down.
+                m_roadLine.roll(dtSec, m_fxMute[i]);
+                // What a shaker route gets of the bumps and of the grain
+                // (RoadParams: 100 = all of it).
+                const double shkBumps = RoadShakerLine::share(m_roadParams.shkBumpsPct);
+                const double shkGrain = RoadShakerLine::share(m_roadParams.shkGrainPct);
+                // A Test this cycle (the law says so every cycle it runs).
+                m_roadPreviewing = m_roadPreviewDriven; m_roadPreviewDriven = false;
                 if (m_roadDriven || m_road.active())
                 {
                     m_roadDriven = false;
@@ -174,7 +191,16 @@ public:
                                 // A post is told how far (body displacement), a
                                 // belt or shaker how hard (body acceleration).
                                 const RoadOut o = m_road.outputFor(r.part);
-                                if (r.shaker >= 0) { if (o.force != 0.0) toShaker(r, p.ampPct * o.force); continue; }
+                                if (r.shaker >= 0)
+                                {
+                                    const double bumps = o.force * shkBumps;
+                                    if (bumps != 0.0)
+                                    {
+                                        toShaker(r, p.ampPct * bumps);
+                                        m_roadLine.note(RoadShakerLine::Bumps, p.ampPct * bumps * r.gain / 100.0);
+                                    }
+                                    continue;
+                                }
                                 if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
                                 // No single carrier in a replay: derate a position sink
                                 // at a representative bump rate; the owner's sum guard
@@ -204,12 +230,33 @@ public:
                         for (const Route& r : p.routes)
                         {
                             if (r.gain <= 0.0) continue;
-                            if (r.shaker >= 0) { toShaker(r, p.ampPct * m_surfLevel * std::sin(r.harm * m_surfOsc.phase)); continue; }
+                            if (r.shaker >= 0)
+                            {
+                                const double tone = p.ampPct * m_surfLevel * shkGrain * std::sin(r.harm * m_surfOsc.phase);
+                                toShaker(r, tone);
+                                m_roadLine.note(RoadShakerLine::Grain, tone * r.gain / 100.0);
+                                continue;
+                            }
                             if (r.axis < 0 || r.axis >= MAX_HAPTIC_AXES) continue;
                             m_overlay[r.axis] += v * r.gain * sinkScale(r.axis, p.ampPct * r.gain, sHz);
                         }
                     }
                 }
+                // The road's fine texture (RoadTexture.h), beside whichever
+                // model plays and from the same inputs: shaker routes only,
+                // each its part's wheels. It steps every cycle (it reads the
+                // sender's rate whether or not it is on); off, it adds
+                // nothing.
+                m_roadTex.step(dtSec, m_roadParams);
+                if (p.ampPct > 0.0 && m_roadTex.active())
+                    for (const Route& r : p.routes)
+                    {
+                        if (r.gain <= 0.0 || r.shaker < 0 || r.shaker >= MAX_SHAKER_OUT) continue;
+                        const double t = m_roadTex.outputFor(r.part);
+                        toShaker(r, p.ampPct * t);
+                        m_roadLine.note(RoadShakerLine::Texture, p.ampPct * t * r.gain / 100.0);
+                        m_roadLine.noteTexture(t);
+                    }
                 // ...and on to the texture path with the law's level.
             }
             // Surface: stones, crunch, studs and puddles, per corner.
@@ -481,12 +528,23 @@ public:
                 freq *= 1.0 + p.jitter * (wavesynth::rand01(f.rng) - 0.5);
             }
             const double v = p.ampPct * f.level * f.osc.step(freq, dtSec);
+            // The Road tile's tone stands in for its bumps when the model has
+            // nothing to run on (the roadNoise fallback, a Test): on a shaker
+            // route it takes shaker bumps % and shows as bumps on the tile's
+            // line. During a Test that plays the texture it stays off the
+            // shakers, so the Test shows what texture x gives.
+            const bool   roadTone = (i == static_cast<int>(FxType::Road));
+            const double shkTone  = !roadTone ? 1.0
+                                  : (m_roadPreviewing && m_roadParams.tex > 0.0) ? 0.0
+                                  : RoadShakerLine::share(m_roadParams.shkBumpsPct);
             for (const Route& r : p.routes)
             {
                 if (r.gain <= 0.0) continue;
                 if (r.shaker >= 0)
                 {
-                    toShaker(r, p.ampPct * f.level * std::sin(r.harm * f.osc.phase));
+                    const double tone = p.ampPct * f.level * shkTone * std::sin(r.harm * f.osc.phase);
+                    toShaker(r, tone);
+                    if (roadTone) m_roadLine.note(RoadShakerLine::Bumps, tone * r.gain / 100.0);
                     continue;
                 }
                 if (r.axis >= 0 && r.axis < MAX_HAPTIC_AXES)
@@ -657,22 +715,43 @@ public:
     void driveRoad(int wheel, double velMmS)
     {
         m_road.drive(wheel, velMmS);
+        m_roadTex.drive(wheel, velMmS);
         m_roadDriven = true;
     }
     void driveRoadTravel(int wheel, double travelMm)
     {
         m_road.driveTravel(wheel, travelMm);
+        m_roadTex.driveTravel(wheel, travelMm);
         m_roadDriven = true;
+    }
+    // A Test preview of the tile: the texture made up at this road speed
+    // (the models' own previews are the law's).
+    void driveRoadTexturePreview(double speedMs) { m_roadTex.drivePreview(speedMs); m_roadPreviewDriven = true; }
+    // The texture for shakers (RoadTexture.h), and what the tile sent to
+    // its shaker routes lately, each part by itself (RoadShakerLine::Part).
+    // The tile's line.
+    const RoadTexture& roadTexture() const   { return m_roadTex; }
+    double roadShakerSent(int part) const    { return m_roadLine.sent(part); }
+    int    roadShakerRoutes() const
+    {
+        int n = 0;
+        for (const Route& r : m_fxParams[static_cast<int>(FxType::Road)].routes)
+            if (r.gain > 0.0 && r.shaker >= 0 && r.shaker < MAX_SHAKER_OUT) ++n;
+        return n;
     }
     double roadWheelTravelMm(int wheel) const { return m_road.wheelTravelMm(wheel); }
     bool   roadReplaying() const              { return m_road.active(); }
     // The road under each tyre (mm, world), the surface class there, the
     // car's speed, its body and geometry: the tyre and chassis models.
     void driveRoadHeight(int wheel, double heightMm) { m_road.driveHeight(wheel, heightMm); m_roadDriven = true; }
-    void driveRoadSurface(int wheel, int cls)        { m_road.driveSurface(wheel, cls); m_surface.driveSurface(wheel, cls); }
+    void driveRoadSurface(int wheel, int cls)
+    {
+        m_road.driveSurface(wheel, cls); m_surface.driveSurface(wheel, cls); m_roadTex.driveSurface(wheel, cls);
+    }
     void driveRoadSpeed(double speedMs)
     {
-        m_road.driveSpeed(speedMs); m_kerb.driveSpeed(speedMs); m_surface.driveSpeed(speedMs); m_roadDriven = true;
+        m_road.driveSpeed(speedMs); m_kerb.driveSpeed(speedMs); m_surface.driveSpeed(speedMs); m_roadTex.driveSpeed(speedMs);
+        m_roadDriven = true;
     }
     void driveChassis(double accHeaveMs2, double pitchDeg, double rollDeg)
     {
@@ -721,6 +800,7 @@ public:
     void driveGround(int wheel, double contact)
     {
         m_road.driveGround(wheel, contact); m_surface.driveGround(wheel, contact); m_wheels.driveGround(wheel, contact);
+        m_roadTex.driveGround(wheel, contact);
         if (wheel >= 0 && wheel < WHEEL_COUNT) m_ground[wheel] = contact;
     }
     void driveDeflated(int wheel, double deflated) { m_wheels.driveDeflated(wheel, deflated); }
@@ -730,9 +810,10 @@ public:
     // engine's redline; fresh tyres and cold discs; the road's learned full
     // mm). The law resets its own.
     void newCar() { m_engine.forgetCar(); m_wheels.clear(); m_road.forgetFull(); }
-    // Another game: which way its sender's roll and pitch turn (the Road
+    // Another game: the rate its sender gives (the Road tile's texture for
+    // shakers) is read afresh, and which way its roll and pitch turn (the Road
     // tile's chassis model) is to be found again.
-    void newGame() { m_road.forgetSigns(); }
+    void newGame() { m_road.forgetSigns(); m_roadTex.forgetSender(); }
     // The road's full mm starts over for the car just named (RoadFullMemory.h:
     // another game, car or id), from what was remembered of it (mm > 0) or
     // from nothing.
@@ -814,8 +895,9 @@ public:
     double fxLevel(int i) const
     {
         if (i < 0 || i >= FX_TYPE_COUNT) return 0.0;
-        return (i == static_cast<int>(FxType::Road)) ? std::max(m_fx[i].level, std::max(m_roadLevel, m_surfLevel))
-                                                     : m_fx[i].level;
+        return (i == static_cast<int>(FxType::Road))
+            ? std::max(std::max(m_fx[i].level, m_roadLine.textureLevel()), std::max(m_roadLevel, m_surfLevel))   // (the texture: what a shaker route got, held)
+            : m_fx[i].level;
     }
 
     // What the effect is actually PUTTING OUT, not what it is being driven
@@ -874,6 +956,9 @@ public:
         m_slipLon.clear();
         m_road.clear();
         m_roadDriven = false;
+        m_roadTex.clear();
+        m_roadLine.clear();
+        m_roadPreviewing = m_roadPreviewDriven = false;
         m_kerb.clear();
         m_surfLevel = m_surfTarget = 0.0; m_surfOsc.reset();
         m_driveline.clear();
@@ -979,6 +1064,9 @@ private:
     SlipParams   m_slipLonParams{ 1.0,  9.0, 1.0, 16.0, 0.8 };
     RoadModel    m_road;
     RoadParams   m_roadParams;
+    RoadTexture  m_roadTex;              // the Road tile's texture for shakers
+    RoadShakerLine m_roadLine;           // what the tile sends to its shaker routes, for its line
+    bool         m_roadPreviewDriven = false, m_roadPreviewing = false;   // a Test of the tile: driven this cycle, in force this cycle
     KerbModel    m_kerb;
     KerbParams   m_kerbParams;
     DrivelineModel  m_driveline;

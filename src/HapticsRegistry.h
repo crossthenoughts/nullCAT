@@ -180,6 +180,13 @@ constexpr ParamSpec kRoadParams[] = {           // road: the model, its settings
     { "surface",    "surface x",   0,   1,   0.05, nullptr },   // suspension: tarmac grain rising with road speed
     { "surfaceHz",  "surface hz",  4,   40,  1,    nullptr },   // ...on its own carrier
     { "surfaceKmh", "surface km/h", 20, 300, 5,    nullptr },   // ...full by this speed
+    { "shkBumpsPct", "shaker bumps %", 0, 100, 5,  nullptr },   // shaker routes: how much of the model's bumps they get
+    { "shkGrainPct", "shaker grain %", 0, 100, 5,  nullptr },   // ...of the surface grain's tone
+    { "tex",        "texture x",   0,   5,   0.1,  nullptr },   // ...and the road's fine texture (RoadTexture.h), 0 = off
+    { "texFrom",    "texture from", 0,  2,   1,    "auto|game|speed" },
+    { "texLoHz",    "texture low hz", 15, 80, 1,   nullptr },   // its band
+    { "texHiHz",    "texture high hz", 40, 200, 5, nullptr },
+    { "texKmh",     "texture km/h", 20, 300, 5,    nullptr },   // made up from speed: full by this
     { "freqHz",     "freq hz",     10,  120, 1,    nullptr },   // the roadNoise texture fallback
     { "jitter",     "jitter",      0,   1,   0.05, nullptr },
     { "peakPct",    "peak %",      1,   100, 1,    nullptr },   // roadNoise texture fallback only
@@ -373,7 +380,11 @@ constexpr EffectInfo kEffects[EFFECT_COUNT] = {
       "(its suspension, or its road under the tyre) beside the roughness, and susp cut hz a steep cut on that "
       "alone (0 = off): the body's slow movement the motion already gives drops away, the road's bumps stay. "
       "The old surface grain (surface x, hz, km/h) is still there, "
-      "off by default. Without per-corner data, a texture at freq hz from the roadNoise channel, full at peak %.",
+      "off by default. Without per-corner data, a texture at freq hz from the roadNoise channel, full at peak %. "
+      "Shakers: a shaker route gets the bumps (shaker bumps %), the grain's tone (shaker grain %) and, with "
+      "texture x above 0, the road's fine texture from 25 Hz up, per wheel: the sim's own where its sender is "
+      "fast enough, else made up from road speed (texture from). The line under the wheels says what is going "
+      "to the shakers.",
       nullptr, {} },
     { Effect::Limiter,     "limiter",     "Limiter",      Kind::Continuous, EventType::COUNT, FxType::Limiter,
       { "limiter", nullptr }, { 0.0, 12.0, 0.0, 0.15 }, kTextureParams, static_cast<int>(std::size(kTextureParams)),

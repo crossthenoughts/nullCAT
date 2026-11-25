@@ -1213,6 +1213,27 @@ int main()
             P.configureFx(FxType::Road, rp); P.configureRoad(tyre);
             haptics::startPreview(ps, FxType::Road);
             check(peakOn(P, ps, none, 0, 900) > 1.0, "I-9 road preview: the tyre model runs at 80 km/h on its own road");
+            // ...and a Test plays the texture for shakers (texture x above
+            // 0), made up at the preview speed, on a shaker route only.
+            haptics::EffectParams sp = rp;
+            haptics::Route sr; sr.shaker = 0; sr.gain = 1.0; sr.part = haptics::Part::FL; sp.routes[1] = sr;
+            haptics::RoadParams on;  on.model = 0;  on.tex = 1.0;
+            haptics::RoadParams off; off.model = 0; off.tex = 0.0;
+            haptics::Layer T, U; haptics::LawsState ts, us;
+            T.configureFx(FxType::Road, sp); T.configureRoad(on); U.configureFx(FxType::Road, sp); U.configureRoad(off);
+            haptics::startPreview(ts, FxType::Road); haptics::startPreview(us, FxType::Road);
+            double tex = 0.0, post = 0.0, shT = 0.0, shU = 0.0;
+            for (int i = 0; i < 900; ++i)
+            {
+                haptics::driveLaws(T, ts, none, dt); T.step(dt); haptics::driveLaws(U, us, none, dt); U.step(dt);
+                tex  = std::max(tex,  std::fabs(T.shakerSample(0) - U.shakerSample(0)));
+                if (i >= 300) { shT = std::max(shT, std::fabs(T.shakerSample(0))); shU = std::max(shU, std::fabs(U.shakerSample(0))); }
+                post = std::max(post, std::fabs(T.overlayFor(0) - U.overlayFor(0)));
+            }
+            check(tex > 0.03 && post == 0.0 && T.roadTexture().source() == haptics::RoadTexture::Made,
+                  "I-9 road preview: a Test plays the made-up texture on a shaker route, and the post gets none of it");
+            check(shT > 0.03 && shT < 0.5 && shU > 0.9,
+                  "I-9 road preview: with texture x above 0 the Test's own tone stays off the shaker (the texture alone), with 0 it plays as before");
         }
 
         // Kerb from the surface under each tyre: FL on a kerb rumbles the FL
